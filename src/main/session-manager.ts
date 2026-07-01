@@ -70,7 +70,10 @@ export class SessionManager extends EventEmitter {
     return [...this.sessions.values()].map((m) => ({ ...m.info }))
   }
 
-  create(req: CreateSessionRequest, restore?: { id: string; characterId: string }): SessionInfo {
+  create(
+    req: CreateSessionRequest,
+    restore?: { id: string; characterId: string; extraArgs?: string[] }
+  ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || process.env.SHELL || '/bin/zsh'
     const args = req.args && req.args.length ? req.args : preset?.args ?? []
@@ -129,7 +132,10 @@ export class SessionManager extends EventEmitter {
 
     let proc: pty.IPty
     try {
-      proc = pty.spawn(command, args, {
+      // Resume args (e.g. --continue) are applied to the launch only, never
+      // stored in info.args — so a resumed session isn't re-flagged next time.
+      const spawnArgs = restore?.extraArgs?.length ? [...args, ...restore.extraArgs] : args
+      proc = pty.spawn(command, spawnArgs, {
         name: 'xterm-256color',
         cols: DEFAULT_COLS,
         rows: DEFAULT_ROWS,
@@ -373,12 +379,15 @@ export class SessionManager extends EventEmitter {
    */
   restore(): SessionInfo[] {
     const persisted = this.store.getSessions()
-    return persisted.map((p) =>
-      this.create(
+    const resume = this.store.settings.resumeConversations
+    return persisted.map((p) => {
+      const preset = getPreset(p.presetId)
+      const extraArgs = resume ? preset?.resumeArgs ?? [] : []
+      return this.create(
         { presetId: p.presetId, command: p.command, args: p.args, cwd: p.cwd, label: p.label },
-        { id: p.id, characterId: p.characterId }
+        { id: p.id, characterId: p.characterId, extraArgs }
       )
-    )
+    })
   }
 
   private onState(id: string, state: SessionState, reason?: DetectionReason): void {

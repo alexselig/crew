@@ -32,7 +32,8 @@ export const DEFAULT_SETTINGS: Settings = {
   sortNeedsYouFirst: true,
   launchAtLogin: false,
   showSpend: true,
-  showCredits: false
+  showCredits: false,
+  resumeConversations: true
 }
 
 interface StoreData {

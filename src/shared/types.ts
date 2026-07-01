@@ -38,6 +38,8 @@ export interface Preset {
   inputGraceMs?: number
   /** Shown in New Session when the command isn't found on PATH. */
   installHint?: string
+  /** Extra args appended when *resuming* this agent on startup (e.g. ['--continue']). */
+  resumeArgs?: string[]
   /**
    * Regex (source string) whose first capture group is a cumulative USD amount
    * the agent prints (e.g. Claude Code's "Total cost: $0.42"). Latest/highest wins.
@@ -66,6 +68,7 @@ export interface Settings {
   launchAtLogin: boolean
   showSpend: boolean
   showCredits: boolean
+  resumeConversations: boolean
 }
 
 export interface SessionInfo {

@@ -21,6 +21,11 @@ const TOGGLES: { key: keyof Settings; label: string; desc: string }[] = [
     label: 'Show credits used',
     desc: 'Display credit / AIC usage the agent reports (e.g. Copilot CLI).'
   },
+  {
+    key: 'resumeConversations',
+    label: 'Resume conversations on launch',
+    desc: 'Relaunch restored sessions with the agent’s --continue so history is kept.'
+  },
   { key: 'launchAtLogin', label: 'Launch at login', desc: 'Start Crew automatically when you log in.' }
 ]
 
