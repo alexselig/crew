@@ -36,6 +36,8 @@ export interface Preset {
   confirmMs?: number
   /** Suppress the low-confidence silence fallback for this long after your input. */
   inputGraceMs?: number
+  /** Shown in New Session when the command isn't found on PATH. */
+  installHint?: string
   /**
    * Regex (source string) whose first capture group is a cumulative USD amount
    * the agent prints (e.g. Claude Code's "Total cost: $0.42"). Latest/highest wins.
@@ -119,6 +121,7 @@ export const IPC = {
   PRESETS_GET: 'presets:get',
   CHARACTERS_GET: 'characters:get',
   HOME_DIR_GET: 'home:get',
+  AGENTS_DETECT: 'agents:detect',
   SETTINGS_GET: 'settings:get',
   SETTINGS_UPDATE: 'settings:update',
   // main -> renderer (send)

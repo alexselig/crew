@@ -25,6 +25,15 @@ export interface OutputEvent {
 /** Unsubscribe function returned by every event subscription. */
 export type Unsubscribe = () => void
 
+export interface AgentStatus {
+  presetId: string
+  name: string
+  command: string
+  available: boolean
+  path: string | null
+  installHint?: string
+}
+
 export interface CrewAPI {
   // request/response
   createSession(req: CreateSessionRequest): Promise<SessionInfo>
@@ -37,6 +46,7 @@ export interface CrewAPI {
   getPresets(): Promise<Preset[]>
   getCharacters(): Promise<CharacterDef[]>
   getHomeDir(): Promise<string>
+  detectAgents(): Promise<AgentStatus[]>
   getSettings(): Promise<Settings>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
 

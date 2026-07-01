@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Preset, CreateSessionRequest } from '../../shared/types'
+import type { AgentStatus } from '../../shared/api'
 
 interface Props {
   presets: Preset[]
@@ -17,7 +18,12 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
   const [args, setArgs] = useState('')
   const [label, setLabel] = useState('')
   const [initialPrompt, setInitialPrompt] = useState('')
+  const [agents, setAgents] = useState<AgentStatus[]>([])
   const firstFieldRef = useRef<HTMLSelectElement>(null)
+
+  useEffect(() => {
+    void window.crew.detectAgents().then(setAgents)
+  }, [])
 
   // Default the cwd once the home dir arrives (async).
   useEffect(() => {
@@ -80,13 +86,33 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
             value={presetId}
             onChange={(e) => setPresetId(e.target.value)}
           >
-            {presets.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
+            {presets.map((p) => {
+              const st = agents.find((a) => a.presetId === p.id)
+              const mark = st ? (st.available ? '✓ ' : '✗ ') : ''
+              return (
+                <option key={p.id} value={p.id}>
+                  {mark}
+                  {p.name}
+                </option>
+              )
+            })}
             <option value={CUSTOM}>Custom command…</option>
           </select>
+          {!isCustom &&
+            (() => {
+              const st = agents.find((a) => a.presetId === presetId)
+              if (!st) return null
+              return st.available ? (
+                <span className="agent-status agent-status--ok" title={st.path ?? ''}>
+                  ✓ Installed{st.path ? ` · ${st.path}` : ''}
+                </span>
+              ) : (
+                <span className="agent-status agent-status--missing">
+                  ✗ <code>{st.command}</code> not found on PATH
+                  {st.installHint ? ` — ${st.installHint}` : ''}
+                </span>
+              )
+            })()}
         </label>
 
         {isCustom && (

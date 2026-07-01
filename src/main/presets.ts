@@ -24,6 +24,7 @@ export function builtinPresets(): Preset[] {
       approvalRegex: APPROVAL,
       approveKeys: 'y\r',
       denyKeys: 'n\r',
+      installHint: 'npm i -g @github/copilot',
       quietMs: 800,
       confirmMs: 400,
       // Agent produced output (since your last input) then went quiet for >1.5s
@@ -39,6 +40,7 @@ export function builtinPresets(): Preset[] {
       approvalRegex: APPROVAL,
       approveKeys: 'y\r',
       denyKeys: 'n\r',
+      installHint: 'Install from https://claude.com/claude-code',
       quietMs: 800,
       confirmMs: 400,
       assumeWaitingAfterMs: 1500

@@ -4,8 +4,10 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { accessSync, constants } from 'node:fs'
 import { IPC, NEEDS_YOU } from '../shared/types'
 import type { CreateSessionRequest, Settings } from '../shared/types'
+import type { AgentStatus } from '../shared/api'
 import { SessionManager } from './session-manager'
 import { CrewTray } from './tray'
 import { Store } from './store'
@@ -94,6 +96,29 @@ function applyLoginItem(enabled: boolean): void {
   }
 }
 
+/** Resolve a command on PATH (no external `which` dependency). */
+function whichSync(cmd: string): string | null {
+  if (!cmd) return null
+  if (cmd.includes('/')) {
+    try {
+      accessSync(cmd, constants.X_OK)
+      return cmd
+    } catch {
+      return null
+    }
+  }
+  for (const dir of (process.env.PATH || '').split(':').filter(Boolean)) {
+    const p = join(dir, cmd)
+    try {
+      accessSync(p, constants.X_OK)
+      return p
+    } catch {
+      /* not in this dir */
+    }
+  }
+  return null
+}
+
 function wireManager(): void {
   manager.on('output', (p) => win?.webContents.send(IPC.EVT_OUTPUT, p))
 
@@ -138,6 +163,19 @@ function registerIpc(): void {
   ipcMain.handle(IPC.PRESETS_GET, () => builtinPresets())
   ipcMain.handle(IPC.CHARACTERS_GET, () => CHARACTERS)
   ipcMain.handle(IPC.HOME_DIR_GET, () => homedir())
+  ipcMain.handle(IPC.AGENTS_DETECT, (): AgentStatus[] =>
+    builtinPresets().map((p) => {
+      const path = whichSync(p.command)
+      return {
+        presetId: p.id,
+        name: p.name,
+        command: p.command,
+        available: path != null,
+        path,
+        installHint: p.installHint
+      }
+    })
+  )
   ipcMain.handle(IPC.SETTINGS_GET, () => store.settings)
   ipcMain.handle(IPC.SETTINGS_UPDATE, (_e, patch: Partial<Settings>) => {
     const next = store.updateSettings(patch)
