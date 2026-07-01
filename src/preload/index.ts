@@ -23,6 +23,8 @@ const api: CrewAPI = {
   getPresets: () => ipcRenderer.invoke(IPC.PRESETS_GET),
   getCharacters: () => ipcRenderer.invoke(IPC.CHARACTERS_GET),
   getHomeDir: () => ipcRenderer.invoke(IPC.HOME_DIR_GET),
+  getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
+  updateSettings: (patch) => ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
 
   sendInput: (id, data) => ipcRenderer.send(IPC.SESSION_INPUT, { id, data }),
   resize: (id, cols, rows) => ipcRenderer.send(IPC.SESSION_RESIZE, { id, cols, rows }),

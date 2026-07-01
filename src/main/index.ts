@@ -5,7 +5,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { IPC, NEEDS_YOU } from '../shared/types'
-import type { CreateSessionRequest } from '../shared/types'
+import type { CreateSessionRequest, Settings } from '../shared/types'
 import { SessionManager } from './session-manager'
 import { CrewTray } from './tray'
 import { Store } from './store'
@@ -86,6 +86,14 @@ function openNewSession(): void {
   win?.webContents.send(IPC.EVT_NEW)
 }
 
+function applyLoginItem(enabled: boolean): void {
+  try {
+    app.setLoginItemSettings({ openAtLogin: enabled })
+  } catch {
+    /* unsupported on this platform */
+  }
+}
+
 function wireManager(): void {
   manager.on('output', (p) => win?.webContents.send(IPC.EVT_OUTPUT, p))
 
@@ -130,6 +138,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.PRESETS_GET, () => builtinPresets())
   ipcMain.handle(IPC.CHARACTERS_GET, () => CHARACTERS)
   ipcMain.handle(IPC.HOME_DIR_GET, () => homedir())
+  ipcMain.handle(IPC.SETTINGS_GET, () => store.settings)
+  ipcMain.handle(IPC.SETTINGS_UPDATE, (_e, patch: Partial<Settings>) => {
+    const next = store.updateSettings(patch)
+    applyLoginItem(next.launchAtLogin)
+    return next
+  })
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
     manager.input(p.id, p.data)
@@ -142,6 +156,7 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   store = new Store(join(app.getPath('userData'), 'crew-store.json'))
   manager = new SessionManager(store)
+  applyLoginItem(store.settings.launchAtLogin)
 
   registerIpc()
   createWindow()

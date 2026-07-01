@@ -7,7 +7,8 @@ import type {
   CreateSessionRequest,
   Preset,
   CharacterDef,
-  SessionState
+  SessionState,
+  Settings
 } from './types'
 
 export interface StateEvent {
@@ -36,6 +37,8 @@ export interface CrewAPI {
   getPresets(): Promise<Preset[]>
   getCharacters(): Promise<CharacterDef[]>
   getHomeDir(): Promise<string>
+  getSettings(): Promise<Settings>
+  updateSettings(patch: Partial<Settings>): Promise<Settings>
 
   // fire-and-forget (high-frequency)
   sendInput(id: string, data: string): void

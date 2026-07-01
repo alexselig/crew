@@ -56,6 +56,14 @@ export interface CharacterDef {
   color: string
 }
 
+export interface Settings {
+  notifications: boolean
+  sound: boolean
+  notifyOnlyWhenUnfocused: boolean
+  sortNeedsYouFirst: boolean
+  launchAtLogin: boolean
+}
+
 export interface SessionInfo {
   id: string
   label: string
@@ -107,6 +115,8 @@ export const IPC = {
   PRESETS_GET: 'presets:get',
   CHARACTERS_GET: 'characters:get',
   HOME_DIR_GET: 'home:get',
+  SETTINGS_GET: 'settings:get',
+  SETTINGS_UPDATE: 'settings:update',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',
   EVT_STATE: 'evt:state',

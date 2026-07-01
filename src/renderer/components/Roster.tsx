@@ -20,6 +20,7 @@ interface Props {
   onSelect: (id: string) => void
   onJump: (id: string) => void
   onNew: () => void
+  onOpenSettings: () => void
   onRestart: (id: string) => void
   onClose: (id: string) => void
   onReorder: (orderedIds: string[]) => void
@@ -40,6 +41,7 @@ export function Roster(props: Props): JSX.Element {
     onSelect,
     onJump,
     onNew,
+    onOpenSettings,
     onRestart,
     onClose,
     onReorder
@@ -97,6 +99,9 @@ export function Roster(props: Props): JSX.Element {
             <button type="button" className="icon-btn icon-btn--accent" title="New session" onClick={onNew}>
               ＋
             </button>
+            <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
+              ⚙
+            </button>
           </div>
         ) : (
           <>
@@ -134,6 +139,9 @@ export function Roster(props: Props): JSX.Element {
                 </div>
                 <button type="button" className="icon-btn" title="Collapse sidebar" onClick={() => onSetCollapsed(true)}>
                   «
+                </button>
+                <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
+                  ⚙
                 </button>
               </div>
             </div>

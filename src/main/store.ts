@@ -7,6 +7,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { Settings } from '../shared/types'
 
 export interface CharacterAssignment {
   characterId: string
@@ -24,18 +25,12 @@ export interface PersistedSession {
   characterId: string
 }
 
-export interface Settings {
-  notifications: boolean
-  sound: boolean
-  notifyOnlyWhenUnfocused: boolean
-  sortNeedsYouFirst: boolean
-}
-
 export const DEFAULT_SETTINGS: Settings = {
   notifications: true,
   sound: false,
   notifyOnlyWhenUnfocused: false,
-  sortNeedsYouFirst: true
+  sortNeedsYouFirst: true,
+  launchAtLogin: false
 }
 
 interface StoreData {

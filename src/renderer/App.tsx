@@ -1,13 +1,16 @@
 import type { CSSProperties } from 'react'
+import { useState } from 'react'
 import { useCrew } from './hooks'
 import { Roster } from './components/Roster'
 import { SessionView } from './components/SessionView'
 import { GridView } from './components/GridView'
 import { NewSessionModal } from './components/NewSessionModal'
+import { SettingsModal } from './components/SettingsModal'
 import type { CreateSessionRequest } from '../shared/types'
 
 export function App(): JSX.Element {
   const c = useCrew()
+  const [showSettings, setShowSettings] = useState(false)
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
   const usedCharacterIds = c.roster
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
@@ -53,6 +56,7 @@ export function App(): JSX.Element {
         onSelect={c.setSelectedId}
         onJump={focusSession}
         onNew={() => c.setShowNew(true)}
+        onOpenSettings={() => setShowSettings(true)}
         onRestart={restart}
         onClose={close}
         onReorder={(ids) => void window.crew.reorder(ids)}
@@ -89,6 +93,8 @@ export function App(): JSX.Element {
           onCreate={create}
         />
       )}
+
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   )
 }
