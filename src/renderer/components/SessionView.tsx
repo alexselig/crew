@@ -1,0 +1,149 @@
+import type { SessionInfo, CharacterDef, Preset, SessionState } from '../../shared/types'
+import { STATE_META } from '../state-meta'
+import { Character } from './Character'
+import { EditableLabel } from './EditableLabel'
+import { CharacterPicker } from './CharacterPicker'
+import { Since } from './Since'
+import { TerminalView } from './TerminalView'
+import { SkillsBar } from './SkillsBar'
+
+interface Props {
+  session: SessionInfo | null
+  characters: CharacterDef[]
+  presets: Preset[]
+  /** Characters worn by other active sessions (to keep assignments unique). */
+  usedCharacterIds: string[]
+  onRename: (id: string, label: string) => void
+  onSetCharacter: (id: string, characterId: string) => void
+  onRestart: (id: string) => void
+  onClose: (id: string) => void
+  onNew: () => void
+}
+
+function StatePill({ state, reason }: { state: SessionState; reason?: string }): JSX.Element {
+  const m = STATE_META[state]
+  return (
+    <span
+      className="pill"
+      style={{ color: m.color, borderColor: `${m.color}55` }}
+      title={reason ? `detected via: ${reason}` : undefined}
+    >
+      <span className="pill__dot" style={{ background: m.color }} />
+      {m.label}
+    </span>
+  )
+}
+
+export function SessionView({
+  session,
+  characters,
+  presets,
+  usedCharacterIds,
+  onRename,
+  onSetCharacter,
+  onRestart,
+  onClose,
+  onNew
+}: Props): JSX.Element {
+  if (!session) {
+    return (
+      <main className="session-view session-view--empty">
+        <div className="empty">
+          <div className="empty__glyph">🛠️</div>
+          <h2>No session selected</h2>
+          <p>Launch an AI agent and Crew will watch for when it needs you.</p>
+          <button type="button" className="btn btn--primary btn--lg" onClick={onNew}>
+            ＋ New Session
+          </button>
+        </div>
+      </main>
+    )
+  }
+
+  const character = characters.find((c) => c.id === session.characterId)
+  const presetName = session.presetId
+    ? presets.find((p) => p.id === session.presetId)?.name ?? 'custom'
+    : 'custom'
+  const active = session.status === 'active'
+
+  return (
+    <main className="session-view">
+      <header className="session-header">
+        <Character glyph={character?.glyph ?? '●'} state={session.state} size={30} dot={false} />
+        <div className="session-header__id">
+          <EditableLabel
+            value={session.label}
+            onCommit={(l) => onRename(session.id, l)}
+            className="session-header__label"
+          />
+          <div className="session-header__meta">
+            <span title={session.cwd}>{session.cwd}</span>
+            <span className="dot-sep">·</span>
+            <span>{presetName}</span>
+            {session.pid != null && (
+              <>
+                <span className="dot-sep">·</span>
+                <span>pid {session.pid}</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <span className="session-header__spacer" />
+
+        <StatePill state={session.state} reason={session.detectionReason} />
+        <span className="session-header__since">
+          <Since from={session.stateChangedAt} />
+        </span>
+
+        <CharacterPicker
+          characters={characters}
+          currentId={session.characterId}
+          usedIds={usedCharacterIds}
+          onPick={(cid) => onSetCharacter(session.id, cid)}
+        />
+        <button
+          type="button"
+          className="btn"
+          title="Restart session"
+          onClick={() => onRestart(session.id)}
+        >
+          ↻ Restart
+        </button>
+        <button
+          type="button"
+          className="btn btn--danger"
+          title="Close session"
+          onClick={() => onClose(session.id)}
+        >
+          Close
+        </button>
+      </header>
+
+      {active && <SkillsBar sessionId={session.id} />}
+
+      <div className="session-body">
+        {active ? (
+          <TerminalView id={session.id} key={session.id} />
+        ) : (
+          <div className="exited-pane">
+            <div className="exited-pane__glyph">{session.status === 'error' ? '⚠️' : '✔︎'}</div>
+            <p>
+              Session {session.status}
+              {session.exitCode != null ? ` (code ${session.exitCode})` : ''}.
+            </p>
+            {session.errorMessage && <p className="exited-pane__msg">{session.errorMessage}</p>}
+            <div className="exited-pane__actions">
+              <button type="button" className="btn btn--primary" onClick={() => onRestart(session.id)}>
+                ↻ Restart
+              </button>
+              <button type="button" className="btn" onClick={() => onClose(session.id)}>
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}
