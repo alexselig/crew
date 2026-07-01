@@ -42,6 +42,12 @@ export interface ActivityEvent {
   to: SessionState
 }
 
+export interface TranscriptMatch {
+  sessionId: string
+  lineNo: number
+  line: string
+}
+
 export interface CrewAPI {
   // request/response
   createSession(req: CreateSessionRequest): Promise<SessionInfo>
@@ -57,6 +63,9 @@ export interface CrewAPI {
   getHomeDir(): Promise<string>
   detectAgents(): Promise<AgentStatus[]>
   getEvents(): Promise<ActivityEvent[]>
+  searchTranscripts(query: string): Promise<TranscriptMatch[]>
+  getTranscript(id: string): Promise<string>
+  exportTranscript(id: string, label: string): Promise<boolean>
   getSettings(): Promise<Settings>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
   getSets(): Promise<SessionSet[]>

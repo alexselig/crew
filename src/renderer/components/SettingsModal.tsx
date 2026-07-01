@@ -26,6 +26,11 @@ const TOGGLES: { key: keyof Settings; label: string; desc: string }[] = [
     label: 'Resume conversations on launch',
     desc: 'Relaunch restored sessions with the agent’s --continue so history is kept.'
   },
+  {
+    key: 'captureTranscripts',
+    label: 'Capture transcripts',
+    desc: 'Save each session’s output locally so you can search and export it. Stays on your machine.'
+  },
   { key: 'launchAtLogin', label: 'Launch at login', desc: 'Start Crew automatically when you log in.' }
 ]
 

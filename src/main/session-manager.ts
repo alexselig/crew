@@ -18,6 +18,7 @@ import type { ActivityEvent } from '../shared/api'
 import { getPreset } from './presets'
 import { pickCharacter } from './characters'
 import { Store, identityKey, type PersistedSession } from './store'
+import type { TranscriptRecorder } from './transcripts'
 
 const TICK_MS = 250
 const DEFAULT_COLS = 100
@@ -65,7 +66,10 @@ export class SessionManager extends EventEmitter {
   // list with an empty one (which would defeat resume-on-next-launch).
   private disposing = false
 
-  constructor(private readonly store: Store) {
+  constructor(
+    private readonly store: Store,
+    private readonly recorder?: TranscriptRecorder
+  ) {
     super()
   }
 
@@ -174,6 +178,7 @@ export class SessionManager extends EventEmitter {
       this.emit('output', { id, data })
       managed.detector?.pushOutput(data, Date.now())
       const clean = stripAnsi(data)
+      if (this.recorder && this.store.settings.captureTranscripts) this.recorder.append(id, clean)
       if (managed.cost.push(clean)) {
         managed.info.costUsd = managed.cost.usd
         this.rosterDirty = true

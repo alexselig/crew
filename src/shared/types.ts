@@ -71,6 +71,8 @@ export interface Settings {
   resumeConversations: boolean
   /** Warn when total spend reaches this many USD (0 = off). */
   budgetUsd: number
+  /** Opt-in: save each session's (ANSI-stripped) transcript locally for search/export. */
+  captureTranscripts: boolean
 }
 
 export interface SessionInfo {
@@ -149,6 +151,9 @@ export const IPC = {
   SETS_LAUNCH: 'sets:launch',
   SETS_DELETE: 'sets:delete',
   EVENTS_GET: 'events:get',
+  TRANSCRIPT_SEARCH: 'transcript:search',
+  TRANSCRIPT_GET: 'transcript:get',
+  TRANSCRIPT_EXPORT: 'transcript:export',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',
   EVT_STATE: 'evt:state',

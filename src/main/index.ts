@@ -1,16 +1,17 @@
 // Electron main entry: owns the app lifecycle, the single main window, the tray,
 // and the full IPC surface described in shared/types.ts.
 
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { accessSync, constants } from 'node:fs'
+import { accessSync, constants, writeFileSync } from 'node:fs'
 import { IPC, NEEDS_YOU } from '../shared/types'
 import type { CreateSessionRequest, Settings } from '../shared/types'
 import type { AgentStatus } from '../shared/api'
 import { SessionManager } from './session-manager'
 import { CrewTray } from './tray'
 import { Store } from './store'
+import { TranscriptRecorder } from './transcripts'
 import { builtinPresets } from './presets'
 import { CHARACTERS } from './characters'
 
@@ -18,6 +19,7 @@ let win: BrowserWindow | null = null
 let tray: CrewTray | null = null
 let manager: SessionManager
 let store: Store
+let recorder: TranscriptRecorder
 let isQuitting = false
 let sessionsRestored = false
 
@@ -202,6 +204,23 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.SETS_DELETE, (_e, name: string) => store.deleteSet(name))
   ipcMain.handle(IPC.EVENTS_GET, () => manager.getEvents())
+  ipcMain.handle(IPC.TRANSCRIPT_SEARCH, (_e, query: string) => recorder.search(query))
+  ipcMain.handle(IPC.TRANSCRIPT_GET, (_e, id: string) => recorder.read(id))
+  ipcMain.handle(IPC.TRANSCRIPT_EXPORT, async (_e, p: { id: string; label: string }) => {
+    const text = recorder.read(p.id)
+    const safe = p.label.replace(/[^\w.-]+/g, '_').slice(0, 40) || 'session'
+    const res = await dialog.showSaveDialog({
+      title: 'Export transcript',
+      defaultPath: join(homedir(), `crew-${safe}.txt`)
+    })
+    if (res.canceled || !res.filePath) return false
+    try {
+      writeFileSync(res.filePath, text)
+      return true
+    } catch {
+      return false
+    }
+  })
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
     manager.input(p.id, p.data)
@@ -213,7 +232,8 @@ function registerIpc(): void {
 
 app.whenReady().then(() => {
   store = new Store(join(app.getPath('userData'), 'crew-store.json'))
-  manager = new SessionManager(store)
+  recorder = new TranscriptRecorder(join(app.getPath('userData'), 'transcripts'))
+  manager = new SessionManager(store, recorder)
   applyLoginItem(store.settings.launchAtLogin)
 
   registerIpc()
@@ -239,6 +259,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  recorder?.dispose()
   manager?.disposeAll()
   tray?.destroy()
 })

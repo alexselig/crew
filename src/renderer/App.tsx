@@ -8,6 +8,7 @@ import { NewSessionModal } from './components/NewSessionModal'
 import { SettingsModal } from './components/SettingsModal'
 import { BroadcastModal } from './components/BroadcastModal'
 import { AnalyticsModal } from './components/AnalyticsModal'
+import { TranscriptsModal } from './components/TranscriptsModal'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { focusTerminal } from './terminal-pool'
 import { NEEDS_YOU } from '../shared/types'
@@ -20,7 +21,9 @@ export function App(): JSX.Element {
   const [showPalette, setShowPalette] = useState(false)
   const [showBroadcast, setShowBroadcast] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
-  const anyOverlay = showSettings || showPalette || showBroadcast || showAnalytics || c.showNew
+  const [showTranscripts, setShowTranscripts] = useState(false)
+  const anyOverlay =
+    showSettings || showPalette || showBroadcast || showAnalytics || showTranscripts || c.showNew
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
   const usedCharacterIds = c.roster
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
@@ -108,6 +111,7 @@ export function App(): JSX.Element {
       { id: 'act-next', label: 'Jump to next waiting', glyph: '🔴', hint: '⌘J', run: jumpNextWaiting },
       { id: 'act-broadcast', label: 'Broadcast a prompt…', glyph: '📣', run: () => setShowBroadcast(true) },
       { id: 'act-analytics', label: 'Activity & spend', glyph: '📊', run: () => setShowAnalytics(true) },
+      { id: 'act-transcripts', label: 'Search transcripts…', glyph: '🔎', run: () => setShowTranscripts(true) },
       { id: 'act-settings', label: 'Open Settings', glyph: '⚙', run: () => setShowSettings(true) }
     ]
     return [...sessionItems, ...actions]
@@ -193,6 +197,13 @@ export function App(): JSX.Element {
           roster={c.roster}
           characters={c.characters}
           onClose={() => setShowAnalytics(false)}
+        />
+      )}
+      {showTranscripts && (
+        <TranscriptsModal
+          roster={c.roster}
+          selectedId={c.selectedId}
+          onClose={() => setShowTranscripts(false)}
         />
       )}
     </div>
