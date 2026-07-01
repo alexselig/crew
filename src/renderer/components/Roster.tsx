@@ -4,6 +4,7 @@ import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
 import { STATE_META, formatUsd, formatCredits } from '../state-meta'
 import { SessionCard } from './SessionCard'
+import { Icon } from './Icon'
 import type { ViewMode } from '../hooks'
 
 interface Props {
@@ -244,13 +245,13 @@ export function Roster(props: Props): JSX.Element {
                   title="Group by tag"
                   onClick={toggleGroupBy}
                 >
-                  🏷
+                  <Icon name="tag" />
                 </button>
                 <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
-                  📣
+                  <Icon name="broadcast" />
                 </button>
                 <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
-                  📊
+                  <Icon name="chart" />
                 </button>
                 <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
                   ⚙
