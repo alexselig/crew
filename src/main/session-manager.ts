@@ -14,6 +14,7 @@ import {
 } from '../shared/detection'
 import { CostParser, DEFAULT_COST_REGEX_SRC, DEFAULT_CREDITS_REGEX_SRC } from '../shared/cost'
 import type { SessionInfo, CreateSessionRequest, SessionState } from '../shared/types'
+import type { ActivityEvent } from '../shared/api'
 import { getPreset } from './presets'
 import { pickCharacter } from './characters'
 import { Store, identityKey, type PersistedSession } from './store'
@@ -21,6 +22,7 @@ import { Store, identityKey, type PersistedSession } from './store'
 const TICK_MS = 250
 const DEFAULT_COLS = 100
 const DEFAULT_ROWS = 30
+const EVENT_CAP = 2000
 
 interface Managed {
   info: SessionInfo
@@ -56,6 +58,7 @@ export declare interface SessionManager {
 export class SessionManager extends EventEmitter {
   private readonly sessions = new Map<string, Managed>()
   private timer: ReturnType<typeof setInterval> | null = null
+  private readonly events: ActivityEvent[] = []
   // Coalesces cost-driven roster updates into the tick loop (max ~4/s).
   private rosterDirty = false
   // Set during shutdown so PTY exit handlers don't overwrite the saved session
@@ -394,13 +397,20 @@ export class SessionManager extends EventEmitter {
     const m = this.sessions.get(id)
     if (!m) return
     const from = m.info.state
+    const now = Date.now()
     m.info.state = state
-    m.info.stateChangedAt = Date.now()
+    m.info.stateChangedAt = now
     if (reason) m.info.detectionReason = reason
+    this.events.push({ id, ts: now, from, to: state })
+    if (this.events.length > EVENT_CAP) this.events.splice(0, this.events.length - EVENT_CAP)
     const snapshot = { ...m.info }
     this.emit('state', snapshot)
     this.emitRoster()
     this.emit('transition', { session: snapshot, from, to: state })
+  }
+
+  getEvents(): ActivityEvent[] {
+    return [...this.events]
   }
 
   private emitRoster(): void {

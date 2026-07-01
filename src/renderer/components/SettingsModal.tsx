@@ -62,6 +62,22 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
                 </span>
               </button>
             ))}
+            <div className="settings-row settings-row--static">
+              <span className="settings-row__text">
+                <span className="settings-row__label">Spend budget (USD)</span>
+                <span className="settings-row__desc">
+                  Warn in the sidebar when total spend reaches this. 0 = off.
+                </span>
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                className="settings-num"
+                value={settings.budgetUsd}
+                onChange={(e) => onToggle('budgetUsd', Math.max(0, Number(e.target.value) || 0))}
+              />
+            </div>
           </div>
         )}
         <div className="modal__actions">

@@ -69,6 +69,8 @@ export interface Settings {
   showSpend: boolean
   showCredits: boolean
   resumeConversations: boolean
+  /** Warn when total spend reaches this many USD (0 = off). */
+  budgetUsd: number
 }
 
 export interface SessionInfo {
@@ -143,6 +145,7 @@ export const IPC = {
   SETS_SAVE: 'sets:save',
   SETS_LAUNCH: 'sets:launch',
   SETS_DELETE: 'sets:delete',
+  EVENTS_GET: 'events:get',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',
   EVT_STATE: 'evt:state',

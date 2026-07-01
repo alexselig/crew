@@ -1413,6 +1413,116 @@ button {
   padding: 10px 6px;
 }
 
+/* ---------- Analytics ---------- */
+.modal--wide {
+  width: 620px;
+}
+
+.analytics {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.analytics th {
+  text-align: left;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.analytics td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics tfoot td {
+  font-weight: 700;
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+}
+
+.analytics__glyph {
+  font-size: 14px;
+}
+
+.analytics .muted {
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.analytics__timeline {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 3px 4px;
+}
+
+.timeline-time {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 78px;
+}
+
+.timeline-label {
+  min-width: 90px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-arrow {
+  color: var(--text-faint);
+}
+
+/* over-budget footer */
+.roster__footer.is-over-budget {
+  background: rgba(240, 70, 74, 0.14);
+}
+
+.roster__footer.is-over-budget .roster__footer-label,
+.roster__footer.is-over-budget .roster__footer-total {
+  color: #ff9b9d;
+}
+
+.settings-row--static {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.settings-num {
+  width: 90px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.settings-num:focus {
+  border-color: var(--accent);
+}
+
 /* ---------- Broadcast + sets ---------- */
 .modal__hint {
   margin: -4px 0 4px;

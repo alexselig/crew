@@ -35,6 +35,13 @@ export interface AgentStatus {
   installHint?: string
 }
 
+export interface ActivityEvent {
+  id: string
+  ts: number
+  from: SessionState
+  to: SessionState
+}
+
 export interface CrewAPI {
   // request/response
   createSession(req: CreateSessionRequest): Promise<SessionInfo>
@@ -48,6 +55,7 @@ export interface CrewAPI {
   getCharacters(): Promise<CharacterDef[]>
   getHomeDir(): Promise<string>
   detectAgents(): Promise<AgentStatus[]>
+  getEvents(): Promise<ActivityEvent[]>
   getSettings(): Promise<Settings>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
   getSets(): Promise<SessionSet[]>

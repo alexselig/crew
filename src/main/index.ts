@@ -198,6 +198,7 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle(IPC.SETS_DELETE, (_e, name: string) => store.deleteSet(name))
+  ipcMain.handle(IPC.EVENTS_GET, () => manager.getEvents())
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
     manager.input(p.id, p.data)

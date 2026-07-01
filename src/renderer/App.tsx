@@ -7,6 +7,7 @@ import { GridView } from './components/GridView'
 import { NewSessionModal } from './components/NewSessionModal'
 import { SettingsModal } from './components/SettingsModal'
 import { BroadcastModal } from './components/BroadcastModal'
+import { AnalyticsModal } from './components/AnalyticsModal'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { focusTerminal } from './terminal-pool'
 import { NEEDS_YOU } from '../shared/types'
@@ -18,7 +19,8 @@ export function App(): JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [showBroadcast, setShowBroadcast] = useState(false)
-  const anyOverlay = showSettings || showPalette || showBroadcast || c.showNew
+  const [showAnalytics, setShowAnalytics] = useState(false)
+  const anyOverlay = showSettings || showPalette || showBroadcast || showAnalytics || c.showNew
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
   const usedCharacterIds = c.roster
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
@@ -105,6 +107,7 @@ export function App(): JSX.Element {
       },
       { id: 'act-next', label: 'Jump to next waiting', glyph: '🔴', hint: '⌘J', run: jumpNextWaiting },
       { id: 'act-broadcast', label: 'Broadcast a prompt…', glyph: '📣', run: () => setShowBroadcast(true) },
+      { id: 'act-analytics', label: 'Activity & spend', glyph: '📊', run: () => setShowAnalytics(true) },
       { id: 'act-settings', label: 'Open Settings', glyph: '⚙', run: () => setShowSettings(true) }
     ]
     return [...sessionItems, ...actions]
@@ -132,8 +135,10 @@ export function App(): JSX.Element {
         onNew={() => c.setShowNew(true)}
         onOpenSettings={() => setShowSettings(true)}
         onBroadcast={() => setShowBroadcast(true)}
+        onAnalytics={() => setShowAnalytics(true)}
         showSpend={c.settings?.showSpend ?? true}
         showCredits={c.settings?.showCredits ?? false}
+        budgetUsd={c.settings?.budgetUsd ?? 0}
         onRestart={restart}
         onClose={close}
         onReorder={(ids) => void window.crew.reorder(ids)}
@@ -180,6 +185,13 @@ export function App(): JSX.Element {
           roster={c.roster}
           characters={c.characters}
           onClose={() => setShowBroadcast(false)}
+        />
+      )}
+      {showAnalytics && (
+        <AnalyticsModal
+          roster={c.roster}
+          characters={c.characters}
+          onClose={() => setShowAnalytics(false)}
         />
       )}
     </div>

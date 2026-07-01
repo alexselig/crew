@@ -33,7 +33,8 @@ export const DEFAULT_SETTINGS: Settings = {
   launchAtLogin: false,
   showSpend: true,
   showCredits: false,
-  resumeConversations: true
+  resumeConversations: true,
+  budgetUsd: 0
 }
 
 interface StoreData {

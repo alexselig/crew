@@ -22,8 +22,10 @@ interface Props {
   onNew: () => void
   onOpenSettings: () => void
   onBroadcast: () => void
+  onAnalytics: () => void
   showSpend: boolean
   showCredits: boolean
+  budgetUsd: number
   onRestart: (id: string) => void
   onClose: (id: string) => void
   onReorder: (orderedIds: string[]) => void
@@ -46,8 +48,10 @@ export function Roster(props: Props): JSX.Element {
     onNew,
     onOpenSettings,
     onBroadcast,
+    onAnalytics,
     showSpend,
     showCredits,
+    budgetUsd,
     onRestart,
     onClose,
     onReorder
@@ -59,6 +63,7 @@ export function Roster(props: Props): JSX.Element {
   const waiting = roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
   const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
   const totalCredits = roster.reduce((sum, s) => sum + (s.creditsUsed || 0), 0)
+  const overBudget = budgetUsd > 0 && totalUsd >= budgetUsd
   const charById = (id: string): CharacterDef | undefined => characters.find((c) => c.id === id)
   const presetName = (id: string | null): string =>
     id ? presets.find((p) => p.id === id)?.name ?? 'custom' : 'custom'
@@ -150,6 +155,9 @@ export function Roster(props: Props): JSX.Element {
                 <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
                   📣
                 </button>
+                <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
+                  📊
+                </button>
                 <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
                   ⚙
                 </button>
@@ -225,8 +233,13 @@ export function Roster(props: Props): JSX.Element {
       </div>
 
       {roster.length > 0 && (showSpend || showCredits) && (
-        <div className="roster__footer" title="Totals across sessions">
-          {!collapsed && <span className="roster__footer-label">Total</span>}
+        <div
+          className={`roster__footer ${overBudget ? 'is-over-budget' : ''}`}
+          title={budgetUsd > 0 ? `Budget ${formatUsd(budgetUsd)}` : 'Totals across sessions'}
+        >
+          {!collapsed && (
+            <span className="roster__footer-label">{overBudget ? '⚠ Over budget' : 'Total'}</span>
+          )}
           <span className="roster__footer-total">
             {showSpend && <span>{formatUsd(totalUsd)}</span>}
             {showSpend && showCredits && <span className="roster__footer-sep"> · </span>}

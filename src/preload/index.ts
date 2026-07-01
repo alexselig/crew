@@ -24,6 +24,7 @@ const api: CrewAPI = {
   getCharacters: () => ipcRenderer.invoke(IPC.CHARACTERS_GET),
   getHomeDir: () => ipcRenderer.invoke(IPC.HOME_DIR_GET),
   detectAgents: () => ipcRenderer.invoke(IPC.AGENTS_DETECT),
+  getEvents: () => ipcRenderer.invoke(IPC.EVENTS_GET),
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
   updateSettings: (patch) => ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
   getSets: () => ipcRenderer.invoke(IPC.SETS_GET),
