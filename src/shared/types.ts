@@ -62,6 +62,8 @@ export interface Settings {
   notifyOnlyWhenUnfocused: boolean
   sortNeedsYouFirst: boolean
   launchAtLogin: boolean
+  showSpend: boolean
+  showCredits: boolean
 }
 
 export interface SessionInfo {
@@ -82,6 +84,8 @@ export interface SessionInfo {
   detectionReason?: string
   /** Latest dollar spend the agent has reported for this session ($0 if none). */
   costUsd: number
+  /** Latest credit/usage count the agent has reported (e.g. Copilot AIC; 0 if none). */
+  creditsUsed: number
   createdAt: number
   stateChangedAt: number
 }

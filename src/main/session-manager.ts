@@ -12,7 +12,7 @@ import {
   type DetectionConfig,
   type DetectionReason
 } from '../shared/detection'
-import { CostParser, DEFAULT_COST_REGEX_SRC } from '../shared/cost'
+import { CostParser, DEFAULT_COST_REGEX_SRC, DEFAULT_CREDITS_REGEX_SRC } from '../shared/cost'
 import type { SessionInfo, CreateSessionRequest, SessionState } from '../shared/types'
 import { getPreset } from './presets'
 import { pickCharacter } from './characters'
@@ -27,6 +27,7 @@ interface Managed {
   proc: pty.IPty | null
   detector: StateDetector | null
   cost: CostParser
+  credits: CostParser
   cols: number
   rows: number
 }
@@ -105,6 +106,7 @@ export class SessionManager extends EventEmitter {
       pid: null,
       exitCode: null,
       costUsd: 0,
+      creditsUsed: 0,
       createdAt: now,
       stateChangedAt: now
     }
@@ -123,6 +125,7 @@ export class SessionManager extends EventEmitter {
     }
 
     const cost = new CostParser({ costRegex: compileRegex(preset?.costRegex ?? DEFAULT_COST_REGEX_SRC) })
+    const credits = new CostParser({ costRegex: compileRegex(DEFAULT_CREDITS_REGEX_SRC) })
 
     let proc: pty.IPty
     try {
@@ -140,7 +143,7 @@ export class SessionManager extends EventEmitter {
       info.status = 'error'
       info.exitCode = 127
       info.errorMessage = `Failed to launch ${command} in ${cwd}: ${err instanceof Error ? err.message : String(err)}`
-      this.sessions.set(id, { info, proc: null, detector: null, cost, cols: DEFAULT_COLS, rows: DEFAULT_ROWS })
+      this.sessions.set(id, { info, proc: null, detector: null, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS })
       this.store.setAssignment(key, { characterId, lastLabel: label })
       this.emitRoster()
       const message = err instanceof Error ? err.message : String(err)
@@ -150,7 +153,7 @@ export class SessionManager extends EventEmitter {
 
     info.pid = proc.pid
     const detector = new StateDetector(now, cfg, (state, reason) => this.onState(id, state, reason))
-    const managed: Managed = { info, proc, detector, cost, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
+    const managed: Managed = { info, proc, detector, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
     this.sessions.set(id, managed)
     this.store.setAssignment(key, { characterId, lastLabel: label })
 
@@ -160,8 +163,13 @@ export class SessionManager extends EventEmitter {
       if (!this.sessions.has(id)) return
       this.emit('output', { id, data })
       managed.detector?.pushOutput(data, Date.now())
-      if (managed.cost.push(stripAnsi(data))) {
+      const clean = stripAnsi(data)
+      if (managed.cost.push(clean)) {
         managed.info.costUsd = managed.cost.usd
+        this.rosterDirty = true
+      }
+      if (managed.credits.push(clean)) {
+        managed.info.creditsUsed = managed.credits.value
         this.rosterDirty = true
       }
     })

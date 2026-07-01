@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SessionInfo, Preset, CharacterDef } from '../shared/types'
+import type { SessionInfo, Preset, CharacterDef, Settings } from '../shared/types'
 import { writeTo, disposePooled } from './terminal-pool'
 
 export type ViewMode = 'single' | 'grid'
@@ -23,6 +23,8 @@ export interface CrewState {
   setNavWidth: (w: number) => void
   navCollapsed: boolean
   setNavCollapsed: (v: boolean) => void
+  settings: Settings | null
+  setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
 }
 
 export function useCrew(): CrewState {
@@ -40,6 +42,7 @@ export function useCrew(): CrewState {
   const [navCollapsed, setNavCollapsedState] = useState<boolean>(
     () => localStorage.getItem('crew.navCollapsed') === '1'
   )
+  const [settings, setSettings] = useState<Settings | null>(null)
   const knownIds = useRef<Set<string>>(new Set())
 
   const setNavWidth = (w: number): void => {
@@ -50,6 +53,9 @@ export function useCrew(): CrewState {
   const setNavCollapsed = (v: boolean): void => {
     setNavCollapsedState(v)
     localStorage.setItem('crew.navCollapsed', v ? '1' : '0')
+  }
+  const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]): void => {
+    void window.crew.updateSettings({ [key]: value } as Partial<Settings>).then(setSettings)
   }
 
   useEffect(() => {
@@ -63,6 +69,7 @@ export function useCrew(): CrewState {
     void window.crew.getPresets().then((p) => mounted && setPresets(p))
     void window.crew.getCharacters().then((c) => mounted && setCharacters(c))
     void window.crew.getHomeDir().then((h) => mounted && setHomeDir(h))
+    void window.crew.getSettings().then((s) => mounted && setSettings(s))
 
     const offRoster = window.crew.onRoster((r) => setRoster(r))
     const offState = window.crew.onState((e) =>
@@ -122,6 +129,8 @@ export function useCrew(): CrewState {
     navWidth,
     setNavWidth,
     navCollapsed,
-    setNavCollapsed
+    setNavCollapsed,
+    settings,
+    setSetting
   }
 }

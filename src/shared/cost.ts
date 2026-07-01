@@ -16,6 +16,11 @@ export interface CostConfig {
 export const DEFAULT_COST_REGEX_SRC =
   '(?:cost|spent|billed|charge[ds]?|total)[^\\n$]{0,40}\\$\\s?(\\d+(?:\\.\\d+)?)'
 
+// Matches a credit/usage count the agent prints: "Session: 0 AIC used",
+// "42 credits", "3 premium requests". Capture group 1 = the number.
+export const DEFAULT_CREDITS_REGEX_SRC =
+  '(\\d+(?:\\.\\d+)?)\\s*(?:AIC|credits?|premium\\s+requests?)'
+
 export class CostParser {
   private buf = ''
   private _usd = 0
@@ -25,7 +30,7 @@ export class CostParser {
     this.re = cfg.costRegex ? new RegExp(cfg.costRegex.source, 'gi') : null
   }
 
-  /** Feed an ANSI-stripped chunk. Returns true if the tracked spend increased. */
+  /** Feed an ANSI-stripped chunk. Returns true if the tracked value increased. */
   push(clean: string): boolean {
     if (!this.re) return false
     this.buf = (this.buf + clean).slice(-6000)
@@ -44,6 +49,11 @@ export class CostParser {
   }
 
   get usd(): number {
+    return this._usd
+  }
+
+  /** Generic accessor (the tracked cumulative maximum) — used for credits too. */
+  get value(): number {
     return this._usd
   }
 }

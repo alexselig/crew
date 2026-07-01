@@ -2,7 +2,7 @@ import type React from 'react'
 import { useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
-import { STATE_META, formatUsd } from '../state-meta'
+import { STATE_META, formatUsd, formatCredits } from '../state-meta'
 import { SessionCard } from './SessionCard'
 import type { ViewMode } from '../hooks'
 
@@ -21,6 +21,8 @@ interface Props {
   onJump: (id: string) => void
   onNew: () => void
   onOpenSettings: () => void
+  showSpend: boolean
+  showCredits: boolean
   onRestart: (id: string) => void
   onClose: (id: string) => void
   onReorder: (orderedIds: string[]) => void
@@ -42,6 +44,8 @@ export function Roster(props: Props): JSX.Element {
     onJump,
     onNew,
     onOpenSettings,
+    showSpend,
+    showCredits,
     onRestart,
     onClose,
     onReorder
@@ -52,6 +56,7 @@ export function Roster(props: Props): JSX.Element {
 
   const waiting = roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
   const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
+  const totalCredits = roster.reduce((sum, s) => sum + (s.creditsUsed || 0), 0)
   const charById = (id: string): CharacterDef | undefined => characters.find((c) => c.id === id)
   const presetName = (id: string | null): string =>
     id ? presets.find((p) => p.id === id)?.name ?? 'custom' : 'custom'
@@ -187,6 +192,8 @@ export function Roster(props: Props): JSX.Element {
               presetName={presetName(s.presetId)}
               selected={s.id === selectedId}
               compact={collapsed}
+              showSpend={showSpend}
+              showCredits={showCredits}
               isDragging={draggingId === s.id}
               isDragOver={overId === s.id && draggingId !== s.id}
               onSelect={() => onSelect(s.id)}
@@ -212,10 +219,14 @@ export function Roster(props: Props): JSX.Element {
         )}
       </div>
 
-      {roster.length > 0 && (
-        <div className="roster__footer" title={`Total spend: ${formatUsd(totalUsd)}`}>
-          {!collapsed && <span className="roster__footer-label">Total spend</span>}
-          <span className="roster__footer-total">{formatUsd(totalUsd)}</span>
+      {roster.length > 0 && (showSpend || showCredits) && (
+        <div className="roster__footer" title="Totals across sessions">
+          {!collapsed && <span className="roster__footer-label">Total</span>}
+          <span className="roster__footer-total">
+            {showSpend && <span>{formatUsd(totalUsd)}</span>}
+            {showSpend && showCredits && <span className="roster__footer-sep"> · </span>}
+            {showCredits && <span>{formatCredits(totalCredits)} cr</span>}
+          </span>
         </div>
       )}
 

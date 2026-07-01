@@ -30,7 +30,9 @@ export const DEFAULT_SETTINGS: Settings = {
   sound: false,
   notifyOnlyWhenUnfocused: false,
   sortNeedsYouFirst: true,
-  launchAtLogin: false
+  launchAtLogin: false,
+  showSpend: true,
+  showCredits: false
 }
 
 interface StoreData {

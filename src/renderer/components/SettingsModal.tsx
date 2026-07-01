@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import type { Settings } from '../../shared/types'
 
 interface Props {
+  settings: Settings | null
+  onToggle: <K extends keyof Settings>(key: K, value: Settings[K]) => void
   onClose: () => void
 }
 
@@ -13,16 +15,16 @@ const TOGGLES: { key: keyof Settings; label: string; desc: string }[] = [
     label: 'Only when unfocused',
     desc: 'Suppress notifications while the Crew window is focused.'
   },
+  { key: 'showSpend', label: 'Show spend', desc: 'Display dollar spend per session and the total in the sidebar.' },
+  {
+    key: 'showCredits',
+    label: 'Show credits used',
+    desc: 'Display credit / AIC usage the agent reports (e.g. Copilot CLI).'
+  },
   { key: 'launchAtLogin', label: 'Launch at login', desc: 'Start Crew automatically when you log in.' }
 ]
 
-export function SettingsModal({ onClose }: Props): JSX.Element {
-  const [settings, setSettings] = useState<Settings | null>(null)
-
-  useEffect(() => {
-    void window.crew.getSettings().then(setSettings)
-  }, [])
-
+export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Element {
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
       if (e.key === 'Escape') onClose()
@@ -30,12 +32,6 @@ export function SettingsModal({ onClose }: Props): JSX.Element {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
-
-  async function toggle(key: keyof Settings): Promise<void> {
-    if (!settings) return
-    const next = await window.crew.updateSettings({ [key]: !settings[key] } as Partial<Settings>)
-    setSettings(next)
-  }
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -46,7 +42,12 @@ export function SettingsModal({ onClose }: Props): JSX.Element {
         ) : (
           <div className="settings__list">
             {TOGGLES.map((t) => (
-              <button key={t.key} type="button" className="settings-row" onClick={() => void toggle(t.key)}>
+              <button
+                key={t.key}
+                type="button"
+                className="settings-row"
+                onClick={() => onToggle(t.key, !settings[t.key])}
+              >
                 <span className="settings-row__text">
                   <span className="settings-row__label">{t.label}</span>
                   <span className="settings-row__desc">{t.desc}</span>

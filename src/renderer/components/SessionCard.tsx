@@ -1,6 +1,6 @@
 import type React from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
-import { STATE_META, formatUsd } from '../state-meta'
+import { STATE_META, formatUsd, formatCredits } from '../state-meta'
 import { Character } from './Character'
 import { Since } from './Since'
 
@@ -10,6 +10,8 @@ interface Props {
   presetName: string
   selected: boolean
   compact?: boolean
+  showSpend?: boolean
+  showCredits?: boolean
   onSelect: () => void
   onRestart: () => void
   onClose: () => void
@@ -27,6 +29,8 @@ export function SessionCard({
   presetName,
   selected,
   compact,
+  showSpend,
+  showCredits,
   onSelect,
   onRestart,
   onClose,
@@ -109,9 +113,16 @@ export function SessionCard({
         <span className="card__since">
           · <Since from={session.stateChangedAt} />
         </span>
-        <span className="card__cost" title="Spend this session (as reported by the agent)">
-          · {formatUsd(session.costUsd)}
-        </span>
+        {showSpend && (
+          <span className="card__cost" title="Spend this session (as reported by the agent)">
+            · {formatUsd(session.costUsd)}
+          </span>
+        )}
+        {showCredits && (
+          <span className="card__cost" title="Credits/AIC used this session (as reported by the agent)">
+            · {formatCredits(session.creditsUsed)} cr
+          </span>
+        )}
         <span className="card__spacer" />
         {inactive && (
           <button

@@ -117,6 +117,8 @@ export function App(): JSX.Element {
         onJump={focusSession}
         onNew={() => c.setShowNew(true)}
         onOpenSettings={() => setShowSettings(true)}
+        showSpend={c.settings?.showSpend ?? true}
+        showCredits={c.settings?.showCredits ?? false}
         onRestart={restart}
         onClose={close}
         onReorder={(ids) => void window.crew.reorder(ids)}
@@ -154,7 +156,9 @@ export function App(): JSX.Element {
         />
       )}
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal settings={c.settings} onToggle={c.setSetting} onClose={() => setShowSettings(false)} />
+      )}
       {showPalette && <CommandPalette items={paletteItems} onClose={() => setShowPalette(false)} />}
     </div>
   )

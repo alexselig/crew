@@ -47,3 +47,8 @@ export function formatUsd(n: number): string {
   if (n < 10) return '$' + n.toFixed(2)
   return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+
+export function formatCredits(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0'
+  return Number.isInteger(n) ? n.toLocaleString() : n.toFixed(1)
+}
