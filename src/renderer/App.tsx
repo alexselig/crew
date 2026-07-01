@@ -7,6 +7,7 @@ import { GridView } from './components/GridView'
 import { NewSessionModal } from './components/NewSessionModal'
 import { SettingsModal } from './components/SettingsModal'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
+import { focusTerminal } from './terminal-pool'
 import { NEEDS_YOU } from '../shared/types'
 import { STATE_META } from './state-meta'
 import type { CreateSessionRequest } from '../shared/types'
@@ -15,6 +16,7 @@ export function App(): JSX.Element {
   const c = useCrew()
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
+  const anyOverlay = showSettings || showPalette || c.showNew
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
   const usedCharacterIds = c.roster
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
@@ -40,6 +42,15 @@ export function App(): JSX.Element {
     c.setSelectedId(id)
     c.setViewMode('single')
   }
+
+  // Return keyboard focus to the terminal whenever overlays (modals/palette)
+  // close — otherwise focus is left on <body> and typed input goes nowhere.
+  useEffect(() => {
+    if (anyOverlay || c.viewMode !== 'single' || !c.selectedId) return
+    const id = c.selectedId
+    const raf = requestAnimationFrame(() => focusTerminal(id))
+    return () => cancelAnimationFrame(raf)
+  }, [anyOverlay, c.viewMode, c.selectedId])
 
   function jumpNextWaiting(): void {
     const waiting = c.roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
