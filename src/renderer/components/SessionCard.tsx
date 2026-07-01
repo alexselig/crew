@@ -89,7 +89,7 @@ export function SessionCard({
       }}
     >
       <div className="card__top">
-        <Character glyph={character?.glyph ?? '●'} state={session.state} size={22} />
+        <Character glyph={character?.glyph ?? '●'} state={session.state} size={22} dot={false} />
         <span className="card__label" title={session.label}>
           {session.label}
         </span>
