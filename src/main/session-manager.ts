@@ -75,7 +75,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id: string; characterId: string; extraArgs?: string[] }
+    restore?: { id: string; characterId: string; extraArgs?: string[]; tag?: string }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || process.env.SHELL || '/bin/zsh'
@@ -113,6 +113,7 @@ export class SessionManager extends EventEmitter {
       exitCode: null,
       costUsd: 0,
       creditsUsed: 0,
+      tag: restore?.tag,
       createdAt: now,
       stateChangedAt: now
     }
@@ -224,6 +225,14 @@ export class SessionManager extends EventEmitter {
       /* exited */
     }
     m.detector?.notifyInput(Date.now())
+  }
+
+  setTag(id: string, tag: string): void {
+    const m = this.sessions.get(id)
+    if (!m) return
+    m.info.tag = tag.trim() || undefined
+    this.emitRoster()
+    this.persistSessions()
   }
 
   resize(id: string, cols: number, rows: number): void {
@@ -370,7 +379,8 @@ export class SessionManager extends EventEmitter {
         args: m.info.args,
         cwd: m.info.cwd,
         label: m.info.label,
-        characterId: m.info.characterId
+        characterId: m.info.characterId,
+        tag: m.info.tag
       }))
     this.store.saveSessions(list)
   }
@@ -388,7 +398,7 @@ export class SessionManager extends EventEmitter {
       const extraArgs = resume ? preset?.resumeArgs ?? [] : []
       return this.create(
         { presetId: p.presetId, command: p.command, args: p.args, cwd: p.cwd, label: p.label },
-        { id: p.id, characterId: p.characterId, extraArgs }
+        { id: p.id, characterId: p.characterId, extraArgs, tag: p.tag }
       )
     })
   }

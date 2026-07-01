@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset, SessionState } from '../../shared/types'
 import { STATE_META } from '../state-meta'
 import { Character } from './Character'
@@ -16,9 +17,56 @@ interface Props {
   usedCharacterIds: string[]
   onRename: (id: string, label: string) => void
   onSetCharacter: (id: string, characterId: string) => void
+  onSetTag: (id: string, tag: string) => void
   onRestart: (id: string) => void
   onClose: (id: string) => void
   onNew: () => void
+}
+
+function TagChip({ tag, onCommit }: { tag?: string; onCommit: (t: string) => void }): JSX.Element {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(tag ?? '')
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (editing) {
+      setDraft(tag ?? '')
+      requestAnimationFrame(() => {
+        ref.current?.focus()
+        ref.current?.select()
+      })
+    }
+  }, [editing, tag])
+  function commit(): void {
+    setEditing(false)
+    const v = draft.trim()
+    if (v !== (tag ?? '')) onCommit(v)
+  }
+  if (editing) {
+    return (
+      <input
+        ref={ref}
+        className="tag-chip tag-chip--input"
+        value={draft}
+        placeholder="tag"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          else if (e.key === 'Escape') setEditing(false)
+        }}
+      />
+    )
+  }
+  return (
+    <button
+      type="button"
+      className={`tag-chip ${tag ? '' : 'tag-chip--empty'}`}
+      title="Set a tag / group"
+      onClick={() => setEditing(true)}
+    >
+      {tag ? `🏷 ${tag}` : '＋ tag'}
+    </button>
+  )
 }
 
 function StatePill({ state, reason }: { state: SessionState; reason?: string }): JSX.Element {
@@ -42,6 +90,7 @@ export function SessionView({
   usedCharacterIds,
   onRename,
   onSetCharacter,
+  onSetTag,
   onRestart,
   onClose,
   onNew
@@ -94,6 +143,7 @@ export function SessionView({
                 <span>pid {session.pid}</span>
               </>
             )}
+            <TagChip tag={session.tag} onCommit={(t) => onSetTag(session.id, t)} />
           </div>
         </div>
 

@@ -59,6 +59,29 @@ export function Roster(props: Props): JSX.Element {
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
+  const [groupByTag, setGroupByTag] = useState<boolean>(() => localStorage.getItem('crew.groupByTag') === '1')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem('crew.collapsedGroups') || '[]'))
+    } catch {
+      return new Set<string>()
+    }
+  })
+
+  function toggleGroupBy(): void {
+    const n = !groupByTag
+    setGroupByTag(n)
+    localStorage.setItem('crew.groupByTag', n ? '1' : '0')
+  }
+  function toggleGroup(name: string): void {
+    setCollapsedGroups((prev) => {
+      const n = new Set(prev)
+      if (n.has(name)) n.delete(name)
+      else n.add(name)
+      localStorage.setItem('crew.collapsedGroups', JSON.stringify([...n]))
+      return n
+    })
+  }
 
   const waiting = roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
   const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
@@ -98,6 +121,69 @@ export function Roster(props: Props): JSX.Element {
     document.addEventListener('pointermove', move)
     document.addEventListener('pointerup', up)
     document.body.style.cursor = 'col-resize'
+  }
+
+  const grouped = groupByTag && !collapsed
+  function renderCard(s: SessionInfo): JSX.Element {
+    const dnd = !grouped && !collapsed
+    return (
+      <SessionCard
+        key={s.id}
+        session={s}
+        character={charById(s.characterId)}
+        presetName={presetName(s.presetId)}
+        selected={s.id === selectedId}
+        compact={collapsed}
+        showSpend={showSpend}
+        showCredits={showCredits}
+        draggable={dnd}
+        isDragging={dnd && draggingId === s.id}
+        isDragOver={dnd && overId === s.id && draggingId !== s.id}
+        onSelect={() => onSelect(s.id)}
+        onRestart={() => onRestart(s.id)}
+        onClose={() => onClose(s.id)}
+        onDragStart={
+          dnd
+            ? (e) => {
+                setDraggingId(s.id)
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('text/plain', s.id)
+              }
+            : undefined
+        }
+        onDragOver={
+          dnd
+            ? (e) => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                if (overId !== s.id) setOverId(s.id)
+              }
+            : undefined
+        }
+        onDrop={
+          dnd
+            ? (e) => {
+                e.preventDefault()
+                handleDrop(s.id)
+              }
+            : undefined
+        }
+        onDragEnd={dnd ? reset : undefined}
+      />
+    )
+  }
+
+  const groups: Array<{ name: string; items: SessionInfo[] }> = []
+  if (grouped) {
+    const idx = new Map<string, number>()
+    for (const s of roster) {
+      const name = s.tag && s.tag.trim() ? s.tag : 'Untagged'
+      if (!idx.has(name)) {
+        idx.set(name, groups.length)
+        groups.push({ name, items: [] })
+      }
+      groups[idx.get(name) as number].items.push(s)
+    }
   }
 
   return (
@@ -152,6 +238,14 @@ export function Roster(props: Props): JSX.Element {
                 <button type="button" className="icon-btn" title="Collapse sidebar" onClick={() => onSetCollapsed(true)}>
                   «
                 </button>
+                <button
+                  type="button"
+                  className={`icon-btn ${groupByTag ? 'is-active' : ''}`}
+                  title="Group by tag"
+                  onClick={toggleGroupBy}
+                >
+                  🏷
+                </button>
                 <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
                   📣
                 </button>
@@ -196,39 +290,19 @@ export function Roster(props: Props): JSX.Element {
       <div className="roster__list">
         {roster.length === 0 ? (
           !collapsed && <div className="roster__empty">No sessions yet.</div>
-        ) : (
-          roster.map((s) => (
-            <SessionCard
-              key={s.id}
-              session={s}
-              character={charById(s.characterId)}
-              presetName={presetName(s.presetId)}
-              selected={s.id === selectedId}
-              compact={collapsed}
-              showSpend={showSpend}
-              showCredits={showCredits}
-              isDragging={draggingId === s.id}
-              isDragOver={overId === s.id && draggingId !== s.id}
-              onSelect={() => onSelect(s.id)}
-              onRestart={() => onRestart(s.id)}
-              onClose={() => onClose(s.id)}
-              onDragStart={(e) => {
-                setDraggingId(s.id)
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('text/plain', s.id)
-              }}
-              onDragOver={(e) => {
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-                if (overId !== s.id) setOverId(s.id)
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                handleDrop(s.id)
-              }}
-              onDragEnd={reset}
-            />
+        ) : grouped ? (
+          groups.map((g) => (
+            <div className="group" key={g.name}>
+              <button type="button" className="group__header" onClick={() => toggleGroup(g.name)}>
+                <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
+                <span className="group__name">{g.name}</span>
+                <span className="group__count">{g.items.length}</span>
+              </button>
+              {!collapsedGroups.has(g.name) && g.items.map(renderCard)}
+            </div>
           ))
+        ) : (
+          roster.map(renderCard)
         )}
       </div>
 

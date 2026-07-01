@@ -161,6 +161,7 @@ export function App(): JSX.Element {
           usedCharacterIds={usedCharacterIds}
           onRename={(id, l) => void window.crew.rename(id, l)}
           onSetCharacter={(id, ch) => void window.crew.setCharacter(id, ch)}
+          onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
           onRestart={restart}
           onClose={close}
           onNew={() => c.setShowNew(true)}

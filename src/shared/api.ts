@@ -49,6 +49,7 @@ export interface CrewAPI {
   restartSession(id: string): Promise<SessionInfo | null>
   rename(id: string, label: string): Promise<void>
   setCharacter(id: string, characterId: string): Promise<void>
+  setTag(id: string, tag: string): Promise<void>
   reorder(orderedIds: string[]): Promise<void>
   getRoster(): Promise<SessionInfo[]>
   getPresets(): Promise<Preset[]>

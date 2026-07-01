@@ -158,6 +158,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.SESSION_SET_CHARACTER, (_e, p: { id: string; characterId: string }) =>
     manager.setCharacter(p.id, p.characterId)
   )
+  ipcMain.handle(IPC.SESSION_SET_TAG, (_e, p: { id: string; tag: string }) =>
+    manager.setTag(p.id, p.tag)
+  )
   ipcMain.handle(IPC.SESSION_REORDER, (_e, orderedIds: string[]) => manager.reorder(orderedIds))
   ipcMain.handle(IPC.ROSTER_GET, () => manager.roster())
   ipcMain.handle(IPC.PRESETS_GET, () => builtinPresets())

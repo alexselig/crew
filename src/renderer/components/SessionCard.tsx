@@ -12,6 +12,7 @@ interface Props {
   compact?: boolean
   showSpend?: boolean
   showCredits?: boolean
+  draggable?: boolean
   onSelect: () => void
   onRestart: () => void
   onClose: () => void
@@ -31,6 +32,7 @@ export function SessionCard({
   compact,
   showSpend,
   showCredits,
+  draggable = true,
   onSelect,
   onRestart,
   onClose,
@@ -52,7 +54,7 @@ export function SessionCard({
         } ${isDragging ? 'is-dragging' : ''} ${isDragOver ? 'is-drag-over' : ''}`}
         role="button"
         tabIndex={0}
-        draggable
+        draggable={draggable}
         title={`${session.label} — ${meta.label}`}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
@@ -79,7 +81,7 @@ export function SessionCard({
       } ${isDragOver ? 'is-drag-over' : ''}`}
       role="button"
       tabIndex={0}
-      draggable
+      draggable={draggable}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}

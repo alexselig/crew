@@ -93,6 +93,8 @@ export interface SessionInfo {
   costUsd: number
   /** Latest credit/usage count the agent has reported (e.g. Copilot AIC; 0 if none). */
   creditsUsed: number
+  /** Optional user tag for grouping (e.g. a project name). */
+  tag?: string
   createdAt: number
   stateChangedAt: number
 }
@@ -133,6 +135,7 @@ export const IPC = {
   SESSION_RESIZE: 'session:resize',
   SESSION_RENAME: 'session:rename',
   SESSION_SET_CHARACTER: 'session:setCharacter',
+  SESSION_SET_TAG: 'session:setTag',
   SESSION_REORDER: 'session:reorder',
   ROSTER_GET: 'roster:get',
   PRESETS_GET: 'presets:get',

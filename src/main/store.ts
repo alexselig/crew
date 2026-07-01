@@ -23,6 +23,7 @@ export interface PersistedSession {
   cwd: string
   label: string
   characterId: string
+  tag?: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
