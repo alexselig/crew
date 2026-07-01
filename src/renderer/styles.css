@@ -931,6 +931,51 @@ button {
   font-size: 13px;
 }
 
+/* ---------- Approval bar ---------- */
+.approval-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: rgba(250, 166, 26, 0.12);
+  border-bottom: 1px solid rgba(250, 166, 26, 0.4);
+  flex-shrink: 0;
+}
+
+.approval-bar__label {
+  color: #faa61a;
+  font-weight: 650;
+  font-size: 12.5px;
+}
+
+.approval-bar__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn--approve {
+  background: #2fa36b;
+  border-color: transparent;
+  color: #06120c;
+  font-weight: 650;
+}
+
+.btn--approve:hover {
+  background: #43b581;
+}
+
+.btn--deny {
+  background: transparent;
+  border-color: rgba(240, 70, 74, 0.5);
+  color: #ff9b9d;
+}
+
+.btn--deny:hover {
+  background: rgba(240, 70, 74, 0.16);
+  border-color: var(--danger);
+}
+
 /* ---------- Skills bar ---------- */
 .skills-bar {
   border-bottom: 1px solid var(--border);

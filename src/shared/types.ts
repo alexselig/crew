@@ -23,6 +23,10 @@ export interface Preset {
   promptRegex?: string
   /** Regex (source string) for a yes/no / permission question. */
   approvalRegex?: string
+  /** Keystrokes to send to approve a permission prompt (default "y\r"). */
+  approveKeys?: string
+  /** Keystrokes to send to deny a permission prompt (default "n\r"). */
+  denyKeys?: string
   /** Silence (ms) after which the stream is considered no longer actively streaming. */
   quietMs?: number
   /**

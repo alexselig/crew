@@ -6,6 +6,7 @@ import { CharacterPicker } from './CharacterPicker'
 import { Since } from './Since'
 import { TerminalView } from './TerminalView'
 import { SkillsBar } from './SkillsBar'
+import { focusTerminal } from '../terminal-pool'
 
 interface Props {
   session: SessionInfo | null
@@ -61,10 +62,17 @@ export function SessionView({
   }
 
   const character = characters.find((c) => c.id === session.characterId)
-  const presetName = session.presetId
-    ? presets.find((p) => p.id === session.presetId)?.name ?? 'custom'
-    : 'custom'
+  const preset = session.presetId ? presets.find((p) => p.id === session.presetId) : null
+  const presetName = session.presetId ? preset?.name ?? 'custom' : 'custom'
   const active = session.status === 'active'
+  const needsApproval = session.state === 'WAITING_APPROVAL'
+  const approveKeys = preset?.approveKeys ?? 'y\r'
+  const denyKeys = preset?.denyKeys ?? 'n\r'
+
+  function reply(keys: string): void {
+    window.crew.sendInput(session!.id, keys)
+    focusTerminal(session!.id)
+  }
 
   return (
     <main className="session-view">
@@ -119,6 +127,31 @@ export function SessionView({
           Close
         </button>
       </header>
+
+      {active && needsApproval && (
+        <div className="approval-bar">
+          <span className="approval-bar__label">⚠︎ Approval needed</span>
+          <div className="approval-bar__actions">
+            <button type="button" className="btn btn--approve" onClick={() => reply(approveKeys)}>
+              Approve
+            </button>
+            <button type="button" className="btn btn--deny" onClick={() => reply(denyKeys)}>
+              Deny
+            </button>
+            <button
+              type="button"
+              className="btn"
+              title="Accept the highlighted option"
+              onClick={() => reply('\r')}
+            >
+              ↵ Enter
+            </button>
+            <button type="button" className="btn" title="Send Escape" onClick={() => reply('\x1b')}>
+              Esc
+            </button>
+          </div>
+        </div>
+      )}
 
       {active && <SkillsBar sessionId={session.id} />}
 

@@ -22,6 +22,8 @@ export function builtinPresets(): Preset[] {
       command: 'copilot',
       args: [],
       approvalRegex: APPROVAL,
+      approveKeys: 'y\r',
+      denyKeys: 'n\r',
       quietMs: 800,
       confirmMs: 400,
       // Agent produced output (since your last input) then went quiet for >1.5s
@@ -35,6 +37,8 @@ export function builtinPresets(): Preset[] {
       command: 'claude',
       args: [],
       approvalRegex: APPROVAL,
+      approveKeys: 'y\r',
+      denyKeys: 'n\r',
       quietMs: 800,
       confirmMs: 400,
       assumeWaitingAfterMs: 1500
