@@ -1,11 +1,19 @@
 import type React from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
-import { STATE_META, formatUsd, formatCredits } from '../state-meta'
+import { formatUsd, formatCredits } from '../state-meta'
 import { SessionCard } from './SessionCard'
 import { Icon } from './Icon'
 import type { ViewMode } from '../hooks'
+
+type GroupMode = 'none' | 'needs' | 'tag'
+
+const GROUP_OPTIONS: Array<{ mode: GroupMode; label: string }> = [
+  { mode: 'none', label: 'No grouping' },
+  { mode: 'needs', label: 'Needs you' },
+  { mode: 'tag', label: 'By tag' }
+]
 
 interface Props {
   roster: SessionInfo[]
@@ -19,7 +27,6 @@ interface Props {
   navWidth: number
   onNavWidth: (w: number) => void
   onSelect: (id: string) => void
-  onJump: (id: string) => void
   onNew: () => void
   onOpenSettings: () => void
   onBroadcast: () => void
@@ -45,7 +52,6 @@ export function Roster(props: Props): JSX.Element {
     navWidth,
     onNavWidth,
     onSelect,
-    onJump,
     onNew,
     onOpenSettings,
     onBroadcast,
@@ -60,7 +66,12 @@ export function Roster(props: Props): JSX.Element {
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
-  const [groupByTag, setGroupByTag] = useState<boolean>(() => localStorage.getItem('crew.groupByTag') === '1')
+  const [groupMode, setGroupMode] = useState<GroupMode>(() => {
+    const saved = localStorage.getItem('crew.groupMode')
+    if (saved === 'none' || saved === 'needs' || saved === 'tag') return saved
+    return localStorage.getItem('crew.groupByTag') === '1' ? 'tag' : 'none'
+  })
+  const [menuOpen, setMenuOpen] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     try {
       return new Set<string>(JSON.parse(localStorage.getItem('crew.collapsedGroups') || '[]'))
@@ -69,10 +80,10 @@ export function Roster(props: Props): JSX.Element {
     }
   })
 
-  function toggleGroupBy(): void {
-    const n = !groupByTag
-    setGroupByTag(n)
-    localStorage.setItem('crew.groupByTag', n ? '1' : '0')
+  function chooseMode(m: GroupMode): void {
+    setGroupMode(m)
+    localStorage.setItem('crew.groupMode', m)
+    setMenuOpen(false)
   }
   function toggleGroup(name: string): void {
     setCollapsedGroups((prev) => {
@@ -83,6 +94,22 @@ export function Roster(props: Props): JSX.Element {
       return n
     })
   }
+
+  useEffect(() => {
+    if (!menuOpen) return
+    function onDoc(e: MouseEvent): void {
+      if (!(e.target as HTMLElement).closest('.group-picker')) setMenuOpen(false)
+    }
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
 
   const waiting = roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
   const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
@@ -124,7 +151,7 @@ export function Roster(props: Props): JSX.Element {
     document.body.style.cursor = 'col-resize'
   }
 
-  const grouped = groupByTag && !collapsed
+  const grouped = groupMode !== 'none' && !collapsed
   function renderCard(s: SessionInfo): JSX.Element {
     const dnd = !grouped && !collapsed
     return (
@@ -174,8 +201,8 @@ export function Roster(props: Props): JSX.Element {
     )
   }
 
-  const groups: Array<{ name: string; items: SessionInfo[] }> = []
-  if (grouped) {
+  const groups: Array<{ name: string; items: SessionInfo[]; kind?: 'needs' }> = []
+  if (grouped && groupMode === 'tag') {
     const idx = new Map<string, number>()
     for (const s of roster) {
       const name = s.tag && s.tag.trim() ? s.tag : 'Untagged'
@@ -185,6 +212,12 @@ export function Roster(props: Props): JSX.Element {
       }
       groups[idx.get(name) as number].items.push(s)
     }
+  } else if (grouped && groupMode === 'needs') {
+    const needsYou = (s: SessionInfo): boolean => s.status === 'active' && NEEDS_YOU.includes(s.state)
+    const needs = roster.filter(needsYou)
+    const rest = roster.filter((s) => !needsYou(s))
+    if (needs.length) groups.push({ name: 'Needs you', items: needs, kind: 'needs' })
+    if (rest.length) groups.push({ name: 'Working', items: rest })
   }
 
   return (
@@ -208,9 +241,14 @@ export function Roster(props: Props): JSX.Element {
               <div className="roster__title">
                 Crew
                 {waiting.length > 0 && (
-                  <span className="roster__badge" title={`${waiting.length} waiting for you`}>
+                  <button
+                    type="button"
+                    className="roster__badge"
+                    title={`${waiting.length} waiting for you — group by "Needs you"`}
+                    onClick={() => chooseMode('needs')}
+                  >
                     {waiting.length}
-                  </span>
+                  </button>
                 )}
               </div>
               <div className="roster__head-actions">
@@ -239,14 +277,35 @@ export function Roster(props: Props): JSX.Element {
                 <button type="button" className="icon-btn" title="Collapse sidebar" onClick={() => onSetCollapsed(true)}>
                   «
                 </button>
-                <button
-                  type="button"
-                  className={`icon-btn ${groupByTag ? 'is-active' : ''}`}
-                  title="Group by tag"
-                  onClick={toggleGroupBy}
-                >
-                  <Icon name="tag" />
-                </button>
+                <div className="group-picker">
+                  <button
+                    type="button"
+                    className={`icon-btn ${groupMode !== 'none' ? 'is-active' : ''}`}
+                    title="Group sessions"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                    onClick={() => setMenuOpen((v) => !v)}
+                  >
+                    <Icon name="group" />
+                  </button>
+                  {menuOpen && (
+                    <div className="group-menu" role="menu">
+                      {GROUP_OPTIONS.map((o) => (
+                        <button
+                          type="button"
+                          key={o.mode}
+                          role="menuitemradio"
+                          aria-checked={groupMode === o.mode}
+                          className={`group-menu__item ${groupMode === o.mode ? 'is-active' : ''}`}
+                          onClick={() => chooseMode(o.mode)}
+                        >
+                          <span className="group-menu__check">{groupMode === o.mode ? '✓' : ''}</span>
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
                   <Icon name="broadcast" />
                 </button>
@@ -265,36 +324,17 @@ export function Roster(props: Props): JSX.Element {
         )}
       </div>
 
-      {!collapsed && waiting.length > 0 && (
-        <div className="needs-you">
-          <div className="needs-you__label">Needs you</div>
-          {waiting.map((s) => {
-            const meta = STATE_META[s.state]
-            return (
-              <button
-                type="button"
-                key={s.id}
-                className="needs-you__btn"
-                style={{ borderColor: `${meta.color}66` }}
-                onClick={() => onJump(s.id)}
-                title={`Jump to ${s.label}`}
-              >
-                <span className="needs-you__glyph">{charById(s.characterId)?.glyph ?? '●'}</span>
-                <span className="needs-you__name">{s.label}</span>
-                <span className="needs-you__dot" style={{ background: meta.color }} />
-              </button>
-            )
-          })}
-        </div>
-      )}
-
       <div className="roster__list">
         {roster.length === 0 ? (
           !collapsed && <div className="roster__empty">No sessions yet.</div>
         ) : grouped ? (
           groups.map((g) => (
             <div className="group" key={g.name}>
-              <button type="button" className="group__header" onClick={() => toggleGroup(g.name)}>
+              <button
+                type="button"
+                className={`group__header ${g.kind === 'needs' ? 'group__header--needs' : ''}`}
+                onClick={() => toggleGroup(g.name)}
+              >
                 <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
                 <span className="group__name">{g.name}</span>
                 <span className="group__count">{g.items.length}</span>

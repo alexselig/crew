@@ -135,7 +135,6 @@ export function App(): JSX.Element {
         navWidth={c.navWidth}
         onNavWidth={c.setNavWidth}
         onSelect={c.setSelectedId}
-        onJump={focusSession}
         onNew={() => c.setShowNew(true)}
         onOpenSettings={() => setShowSettings(true)}
         onBroadcast={() => setShowBroadcast(true)}

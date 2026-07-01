@@ -70,13 +70,15 @@ async function main() {
   await waitUntil(async () => (await page.locator('.roster__list .card').count()) === 3, 'three cards')
   ok('three sessions created')
 
-  // ---- Needs-you buttons + stable order ----
-  console.log('\n▶ needs-you buttons + stable nav order')
+  // ---- Waiting badge + stable order (pinned "Needs you" list removed) ----
+  console.log('\n▶ waiting badge + stable nav order')
   await waitUntil(
-    async () => (await texts(page, '.needs-you__name')).includes('Ask'),
-    'Ask shows up under "Needs you"'
+    async () => ((await page.locator('.roster__badge').textContent().catch(() => '')) || '').trim() === '1',
+    'badge shows 1 waiting'
   )
-  ok('"Needs you" button appears for Ask')
+  ok('title-bar badge shows the waiting count')
+  if ((await page.locator('.needs-you').count()) === 0) ok('no pinned "Needs you" list (stable nav)')
+  else bad('pinned needs-you section still present')
   const navOrder = await texts(page, '.roster__list .card__label')
   if (JSON.stringify(navOrder) === JSON.stringify(['One', 'Two', 'Ask'])) {
     ok('nav order stayed One/Two/Ask (no auto-reshuffle when Ask needs input)')
@@ -116,15 +118,6 @@ async function main() {
   await page.locator('.tile:has-text("One") .mini-btn--icon').click()
   await waitUntil(async () => (await page.locator('.session-view .term-mount').count()) === 1, 'back to single')
   ok('tile expand returns to focus view')
-
-  // ---- Needs-you button → focus that session ----
-  console.log('\n▶ needs-you button → focus')
-  await page.locator('.needs-you__btn:has-text("Ask")').click()
-  await waitUntil(
-    async () => (await page.locator('.session-header__label').textContent().catch(() => '')) === 'Ask',
-    'focus view shows Ask'
-  )
-  ok('needs-you button opens Ask in focus view')
 
   // ---- Skills picker ----
   console.log('\n▶ skills picker')

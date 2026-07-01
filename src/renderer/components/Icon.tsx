@@ -3,7 +3,7 @@
 // keeping the header consistent with the settings gear instead of colored emoji.
 
 interface IconProps {
-  name: 'tag' | 'broadcast' | 'chart'
+  name: 'tag' | 'broadcast' | 'chart' | 'group'
   size?: number
 }
 
@@ -25,6 +25,12 @@ const PATHS: Record<IconProps['name'], JSX.Element> = {
       <line x1="18" y1="20" x2="18" y2="10" />
       <line x1="12" y1="20" x2="12" y2="4" />
       <line x1="6" y1="20" x2="6" y2="14" />
+    </>
+  ),
+  group: (
+    <>
+      <rect x="3" y="4" width="18" height="6" rx="1.5" />
+      <rect x="3" y="14" width="18" height="6" rx="1.5" />
     </>
   )
 }

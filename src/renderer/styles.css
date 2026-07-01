@@ -99,11 +99,18 @@ button {
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
+  border: none;
   border-radius: 10px;
   background: var(--danger);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+
+.roster__badge:hover {
+  filter: brightness(1.15);
 }
 
 .roster__list {
@@ -782,58 +789,55 @@ button {
 }
 
 /* ---------- Needs-you buttons ---------- */
-.needs-you {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-soft);
+.group-picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.group-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 150px;
+  padding: 5px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.needs-you__label {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--danger);
-}
-
-.needs-you__btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
+  gap: 2px;
+  background: var(--bg-elev-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: rgba(240, 70, 74, 0.06);
-  color: var(--text);
-  text-align: left;
-  transition: background 0.12s;
+  box-shadow: var(--shadow);
 }
 
-.needs-you__btn:hover {
-  background: rgba(240, 70, 74, 0.14);
-}
-
-.needs-you__glyph {
-  font-size: 15px;
-  line-height: 1;
-}
-
-.needs-you__name {
-  flex: 1;
+.group-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
   font-size: 12.5px;
-  font-weight: 600;
+  text-align: left;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  transition: background 0.12s, color 0.12s;
 }
 
-.needs-you__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.group-menu__item:hover {
+  background: var(--bg-elev);
+  color: var(--text);
+}
+
+.group-menu__item.is-active {
+  color: var(--text);
+}
+
+.group-menu__check {
+  width: 12px;
+  color: var(--accent);
+  font-size: 11px;
 }
 
 /* ---------- Drag-to-reorder ---------- */
@@ -1443,6 +1447,15 @@ button {
 
 .group__header:hover {
   color: var(--text);
+}
+
+.group__header--needs {
+  color: var(--danger);
+}
+
+.group__header--needs:hover {
+  color: var(--danger);
+  filter: brightness(1.15);
 }
 
 .group__chevron {

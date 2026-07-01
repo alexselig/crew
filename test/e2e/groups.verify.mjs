@@ -35,8 +35,9 @@ async function main() {
   await page.evaluate(([b, c]) => Promise.all([window.crew.setTag(b, 'proj1'), window.crew.setTag(c, 'proj2')]), [ids[1], ids[2]])
   await page.waitForTimeout(300)
 
-  // enable grouping
-  await page.locator('.icon-btn[title="Group by tag"]').click()
+  // enable grouping by tag via the group picker dropdown
+  await page.locator('.group-picker .icon-btn').click()
+  await page.locator('.group-menu__item', { hasText: 'By tag' }).click()
   await waitUntil(async () => (await page.locator('.group').count()) === 2, 'two groups')
   const names = await page.locator('.group__name').allTextContents()
   if (names.includes('proj1') && names.includes('proj2')) ok(`grouped by tag: ${JSON.stringify(names)}`)
@@ -57,6 +58,14 @@ async function main() {
   const tags = r.map((s) => s.tag).sort()
   if (JSON.stringify(tags) === JSON.stringify(['proj1', 'proj1', 'proj2'])) ok('tags persisted across relaunch')
   else bad(`tags not persisted: ${JSON.stringify(tags)}`)
+
+  // switch to the "Needs you" grouping mode
+  await page.locator('.group-picker .icon-btn').click()
+  await page.locator('.group-menu__item', { hasText: 'Needs you' }).click()
+  await waitUntil(async () => (await page.locator('.group__name:has-text("Needs you")').count()) === 1, 'needs-you group')
+  ok('“Needs you” is a grouping option')
+  if ((await page.locator('.needs-you').count()) === 0) ok('old pinned "Needs you" section is gone')
+  else bad('pinned needs-you section still present')
 
   await page.evaluate(async () => { const x = await window.crew.getRoster(); for (const s of x) await window.crew.closeSession(s.id) })
   await app.close()
