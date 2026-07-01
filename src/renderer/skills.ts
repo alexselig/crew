@@ -11,7 +11,9 @@ export interface Skill {
   /** Token used in `use <invoke> to …`. */
   invoke: string
   description: string
-  category: 'Build & ship' | 'Quality' | 'Design' | 'Docs & content' | 'Ops'
+  category?: 'Build & ship' | 'Quality' | 'Design' | 'Docs & content' | 'Ops' | 'Custom'
+  /** True for user-added skills (removable). */
+  custom?: boolean
 }
 
 export const SKILLS: Skill[] = [
@@ -44,3 +46,33 @@ export const SKILLS: Skill[] = [
   { id: 'learn', name: 'Learnings', invoke: 'learn', category: 'Ops', description: 'Review, search, or prune what the agent has learned across sessions.' },
   { id: 'retro', name: 'Retro', invoke: 'retro', category: 'Ops', description: 'Run a retrospective on the work and capture takeaways.' }
 ]
+
+// ---- User customization (favorites + custom skills), persisted to localStorage ----
+
+const FAV_KEY = 'crew.skills.favorites'
+const CUSTOM_KEY = 'crew.skills.custom'
+
+export function loadFavorites(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(FAV_KEY) || '[]')
+  } catch {
+    return []
+  }
+}
+
+export function saveFavorites(ids: string[]): void {
+  localStorage.setItem(FAV_KEY, JSON.stringify(ids))
+}
+
+export function loadCustomSkills(): Skill[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]') as Skill[]
+    return list.map((s) => ({ ...s, custom: true, category: 'Custom' }))
+  } catch {
+    return []
+  }
+}
+
+export function saveCustomSkills(list: Skill[]): void {
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify(list))
+}
