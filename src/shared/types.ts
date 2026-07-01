@@ -104,6 +104,18 @@ export interface CreateSessionRequest {
   initialPrompt?: string
 }
 
+/** A saved "project set" of sessions that can be launched together. */
+export interface SessionSet {
+  name: string
+  sessions: Array<{
+    presetId: string | null
+    command: string
+    args: string[]
+    cwd: string
+    label: string
+  }>
+}
+
 export interface OutputEvent {
   id: string
   data: string
@@ -127,6 +139,10 @@ export const IPC = {
   AGENTS_DETECT: 'agents:detect',
   SETTINGS_GET: 'settings:get',
   SETTINGS_UPDATE: 'settings:update',
+  SETS_GET: 'sets:get',
+  SETS_SAVE: 'sets:save',
+  SETS_LAUNCH: 'sets:launch',
+  SETS_DELETE: 'sets:delete',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',
   EVT_STATE: 'evt:state',

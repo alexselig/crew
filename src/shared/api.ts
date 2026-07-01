@@ -8,7 +8,8 @@ import type {
   Preset,
   CharacterDef,
   SessionState,
-  Settings
+  Settings,
+  SessionSet
 } from './types'
 
 export interface StateEvent {
@@ -49,6 +50,10 @@ export interface CrewAPI {
   detectAgents(): Promise<AgentStatus[]>
   getSettings(): Promise<Settings>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
+  getSets(): Promise<SessionSet[]>
+  saveSet(name: string): Promise<SessionSet[]>
+  launchSet(name: string): Promise<void>
+  deleteSet(name: string): Promise<SessionSet[]>
 
   // fire-and-forget (high-frequency)
   sendInput(id: string, data: string): void

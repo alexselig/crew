@@ -6,6 +6,7 @@ import { SessionView } from './components/SessionView'
 import { GridView } from './components/GridView'
 import { NewSessionModal } from './components/NewSessionModal'
 import { SettingsModal } from './components/SettingsModal'
+import { BroadcastModal } from './components/BroadcastModal'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { focusTerminal } from './terminal-pool'
 import { NEEDS_YOU } from '../shared/types'
@@ -16,7 +17,8 @@ export function App(): JSX.Element {
   const c = useCrew()
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
-  const anyOverlay = showSettings || showPalette || c.showNew
+  const [showBroadcast, setShowBroadcast] = useState(false)
+  const anyOverlay = showSettings || showPalette || showBroadcast || c.showNew
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
   const usedCharacterIds = c.roster
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
@@ -102,6 +104,7 @@ export function App(): JSX.Element {
         run: () => c.setViewMode(c.viewMode === 'grid' ? 'single' : 'grid')
       },
       { id: 'act-next', label: 'Jump to next waiting', glyph: '🔴', hint: '⌘J', run: jumpNextWaiting },
+      { id: 'act-broadcast', label: 'Broadcast a prompt…', glyph: '📣', run: () => setShowBroadcast(true) },
       { id: 'act-settings', label: 'Open Settings', glyph: '⚙', run: () => setShowSettings(true) }
     ]
     return [...sessionItems, ...actions]
@@ -128,6 +131,7 @@ export function App(): JSX.Element {
         onJump={focusSession}
         onNew={() => c.setShowNew(true)}
         onOpenSettings={() => setShowSettings(true)}
+        onBroadcast={() => setShowBroadcast(true)}
         showSpend={c.settings?.showSpend ?? true}
         showCredits={c.settings?.showCredits ?? false}
         onRestart={restart}
@@ -171,6 +175,13 @@ export function App(): JSX.Element {
         <SettingsModal settings={c.settings} onToggle={c.setSetting} onClose={() => setShowSettings(false)} />
       )}
       {showPalette && <CommandPalette items={paletteItems} onClose={() => setShowPalette(false)} />}
+      {showBroadcast && (
+        <BroadcastModal
+          roster={c.roster}
+          characters={c.characters}
+          onClose={() => setShowBroadcast(false)}
+        />
+      )}
     </div>
   )
 }

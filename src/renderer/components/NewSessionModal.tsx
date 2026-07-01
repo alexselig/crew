@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Preset, CreateSessionRequest } from '../../shared/types'
+import type { Preset, CreateSessionRequest, SessionSet } from '../../shared/types'
 import type { AgentStatus } from '../../shared/api'
 
 interface Props {
@@ -19,10 +19,13 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
   const [label, setLabel] = useState('')
   const [initialPrompt, setInitialPrompt] = useState('')
   const [agents, setAgents] = useState<AgentStatus[]>([])
+  const [sets, setSets] = useState<SessionSet[]>([])
+  const [setName, setSetName] = useState('')
   const firstFieldRef = useRef<HTMLSelectElement>(null)
 
   useEffect(() => {
     void window.crew.detectAgents().then(setAgents)
+    void window.crew.getSets().then(setSets)
   }, [])
 
   // Default the cwd once the home dir arrives (async).
@@ -77,6 +80,62 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
     <div className="modal-overlay" onMouseDown={onCancel}>
       <form className="modal" onMouseDown={(e) => e.stopPropagation()} onSubmit={submit}>
         <h2 className="modal__title">New Session</h2>
+
+        <div className="sets">
+          <span className="field__label">Project sets</span>
+          <div className="sets__row">
+            {sets.length === 0 && <span className="sets__empty">None saved yet</span>}
+            {sets.map((s) => (
+              <span key={s.name} className="set-chip">
+                <button
+                  type="button"
+                  className="set-chip__launch"
+                  title={`Launch ${s.sessions.length} session(s)`}
+                  onClick={() => {
+                    void window.crew.launchSet(s.name)
+                    onCancel()
+                  }}
+                >
+                  ▶ {s.name} · {s.sessions.length}
+                </button>
+                <button
+                  type="button"
+                  className="set-chip__x"
+                  title="Delete set"
+                  onClick={() => void window.crew.deleteSet(s.name).then(setSets)}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="sets__save">
+            <input
+              className="field__input"
+              placeholder="Save currently open sessions as…"
+              value={setName}
+              onChange={(e) => setSetName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (setName.trim()) void window.crew.saveSet(setName.trim()).then(setSets)
+                  setSetName('')
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={!setName.trim()}
+              onClick={() => {
+                void window.crew.saveSet(setName.trim()).then(setSets)
+                setSetName('')
+              }}
+            >
+              Save
+            </button>
+          </div>
+        </div>
 
         <label className="field">
           <span className="field__label">Agent</span>

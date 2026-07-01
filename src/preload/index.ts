@@ -26,6 +26,10 @@ const api: CrewAPI = {
   detectAgents: () => ipcRenderer.invoke(IPC.AGENTS_DETECT),
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
   updateSettings: (patch) => ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
+  getSets: () => ipcRenderer.invoke(IPC.SETS_GET),
+  saveSet: (name) => ipcRenderer.invoke(IPC.SETS_SAVE, name),
+  launchSet: (name) => ipcRenderer.invoke(IPC.SETS_LAUNCH, name),
+  deleteSet: (name) => ipcRenderer.invoke(IPC.SETS_DELETE, name),
 
   sendInput: (id, data) => ipcRenderer.send(IPC.SESSION_INPUT, { id, data }),
   resize: (id, cols, rows) => ipcRenderer.send(IPC.SESSION_RESIZE, { id, cols, rows }),

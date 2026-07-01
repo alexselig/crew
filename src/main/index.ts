@@ -182,6 +182,22 @@ function registerIpc(): void {
     applyLoginItem(next.launchAtLogin)
     return next
   })
+  ipcMain.handle(IPC.SETS_GET, () => store.sets)
+  ipcMain.handle(IPC.SETS_SAVE, (_e, name: string) => {
+    const sessions = manager
+      .roster()
+      .filter((s) => s.status === 'active')
+      .map((s) => ({ presetId: s.presetId, command: s.command, args: s.args, cwd: s.cwd, label: s.label }))
+    return store.upsertSet({ name, sessions })
+  })
+  ipcMain.handle(IPC.SETS_LAUNCH, (_e, name: string) => {
+    const set = store.sets.find((s) => s.name === name)
+    if (!set) return
+    for (const d of set.sessions) {
+      manager.create({ presetId: d.presetId, command: d.command, args: d.args, cwd: d.cwd, label: d.label })
+    }
+  })
+  ipcMain.handle(IPC.SETS_DELETE, (_e, name: string) => store.deleteSet(name))
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
     manager.input(p.id, p.data)

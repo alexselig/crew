@@ -21,6 +21,7 @@ interface Props {
   onJump: (id: string) => void
   onNew: () => void
   onOpenSettings: () => void
+  onBroadcast: () => void
   showSpend: boolean
   showCredits: boolean
   onRestart: (id: string) => void
@@ -44,6 +45,7 @@ export function Roster(props: Props): JSX.Element {
     onJump,
     onNew,
     onOpenSettings,
+    onBroadcast,
     showSpend,
     showCredits,
     onRestart,
@@ -144,6 +146,9 @@ export function Roster(props: Props): JSX.Element {
                 </div>
                 <button type="button" className="icon-btn" title="Collapse sidebar" onClick={() => onSetCollapsed(true)}>
                   «
+                </button>
+                <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
+                  📣
                 </button>
                 <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
                   ⚙

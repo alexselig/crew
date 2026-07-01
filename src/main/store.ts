@@ -7,7 +7,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { Settings } from '../shared/types'
+import type { Settings, SessionSet } from '../shared/types'
 
 export interface CharacterAssignment {
   characterId: string
@@ -41,13 +41,15 @@ interface StoreData {
   settings: Settings
   recentDirs: string[]
   sessions: PersistedSession[]
+  sets: SessionSet[]
 }
 
 const EMPTY: StoreData = {
   characters: {},
   settings: { ...DEFAULT_SETTINGS },
   recentDirs: [],
-  sessions: []
+  sessions: [],
+  sets: []
 }
 
 /** Build the stable identity key used to re-assign a character/label to the
@@ -70,10 +72,11 @@ export class Store {
         characters: raw.characters ?? {},
         settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
         recentDirs: raw.recentDirs ?? [],
-        sessions: raw.sessions ?? []
+        sessions: raw.sessions ?? [],
+        sets: raw.sets ?? []
       }
     } catch {
-      return { ...EMPTY, characters: {}, recentDirs: [], sessions: [] }
+      return { ...EMPTY, characters: {}, recentDirs: [], sessions: [], sets: [] }
     }
   }
 
@@ -125,5 +128,21 @@ export class Store {
   saveSessions(list: PersistedSession[]): void {
     this.data.sessions = list
     this.persist()
+  }
+
+  get sets(): SessionSet[] {
+    return this.data.sets
+  }
+
+  upsertSet(set: SessionSet): SessionSet[] {
+    this.data.sets = [...this.data.sets.filter((s) => s.name !== set.name), set]
+    this.persist()
+    return this.data.sets
+  }
+
+  deleteSet(name: string): SessionSet[] {
+    this.data.sets = this.data.sets.filter((s) => s.name !== name)
+    this.persist()
+    return this.data.sets
   }
 }
