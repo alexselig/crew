@@ -28,6 +28,8 @@ export interface CrewState {
   setGroupMode: (m: GroupMode) => void
   collapsedGroups: Set<string>
   toggleGroup: (name: string) => void
+  groupOrder: string[]
+  reorderGroups: (names: string[]) => void
   settings: Settings | null
   setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
 }
@@ -59,6 +61,14 @@ export function useCrew(): CrewState {
       return new Set<string>()
     }
   })
+  const [groupOrder, setGroupOrderState] = useState<string[]>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('crew.groupOrder') || '[]')
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+    } catch {
+      return []
+    }
+  })
   const [settings, setSettings] = useState<Settings | null>(null)
   const knownIds = useRef<Set<string>>(new Set())
 
@@ -83,6 +93,10 @@ export function useCrew(): CrewState {
       localStorage.setItem('crew.collapsedGroups', JSON.stringify([...n]))
       return n
     })
+  }
+  const reorderGroups = (names: string[]): void => {
+    setGroupOrderState(names)
+    localStorage.setItem('crew.groupOrder', JSON.stringify(names))
   }
   const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]): void => {
     void window.crew.updateSettings({ [key]: value } as Partial<Settings>).then(setSettings)
@@ -164,6 +178,8 @@ export function useCrew(): CrewState {
     setGroupMode,
     collapsedGroups,
     toggleGroup,
+    groupOrder,
+    reorderGroups,
     settings,
     setSetting
   }

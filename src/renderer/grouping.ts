@@ -13,8 +13,14 @@ const needsYou = (s: SessionInfo): boolean => s.status === 'active' && NEEDS_YOU
 
 /** Bucket sessions for grouped display. Roster order is preserved within each
  * group. 'tag' groups by the session's group label ("Ungrouped" when unset);
- * 'needs' splits into "Needs you" and "Working". */
-export function groupSessions(roster: SessionInfo[], mode: GroupMode): SessionGroup[] {
+ * 'needs' splits into "Needs you" and "Working". `order` applies the user's
+ * manual group ordering; groups not present in `order` keep their natural
+ * (first-appearance) order after the ordered ones. */
+export function groupSessions(
+  roster: SessionInfo[],
+  mode: GroupMode,
+  order: string[] = []
+): SessionGroup[] {
   const groups: SessionGroup[] = []
   if (mode === 'tag') {
     const idx = new Map<string, number>()
@@ -31,6 +37,14 @@ export function groupSessions(roster: SessionInfo[], mode: GroupMode): SessionGr
     const rest = roster.filter((s) => !needsYou(s))
     if (needs.length) groups.push({ name: 'Needs you', items: needs, kind: 'needs' })
     if (rest.length) groups.push({ name: 'Working', items: rest })
+  }
+  if (order.length) {
+    const rank = (name: string): number => {
+      const i = order.indexOf(name)
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i
+    }
+    // Array.sort is stable in V8, so equal-rank (unordered) groups keep order.
+    groups.sort((a, b) => rank(a.name) - rank(b.name))
   }
   return groups
 }

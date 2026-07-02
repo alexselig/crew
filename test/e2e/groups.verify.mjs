@@ -43,12 +43,27 @@ async function main() {
   if (names.includes('proj1') && names.includes('proj2')) ok(`nav grouped by group: ${JSON.stringify(names)}`)
   else bad(`unexpected groups: ${JSON.stringify(names)}`)
 
-  // the grid view mirrors the same grouping (shared grouping state)
+  // drag proj2's header above proj1 to reorder the groups
+  await page
+    .locator('.roster__list .group__header:has-text("proj2")')
+    .dragTo(page.locator('.roster__list .group__header:has-text("proj1")'))
+  await waitUntil(
+    async () =>
+      JSON.stringify(await page.locator('.roster__list .group__name').allTextContents()) ===
+      JSON.stringify(['proj2', 'proj1']),
+    'nav group order flipped'
+  )
+  ok('reordered groups in the nav by dragging a header')
+
+  // the grid view mirrors the same grouping AND the manual order
   await page.locator('.view-toggle__btn').nth(1).click()
   await waitUntil(async () => (await page.locator('.grid-group').count()) === 2, 'grid shows 2 groups')
   const gnames = await page.locator('.grid-group__name').allTextContents()
-  if (gnames.includes('proj1') && gnames.includes('proj2')) ok(`grid grouped by group: ${JSON.stringify(gnames)}`)
-  else bad(`grid groups unexpected: ${JSON.stringify(gnames)}`)
+  if (JSON.stringify(gnames) === JSON.stringify(['proj2', 'proj1'])) {
+    ok(`grid mirrors the manual group order: ${JSON.stringify(gnames)}`)
+  } else {
+    bad(`grid group order wrong: ${JSON.stringify(gnames)}`)
+  }
   await page.locator('.roster__collapsed-head .icon-btn[title="Switch to focus view"]').click()
   await waitUntil(async () => (await page.locator('.roster:not(.roster--collapsed)').count()) === 1, 'nav expanded')
 
@@ -63,6 +78,9 @@ async function main() {
   page = await app.firstWindow()
   await page.waitForSelector('.app')
   await waitUntil(async () => (await page.locator('.group').count()) === 2, 'groups persisted', 12000)
+  const orderAfter = await page.locator('.roster__list .group__name').allTextContents()
+  if (JSON.stringify(orderAfter) === JSON.stringify(['proj2', 'proj1'])) ok('manual group order persisted across relaunch')
+  else bad(`group order not persisted: ${JSON.stringify(orderAfter)}`)
   const r = await page.evaluate(() => window.crew.getRoster())
   const tags = r.map((s) => s.tag).sort()
   if (JSON.stringify(tags) === JSON.stringify(['proj1', 'proj1', 'proj2'])) ok('tags persisted across relaunch')

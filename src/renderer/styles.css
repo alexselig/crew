@@ -916,6 +916,18 @@ button {
   color: var(--text);
 }
 
+.grid-group__header[draggable='true'] {
+  cursor: grab;
+}
+
+.grid-group__header.is-dragging {
+  opacity: 0.45;
+}
+
+.grid-group__header.is-drag-over {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
 .grid-group__header--needs {
   color: var(--danger);
 }
@@ -932,7 +944,7 @@ button {
 .tile {
   display: flex;
   flex-direction: column;
-  height: 300px;
+  height: 360px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1519,6 +1531,18 @@ button {
 
 .group__header:hover {
   color: var(--text);
+}
+
+.group__header[draggable='true'] {
+  cursor: grab;
+}
+
+.group__header.is-dragging {
+  opacity: 0.45;
+}
+
+.group__header.is-drag-over {
+  box-shadow: inset 0 2px 0 0 var(--accent);
 }
 
 .group__header--needs {

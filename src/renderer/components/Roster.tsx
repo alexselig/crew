@@ -7,6 +7,7 @@ import { SessionCard } from './SessionCard'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { groupSessions, type GroupMode } from '../grouping'
+import { useGroupReorder } from '../useGroupReorder'
 import type { ViewMode } from '../hooks'
 
 interface Props {
@@ -24,6 +25,8 @@ interface Props {
   onSetGroupMode: (m: GroupMode) => void
   collapsedGroups: Set<string>
   onToggleGroup: (name: string) => void
+  groupOrder: string[]
+  onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
   onNew: () => void
   onOpenSettings: () => void
@@ -53,6 +56,8 @@ export function Roster(props: Props): JSX.Element {
     onSetGroupMode,
     collapsedGroups,
     onToggleGroup,
+    groupOrder,
+    onReorderGroups,
     onSelect,
     onNew,
     onOpenSettings,
@@ -159,7 +164,11 @@ export function Roster(props: Props): JSX.Element {
     )
   }
 
-  const groups = grouped ? groupSessions(roster, groupMode) : []
+  const groups = grouped ? groupSessions(roster, groupMode, groupOrder) : []
+  const gdnd = useGroupReorder(
+    groups.map((g) => g.name),
+    onReorderGroups
+  )
 
   return (
     <aside className={`roster ${collapsed ? 'roster--collapsed' : ''}`}>
@@ -261,8 +270,10 @@ export function Roster(props: Props): JSX.Element {
             <div className="group" key={g.name}>
               <button
                 type="button"
-                className={`group__header ${g.kind === 'needs' ? 'group__header--needs' : ''}`}
+                className={`group__header ${g.kind === 'needs' ? 'group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${gdnd.overName === g.name && gdnd.dragging !== g.name ? 'is-drag-over' : ''}`}
                 onClick={() => onToggleGroup(g.name)}
+                title="Drag to reorder groups"
+                {...gdnd.handlers(g.name)}
               >
                 <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
                 <span className="group__name">{g.name}</span>

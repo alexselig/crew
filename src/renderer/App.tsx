@@ -140,6 +140,8 @@ export function App(): JSX.Element {
         onSetGroupMode={c.setGroupMode}
         collapsedGroups={c.collapsedGroups}
         onToggleGroup={c.toggleGroup}
+        groupOrder={c.groupOrder}
+        onReorderGroups={c.reorderGroups}
         onSelect={c.setSelectedId}
         onNew={() => c.setShowNew(true)}
         onOpenSettings={() => setShowSettings(true)}
@@ -162,6 +164,8 @@ export function App(): JSX.Element {
           onSetGroupMode={c.setGroupMode}
           collapsedGroups={c.collapsedGroups}
           onToggleGroup={c.toggleGroup}
+          groupOrder={c.groupOrder}
+          onReorderGroups={c.reorderGroups}
           onSelect={c.setSelectedId}
           onExpand={focusSession}
           onNew={() => c.setShowNew(true)}

@@ -4,6 +4,7 @@ import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
 import { groupSessions, type GroupMode } from '../grouping'
+import { useGroupReorder } from '../useGroupReorder'
 
 interface Props {
   roster: SessionInfo[]
@@ -13,6 +14,8 @@ interface Props {
   onSetGroupMode: (m: GroupMode) => void
   collapsedGroups: Set<string>
   onToggleGroup: (name: string) => void
+  groupOrder: string[]
+  onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
   onExpand: (id: string) => void
   onNew: () => void
@@ -33,6 +36,8 @@ export function GridView({
   onSetGroupMode,
   collapsedGroups,
   onToggleGroup,
+  groupOrder,
+  onReorderGroups,
   onSelect,
   onExpand,
   onNew,
@@ -40,9 +45,15 @@ export function GridView({
 }: Props): JSX.Element {
   // Tiles hold static positions (roster order) that the user can rearrange by
   // dragging a tile header. They never auto-reshuffle on state changes. Dragging
-  // is only enabled in the ungrouped view.
+  // is only enabled in the ungrouped view; grouped views reorder group headers.
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
+  const grouped = groupMode !== 'none'
+  const groups = grouped ? groupSessions(roster, groupMode, groupOrder) : []
+  const gdnd = useGroupReorder(
+    groups.map((g) => g.name),
+    onReorderGroups
+  )
 
   function reset(): void {
     setDraggingId(null)
@@ -77,8 +88,6 @@ export function GridView({
   }
 
   const charById = (id: string): CharacterDef | undefined => characters.find((c) => c.id === id)
-  const grouped = groupMode !== 'none'
-  const groups = grouped ? groupSessions(roster, groupMode) : []
 
   function renderTile(s: SessionInfo, dnd: boolean): JSX.Element {
     return (
@@ -134,8 +143,10 @@ export function GridView({
             <section className="grid-group" key={g.name}>
               <button
                 type="button"
-                className={`grid-group__header ${g.kind === 'needs' ? 'grid-group__header--needs' : ''}`}
+                className={`grid-group__header ${g.kind === 'needs' ? 'grid-group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${gdnd.overName === g.name && gdnd.dragging !== g.name ? 'is-drag-over' : ''}`}
                 onClick={() => onToggleGroup(g.name)}
+                title="Drag to reorder groups"
+                {...gdnd.handlers(g.name)}
               >
                 <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
                 <span className="grid-group__name">{g.name}</span>
