@@ -118,10 +118,11 @@ export function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [c.roster, c.characters, c.viewMode, c.selectedId])
 
+  const navIsCollapsed = c.navCollapsed || c.viewMode === 'grid'
   return (
     <div
-      className={`app ${c.navCollapsed ? 'app--nav-collapsed' : ''}`}
-      style={{ '--nav-width': `${c.navCollapsed ? 84 : c.navWidth}px` } as CSSProperties}
+      className={`app ${navIsCollapsed ? 'app--nav-collapsed' : ''}`}
+      style={{ '--nav-width': `${navIsCollapsed ? 84 : c.navWidth}px` } as CSSProperties}
     >
       <Roster
         roster={c.roster}
@@ -130,7 +131,7 @@ export function App(): JSX.Element {
         selectedId={c.selectedId}
         viewMode={c.viewMode}
         onSetViewMode={c.setViewMode}
-        collapsed={c.navCollapsed}
+        collapsed={navIsCollapsed}
         onSetCollapsed={c.setNavCollapsed}
         navWidth={c.navWidth}
         onNavWidth={c.setNavWidth}
@@ -155,6 +156,7 @@ export function App(): JSX.Element {
           onSelect={c.setSelectedId}
           onExpand={focusSession}
           onNew={() => c.setShowNew(true)}
+          onReorder={(ids) => void window.crew.reorder(ids)}
         />
       ) : (
         <SessionView

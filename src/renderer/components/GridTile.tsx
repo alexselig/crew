@@ -1,3 +1,4 @@
+import type React from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
 import { STATE_META } from '../state-meta'
@@ -9,24 +10,51 @@ interface Props {
   session: SessionInfo
   character?: CharacterDef
   selected: boolean
+  isDragging?: boolean
+  isDragOver?: boolean
   onSelect: () => void
   onExpand: () => void
+  onDragStart?: (e: React.DragEvent) => void
+  onDragOver?: (e: React.DragEvent) => void
+  onDrop?: (e: React.DragEvent) => void
+  onDragEnd?: () => void
 }
 
 /** One project in the grid: a compact header + its live, scrollable terminal,
- * auto-scrolled to the latest output (where the agent is asking for input). */
-export function GridTile({ session, character, selected, onSelect, onExpand }: Props): JSX.Element {
+ * auto-scrolled to the latest output (where the agent is asking for input).
+ * The header is a drag handle for rearranging tiles. */
+export function GridTile({
+  session,
+  character,
+  selected,
+  isDragging = false,
+  isDragOver = false,
+  onSelect,
+  onExpand,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd
+}: Props): JSX.Element {
   const meta = STATE_META[session.state]
   const needsYou = session.status === 'active' && NEEDS_YOU.includes(session.state)
   const active = session.status === 'active'
 
   return (
     <div
-      className={`tile ${needsYou ? 'is-needsyou' : ''} ${selected ? 'is-selected' : ''}`}
+      className={`tile ${needsYou ? 'is-needsyou' : ''} ${selected ? 'is-selected' : ''} ${isDragging ? 'is-dragging' : ''} ${isDragOver ? 'is-drag-over' : ''}`}
       style={needsYou ? { borderColor: meta.color } : undefined}
       onClick={onSelect}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
-      <div className="tile__header">
+      <div
+        className="tile__header"
+        draggable={Boolean(onDragStart)}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        title="Drag to rearrange"
+      >
         <Character glyph={character?.glyph ?? '●'} state={session.state} size={18} dot={false} />
         <span className="tile__label" title={session.label}>
           {session.label}

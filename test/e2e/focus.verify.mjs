@@ -80,7 +80,8 @@ async function main() {
   console.log('Toggle grid then back to single, then type:')
   await page.locator('.view-toggle__btn').nth(1).click()
   await page.waitForTimeout(500)
-  await page.locator('.view-toggle__btn').nth(0).click()
+  // grid auto-collapses the nav; return to focus view via the collapsed rail button
+  await page.locator('.roster__collapsed-head .icon-btn[title="Switch to focus view"]').click()
   await page.waitForTimeout(500)
   await step('after-grid')
 

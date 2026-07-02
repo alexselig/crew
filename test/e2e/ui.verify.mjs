@@ -107,13 +107,33 @@ async function main() {
   await page.locator('.view-toggle__btn').nth(1).click()
   await waitUntil(async () => (await page.locator('.tile').count()) === 3, 'three tiles')
   ok('grid shows a tile per session')
+  await waitUntil(async () => (await page.locator('.roster--collapsed').count()) === 1, 'nav auto-collapsed')
+  ok('left nav auto-collapses in grid view')
+  const cols = await page.evaluate(() => getComputedStyle(document.querySelector('.grid')).gridTemplateColumns.split(' ').length)
+  if (cols === 2) ok('grid is exactly two columns')
+  else bad(`grid columns = ${cols}, expected 2`)
   const tileOrder = await texts(page, '.tile__label')
-  if (tileOrder[0] === 'Ask') ok('grid floats the needs-you session (Ask) to the top')
-  else bad(`grid did not prioritize needs-you: ${JSON.stringify(tileOrder)}`)
+  if (JSON.stringify(tileOrder) === JSON.stringify(['One', 'Two', 'Ask'])) {
+    ok('grid keeps static roster order (Ask does not float on needs-input)')
+  } else {
+    bad(`grid reshuffled instead of staying static: ${JSON.stringify(tileOrder)}`)
+  }
   if ((await page.locator('.tile .xterm').count()) === 3) ok('each tile hosts a live terminal')
   else bad('tiles missing live terminals')
   await page.waitForTimeout(800)
   await page.screenshot({ path: join(SHOTS, '02-grid.png') })
+
+  // drag a tile header to rearrange — order persists, no auto-reshuffle
+  await page
+    .locator('.tile:has-text("One") .tile__header')
+    .dragTo(page.locator('.tile:has-text("Ask") .tile__header'))
+  await page.waitForTimeout(500)
+  const tileAfter = await texts(page, '.tile__label')
+  if (JSON.stringify(tileAfter) !== JSON.stringify(tileOrder) && tileAfter.indexOf('One') > tileAfter.indexOf('Two')) {
+    ok(`tiles rearranged by drag: ${JSON.stringify(tileOrder)} → ${JSON.stringify(tileAfter)}`)
+  } else {
+    bad(`tile drag did not rearrange: ${JSON.stringify(tileAfter)}`)
+  }
 
   await page.locator('.tile:has-text("One") .mini-btn--icon').click()
   await waitUntil(async () => (await page.locator('.session-view .term-mount').count()) === 1, 'back to single')

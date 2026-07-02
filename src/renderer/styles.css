@@ -865,7 +865,7 @@ button {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   align-items: start;
 }
@@ -894,6 +894,14 @@ button {
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
 }
 
+.tile.is-dragging {
+  opacity: 0.45;
+}
+
+.tile.is-drag-over {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 .tile__header {
   display: flex;
   align-items: center;
@@ -902,6 +910,11 @@ button {
   border-bottom: 1px solid var(--border-soft);
   background: var(--bg-elev);
   flex-shrink: 0;
+  cursor: grab;
+}
+
+.tile__header:active {
+  cursor: grabbing;
 }
 
 .tile__label {

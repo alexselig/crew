@@ -225,9 +225,25 @@ export function Roster(props: Props): JSX.Element {
       <div className="roster__header">
         {collapsed ? (
           <div className="roster__collapsed-head">
-            <button type="button" className="icon-btn" title="Expand sidebar" onClick={() => onSetCollapsed(false)}>
-              »
-            </button>
+            {viewMode === 'grid' ? (
+              <button
+                type="button"
+                className="icon-btn"
+                title="Switch to focus view"
+                onClick={() => onSetViewMode('single')}
+              >
+                ▤
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="icon-btn"
+                title="Expand sidebar"
+                onClick={() => onSetCollapsed(false)}
+              >
+                »
+              </button>
+            )}
             <button type="button" className="icon-btn icon-btn--accent" title="New session" onClick={onNew}>
               ＋
             </button>
