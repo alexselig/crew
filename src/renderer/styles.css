@@ -244,6 +244,11 @@ button {
   -webkit-app-region: no-drag;
 }
 
+/* Match the Restart/Close buttons to the character icon button height (34px). */
+.session-header .btn {
+  height: 34px;
+}
+
 .session-header__id {
   display: flex;
   flex-direction: column;
