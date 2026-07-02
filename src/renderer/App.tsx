@@ -11,6 +11,7 @@ import { AnalyticsModal } from './components/AnalyticsModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { focusTerminal } from './terminal-pool'
+import { existingGroups } from './grouping'
 import { NEEDS_YOU } from '../shared/types'
 import { STATE_META } from './state-meta'
 import type { CreateSessionRequest } from '../shared/types'
@@ -135,6 +136,10 @@ export function App(): JSX.Element {
         onSetCollapsed={c.setNavCollapsed}
         navWidth={c.navWidth}
         onNavWidth={c.setNavWidth}
+        groupMode={c.groupMode}
+        onSetGroupMode={c.setGroupMode}
+        collapsedGroups={c.collapsedGroups}
+        onToggleGroup={c.toggleGroup}
         onSelect={c.setSelectedId}
         onNew={() => c.setShowNew(true)}
         onOpenSettings={() => setShowSettings(true)}
@@ -153,6 +158,10 @@ export function App(): JSX.Element {
           roster={c.roster}
           characters={c.characters}
           selectedId={c.selectedId}
+          groupMode={c.groupMode}
+          onSetGroupMode={c.setGroupMode}
+          collapsedGroups={c.collapsedGroups}
+          onToggleGroup={c.toggleGroup}
           onSelect={c.setSelectedId}
           onExpand={focusSession}
           onNew={() => c.setShowNew(true)}
@@ -164,6 +173,7 @@ export function App(): JSX.Element {
           characters={c.characters}
           presets={c.presets}
           usedCharacterIds={usedCharacterIds}
+          groups={existingGroups(c.roster)}
           onRename={(id, l) => void window.crew.rename(id, l)}
           onSetCharacter={(id, ch) => void window.crew.setCharacter(id, ch)}
           onSetTag={(id, tag) => void window.crew.setTag(id, tag)}

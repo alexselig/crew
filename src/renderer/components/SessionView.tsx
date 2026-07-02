@@ -15,6 +15,8 @@ interface Props {
   presets: Preset[]
   /** Characters worn by other active sessions (to keep assignments unique). */
   usedCharacterIds: string[]
+  /** Group labels already in use, for tag autocomplete. */
+  groups: string[]
   onRename: (id: string, label: string) => void
   onSetCharacter: (id: string, characterId: string) => void
   onSetTag: (id: string, tag: string) => void
@@ -23,7 +25,15 @@ interface Props {
   onNew: () => void
 }
 
-function TagChip({ tag, onCommit }: { tag?: string; onCommit: (t: string) => void }): JSX.Element {
+function TagChip({
+  tag,
+  groups,
+  onCommit
+}: {
+  tag?: string
+  groups: string[]
+  onCommit: (t: string) => void
+}): JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(tag ?? '')
   const ref = useRef<HTMLInputElement>(null)
@@ -43,28 +53,36 @@ function TagChip({ tag, onCommit }: { tag?: string; onCommit: (t: string) => voi
   }
   if (editing) {
     return (
-      <input
-        ref={ref}
-        className="tag-chip tag-chip--input"
-        value={draft}
-        placeholder="tag"
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commit()
-          else if (e.key === 'Escape') setEditing(false)
-        }}
-      />
+      <>
+        <input
+          ref={ref}
+          className="tag-chip tag-chip--input"
+          value={draft}
+          placeholder="group"
+          list="crew-group-list"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit()
+            else if (e.key === 'Escape') setEditing(false)
+          }}
+        />
+        <datalist id="crew-group-list">
+          {groups.map((g) => (
+            <option key={g} value={g} />
+          ))}
+        </datalist>
+      </>
     )
   }
   return (
     <button
       type="button"
       className={`tag-chip ${tag ? '' : 'tag-chip--empty'}`}
-      title="Set a tag / group"
+      title="Assign this session to a group"
       onClick={() => setEditing(true)}
     >
-      {tag ? `🏷 ${tag}` : '＋ tag'}
+      {tag ? `🏷 ${tag}` : '＋ group'}
     </button>
   )
 }
@@ -88,6 +106,7 @@ export function SessionView({
   characters,
   presets,
   usedCharacterIds,
+  groups,
   onRename,
   onSetCharacter,
   onSetTag,
@@ -143,7 +162,7 @@ export function SessionView({
                 <span>pid {session.pid}</span>
               </>
             )}
-            <TagChip tag={session.tag} onCommit={(t) => onSetTag(session.id, t)} />
+            <TagChip tag={session.tag} groups={groups} onCommit={(t) => onSetTag(session.id, t)} />
           </div>
         </div>
 

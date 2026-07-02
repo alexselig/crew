@@ -35,13 +35,22 @@ async function main() {
   await page.evaluate(([b, c]) => Promise.all([window.crew.setTag(b, 'proj1'), window.crew.setTag(c, 'proj2')]), [ids[1], ids[2]])
   await page.waitForTimeout(300)
 
-  // enable grouping by tag via the group picker dropdown
+  // enable grouping by group via the group picker dropdown
   await page.locator('.group-picker .icon-btn').click()
-  await page.locator('.group-menu__item', { hasText: 'By tag' }).click()
-  await waitUntil(async () => (await page.locator('.group').count()) === 2, 'two groups')
-  const names = await page.locator('.group__name').allTextContents()
-  if (names.includes('proj1') && names.includes('proj2')) ok(`grouped by tag: ${JSON.stringify(names)}`)
+  await page.locator('.group-menu__item', { hasText: 'By group' }).click()
+  await waitUntil(async () => (await page.locator('.roster__list .group').count()) === 2, 'two groups')
+  const names = await page.locator('.roster__list .group__name').allTextContents()
+  if (names.includes('proj1') && names.includes('proj2')) ok(`nav grouped by group: ${JSON.stringify(names)}`)
   else bad(`unexpected groups: ${JSON.stringify(names)}`)
+
+  // the grid view mirrors the same grouping (shared grouping state)
+  await page.locator('.view-toggle__btn').nth(1).click()
+  await waitUntil(async () => (await page.locator('.grid-group').count()) === 2, 'grid shows 2 groups')
+  const gnames = await page.locator('.grid-group__name').allTextContents()
+  if (gnames.includes('proj1') && gnames.includes('proj2')) ok(`grid grouped by group: ${JSON.stringify(gnames)}`)
+  else bad(`grid groups unexpected: ${JSON.stringify(gnames)}`)
+  await page.locator('.roster__collapsed-head .icon-btn[title="Switch to focus view"]').click()
+  await waitUntil(async () => (await page.locator('.roster:not(.roster--collapsed)').count()) === 1, 'nav expanded')
 
   // collapse proj1 (2 sessions) → visible cards drop to 1
   await page.locator('.group__header:has-text("proj1")').click()

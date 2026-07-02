@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, Preset, CharacterDef, Settings } from '../shared/types'
+import type { GroupMode } from './grouping'
 import { writeTo, disposePooled } from './terminal-pool'
 
 export type ViewMode = 'single' | 'grid'
@@ -23,6 +24,10 @@ export interface CrewState {
   setNavWidth: (w: number) => void
   navCollapsed: boolean
   setNavCollapsed: (v: boolean) => void
+  groupMode: GroupMode
+  setGroupMode: (m: GroupMode) => void
+  collapsedGroups: Set<string>
+  toggleGroup: (name: string) => void
   settings: Settings | null
   setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
 }
@@ -42,6 +47,18 @@ export function useCrew(): CrewState {
   const [navCollapsed, setNavCollapsedState] = useState<boolean>(
     () => localStorage.getItem('crew.navCollapsed') === '1'
   )
+  const [groupMode, setGroupModeState] = useState<GroupMode>(() => {
+    const saved = localStorage.getItem('crew.groupMode')
+    if (saved === 'none' || saved === 'needs' || saved === 'tag') return saved
+    return localStorage.getItem('crew.groupByTag') === '1' ? 'tag' : 'none'
+  })
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem('crew.collapsedGroups') || '[]'))
+    } catch {
+      return new Set<string>()
+    }
+  })
   const [settings, setSettings] = useState<Settings | null>(null)
   const knownIds = useRef<Set<string>>(new Set())
 
@@ -53,6 +70,19 @@ export function useCrew(): CrewState {
   const setNavCollapsed = (v: boolean): void => {
     setNavCollapsedState(v)
     localStorage.setItem('crew.navCollapsed', v ? '1' : '0')
+  }
+  const setGroupMode = (m: GroupMode): void => {
+    setGroupModeState(m)
+    localStorage.setItem('crew.groupMode', m)
+  }
+  const toggleGroup = (name: string): void => {
+    setCollapsedGroups((prev) => {
+      const n = new Set(prev)
+      if (n.has(name)) n.delete(name)
+      else n.add(name)
+      localStorage.setItem('crew.collapsedGroups', JSON.stringify([...n]))
+      return n
+    })
   }
   const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]): void => {
     void window.crew.updateSettings({ [key]: value } as Partial<Settings>).then(setSettings)
@@ -130,6 +160,10 @@ export function useCrew(): CrewState {
     setNavWidth,
     navCollapsed,
     setNavCollapsed,
+    groupMode,
+    setGroupMode,
+    collapsedGroups,
+    toggleGroup,
     settings,
     setSetting
   }
