@@ -1,5 +1,4 @@
 import type React from 'react'
-import { useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
 import { formatUsd, formatCredits } from '../state-meta'
@@ -8,6 +7,7 @@ import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { groupSessions, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
+import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
 import type { ViewMode } from '../hooks'
 
 interface Props {
@@ -38,6 +38,7 @@ interface Props {
   onRestart: (id: string) => void
   onClose: (id: string) => void
   onReorder: (orderedIds: string[]) => void
+  onSetTag: (id: string, tag: string) => void
 }
 
 export function Roster(props: Props): JSX.Element {
@@ -68,11 +69,9 @@ export function Roster(props: Props): JSX.Element {
     budgetUsd,
     onRestart,
     onClose,
-    onReorder
+    onReorder,
+    onSetTag
   } = props
-
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [overId, setOverId] = useState<string | null>(null)
 
   const waiting = roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
   const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
@@ -81,23 +80,6 @@ export function Roster(props: Props): JSX.Element {
   const charById = (id: string): CharacterDef | undefined => characters.find((c) => c.id === id)
   const presetName = (id: string | null): string =>
     id ? presets.find((p) => p.id === id)?.name ?? 'custom' : 'custom'
-
-  function reset(): void {
-    setDraggingId(null)
-    setOverId(null)
-  }
-
-  function handleDrop(targetId: string): void {
-    if (!draggingId || draggingId === targetId) return reset()
-    const ids = roster.map((s) => s.id)
-    const from = ids.indexOf(draggingId)
-    const targetIdx = ids.indexOf(targetId)
-    const next = ids.filter((id) => id !== draggingId)
-    const insertAt = next.indexOf(targetId) + (from < targetIdx ? 1 : 0)
-    next.splice(insertAt, 0, draggingId)
-    onReorder(next)
-    reset()
-  }
 
   function onResizeDown(e: React.PointerEvent): void {
     e.preventDefault()
@@ -115,8 +97,10 @@ export function Roster(props: Props): JSX.Element {
   }
 
   const grouped = groupMode !== 'none' && !collapsed
+  const dnd = useCardDnd(roster, collapsed ? 'disabled' : groupMode, onReorder, onSetTag)
+
   function renderCard(s: SessionInfo): JSX.Element {
-    const dnd = !grouped && !collapsed
+    const h = dnd.cardHandlers(s)
     return (
       <SessionCard
         key={s.id}
@@ -127,39 +111,16 @@ export function Roster(props: Props): JSX.Element {
         compact={collapsed}
         showSpend={showSpend}
         showCredits={showCredits}
-        draggable={dnd}
-        isDragging={dnd && draggingId === s.id}
-        isDragOver={dnd && overId === s.id && draggingId !== s.id}
+        draggable={h != null}
+        isDragging={dnd.draggingId === s.id}
+        isDragOver={dnd.overId === s.id && dnd.draggingId !== s.id}
         onSelect={() => onSelect(s.id)}
         onRestart={() => onRestart(s.id)}
         onClose={() => onClose(s.id)}
-        onDragStart={
-          dnd
-            ? (e) => {
-                setDraggingId(s.id)
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('text/plain', s.id)
-              }
-            : undefined
-        }
-        onDragOver={
-          dnd
-            ? (e) => {
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-                if (overId !== s.id) setOverId(s.id)
-              }
-            : undefined
-        }
-        onDrop={
-          dnd
-            ? (e) => {
-                e.preventDefault()
-                handleDrop(s.id)
-              }
-            : undefined
-        }
-        onDragEnd={dnd ? reset : undefined}
+        onDragStart={h?.onDragStart}
+        onDragOver={h?.onDragOver}
+        onDrop={h?.onDrop}
+        onDragEnd={h?.onDragEnd}
       />
     )
   }
@@ -277,10 +238,10 @@ export function Roster(props: Props): JSX.Element {
             <div className="group" key={g.name}>
               <button
                 type="button"
-                className={`group__header ${g.kind === 'needs' ? 'group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${gdnd.overName === g.name && gdnd.dragging !== g.name ? 'is-drag-over' : ''}`}
+                className={`group__header ${g.kind === 'needs' ? 'group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${(gdnd.overName === g.name && gdnd.dragging !== g.name) || dnd.overGroup === g.name ? 'is-drag-over' : ''}`}
                 onClick={() => onToggleGroup(g.name)}
-                title="Drag to reorder groups"
-                {...gdnd.handlers(g.name)}
+                title={groupMode === 'tag' ? 'Drag to reorder groups · drop a session here to move it' : 'Drag to reorder groups'}
+                {...mergeHeaderDnd(gdnd.handlers(g.name), dnd, g.name)}
               >
                 <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
                 <span className="group__name">{g.name}</span>

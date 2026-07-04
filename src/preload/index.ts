@@ -1,7 +1,7 @@
 // Preload: the ONLY bridge between the sandboxed renderer and the main process.
 // Exposes a typed, minimal `window.crew` surface — no raw ipcRenderer leaks.
 
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/types'
 import type { CrewAPI, Unsubscribe } from '../shared/api'
 
@@ -27,6 +27,10 @@ const api: CrewAPI = {
   detectAgents: () => ipcRenderer.invoke(IPC.AGENTS_DETECT),
   listSkills: (agent) => ipcRenderer.invoke(IPC.SKILLS_LIST, agent),
   getEvents: () => ipcRenderer.invoke(IPC.EVENTS_GET),
+  listAssets: (id) => ipcRenderer.invoke(IPC.ASSETS_LIST, id),
+  revealAsset: (path) => ipcRenderer.invoke(IPC.ASSET_REVEAL, path),
+  openAsset: (path) => ipcRenderer.invoke(IPC.ASSET_OPEN, path),
+  resolveAsset: (id, token) => ipcRenderer.invoke(IPC.ASSET_RESOLVE, { id, token }),
   searchTranscripts: (query) => ipcRenderer.invoke(IPC.TRANSCRIPT_SEARCH, query),
   getTranscript: (id) => ipcRenderer.invoke(IPC.TRANSCRIPT_GET, id),
   exportTranscript: (id, label) => ipcRenderer.invoke(IPC.TRANSCRIPT_EXPORT, { id, label }),
@@ -40,11 +44,14 @@ const api: CrewAPI = {
   sendInput: (id, data) => ipcRenderer.send(IPC.SESSION_INPUT, { id, data }),
   resize: (id, cols, rows) => ipcRenderer.send(IPC.SESSION_RESIZE, { id, cols, rows }),
 
+  pathForFile: (file) => webUtils.getPathForFile(file),
+
   onOutput: (cb) => subscribe(IPC.EVT_OUTPUT, cb),
   onState: (cb) => subscribe(IPC.EVT_STATE, cb),
   onRoster: (cb) => subscribe(IPC.EVT_ROSTER, cb),
   onJump: (cb) => subscribe(IPC.EVT_JUMP, cb),
-  onNew: (cb) => subscribe(IPC.EVT_NEW, () => cb())
+  onNew: (cb) => subscribe(IPC.EVT_NEW, () => cb()),
+  onAssets: (cb) => subscribe(IPC.EVT_ASSETS, cb)
 }
 
 contextBridge.exposeInMainWorld('crew', api)

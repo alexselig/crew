@@ -6,6 +6,8 @@
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { findAssetPaths } from '../shared/assets'
+import { previewToken } from './preview-bus'
 
 export interface Pooled {
   term: Terminal
@@ -50,6 +52,22 @@ export function getPooled(id: string): Pooled {
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
+    // Make previewable file paths in output clickable — clicking resolves the
+    // token against the session cwd and opens it in the Assets panel.
+    term.registerLinkProvider({
+      provideLinks(y, cb) {
+        const line = term.buffer.active.getLine(y - 1)
+        if (!line) return cb(undefined)
+        const links = findAssetPaths(line.translateToString(true)).map((m) => ({
+          // xterm ranges are 1-based with an inclusive end column.
+          range: { start: { x: m.start + 1, y }, end: { x: m.end, y } },
+          text: m.text,
+          decorations: { pointerCursor: true, underline: true },
+          activate: (_e: MouseEvent, text: string) => void previewToken(id, text)
+        }))
+        cb(links.length ? links : undefined)
+      }
+    })
     p = { term, fit, opened: false }
     pool.set(id, p)
   }

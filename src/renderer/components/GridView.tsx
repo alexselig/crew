@@ -1,10 +1,9 @@
-import type React from 'react'
-import { useState } from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
 import { groupSessions, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
+import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
 
 interface Props {
   roster: SessionInfo[]
@@ -20,6 +19,7 @@ interface Props {
   onExpand: (id: string) => void
   onNew: () => void
   onReorder: (orderedIds: string[]) => void
+  onSetTag: (id: string, tag: string) => void
 }
 
 const MODE_LABEL: Record<GroupMode, string> = {
@@ -41,36 +41,20 @@ export function GridView({
   onSelect,
   onExpand,
   onNew,
-  onReorder
+  onReorder,
+  onSetTag
 }: Props): JSX.Element {
   // Tiles hold static positions (roster order) that the user can rearrange by
-  // dragging a tile header. They never auto-reshuffle on state changes. Dragging
-  // is only enabled in the ungrouped view; grouped views reorder group headers.
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [overId, setOverId] = useState<string | null>(null)
+  // dragging a tile header. They never auto-reshuffle on state changes. In tag
+  // grouping, dragging a tile onto another group (or its header) retags it;
+  // 'needs' groups are state-derived, so tile dragging is off there.
   const grouped = groupMode !== 'none'
   const groups = grouped ? groupSessions(roster, groupMode, groupOrder) : []
   const gdnd = useGroupReorder(
     groups.map((g) => g.name),
     onReorderGroups
   )
-
-  function reset(): void {
-    setDraggingId(null)
-    setOverId(null)
-  }
-
-  function handleDrop(targetId: string): void {
-    if (!draggingId || draggingId === targetId) return reset()
-    const ids = roster.map((s) => s.id)
-    const from = ids.indexOf(draggingId)
-    const targetIdx = ids.indexOf(targetId)
-    const next = ids.filter((id) => id !== draggingId)
-    const insertAt = next.indexOf(targetId) + (from < targetIdx ? 1 : 0)
-    next.splice(insertAt, 0, draggingId)
-    onReorder(next)
-    reset()
-  }
+  const dnd = useCardDnd(roster, groupMode, onReorder, onSetTag)
 
   if (roster.length === 0) {
     return (
@@ -89,44 +73,22 @@ export function GridView({
 
   const charById = (id: string): CharacterDef | undefined => characters.find((c) => c.id === id)
 
-  function renderTile(s: SessionInfo, dnd: boolean): JSX.Element {
+  function renderTile(s: SessionInfo): JSX.Element {
+    const h = dnd.cardHandlers(s)
     return (
       <GridTile
         key={s.id}
         session={s}
         character={charById(s.characterId)}
         selected={s.id === selectedId}
-        isDragging={dnd && draggingId === s.id}
-        isDragOver={dnd && overId === s.id && draggingId !== s.id}
+        isDragging={dnd.draggingId === s.id}
+        isDragOver={dnd.overId === s.id && dnd.draggingId !== s.id}
         onSelect={() => onSelect(s.id)}
         onExpand={() => onExpand(s.id)}
-        onDragStart={
-          dnd
-            ? (e: React.DragEvent) => {
-                setDraggingId(s.id)
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('text/plain', s.id)
-              }
-            : undefined
-        }
-        onDragOver={
-          dnd
-            ? (e: React.DragEvent) => {
-                e.preventDefault()
-                e.dataTransfer.dropEffect = 'move'
-                if (overId !== s.id) setOverId(s.id)
-              }
-            : undefined
-        }
-        onDrop={
-          dnd
-            ? (e: React.DragEvent) => {
-                e.preventDefault()
-                handleDrop(s.id)
-              }
-            : undefined
-        }
-        onDragEnd={dnd ? reset : undefined}
+        onDragStart={h?.onDragStart}
+        onDragOver={h?.onDragOver}
+        onDrop={h?.onDrop}
+        onDragEnd={h?.onDragEnd}
       />
     )
   }
@@ -143,23 +105,23 @@ export function GridView({
             <section className="grid-group" key={g.name}>
               <button
                 type="button"
-                className={`grid-group__header ${g.kind === 'needs' ? 'grid-group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${gdnd.overName === g.name && gdnd.dragging !== g.name ? 'is-drag-over' : ''}`}
+                className={`grid-group__header ${g.kind === 'needs' ? 'grid-group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${(gdnd.overName === g.name && gdnd.dragging !== g.name) || dnd.overGroup === g.name ? 'is-drag-over' : ''}`}
                 onClick={() => onToggleGroup(g.name)}
-                title="Drag to reorder groups"
-                {...gdnd.handlers(g.name)}
+                title={groupMode === 'tag' ? 'Drag to reorder groups · drop a session here to move it' : 'Drag to reorder groups'}
+                {...mergeHeaderDnd(gdnd.handlers(g.name), dnd, g.name)}
               >
                 <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
                 <span className="grid-group__name">{g.name}</span>
                 <span className="group__count">{g.items.length}</span>
               </button>
               {!collapsedGroups.has(g.name) && (
-                <div className="grid">{g.items.map((s) => renderTile(s, false))}</div>
+                <div className="grid">{g.items.map(renderTile)}</div>
               )}
             </section>
           ))}
         </div>
       ) : (
-        <div className="grid">{roster.map((s) => renderTile(s, true))}</div>
+        <div className="grid">{roster.map(renderTile)}</div>
       )}
     </main>
   )

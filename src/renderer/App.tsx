@@ -153,6 +153,7 @@ export function App(): JSX.Element {
         onRestart={restart}
         onClose={close}
         onReorder={(ids) => void window.crew.reorder(ids)}
+        onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
       />
 
       {c.viewMode === 'grid' ? (
@@ -170,6 +171,7 @@ export function App(): JSX.Element {
           onExpand={focusSession}
           onNew={() => c.setShowNew(true)}
           onReorder={(ids) => void window.crew.reorder(ids)}
+          onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
         />
       ) : (
         <SessionView

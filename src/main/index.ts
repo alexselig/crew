@@ -1,14 +1,17 @@
 // Electron main entry: owns the app lifecycle, the single main window, the tray,
 // and the full IPC surface described in shared/types.ts.
 
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
-import { join } from 'node:path'
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell } from 'electron'
+import { isAbsolute, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { accessSync, constants, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { IPC, NEEDS_YOU } from '../shared/types'
 import type { CreateSessionRequest, Settings } from '../shared/types'
 import type { AgentStatus } from '../shared/api'
 import { SessionManager } from './session-manager'
+import { AssetWatchers } from './assets'
+import { assetMime } from '../shared/assets'
 import { CrewTray } from './tray'
 import { Store } from './store'
 import { TranscriptRecorder } from './transcripts'
@@ -21,8 +24,15 @@ let tray: CrewTray | null = null
 let manager: SessionManager
 let store: Store
 let recorder: TranscriptRecorder
+let assets: AssetWatchers
 let isQuitting = false
 let sessionsRestored = false
+
+// crew-asset:// serves preview files (images/HTML/…) to the renderer in both
+// dev (http origin) and prod (file origin). Must be registered before ready.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'crew-asset', privileges: { secure: true, supportFetchAPI: true, stream: true } }
+])
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -136,6 +146,7 @@ function wireManager(): void {
   manager.on('roster', (roster) => {
     win?.webContents.send(IPC.EVT_ROSTER, roster)
     tray?.update(roster)
+    assets.sync(roster)
   })
 
   manager.on('transition', ({ session, from, to }) => {
@@ -206,6 +217,24 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.SETS_DELETE, (_e, name: string) => store.deleteSet(name))
   ipcMain.handle(IPC.EVENTS_GET, () => manager.getEvents())
+  ipcMain.handle(IPC.ASSETS_LIST, (_e, id: string) => assets.list(id))
+  // Both act only on paths the watcher currently knows — no arbitrary FS access.
+  ipcMain.handle(IPC.ASSET_REVEAL, (_e, path: string) => {
+    if (assets.has(path)) shell.showItemInFolder(path)
+  })
+  ipcMain.handle(IPC.ASSET_OPEN, async (_e, path: string) => {
+    if (assets.has(path)) await shell.openPath(path)
+  })
+  // A path token the agent printed and the user clicked: resolve it against
+  // the session cwd and (if it's a real previewable file) allowlist + return it.
+  ipcMain.handle(IPC.ASSET_RESOLVE, (_e, p: { id: string; token: string }) => {
+    const cwd = assets.cwdOf(p.id)
+    if (!cwd || typeof p.token !== 'string' || p.token.length > 1024) return null
+    let t = p.token
+    if (t === '~' || t.startsWith('~/')) t = join(homedir(), t.slice(1))
+    const abs = resolve(isAbsolute(t) ? t : join(cwd, t))
+    return assets.pin(p.id, abs)
+  })
   ipcMain.handle(IPC.TRANSCRIPT_SEARCH, (_e, query: string) => recorder.search(query))
   ipcMain.handle(IPC.TRANSCRIPT_GET, (_e, id: string) => recorder.read(id))
   ipcMain.handle(IPC.TRANSCRIPT_EXPORT, async (_e, p: { id: string; label: string }) => {
@@ -236,7 +265,23 @@ app.whenReady().then(() => {
   store = new Store(join(app.getPath('userData'), 'crew-store.json'))
   recorder = new TranscriptRecorder(join(app.getPath('userData'), 'transcripts'))
   manager = new SessionManager(store, recorder)
+  assets = new AssetWatchers((id, list) => win?.webContents.send(IPC.EVT_ASSETS, { id, assets: list }))
   applyLoginItem(store.settings.launchAtLogin)
+
+  // Serve previewable files — only ones the asset watcher has vouched for.
+  protocol.handle('crew-asset', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const path = decodeURIComponent(url.pathname.replace(/^\//, ''))
+      if (!assets.has(path)) return new Response('Not found', { status: 404 })
+      const body = await readFile(path)
+      return new Response(body, {
+        headers: { 'content-type': assetMime(path), 'cache-control': 'no-cache' }
+      })
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
+  })
 
   registerIpc()
   createWindow()
@@ -263,6 +308,7 @@ app.on('before-quit', () => {
   isQuitting = true
   recorder?.dispose()
   manager?.disposeAll()
+  assets?.disposeAll()
   tray?.destroy()
 })
 

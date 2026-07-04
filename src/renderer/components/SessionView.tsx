@@ -6,6 +6,7 @@ import { EditableLabel } from './EditableLabel'
 import { CharacterPicker } from './CharacterPicker'
 import { Since } from './Since'
 import { TerminalView } from './TerminalView'
+import { AssetsPanel } from './AssetsPanel'
 import { SkillsBar } from './SkillsBar'
 import { focusTerminal } from '../terminal-pool'
 
@@ -224,9 +225,12 @@ export function SessionView({
 
       {active && <SkillsBar sessionId={session.id} agent={session.command} />}
 
-      <div className="session-body">
+      <div className={`session-body ${active ? 'session-body--split' : ''}`}>
         {active ? (
-          <TerminalView id={session.id} key={session.id} />
+          <>
+            <TerminalView id={session.id} key={session.id} />
+            <AssetsPanel sessionId={session.id} />
+          </>
         ) : (
           <div className="exited-pane">
             <div className="exited-pane__glyph">{session.status === 'error' ? '⚠️' : '✔︎'}</div>

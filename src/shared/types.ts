@@ -152,6 +152,10 @@ export const IPC = {
   SETS_LAUNCH: 'sets:launch',
   SETS_DELETE: 'sets:delete',
   EVENTS_GET: 'events:get',
+  ASSETS_LIST: 'assets:list',
+  ASSET_REVEAL: 'assets:reveal',
+  ASSET_OPEN: 'assets:open',
+  ASSET_RESOLVE: 'assets:resolve',
   TRANSCRIPT_SEARCH: 'transcript:search',
   TRANSCRIPT_GET: 'transcript:get',
   TRANSCRIPT_EXPORT: 'transcript:export',
@@ -160,5 +164,6 @@ export const IPC = {
   EVT_STATE: 'evt:state',
   EVT_ROSTER: 'evt:roster',
   EVT_JUMP: 'evt:jump',
-  EVT_NEW: 'evt:new'
+  EVT_NEW: 'evt:new',
+  EVT_ASSETS: 'evt:assets'
 } as const

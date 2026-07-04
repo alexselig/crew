@@ -11,6 +11,7 @@ import type {
   Settings,
   SessionSet
 } from './types'
+import type { AssetItem } from './assets'
 
 export interface StateEvent {
   id: string
@@ -52,6 +53,11 @@ export interface ActivityEvent {
   to: SessionState
 }
 
+export interface AssetsEvent {
+  id: string
+  assets: AssetItem[]
+}
+
 export interface TranscriptMatch {
   sessionId: string
   lineNo: number
@@ -75,6 +81,18 @@ export interface CrewAPI {
   /** Skills installed on disk for the given agent command (e.g. "copilot", "claude"). */
   listSkills(agent: string): Promise<InstalledSkill[]>
   getEvents(): Promise<ActivityEvent[]>
+  /** Recently created/changed previewable files in the session's cwd (newest first). */
+  listAssets(id: string): Promise<AssetItem[]>
+  /** Reveal an asset in Finder / the OS file manager. */
+  revealAsset(path: string): Promise<void>
+  /** Open an asset with the OS default app. */
+  openAsset(path: string): Promise<void>
+  /**
+   * Resolve a path token printed in a session's output (absolute, ~/, or
+   * relative to the session cwd). If it's a previewable file, it is added to
+   * the session's asset list and returned; otherwise null.
+   */
+  resolveAsset(id: string, token: string): Promise<AssetItem | null>
   searchTranscripts(query: string): Promise<TranscriptMatch[]>
   getTranscript(id: string): Promise<string>
   exportTranscript(id: string, label: string): Promise<boolean>
@@ -89,10 +107,15 @@ export interface CrewAPI {
   sendInput(id: string, data: string): void
   resize(id: string, cols: number, rows: number): void
 
+  // synchronous helpers
+  /** Absolute filesystem path of a dropped/dragged File (Electron webUtils). */
+  pathForFile(file: File): string
+
   // events (main -> renderer)
   onOutput(cb: (e: OutputEvent) => void): Unsubscribe
   onState(cb: (e: StateEvent) => void): Unsubscribe
   onRoster(cb: (roster: SessionInfo[]) => void): Unsubscribe
   onJump(cb: (id: string) => void): Unsubscribe
   onNew(cb: () => void): Unsubscribe
+  onAssets(cb: (e: AssetsEvent) => void): Unsubscribe
 }
