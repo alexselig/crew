@@ -148,21 +148,21 @@ async function main() {
   await waitUntil(async () => (await page.locator('.skills-bar__chips .skill-chip').count()) > 5, 'gallery opens')
   ok(`gallery shows ${await page.locator('.skills-bar__chips .skill-chip').count()} skill chips`)
 
-  const ship = page.locator('.skills-bar__chips .skill-chip').filter({ hasText: /^Ship/ }).first()
-  await ship.click() // first click → description
+  const firstChip = page.locator('.skills-bar__chips .skill-chip').first()
+  await firstChip.click() // first click → description
   await waitUntil(
-    async () => ((await page.locator('.skills-bar__desc').textContent().catch(() => '')) || '').includes('ship'),
+    async () => (await page.locator('.skills-bar__desc').count()) > 0,
     'description preview appears'
   )
   ok('first click previews the skill description')
   await page.screenshot({ path: join(SHOTS, '03-skills-gallery.png') })
 
-  await ship.click() // second click → invoke
+  await firstChip.click() // second click → invoke
   await waitUntil(
-    async () => ((await page.locator('.session-body .xterm-rows').textContent().catch(() => '')) || '').includes('use ship to'),
+    async () => /use \S+ to/.test((await page.locator('.session-body .xterm-rows').textContent().catch(() => '')) || ''),
     'invocation typed into the session'
   )
-  ok('second click types "use ship to " into the session')
+  ok('second click types "use <skill> to " into the session')
   await page.screenshot({ path: join(SHOTS, '04-skill-invoked.png') })
 
   // ---- Drag reorder ----

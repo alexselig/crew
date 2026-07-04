@@ -144,6 +144,7 @@ export const IPC = {
   CHARACTERS_GET: 'characters:get',
   HOME_DIR_GET: 'home:get',
   AGENTS_DETECT: 'agents:detect',
+  SKILLS_LIST: 'skills:list',
   SETTINGS_GET: 'settings:get',
   SETTINGS_UPDATE: 'settings:update',
   SETS_GET: 'sets:get',

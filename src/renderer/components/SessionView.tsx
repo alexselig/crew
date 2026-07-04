@@ -222,7 +222,7 @@ export function SessionView({
         </div>
       )}
 
-      {active && <SkillsBar sessionId={session.id} />}
+      {active && <SkillsBar sessionId={session.id} agent={session.command} />}
 
       <div className="session-body">
         {active ? (

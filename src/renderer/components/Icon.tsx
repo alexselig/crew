@@ -3,7 +3,7 @@
 // keeping the header consistent with the settings gear instead of colored emoji.
 
 interface IconProps {
-  name: 'tag' | 'broadcast' | 'chart' | 'group'
+  name: 'tag' | 'broadcast' | 'chart' | 'filter' | 'focus' | 'grid'
   size?: number
 }
 
@@ -27,10 +27,35 @@ const PATHS: Record<IconProps['name'], JSX.Element> = {
       <line x1="6" y1="20" x2="6" y2="14" />
     </>
   ),
-  group: (
+  // Filter / adjustments: three rules, each carrying a dot.
+  filter: (
     <>
-      <rect x="3" y="4" width="18" height="6" rx="1.5" />
-      <rect x="3" y="14" width="18" height="6" rx="1.5" />
+      <line x1="4" y1="7" x2="20" y2="7" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="17" x2="20" y2="17" />
+      <circle cx="9" cy="7" r="1.9" fill="currentColor" stroke="none" />
+      <circle cx="16" cy="12" r="1.9" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="17" r="1.9" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Focus view: a slim nav column of lines beside one big content box.
+  focus: (
+    <>
+      <rect x="3" y="4" width="7" height="16" rx="1.2" />
+      <line x1="5.3" y1="8.5" x2="7.7" y2="8.5" />
+      <line x1="5.3" y1="12" x2="7.7" y2="12" />
+      <line x1="5.3" y1="15.5" x2="7.7" y2="15.5" />
+      <rect x="12" y="4" width="9" height="16" rx="1.2" />
+    </>
+  ),
+  // Grid view: an even 3x3 lattice.
+  grid: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="1.5" />
+      <line x1="9" y1="3" x2="9" y2="21" />
+      <line x1="15" y1="3" x2="15" y2="21" />
+      <line x1="3" y1="9" x2="21" y2="9" />
+      <line x1="3" y1="15" x2="21" y2="15" />
     </>
   )
 }

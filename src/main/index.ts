@@ -13,6 +13,7 @@ import { CrewTray } from './tray'
 import { Store } from './store'
 import { TranscriptRecorder } from './transcripts'
 import { builtinPresets } from './presets'
+import { listInstalledSkills } from './skills'
 import { CHARACTERS } from './characters'
 
 let win: BrowserWindow | null = null
@@ -181,6 +182,7 @@ function registerIpc(): void {
       }
     })
   )
+  ipcMain.handle(IPC.SKILLS_LIST, (_e, agent: string) => listInstalledSkills(agent))
   ipcMain.handle(IPC.SETTINGS_GET, () => store.settings)
   ipcMain.handle(IPC.SETTINGS_UPDATE, (_e, patch: Partial<Settings>) => {
     const next = store.updateSettings(patch)

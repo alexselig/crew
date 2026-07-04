@@ -2,7 +2,12 @@
 // previews the description; a second click types `use <invoke> to ` into the
 // session's input so the user can append their goal and hit Enter.
 //
-// This is a curated default set — extend freely.
+// The live list comes from the skills installed on disk for the session's agent
+// (see main/skills.ts); the static set below is a fallback for environments
+// where none are discovered.
+
+import type { InstalledSkill } from '../shared/api'
+
 
 export interface Skill {
   id: string
@@ -75,4 +80,14 @@ export function loadCustomSkills(): Skill[] {
 
 export function saveCustomSkills(list: Skill[]): void {
   localStorage.setItem(CUSTOM_KEY, JSON.stringify(list))
+}
+
+/** Map a disk-discovered skill into a picker Skill (invoke token == its name). */
+export function installedToSkill(s: InstalledSkill): Skill {
+  return {
+    id: s.id,
+    name: s.name,
+    invoke: s.name,
+    description: s.description || `Run the ${s.name} skill.`
+  }
 }

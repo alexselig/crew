@@ -35,6 +35,16 @@ export interface AgentStatus {
   installHint?: string
 }
 
+/** A skill discovered on disk for a given agent (Copilot/Claude). */
+export interface InstalledSkill {
+  /** Stable id: `<source>:<name>` (used for favorites). */
+  id: string
+  /** Frontmatter `name:` — also the token typed as `use <name> to …`. */
+  name: string
+  description: string
+  source: 'copilot' | 'claude'
+}
+
 export interface ActivityEvent {
   id: string
   ts: number
@@ -62,6 +72,8 @@ export interface CrewAPI {
   getCharacters(): Promise<CharacterDef[]>
   getHomeDir(): Promise<string>
   detectAgents(): Promise<AgentStatus[]>
+  /** Skills installed on disk for the given agent command (e.g. "copilot", "claude"). */
+  listSkills(agent: string): Promise<InstalledSkill[]>
   getEvents(): Promise<ActivityEvent[]>
   searchTranscripts(query: string): Promise<TranscriptMatch[]>
   getTranscript(id: string): Promise<string>

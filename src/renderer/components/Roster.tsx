@@ -182,7 +182,7 @@ export function Roster(props: Props): JSX.Element {
                 title="Switch to focus view"
                 onClick={() => onSetViewMode('single')}
               >
-                ▤
+                <Icon name="focus" />
               </button>
             ) : (
               <button
@@ -227,7 +227,7 @@ export function Roster(props: Props): JSX.Element {
                     title="Focus view"
                     onClick={() => onSetViewMode('single')}
                   >
-                    ▤
+                    <Icon name="focus" size={14} />
                   </button>
                   <button
                     type="button"
@@ -237,23 +237,30 @@ export function Roster(props: Props): JSX.Element {
                     title="Grid view"
                     onClick={() => onSetViewMode('grid')}
                   >
-                    ▦
+                    <Icon name="grid" size={14} />
                   </button>
                 </div>
-                <button type="button" className="icon-btn" title="Collapse sidebar" onClick={() => onSetCollapsed(true)}>
-                  «
-                </button>
                 <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
-                <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
-                  <Icon name="broadcast" />
-                </button>
-                <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
-                  <Icon name="chart" />
-                </button>
                 <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
                   ⚙
                 </button>
+                <button
+                  type="button"
+                  className="icon-btn roster__collapse"
+                  title="Collapse sidebar"
+                  onClick={() => onSetCollapsed(true)}
+                >
+                  «
+                </button>
               </div>
+            </div>
+            <div className="roster__subactions">
+              <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
+                <Icon name="broadcast" />
+              </button>
+              <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
+                <Icon name="chart" />
+              </button>
             </div>
             <button type="button" className="btn btn--primary" onClick={onNew}>
               ＋ New Session

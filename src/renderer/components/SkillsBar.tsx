@@ -5,12 +5,15 @@ import {
   saveFavorites,
   loadCustomSkills,
   saveCustomSkills,
+  installedToSkill,
   type Skill
 } from '../skills'
 import { focusTerminal } from '../terminal-pool'
 
 interface Props {
   sessionId: string
+  /** The session's agent command (e.g. "copilot", "claude") — selects the skills directory. */
+  agent?: string
 }
 
 /**
@@ -19,11 +22,13 @@ interface Props {
  * Click a skill to preview its description; click again (or Invoke) to type
  * `use <skill> to ` into the session.
  */
-export function SkillsBar({ sessionId }: Props): JSX.Element {
+export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const [armedId, setArmedId] = useState<string | null>(null)
   const [favorites, setFavorites] = useState<string[]>([])
   const [custom, setCustom] = useState<Skill[]>([])
+  const [installed, setInstalled] = useState<Skill[]>([])
+  const [query, setQuery] = useState('')
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ name: '', invoke: '', description: '' })
 
@@ -34,11 +39,32 @@ export function SkillsBar({ sessionId }: Props): JSX.Element {
 
   useEffect(() => setArmedId(null), [sessionId])
 
+  // Load the skills actually installed for this session's agent (Copilot/Claude).
+  useEffect(() => {
+    let cancelled = false
+    window.crew
+      .listSkills(agent ?? '')
+      .then((list) => {
+        if (!cancelled) setInstalled(list.map(installedToSkill))
+      })
+      .catch(() => {
+        if (!cancelled) setInstalled([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [agent])
+
   const favSet = useMemo(() => new Set(favorites), [favorites])
   const ordered = useMemo(() => {
-    const all = [...SKILLS, ...custom]
-    return [...all.filter((s) => favSet.has(s.id)), ...all.filter((s) => !favSet.has(s.id))]
-  }, [custom, favSet])
+    const base = installed.length ? installed : SKILLS
+    const all = [...base, ...custom]
+    const q = query.trim().toLowerCase()
+    const filtered = q
+      ? all.filter((s) => (s.name + ' ' + s.description).toLowerCase().includes(q))
+      : all
+    return [...filtered.filter((s) => favSet.has(s.id)), ...filtered.filter((s) => !favSet.has(s.id))]
+  }, [installed, custom, favSet, query])
 
   const armed = ordered.find((s) => s.id === armedId) ?? null
 
@@ -115,6 +141,13 @@ export function SkillsBar({ sessionId }: Props): JSX.Element {
         >
           ⚡ Skills ▾
         </button>
+        <input
+          className="skills-bar__search"
+          placeholder="Filter…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Filter skills"
+        />
         <div className="skills-bar__chips">
           {ordered.map((sk) => (
             <button

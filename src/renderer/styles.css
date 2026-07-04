@@ -774,12 +774,15 @@ button {
 }
 
 .view-toggle__btn {
-  padding: 3px 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 9px;
   background: var(--bg-elev);
   border: none;
   color: var(--text-dim);
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1;
   transition: background 0.12s, color 0.12s;
 }
 
@@ -1273,6 +1276,27 @@ button {
   padding-right: 4px;
 }
 
+.skills-bar__search {
+  flex-shrink: 0;
+  width: 130px;
+  align-self: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.skills-bar__search:focus {
+  outline: none;
+  border-color: rgba(108, 142, 245, 0.55);
+}
+
+.skills-bar__search::placeholder {
+  color: var(--text-dim, #8a94a6);
+}
+
 .skill-chip {
   display: inline-flex;
   align-items: center;
@@ -1425,6 +1449,20 @@ button {
 .roster__head-actions {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+/* Collapse sits at the far right of the toolbar, nudged off the other actions. */
+.roster__collapse {
+  margin-left: 2px;
+}
+
+/* Second toolbar row: measure (analytics) + announce (broadcast). */
+.roster__subactions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   -webkit-app-region: no-drag;
 }

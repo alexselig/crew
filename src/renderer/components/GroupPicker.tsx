@@ -48,7 +48,7 @@ export function GroupPicker({ mode, onChoose }: Props): JSX.Element {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <Icon name="group" />
+        <Icon name="filter" />
       </button>
       {open && (
         <div className="group-menu" role="menu">
