@@ -170,6 +170,9 @@ export function App(): JSX.Element {
           onSelect={c.setSelectedId}
           onExpand={focusSession}
           onNew={() => c.setShowNew(true)}
+          onSetViewMode={c.setViewMode}
+          showSpend={c.settings?.showSpend ?? true}
+          showCredits={c.settings?.showCredits ?? false}
           onReorder={(ids) => void window.crew.reorder(ids)}
           onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
         />

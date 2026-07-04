@@ -41,7 +41,7 @@ function createWindow(): void {
     minWidth: 860,
     minHeight: 540,
     title: 'Crew',
-    backgroundColor: '#0f1115',
+    backgroundColor: '#0A0A0B',
     show: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 18 },

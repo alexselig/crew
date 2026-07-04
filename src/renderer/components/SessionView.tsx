@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SessionInfo, CharacterDef, Preset, SessionState } from '../../shared/types'
-import { STATE_META } from '../state-meta'
-import { Character } from './Character'
+import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
+import { StatusTag } from './StatusTag'
 import { EditableLabel } from './EditableLabel'
 import { CharacterPicker } from './CharacterPicker'
+import { Icon } from './Icon'
 import { Since } from './Since'
 import { TerminalView } from './TerminalView'
 import { AssetsPanel } from './AssetsPanel'
@@ -83,22 +83,8 @@ function TagChip({
       title="Assign this session to a group"
       onClick={() => setEditing(true)}
     >
-      {tag ? `🏷 ${tag}` : '＋ group'}
+      {tag ? tag : '＋ group'}
     </button>
-  )
-}
-
-function StatePill({ state, reason }: { state: SessionState; reason?: string }): JSX.Element {
-  const m = STATE_META[state]
-  return (
-    <span
-      className="pill"
-      style={{ color: m.color, borderColor: `${m.color}55` }}
-      title={reason ? `detected via: ${reason}` : undefined}
-    >
-      <span className="pill__dot" style={{ background: m.color }} />
-      {m.label}
-    </span>
   )
 }
 
@@ -115,6 +101,7 @@ export function SessionView({
   onClose,
   onNew
 }: Props): JSX.Element {
+  const [metaOpen, setMetaOpen] = useState(false)
   if (!session) {
     return (
       <main className="session-view session-view--empty">
@@ -130,7 +117,6 @@ export function SessionView({
     )
   }
 
-  const character = characters.find((c) => c.id === session.characterId)
   const preset = session.presetId ? presets.find((p) => p.id === session.presetId) : null
   const presetName = session.presetId ? preset?.name ?? 'custom' : 'custom'
   const active = session.status === 'active'
@@ -146,47 +132,66 @@ export function SessionView({
   return (
     <main className="session-view">
       <header className="session-header">
-        <Character glyph={character?.glyph ?? '●'} state={session.state} size={30} dot={false} />
-        <div className="session-header__id">
-          <EditableLabel
-            value={session.label}
-            onCommit={(l) => onRename(session.id, l)}
-            className="session-header__label"
-          />
-          <div className="session-header__meta">
-            <span title={session.cwd}>{session.cwd}</span>
-            <span className="dot-sep">·</span>
-            <span>{presetName}</span>
-            {session.pid != null && (
-              <>
-                <span className="dot-sep">·</span>
-                <span>pid {session.pid}</span>
-              </>
-            )}
-            <TagChip tag={session.tag} groups={groups} onCommit={(t) => onSetTag(session.id, t)} />
-          </div>
-        </div>
-
-        <span className="session-header__spacer" />
-
-        <StatePill state={session.state} reason={session.detectionReason} />
-        <span className="session-header__since">
-          <Since from={session.stateChangedAt} />
-        </span>
-
         <CharacterPicker
+          variant="mascot"
+          size={34}
+          state={session.state}
           characters={characters}
           currentId={session.characterId}
           usedIds={usedCharacterIds}
           onPick={(cid) => onSetCharacter(session.id, cid)}
         />
+        <div className="session-header__id">
+          <div className="session-header__titlerow">
+            <EditableLabel
+              value={session.label}
+              onCommit={(l) => onRename(session.id, l)}
+              className="session-header__label"
+            />
+            <TagChip tag={session.tag} groups={groups} onCommit={(t) => onSetTag(session.id, t)} />
+            <button
+              type="button"
+              className={`session-header__disclosure ${metaOpen ? 'is-open' : ''}`}
+              title={metaOpen ? 'Hide details' : 'Show details'}
+              aria-expanded={metaOpen}
+              onClick={() => setMetaOpen((v) => !v)}
+            >
+              <Icon name="chevron-down" size={12} />
+            </button>
+          </div>
+          {metaOpen && (
+            <div className="session-header__meta">
+              <span title={session.cwd}>{session.cwd}</span>
+              <span className="dot-sep">·</span>
+              <span>{presetName}</span>
+              {session.pid != null && (
+                <>
+                  <span className="dot-sep">·</span>
+                  <span>pid {session.pid}</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <span className="session-header__spacer" />
+
+        <span className="session-header__since">
+          <Since from={session.stateChangedAt} />
+        </span>
+        <StatusTag
+          state={session.state}
+          variant="chip"
+          className="session-header__status"
+        />
+
         <button
           type="button"
           className="btn"
           title="Restart session"
           onClick={() => onRestart(session.id)}
         >
-          ↻ Restart
+          Restart
         </button>
         <button
           type="button"

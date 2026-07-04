@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CharacterDef } from '../../shared/types'
+import type { CharacterDef, SessionState } from '../../shared/types'
+import { Character } from './Character'
 
 interface Props {
   characters: CharacterDef[]
@@ -7,10 +8,28 @@ interface Props {
   /** Characters currently worn by OTHER active sessions (shown disabled). */
   usedIds?: string[]
   onPick: (id: string) => void
+  /**
+   * `button` (default) shows a small bordered glyph button.
+   * `mascot` shows the large animated Character as the trigger (used in the
+   * session header, where clicking the mascot opens the gallery).
+   */
+  variant?: 'button' | 'mascot'
+  /** Session state, so the mascot trigger can animate. */
+  state?: SessionState
+  /** Mascot size in px (mascot variant only). */
+  size?: number
 }
 
-/** Current character as a button; click opens a glyph grid to reassign it. */
-export function CharacterPicker({ characters, currentId, usedIds = [], onPick }: Props): JSX.Element {
+/** Current character as a trigger; click opens a glyph gallery to reassign it. */
+export function CharacterPicker({
+  characters,
+  currentId,
+  usedIds = [],
+  onPick,
+  variant = 'button',
+  state = 'IDLE',
+  size = 34
+}: Props): JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const current = characters.find((c) => c.id === currentId)
@@ -26,15 +45,26 @@ export function CharacterPicker({ characters, currentId, usedIds = [], onPick }:
   }, [open])
 
   return (
-    <div className="char-picker" ref={rootRef}>
-      <button
-        type="button"
-        className="char-picker__btn"
-        title="Change character"
-        onClick={() => setOpen((v) => !v)}
-      >
-        {current?.glyph ?? '●'}
-      </button>
+    <div className={`char-picker ${variant === 'mascot' ? 'char-picker--mascot' : ''}`} ref={rootRef}>
+      {variant === 'mascot' ? (
+        <button
+          type="button"
+          className="char-picker__mascot"
+          title="Change character"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Character glyph={current?.glyph ?? '●'} state={state} size={size} dot={false} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="char-picker__btn"
+          title="Change character"
+          onClick={() => setOpen((v) => !v)}
+        >
+          {current?.glyph ?? '●'}
+        </button>
+      )}
       {open && (
         <div className="char-picker__grid" role="listbox">
           {characters.map((c) => {

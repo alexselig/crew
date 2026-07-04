@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import './fonts/fonts.css'
 import './styles.css'
 
 // Intentionally NOT wrapped in StrictMode: its double-invoked effects would

@@ -97,6 +97,16 @@ export function AssetsPanel({ sessionId }: { sessionId: string }): JSX.Element |
     focusTerminal(sessionId)
   }
 
+  // Clicking an image opens it in the OS previewer (Preview.app); other kinds
+  // toggle the in-app preview pane.
+  function activate(a: AssetItem): void {
+    if (a.kind === 'image') {
+      void window.crew.openAsset(a.path)
+      return
+    }
+    setSelected((prev) => (prev?.path === a.path ? null : a))
+  }
+
   if (!open) {
     return (
       <button
@@ -179,8 +189,8 @@ export function AssetsPanel({ sessionId }: { sessionId: string }): JSX.Element |
               role="button"
               tabIndex={0}
               title={a.relDir ? `${a.relDir}/${a.name}` : a.name}
-              onClick={() => setSelected(a.path === selected?.path ? null : a)}
-              onKeyDown={(e) => e.key === 'Enter' && setSelected(a)}
+              onClick={() => activate(a)}
+              onKeyDown={(e) => e.key === 'Enter' && activate(a)}
             >
               {a.kind === 'image' ? (
                 <img

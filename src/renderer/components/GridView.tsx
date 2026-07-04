@@ -1,9 +1,12 @@
 import type { SessionInfo, CharacterDef } from '../../shared/types'
+import { NEEDS_YOU } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
+import { formatUsd, formatCredits } from '../state-meta'
 import { groupSessions, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
+import type { ViewMode } from '../hooks'
 
 interface Props {
   roster: SessionInfo[]
@@ -18,14 +21,11 @@ interface Props {
   onSelect: (id: string) => void
   onExpand: (id: string) => void
   onNew: () => void
+  onSetViewMode: (m: ViewMode) => void
+  showSpend: boolean
+  showCredits: boolean
   onReorder: (orderedIds: string[]) => void
   onSetTag: (id: string, tag: string) => void
-}
-
-const MODE_LABEL: Record<GroupMode, string> = {
-  none: 'All sessions',
-  needs: 'Grouped by attention',
-  tag: 'Grouped by group'
 }
 
 export function GridView({
@@ -41,6 +41,9 @@ export function GridView({
   onSelect,
   onExpand,
   onNew,
+  onSetViewMode,
+  showSpend,
+  showCredits,
   onReorder,
   onSetTag
 }: Props): JSX.Element {
@@ -72,6 +75,9 @@ export function GridView({
   }
 
   const charById = (id: string): CharacterDef | undefined => characters.find((c) => c.id === id)
+  const waiting = roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state)).length
+  const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
+  const totalCredits = roster.reduce((sum, s) => sum + (s.creditsUsed || 0), 0)
 
   function renderTile(s: SessionInfo): JSX.Element {
     const h = dnd.cardHandlers(s)
@@ -95,33 +101,75 @@ export function GridView({
 
   return (
     <main className="gridview">
-      <div className="grid-toolbar">
-        <span className="grid-toolbar__label">{MODE_LABEL[groupMode]}</span>
-        <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
-      </div>
-      {grouped ? (
-        <div className="grid-groups">
-          {groups.map((g) => (
-            <section className="grid-group" key={g.name}>
-              <button
-                type="button"
-                className={`grid-group__header ${g.kind === 'needs' ? 'grid-group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${(gdnd.overName === g.name && gdnd.dragging !== g.name) || dnd.overGroup === g.name ? 'is-drag-over' : ''}`}
-                onClick={() => onToggleGroup(g.name)}
-                title={groupMode === 'tag' ? 'Drag to reorder groups · drop a session here to move it' : 'Drag to reorder groups'}
-                {...mergeHeaderDnd(gdnd.handlers(g.name), dnd, g.name)}
-              >
-                <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
-                <span className="grid-group__name">{g.name}</span>
-                <span className="group__count">{g.items.length}</span>
-              </button>
-              {!collapsedGroups.has(g.name) && (
-                <div className="grid">{g.items.map(renderTile)}</div>
-              )}
-            </section>
-          ))}
+      <div className="grid-topbar">
+        <div className="grid-topbar__left">
+          <span className="grid-topbar__wordmark">CREW</span>
+          <span className="grid-topbar__sub">All sessions · {roster.length}</span>
         </div>
-      ) : (
-        <div className="grid">{roster.map(renderTile)}</div>
+        <div className="grid-topbar__right">
+          {waiting > 0 && (
+            <button
+              type="button"
+              className="status status--attention"
+              title="Group by attention"
+              onClick={() => onSetGroupMode('needs')}
+            >
+              {waiting} WAITING FOR YOU
+            </button>
+          )}
+          <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
+          <button
+            type="button"
+            className="btn btn--outline"
+            title="Back to focus view"
+            onClick={() => onSetViewMode('single')}
+          >
+            LIST VIEW
+          </button>
+        </div>
+      </div>
+
+      <div className="gridview__scroll">
+        {grouped ? (
+          <div className="grid-groups">
+            {groups.map((g) => (
+              <section className="grid-group" key={g.name}>
+                <button
+                  type="button"
+                  className={`grid-group__header ${g.kind === 'needs' ? 'grid-group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${(gdnd.overName === g.name && gdnd.dragging !== g.name) || dnd.overGroup === g.name ? 'is-drag-over' : ''}`}
+                  onClick={() => onToggleGroup(g.name)}
+                  title={groupMode === 'tag' ? 'Drag to reorder groups · drop a session here to move it' : 'Drag to reorder groups'}
+                  {...mergeHeaderDnd(gdnd.handlers(g.name), dnd, g.name)}
+                >
+                  <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
+                  <span className="grid-group__name">{g.name}</span>
+                  <span className="group__count">{g.items.length}</span>
+                </button>
+                {!collapsedGroups.has(g.name) && (
+                  <div className="grid">{g.items.map(renderTile)}</div>
+                )}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="grid">{roster.map(renderTile)}</div>
+        )}
+      </div>
+
+      {(showSpend || showCredits) && (
+        <div className="grid-footer">
+          <span className="grid-footer__note">
+            {waiting > 0
+              ? `${waiting} waiting for you`
+              : `${roster.length} ${roster.length === 1 ? 'session' : 'sessions'}`}
+          </span>
+          <span className="grid-footer__total">
+            TOTAL{' '}
+            {showSpend && <span>{formatUsd(totalUsd)}</span>}
+            {showSpend && showCredits && <span className="dot-sep"> · </span>}
+            {showCredits && <span>{formatCredits(totalCredits)} cr</span>}
+          </span>
+        </div>
       )}
     </main>
   )

@@ -159,73 +159,79 @@ export function Roster(props: Props): JSX.Element {
               ＋
             </button>
             <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
-              ⚙
+              <Icon name="settings" />
             </button>
           </div>
         ) : (
           <>
             <div className="roster__titlebar">
-              <div className="roster__title">
-                Crew
-                {waiting.length > 0 && (
+              <span className="roster__wordmark">Crew</span>
+              <div className="roster__titlebar-right">
+                {waiting.length > 0 ? (
                   <button
                     type="button"
-                    className="roster__badge"
-                    title={`${waiting.length} waiting for you — group by "Needs you"`}
+                    className="status status--attention roster__waiting"
+                    title={`${waiting.length} waiting for you — group by attention`}
                     onClick={() => onSetGroupMode('needs')}
                   >
-                    {waiting.length}
+                    {waiting.length} WAITING
                   </button>
+                ) : (
+                  <span className="roster__count">
+                    {roster.length} {roster.length === 1 ? 'SESSION' : 'SESSIONS'}
+                  </span>
                 )}
-              </div>
-              <div className="roster__head-actions">
-                <div className="view-toggle" role="tablist" aria-label="View mode">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={viewMode === 'single'}
-                    className={`view-toggle__btn ${viewMode === 'single' ? 'is-active' : ''}`}
-                    title="Focus view"
-                    onClick={() => onSetViewMode('single')}
-                  >
-                    <Icon name="focus" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={viewMode === 'grid'}
-                    className={`view-toggle__btn ${viewMode === 'grid' ? 'is-active' : ''}`}
-                    title="Grid view"
-                    onClick={() => onSetViewMode('grid')}
-                  >
-                    <Icon name="grid" size={14} />
-                  </button>
-                </div>
-                <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
-                <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
-                  ⚙
-                </button>
                 <button
                   type="button"
                   className="icon-btn roster__collapse"
                   title="Collapse sidebar"
                   onClick={() => onSetCollapsed(true)}
                 >
-                  «
+                  <Icon name="chevrons-left" size={12} />
                 </button>
               </div>
             </div>
-            <div className="roster__subactions">
-              <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
-                <Icon name="broadcast" />
-              </button>
-              <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
-                <Icon name="chart" />
-              </button>
-            </div>
-            <button type="button" className="btn btn--primary" onClick={onNew}>
+
+            <button type="button" className="btn btn--newsession" onClick={onNew}>
               ＋ New Session
             </button>
+
+            <div className="roster__toolbar">
+              <div className="view-toggle" role="tablist" aria-label="View mode">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={viewMode === 'single'}
+                  className={`view-toggle__btn ${viewMode === 'single' ? 'is-active' : ''}`}
+                  title="Focus view"
+                  onClick={() => onSetViewMode('single')}
+                >
+                  <Icon name="columns" size={14} />
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={viewMode === 'grid'}
+                  className={`view-toggle__btn ${viewMode === 'grid' ? 'is-active' : ''}`}
+                  title="Grid view"
+                  onClick={() => onSetViewMode('grid')}
+                >
+                  <Icon name="grid" size={14} />
+                </button>
+              </div>
+              <div className="roster__tools">
+                <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
+                <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
+                  <Icon name="broadcast" />
+                </button>
+                <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
+                  <Icon name="chart" />
+                </button>
+                <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
+                  <Icon name="settings" />
+                </button>
+              </div>
+            </div>
           </>
         )}
       </div>

@@ -23,29 +23,29 @@ const pool = new Map<string, Pooled>()
 const tombstones = new Set<string>()
 
 const THEME = {
-  background: '#0b0d12',
-  foreground: '#d7dce5',
-  cursor: '#7aa2f7',
-  cursorAccent: '#0b0d12',
-  selectionBackground: '#2b3350',
-  black: '#0b0d12',
-  red: '#f0464a',
+  background: '#0A0A0B',
+  foreground: '#F2F1EA',
+  cursor: '#2B4CF2',
+  cursorAccent: '#0A0A0B',
+  selectionBackground: 'rgba(43,76,242,0.35)',
+  black: '#0A0A0B',
+  red: '#e5484d',
   green: '#43b581',
   yellow: '#faa61a',
-  blue: '#7aa2f7',
+  blue: '#5F79FF',
   magenta: '#b892ff',
   cyan: '#56cfe1',
-  white: '#d7dce5',
-  brightBlack: '#4b515e'
+  white: '#F2F1EA',
+  brightBlack: '#6b6a64'
 }
 
 export function getPooled(id: string): Pooled {
   let p = pool.get(id)
   if (!p) {
     const term = new Terminal({
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
-      fontSize: 12.5,
-      lineHeight: 1.2,
+      fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
+      fontSize: 12,
+      lineHeight: 1.25,
       cursorBlink: true,
       scrollback: 8000,
       theme: THEME

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
 import type { ActivityEvent } from '../../shared/api'
-import { STATE_META, formatUsd, formatCredits } from '../state-meta'
+import { formatUsd, formatCredits } from '../state-meta'
+import { StatusTag } from './StatusTag'
 
 interface Props {
   roster: SessionInfo[]
@@ -115,8 +116,7 @@ export function AnalyticsModal({ roster, characters, onClose }: Props): JSX.Elem
               <div key={i} className="timeline-row">
                 <span className="timeline-time">{new Date(e.ts).toLocaleTimeString()}</span>
                 <span className="timeline-label">{labelOf(e.id)}</span>
-                <span className="timeline-arrow">→</span>
-                <span style={{ color: STATE_META[e.to].color }}>{STATE_META[e.to].label}</span>
+                <StatusTag state={e.to} />
               </div>
             ))
           )}

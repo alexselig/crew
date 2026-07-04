@@ -2,6 +2,7 @@ import type React from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { STATE_META, formatUsd, formatCredits } from '../state-meta'
 import { Character } from './Character'
+import { StatusTag } from './StatusTag'
 import { Since } from './Since'
 
 interface Props {
@@ -94,49 +95,35 @@ export function SessionCard({
         }
       }}
     >
-      <div className="card__top">
-        <Character glyph={character?.glyph ?? '●'} state={session.state} size={22} dot={false} />
-        <span className="card__label" title={session.label}>
+      <Character glyph={character?.glyph ?? '●'} state={session.state} size={30} dot={false} />
+
+      <div className="card__main">
+        <span className="card__name" title={session.label}>
           {session.label}
         </span>
-        <span className="card__gutter" aria-hidden>
-          <span className="card__state-dot" style={{ background: meta.color }} />
+        <span className="card__meta" title={`${session.cwd} · ${presetName}`}>
+          <Since from={session.stateChangedAt} />
+          {showSpend && <> · {formatUsd(session.costUsd)}</>}
+          {showCredits && <> · {formatCredits(session.creditsUsed)} cr</>}
         </span>
       </div>
 
-      <div className="card__sub" title={`${session.cwd} · ${presetName}`}>
-        {shortenPath(session.cwd)} · {presetName}
-      </div>
+      <span className="card__status">
+        <StatusTag state={session.state} />
+      </span>
 
-      <div className="card__foot">
-        <span className="card__state-text" style={{ color: meta.color }}>
-          {meta.label}
-        </span>
-        <span className="card__since">
-          · <Since from={session.stateChangedAt} />
-        </span>
-        {showSpend && (
-          <span className="card__cost" title="Spend this session (as reported by the agent)">
-            · {formatUsd(session.costUsd)}
-          </span>
-        )}
-        {showCredits && (
-          <span className="card__cost" title="Credits/AIC used this session (as reported by the agent)">
-            · {formatCredits(session.creditsUsed)} cr
-          </span>
-        )}
-        <span className="card__spacer" />
+      <div className="card__actions">
         {inactive && (
           <button
             type="button"
-            className="mini-btn"
+            className="mini-btn mini-btn--icon"
             title="Restart session"
             onClick={(e) => {
               e.stopPropagation()
               onRestart()
             }}
           >
-            Restart
+            ↻
           </button>
         )}
         <button
@@ -153,10 +140,4 @@ export function SessionCard({
       </div>
     </div>
   )
-}
-
-function shortenPath(p: string): string {
-  const parts = p.split('/').filter(Boolean)
-  if (parts.length <= 2) return p
-  return '…/' + parts.slice(-2).join('/')
 }

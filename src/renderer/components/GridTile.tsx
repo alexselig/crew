@@ -1,8 +1,8 @@
 import type React from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
-import { STATE_META } from '../state-meta'
 import { Character } from './Character'
+import { StatusTag } from './StatusTag'
 import { Since } from './Since'
 import { TerminalView } from './TerminalView'
 
@@ -36,14 +36,12 @@ export function GridTile({
   onDrop,
   onDragEnd
 }: Props): JSX.Element {
-  const meta = STATE_META[session.state]
   const needsYou = session.status === 'active' && NEEDS_YOU.includes(session.state)
   const active = session.status === 'active'
 
   return (
     <div
       className={`tile ${needsYou ? 'is-needsyou' : ''} ${selected ? 'is-selected' : ''} ${isDragging ? 'is-dragging' : ''} ${isDragOver ? 'is-drag-over' : ''}`}
-      style={needsYou ? { borderColor: meta.color } : undefined}
       onClick={onSelect}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -55,16 +53,15 @@ export function GridTile({
         onDragEnd={onDragEnd}
         title="Drag to rearrange"
       >
-        <Character glyph={character?.glyph ?? '●'} state={session.state} size={18} dot={false} />
+        <Character glyph={character?.glyph ?? '●'} state={session.state} size={24} dot={false} />
         <span className="tile__label" title={session.label}>
           {session.label}
         </span>
-        <span className="tile__state" style={{ color: meta.color }}>
-          <span className="tile__dot" style={{ background: meta.color }} />
-          {meta.label}
-        </span>
-        <span className="tile__since">
-          <Since from={session.stateChangedAt} />
+        <span className="tile__status">
+          <StatusTag state={session.state} />
+          <span className="tile__since">
+            <Since from={session.stateChangedAt} />
+          </span>
         </span>
         <button
           type="button"
