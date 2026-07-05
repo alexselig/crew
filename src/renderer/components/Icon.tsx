@@ -15,6 +15,8 @@ interface IconProps {
     | 'chevrons-left'
     | 'chevrons-right'
     | 'chevron-down'
+    | 'chevron-right'
+    | 'chevron-left'
     | 'zap'
   size?: number
 }
@@ -92,6 +94,8 @@ const PATHS: Record<IconProps['name'], JSX.Element> = {
   ),
   // Single chevron pointing down: disclosure toggle.
   'chevron-down': <polyline points="6 9 12 15 18 9" />,
+  'chevron-right': <polyline points="9 6 15 12 9 18" />,
+  'chevron-left': <polyline points="15 6 9 12 15 18" />,
   // Gear: settings.
   settings: (
     <>

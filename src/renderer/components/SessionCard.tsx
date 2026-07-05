@@ -69,8 +69,7 @@ export function SessionCard({
           }
         }}
       >
-        <Character glyph={character?.glyph ?? '●'} id={character?.id} color={session.color} state={session.state} size={52} />
-        <span className="card__cname">{session.label}</span>
+        <Character glyph={character?.glyph ?? '●'} id={character?.id} color={session.color} state={session.state} size={48} />
       </div>
     )
   }

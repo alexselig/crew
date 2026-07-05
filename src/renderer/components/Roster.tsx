@@ -154,17 +154,17 @@ export function Roster(props: Props): JSX.Element {
         {railed ? (
           <div className="roster__collapsed-head">
             <div className="roster__collapsed-top">
-              <ViewToggle mode={viewMode} onChange={onSetViewMode} />
               {viewMode === 'single' && (
                 <button
                   type="button"
-                  className="icon-btn"
+                  className="icon-btn roster__expand"
                   title="Expand sidebar"
                   onClick={() => onSetCollapsed(false)}
                 >
-                  <Icon name="chevrons-right" />
+                  <Icon name="chevron-right" />
                 </button>
               )}
+              <ViewToggle mode={viewMode} onChange={onSetViewMode} />
             </div>
             <button
               type="button"
@@ -200,7 +200,7 @@ export function Roster(props: Props): JSX.Element {
                   title="Collapse sidebar"
                   onClick={() => onSetCollapsed(true)}
                 >
-                  <Icon name="chevrons-left" size={12} />
+                  <Icon name="chevron-left" />
                 </button>
               </div>
             </div>
