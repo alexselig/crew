@@ -51,6 +51,7 @@ button {
 
 /* ---------- App layout ---------- */
 .app {
+  position: relative;
   display: grid;
   grid-template-columns: var(--nav-width, 300px) 1fr;
   height: 100vh;
@@ -65,6 +66,27 @@ button {
   background: var(--panel);
   border-right: 1px solid var(--border);
   min-height: 0;
+}
+
+/* Hover-to-expand: a manually-collapsed nav floats open over the content. */
+.roster--float {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--nav-width);
+  z-index: 50;
+  transition: width 0.18s ease, box-shadow 0.18s ease;
+}
+
+.roster--float.is-expanded {
+  width: var(--nav-expanded, 300px);
+  box-shadow: 20px 0 50px rgba(0, 0, 0, 0.55);
+}
+
+/* Keep the main content in column 2 while the floating rail overlays column 1. */
+.app--nav-floating > main {
+  grid-column: 2;
 }
 
 .roster__header {
@@ -150,10 +172,11 @@ button {
   transition: background 0.12s, border-color 0.12s;
 }
 
-.btn--newsession:hover {
+.btn.btn--newsession:hover {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+  font-weight: 800;
 }
 
 .roster__list {
@@ -394,7 +417,7 @@ button {
 }
 
 .session-header__label {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--ivory);
 }
@@ -1863,8 +1886,8 @@ button {
 
 .roster__collapsed-top {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
 }
 
@@ -1873,7 +1896,9 @@ button {
   width: 100%;
   height: auto;
   aspect-ratio: 1 / 1;
+  padding: 0;
   font-size: 26px;
+  letter-spacing: normal;
   border-radius: var(--radius);
 }
 

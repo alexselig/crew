@@ -120,10 +120,16 @@ export function App(): JSX.Element {
   }, [c.roster, c.characters, c.viewMode, c.selectedId])
 
   const navIsCollapsed = c.navCollapsed || c.viewMode === 'grid'
+  const navFloating = c.viewMode === 'single' && c.navCollapsed
   return (
     <div
-      className={`app ${navIsCollapsed ? 'app--nav-collapsed' : ''}`}
-      style={{ '--nav-width': `${navIsCollapsed ? 84 : c.navWidth}px` } as CSSProperties}
+      className={`app ${navIsCollapsed ? 'app--nav-collapsed' : ''} ${navFloating ? 'app--nav-floating' : ''}`}
+      style={
+        {
+          '--nav-width': `${navIsCollapsed ? 84 : c.navWidth}px`,
+          '--nav-expanded': `${c.navWidth || 300}px`
+        } as CSSProperties
+      }
     >
       <Roster
         roster={c.roster}
@@ -133,6 +139,7 @@ export function App(): JSX.Element {
         viewMode={c.viewMode}
         onSetViewMode={c.setViewMode}
         collapsed={navIsCollapsed}
+        hoverExpand={navFloating}
         onSetCollapsed={c.setNavCollapsed}
         navWidth={c.navWidth}
         onNavWidth={c.setNavWidth}

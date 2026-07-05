@@ -2,7 +2,6 @@ import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
-import { ViewToggle } from './ViewToggle'
 import { Icon } from './Icon'
 import { formatUsd, formatCredits } from '../state-meta'
 import { groupSessions, existingGroups, type GroupMode } from '../grouping'
@@ -50,7 +49,6 @@ export function GridView({
   onExpand,
   onClose,
   onNew,
-  onSetViewMode,
   onOpenSettings,
   onBroadcast,
   onAnalytics,
@@ -130,10 +128,6 @@ export function GridView({
           <span className="grid-topbar__sub">All sessions · {roster.length}</span>
         </div>
         <div className="grid-topbar__right">
-          <button type="button" className="btn btn--newsession grid-topbar__new" onClick={onNew}>
-            ＋ New Session
-          </button>
-          <ViewToggle mode="grid" onChange={onSetViewMode} />
           <div className="grid-topbar__tools">
             <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
             <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>

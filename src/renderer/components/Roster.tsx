@@ -1,4 +1,5 @@
 import type React from 'react'
+import { useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
 import { formatUsd, formatCredits } from '../state-meta'
@@ -19,6 +20,7 @@ interface Props {
   viewMode: ViewMode
   onSetViewMode: (m: ViewMode) => void
   collapsed: boolean
+  hoverExpand?: boolean
   onSetCollapsed: (v: boolean) => void
   navWidth: number
   onNavWidth: (w: number) => void
@@ -51,6 +53,7 @@ export function Roster(props: Props): JSX.Element {
     viewMode,
     onSetViewMode,
     collapsed,
+    hoverExpand,
     onSetCollapsed,
     navWidth,
     onNavWidth,
@@ -97,8 +100,13 @@ export function Roster(props: Props): JSX.Element {
     document.body.style.cursor = 'col-resize'
   }
 
-  const grouped = groupMode !== 'none' && !collapsed
-  const dnd = useCardDnd(roster, collapsed ? 'disabled' : groupMode, onReorder, onSetTag)
+  const [navHover, setNavHover] = useState(false)
+  // When the nav is manually collapsed (focus view), hovering floats it open as
+  // an overlay; leaving collapses it. `railed` = render the compact rail.
+  const canFloat = collapsed && (hoverExpand ?? false)
+  const railed = collapsed && !(canFloat && navHover)
+  const grouped = groupMode !== 'none' && !railed
+  const dnd = useCardDnd(roster, railed ? 'disabled' : groupMode, onReorder, onSetTag)
 
   function renderCard(s: SessionInfo): JSX.Element {
     const h = dnd.cardHandlers(s)
@@ -109,7 +117,7 @@ export function Roster(props: Props): JSX.Element {
         character={charById(s.characterId)}
         presetName={presetName(s.presetId)}
         selected={s.id === selectedId}
-        compact={collapsed}
+        compact={railed}
         showSpend={showSpend}
         showCredits={showCredits}
         draggable={h != null}
@@ -133,19 +141,20 @@ export function Roster(props: Props): JSX.Element {
   )
 
   return (
-    <aside className={`roster ${collapsed ? 'roster--collapsed' : ''}`}>
+    <aside
+      className={`roster ${railed ? 'roster--collapsed' : ''} ${canFloat ? 'roster--float' : ''} ${
+        canFloat && navHover ? 'is-expanded' : ''
+      }`}
+      onMouseEnter={() => {
+        if (canFloat) setNavHover(true)
+      }}
+      onMouseLeave={() => setNavHover(false)}
+    >
       <div className="roster__header">
-        {collapsed ? (
+        {railed ? (
           <div className="roster__collapsed-head">
             <div className="roster__collapsed-top">
-              <button
-                type="button"
-                className="icon-btn"
-                title={viewMode === 'grid' ? 'Focus view' : 'Grid view'}
-                onClick={() => onSetViewMode(viewMode === 'grid' ? 'single' : 'grid')}
-              >
-                <Icon name={viewMode === 'grid' ? 'columns' : 'grid'} />
-              </button>
+              <ViewToggle mode={viewMode} onChange={onSetViewMode} />
               {viewMode === 'single' && (
                 <button
                   type="button"
@@ -159,7 +168,7 @@ export function Roster(props: Props): JSX.Element {
             </div>
             <button
               type="button"
-              className="icon-btn icon-btn--accent roster__new-tile"
+              className="btn btn--newsession roster__new-tile"
               title="New session"
               onClick={onNew}
             >
@@ -221,7 +230,7 @@ export function Roster(props: Props): JSX.Element {
 
       <div className="roster__list">
         {roster.length === 0 ? (
-          !collapsed && <div className="roster__empty">No sessions yet.</div>
+          !railed && <div className="roster__empty">No sessions yet.</div>
         ) : grouped ? (
           groups.map((g) => (
             <div className="group" key={g.name}>
@@ -249,7 +258,7 @@ export function Roster(props: Props): JSX.Element {
           className={`roster__footer ${overBudget ? 'is-over-budget' : ''}`}
           title={budgetUsd > 0 ? `Budget ${formatUsd(budgetUsd)}` : 'Totals across sessions'}
         >
-          {!collapsed && (
+          {!railed && (
             <span className="roster__footer-label">{overBudget ? '⚠ Over budget' : 'Total'}</span>
           )}
           <span className="roster__footer-total">
@@ -260,7 +269,7 @@ export function Roster(props: Props): JSX.Element {
         </div>
       )}
 
-      {!collapsed && (
+      {!railed && (
         <div className="roster__resize" onPointerDown={onResizeDown} title="Drag to resize" />
       )}
     </aside>
