@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
 import { formatUsd, formatCredits } from '../state-meta'
@@ -101,10 +101,21 @@ export function Roster(props: Props): JSX.Element {
   }
 
   const [navHover, setNavHover] = useState(false)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout>>()
   // When the nav is manually collapsed (focus view), hovering floats it open as
   // an overlay; leaving collapses it. `railed` = render the compact rail.
   const canFloat = collapsed && (hoverExpand ?? false)
   const railed = collapsed && !(canFloat && navHover)
+  // Hover-intent delay so a quick click on a rail control lands before the panel
+  // floats open (which would otherwise swap that control out from under the cursor).
+  useEffect(() => () => clearTimeout(hoverTimer.current), [])
+  function onRailEnter(): void {
+    if (canFloat) hoverTimer.current = setTimeout(() => setNavHover(true), 300)
+  }
+  function onRailLeave(): void {
+    clearTimeout(hoverTimer.current)
+    setNavHover(false)
+  }
   const grouped = groupMode !== 'none' && !railed
   const dnd = useCardDnd(roster, railed ? 'disabled' : groupMode, onReorder, onSetTag)
 
@@ -145,27 +156,22 @@ export function Roster(props: Props): JSX.Element {
       className={`roster ${railed ? 'roster--collapsed' : ''} ${canFloat ? 'roster--float' : ''} ${
         canFloat && navHover ? 'is-expanded' : ''
       }`}
-      onMouseEnter={() => {
-        if (canFloat) setNavHover(true)
-      }}
-      onMouseLeave={() => setNavHover(false)}
+      onMouseEnter={onRailEnter}
+      onMouseLeave={onRailLeave}
     >
       <div className="roster__header">
         {railed ? (
           <div className="roster__collapsed-head">
-            <div className="roster__collapsed-top">
-              {viewMode === 'single' && (
-                <button
-                  type="button"
-                  className="icon-btn roster__expand"
-                  title="Expand sidebar"
-                  onClick={() => onSetCollapsed(false)}
-                >
-                  <Icon name="chevron-right" />
-                </button>
-              )}
-              <ViewToggle mode={viewMode} onChange={onSetViewMode} />
-            </div>
+            {viewMode === 'single' && (
+              <button
+                type="button"
+                className="icon-btn roster__expand"
+                title="Expand sidebar"
+                onClick={() => onSetCollapsed(false)}
+              >
+                <Icon name="chevron-right" />
+              </button>
+            )}
             <button
               type="button"
               className="btn btn--newsession roster__new-tile"
@@ -174,6 +180,7 @@ export function Roster(props: Props): JSX.Element {
             >
               ＋
             </button>
+            <ViewToggle mode={viewMode} onChange={onSetViewMode} />
           </div>
         ) : (
           <>
@@ -197,10 +204,10 @@ export function Roster(props: Props): JSX.Element {
                 <button
                   type="button"
                   className="icon-btn roster__collapse"
-                  title="Collapse sidebar"
-                  onClick={() => onSetCollapsed(true)}
+                  title={collapsed ? 'Keep sidebar open' : 'Collapse sidebar'}
+                  onClick={() => onSetCollapsed(!collapsed)}
                 >
-                  <Icon name="chevron-left" />
+                  <Icon name={collapsed ? 'chevron-right' : 'chevron-left'} />
                 </button>
               </div>
             </div>

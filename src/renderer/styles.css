@@ -1880,7 +1880,7 @@ button {
 /* Collapsed rail */
 .roster--collapsed .roster__header {
   align-items: center;
-  padding: 46px 6px 12px;
+  padding: 58px 6px 12px;
 }
 
 .roster__collapsed-head {
@@ -1891,16 +1891,18 @@ button {
   width: 100%;
 }
 
-.roster__collapsed-top {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-/* Expand-sidebar button sits above the toggle, pinned to the right. */
+/* Expand-sidebar button pinned to the right, above the New Session tile. */
 .roster__expand {
   align-self: flex-end;
+}
+
+/* Collapsed rail: view toggle sits below the New Session tile, full width. */
+.roster__collapsed-head > .view-toggle {
+  width: 100%;
+}
+
+.roster__collapsed-head .view-toggle__btn {
+  flex: 1;
 }
 
 /* Enlarged "new session" tile: same height/shape as the expanded button. */

@@ -5,6 +5,7 @@ import { shellQuote } from '../../shared/shell-quote'
 import { focusTerminal } from '../terminal-pool'
 import { onPreviewRequest } from '../preview-bus'
 import { Since } from './Since'
+import { Icon } from './Icon'
 
 const KIND_GLYPH: Record<AssetKind, string> = {
   image: '🖼',
@@ -128,7 +129,7 @@ export function AssetsPanel({ sessionId }: { sessionId: string }): JSX.Element |
           Assets{assets.length > 0 && <span className="assets__count">{assets.length}</span>}
         </span>
         <button type="button" className="icon-btn" title="Hide assets" onClick={toggle}>
-          »
+          <Icon name="chevron-right" />
         </button>
       </header>
 
