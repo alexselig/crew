@@ -169,12 +169,18 @@ export function App(): JSX.Element {
           onReorderGroups={c.reorderGroups}
           onSelect={c.setSelectedId}
           onExpand={focusSession}
+          onClose={close}
           onNew={() => c.setShowNew(true)}
           onSetViewMode={c.setViewMode}
+          onOpenSettings={() => setShowSettings(true)}
+          onBroadcast={() => setShowBroadcast(true)}
+          onAnalytics={() => setShowAnalytics(true)}
           showSpend={c.settings?.showSpend ?? true}
           showCredits={c.settings?.showCredits ?? false}
           onReorder={(ids) => void window.crew.reorder(ids)}
           onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
+          onSetCharacter={(id, ch) => void window.crew.setCharacter(id, ch)}
+          onSetColor={(id, color) => void window.crew.setColor(id, color)}
         />
       ) : (
         <SessionView
@@ -185,6 +191,7 @@ export function App(): JSX.Element {
           groups={existingGroups(c.roster)}
           onRename={(id, l) => void window.crew.rename(id, l)}
           onSetCharacter={(id, ch) => void window.crew.setCharacter(id, ch)}
+          onSetColor={(id, color) => void window.crew.setColor(id, color)}
           onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
           onRestart={restart}
           onClose={close}

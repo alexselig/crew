@@ -2,8 +2,10 @@ import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
+import { ViewToggle } from './ViewToggle'
+import { Icon } from './Icon'
 import { formatUsd, formatCredits } from '../state-meta'
-import { groupSessions, type GroupMode } from '../grouping'
+import { groupSessions, existingGroups, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
 import type { ViewMode } from '../hooks'
@@ -20,12 +22,18 @@ interface Props {
   onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
   onExpand: (id: string) => void
+  onClose: (id: string) => void
   onNew: () => void
   onSetViewMode: (m: ViewMode) => void
+  onOpenSettings: () => void
+  onBroadcast: () => void
+  onAnalytics: () => void
   showSpend: boolean
   showCredits: boolean
   onReorder: (orderedIds: string[]) => void
   onSetTag: (id: string, tag: string) => void
+  onSetCharacter: (id: string, characterId: string) => void
+  onSetColor: (id: string, color: string) => void
 }
 
 export function GridView({
@@ -40,12 +48,18 @@ export function GridView({
   onReorderGroups,
   onSelect,
   onExpand,
+  onClose,
   onNew,
   onSetViewMode,
+  onOpenSettings,
+  onBroadcast,
+  onAnalytics,
   showSpend,
   showCredits,
   onReorder,
-  onSetTag
+  onSetTag,
+  onSetCharacter,
+  onSetColor
 }: Props): JSX.Element {
   // Tiles hold static positions (roster order) that the user can rearrange by
   // dragging a tile header. They never auto-reshuffle on state changes. In tag
@@ -58,6 +72,7 @@ export function GridView({
     onReorderGroups
   )
   const dnd = useCardDnd(roster, groupMode, onReorder, onSetTag)
+  const tagGroups = existingGroups(roster)
 
   if (roster.length === 0) {
     return (
@@ -75,6 +90,7 @@ export function GridView({
   }
 
   const charById = (id: string): CharacterDef | undefined => characters.find((c) => c.id === id)
+  const activeCharacterIds = roster.filter((s) => s.status === 'active').map((s) => s.characterId)
   const waiting = roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state)).length
   const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
   const totalCredits = roster.reduce((sum, s) => sum + (s.creditsUsed || 0), 0)
@@ -86,11 +102,18 @@ export function GridView({
         key={s.id}
         session={s}
         character={charById(s.characterId)}
+        characters={characters}
+        usedCharacterIds={activeCharacterIds}
         selected={s.id === selectedId}
         isDragging={dnd.draggingId === s.id}
         isDragOver={dnd.overId === s.id && dnd.draggingId !== s.id}
+        groups={tagGroups}
         onSelect={() => onSelect(s.id)}
         onExpand={() => onExpand(s.id)}
+        onClose={() => onClose(s.id)}
+        onSetCharacter={(cid) => onSetCharacter(s.id, cid)}
+        onSetColor={(col) => onSetColor(s.id, col)}
+        onSetTag={(t) => onSetTag(s.id, t)}
         onDragStart={h?.onDragStart}
         onDragOver={h?.onDragOver}
         onDrop={h?.onDrop}
@@ -103,7 +126,7 @@ export function GridView({
     <main className="gridview">
       <div className="grid-topbar">
         <div className="grid-topbar__left">
-          <span className="grid-topbar__wordmark">CREW</span>
+          <span className="grid-topbar__wordmark">Crew</span>
           <span className="grid-topbar__sub">All sessions · {roster.length}</span>
         </div>
         <div className="grid-topbar__right">
@@ -117,15 +140,19 @@ export function GridView({
               {waiting} WAITING FOR YOU
             </button>
           )}
-          <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
-          <button
-            type="button"
-            className="btn btn--outline"
-            title="Back to focus view"
-            onClick={() => onSetViewMode('single')}
-          >
-            LIST VIEW
-          </button>
+          <ViewToggle mode="grid" onChange={onSetViewMode} />
+          <div className="grid-topbar__tools">
+            <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
+            <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
+              <Icon name="broadcast" />
+            </button>
+            <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
+              <Icon name="chart" />
+            </button>
+            <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
+              <Icon name="settings" />
+            </button>
+          </div>
         </div>
       </div>
 

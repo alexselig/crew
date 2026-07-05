@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
 import { StatusTag } from './StatusTag'
 import { EditableLabel } from './EditableLabel'
@@ -8,6 +8,7 @@ import { Since } from './Since'
 import { TerminalView } from './TerminalView'
 import { AssetsPanel } from './AssetsPanel'
 import { SkillsBar } from './SkillsBar'
+import { TagChip } from './TagChip'
 import { focusTerminal } from '../terminal-pool'
 
 interface Props {
@@ -20,72 +21,11 @@ interface Props {
   groups: string[]
   onRename: (id: string, label: string) => void
   onSetCharacter: (id: string, characterId: string) => void
+  onSetColor: (id: string, color: string) => void
   onSetTag: (id: string, tag: string) => void
   onRestart: (id: string) => void
   onClose: (id: string) => void
   onNew: () => void
-}
-
-function TagChip({
-  tag,
-  groups,
-  onCommit
-}: {
-  tag?: string
-  groups: string[]
-  onCommit: (t: string) => void
-}): JSX.Element {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(tag ?? '')
-  const ref = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    if (editing) {
-      setDraft(tag ?? '')
-      requestAnimationFrame(() => {
-        ref.current?.focus()
-        ref.current?.select()
-      })
-    }
-  }, [editing, tag])
-  function commit(): void {
-    setEditing(false)
-    const v = draft.trim()
-    if (v !== (tag ?? '')) onCommit(v)
-  }
-  if (editing) {
-    return (
-      <>
-        <input
-          ref={ref}
-          className="tag-chip tag-chip--input"
-          value={draft}
-          placeholder="group"
-          list="crew-group-list"
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') commit()
-            else if (e.key === 'Escape') setEditing(false)
-          }}
-        />
-        <datalist id="crew-group-list">
-          {groups.map((g) => (
-            <option key={g} value={g} />
-          ))}
-        </datalist>
-      </>
-    )
-  }
-  return (
-    <button
-      type="button"
-      className={`tag-chip ${tag ? '' : 'tag-chip--empty'}`}
-      title="Assign this session to a group"
-      onClick={() => setEditing(true)}
-    >
-      {tag ? tag : '＋ group'}
-    </button>
-  )
 }
 
 export function SessionView({
@@ -96,6 +36,7 @@ export function SessionView({
   groups,
   onRename,
   onSetCharacter,
+  onSetColor,
   onSetTag,
   onRestart,
   onClose,
@@ -134,12 +75,14 @@ export function SessionView({
       <header className="session-header">
         <CharacterPicker
           variant="mascot"
-          size={34}
+          size={48}
           state={session.state}
+          color={session.color}
           characters={characters}
           currentId={session.characterId}
           usedIds={usedCharacterIds}
           onPick={(cid) => onSetCharacter(session.id, cid)}
+          onSetColor={(col) => onSetColor(session.id, col)}
         />
         <div className="session-header__id">
           <div className="session-header__titlerow">
@@ -228,12 +171,13 @@ export function SessionView({
         </div>
       )}
 
-      {active && <SkillsBar sessionId={session.id} agent={session.command} />}
-
       <div className={`session-body ${active ? 'session-body--split' : ''}`}>
         {active ? (
           <>
-            <TerminalView id={session.id} key={session.id} />
+            <div className="term-wrap">
+              <TerminalView id={session.id} key={session.id} />
+              <SkillsBar sessionId={session.id} agent={session.command} />
+            </div>
             <AssetsPanel sessionId={session.id} />
           </>
         ) : (

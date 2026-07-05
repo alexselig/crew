@@ -7,23 +7,21 @@ import type { CharacterDef } from '../shared/types'
 
 export const CHARACTERS: CharacterDef[] = [
   { id: 'fox', name: 'Fox', glyph: '🦊', color: '#e8833a' },
+  { id: 'bear', name: 'Bear', glyph: '🐻', color: '#8a5a2b' },
+  { id: 'deer', name: 'Deer', glyph: '🦌', color: '#a9744e' },
   { id: 'owl', name: 'Owl', glyph: '🦉', color: '#b08968' },
-  { id: 'otter', name: 'Otter', glyph: '🦦', color: '#9c7a5b' },
-  { id: 'cat', name: 'Cat', glyph: '🐱', color: '#c9a227' },
-  { id: 'frog', name: 'Frog', glyph: '🐸', color: '#5fb85f' },
-  { id: 'octopus', name: 'Octopus', glyph: '🐙', color: '#d16ba5' },
-  { id: 'penguin', name: 'Penguin', glyph: '🐧', color: '#6c8ebf' },
-  { id: 'bee', name: 'Bee', glyph: '🐝', color: '#e0b000' },
-  { id: 'wolf', name: 'Wolf', glyph: '🐺', color: '#8a94a6' },
-  { id: 'panda', name: 'Panda', glyph: '🐼', color: '#9aa0a6' },
-  { id: 'crab', name: 'Crab', glyph: '🦀', color: '#e05a4a' },
-  { id: 'unicorn', name: 'Unicorn', glyph: '🦄', color: '#b892ff' },
-  { id: 'dragon', name: 'Dragon', glyph: '🐲', color: '#4caf7d' },
-  { id: 'robot', name: 'Robot', glyph: '🤖', color: '#7aa2f7' },
+  { id: 'rabbit', name: 'Rabbit', glyph: '🐰', color: '#b8b2a8' },
+  { id: 'squirrel', name: 'Squirrel', glyph: '🐿️', color: '#c56b3e' },
+  { id: 'raccoon', name: 'Raccoon', glyph: '🦝', color: '#8b8b8b' },
   { id: 'hedgehog', name: 'Hedgehog', glyph: '🦔', color: '#b5835a' },
+  { id: 'lion', name: 'Lion', glyph: '🦁', color: '#d1a33a' },
+  { id: 'monkey', name: 'Monkey', glyph: '🐵', color: '#9c6b4a' },
+  { id: 'frog', name: 'Frog', glyph: '🐸', color: '#5fb85f' },
+  { id: 'elephant', name: 'Elephant', glyph: '🐘', color: '#9098a0' },
   { id: 'koala', name: 'Koala', glyph: '🐨', color: '#9ba7b0' },
-  { id: 'parrot', name: 'Parrot', glyph: '🦜', color: '#43b581' },
-  { id: 'raccoon', name: 'Raccoon', glyph: '🦝', color: '#8b8b8b' }
+  { id: 'panda', name: 'Panda', glyph: '🐼', color: '#9aa0a6' },
+  { id: 'penguin', name: 'Penguin', glyph: '🐧', color: '#6c8ebf' },
+  { id: 'duck', name: 'Duck', glyph: '🦆', color: '#e0b84a' }
 ]
 
 export function getCharacter(id: string): CharacterDef | undefined {

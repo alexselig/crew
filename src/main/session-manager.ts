@@ -17,6 +17,7 @@ import type { SessionInfo, CreateSessionRequest, SessionState } from '../shared/
 import type { ActivityEvent } from '../shared/api'
 import { getPreset } from './presets'
 import { pickCharacter } from './characters'
+import { randomCharacterColor, fallbackCharacterColor } from '../shared/palette'
 import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
 
@@ -79,7 +80,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id: string; characterId: string; extraArgs?: string[]; tag?: string }
+    restore?: { id: string; characterId: string; color?: string; extraArgs?: string[]; tag?: string }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || process.env.SHELL || '/bin/zsh'
@@ -96,6 +97,7 @@ export class SessionManager extends EventEmitter {
     )
     const saved = this.store.getAssignment(key)
     const characterId = restore?.characterId ?? pickCharacter(usedChars, saved?.characterId)
+    const color = restore?.color ?? randomCharacterColor()
 
     const base = cwd.split('/').filter(Boolean).pop() || 'session'
     const label =
@@ -107,6 +109,7 @@ export class SessionManager extends EventEmitter {
       id,
       label,
       characterId,
+      color,
       presetId: req.presetId,
       command,
       args,
@@ -291,6 +294,15 @@ export class SessionManager extends EventEmitter {
     this.persistSessions()
   }
 
+  setColor(id: string, color: string): void {
+    const m = this.sessions.get(id)
+    if (!m) return
+    if (m.info.color === color) return
+    m.info.color = color
+    this.emitRoster()
+    this.persistSessions()
+  }
+
   /** Apply an explicit display order (drag-to-reorder). Unknown ids are ignored;
    * any existing sessions not listed are kept at the end. */
   reorder(orderedIds: string[]): void {
@@ -339,17 +351,19 @@ export class SessionManager extends EventEmitter {
       label: m.info.label
     }
     const character = m.info.characterId
+    const color = m.info.color
     const idx = [...this.sessions.keys()].indexOf(id)
     this.close(id)
     const info = this.create(req)
     this.setCharacter(info.id, character)
+    this.setColor(info.id, color)
     // Keep the restarted session in its original roster position.
     if (idx >= 0) {
       const ids = [...this.sessions.keys()].filter((x) => x !== info.id)
       ids.splice(idx, 0, info.id)
       this.reorder(ids)
     }
-    return { ...info, characterId: character }
+    return { ...info, characterId: character, color }
   }
 
   disposeAll(): void {
@@ -385,6 +399,7 @@ export class SessionManager extends EventEmitter {
         cwd: m.info.cwd,
         label: m.info.label,
         characterId: m.info.characterId,
+        color: m.info.color,
         tag: m.info.tag
       }))
     this.store.saveSessions(list)
@@ -403,7 +418,13 @@ export class SessionManager extends EventEmitter {
       const extraArgs = resume ? preset?.resumeArgs ?? [] : []
       return this.create(
         { presetId: p.presetId, command: p.command, args: p.args, cwd: p.cwd, label: p.label },
-        { id: p.id, characterId: p.characterId, extraArgs, tag: p.tag }
+        {
+          id: p.id,
+          characterId: p.characterId,
+          color: p.color ?? fallbackCharacterColor(p.id),
+          extraArgs,
+          tag: p.tag
+        }
       )
     })
   }

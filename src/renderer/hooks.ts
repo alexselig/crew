@@ -7,7 +7,7 @@ export type ViewMode = 'single' | 'grid'
 
 const NAV_MIN = 200
 const NAV_MAX = 520
-const NAV_DEFAULT = 320
+const NAV_DEFAULT = 300
 
 export interface CrewState {
   roster: SessionInfo[]

@@ -5,6 +5,7 @@ import { formatUsd, formatCredits } from '../state-meta'
 import { SessionCard } from './SessionCard'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
+import { ViewToggle } from './ViewToggle'
 import { groupSessions, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
@@ -136,30 +137,33 @@ export function Roster(props: Props): JSX.Element {
       <div className="roster__header">
         {collapsed ? (
           <div className="roster__collapsed-head">
-            {viewMode === 'grid' ? (
+            <div className="roster__collapsed-top">
+              <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
+                <Icon name="settings" />
+              </button>
               <button
                 type="button"
                 className="icon-btn"
-                title="Switch to focus view"
-                onClick={() => onSetViewMode('single')}
+                title={viewMode === 'grid' ? 'Focus view' : 'Grid view'}
+                onClick={() => {
+                  if (viewMode === 'grid') {
+                    onSetCollapsed(false)
+                    onSetViewMode('single')
+                  } else {
+                    onSetViewMode('grid')
+                  }
+                }}
               >
-                <Icon name="focus" />
+                <Icon name={viewMode === 'grid' ? 'columns' : 'grid'} />
               </button>
-            ) : (
-              <button
-                type="button"
-                className="icon-btn"
-                title="Expand sidebar"
-                onClick={() => onSetCollapsed(false)}
-              >
-                »
-              </button>
-            )}
-            <button type="button" className="icon-btn icon-btn--accent" title="New session" onClick={onNew}>
+            </div>
+            <button
+              type="button"
+              className="icon-btn icon-btn--accent roster__new-tile"
+              title="New session"
+              onClick={onNew}
+            >
               ＋
-            </button>
-            <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
-              <Icon name="settings" />
             </button>
           </div>
         ) : (
@@ -197,28 +201,7 @@ export function Roster(props: Props): JSX.Element {
             </button>
 
             <div className="roster__toolbar">
-              <div className="view-toggle" role="tablist" aria-label="View mode">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={viewMode === 'single'}
-                  className={`view-toggle__btn ${viewMode === 'single' ? 'is-active' : ''}`}
-                  title="Focus view"
-                  onClick={() => onSetViewMode('single')}
-                >
-                  <Icon name="columns" size={14} />
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={viewMode === 'grid'}
-                  className={`view-toggle__btn ${viewMode === 'grid' ? 'is-active' : ''}`}
-                  title="Grid view"
-                  onClick={() => onSetViewMode('grid')}
-                >
-                  <Icon name="grid" size={14} />
-                </button>
-              </div>
+              <ViewToggle mode={viewMode} onChange={onSetViewMode} />
               <div className="roster__tools">
                 <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
                 <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>

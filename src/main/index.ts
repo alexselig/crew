@@ -172,6 +172,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.SESSION_SET_CHARACTER, (_e, p: { id: string; characterId: string }) =>
     manager.setCharacter(p.id, p.characterId)
   )
+  ipcMain.handle(IPC.SESSION_SET_COLOR, (_e, p: { id: string; color: string }) =>
+    manager.setColor(p.id, p.color)
+  )
   ipcMain.handle(IPC.SESSION_SET_TAG, (_e, p: { id: string; tag: string }) =>
     manager.setTag(p.id, p.tag)
   )

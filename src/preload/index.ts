@@ -18,6 +18,7 @@ const api: CrewAPI = {
   rename: (id, label) => ipcRenderer.invoke(IPC.SESSION_RENAME, { id, label }),
   setCharacter: (id, characterId) =>
     ipcRenderer.invoke(IPC.SESSION_SET_CHARACTER, { id, characterId }),
+  setColor: (id, color) => ipcRenderer.invoke(IPC.SESSION_SET_COLOR, { id, color }),
   setTag: (id, tag) => ipcRenderer.invoke(IPC.SESSION_SET_TAG, { id, tag }),
   reorder: (orderedIds) => ipcRenderer.invoke(IPC.SESSION_REORDER, orderedIds),
   getRoster: () => ipcRenderer.invoke(IPC.ROSTER_GET),

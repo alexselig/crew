@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   SKILLS,
   loadFavorites,
@@ -9,6 +9,7 @@ import {
   type Skill
 } from '../skills'
 import { focusTerminal } from '../terminal-pool'
+import { Icon } from './Icon'
 
 interface Props {
   sessionId: string
@@ -31,6 +32,7 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
   const [query, setQuery] = useState('')
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ name: '', invoke: '', description: '' })
+  const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setFavorites(loadFavorites())
@@ -38,6 +40,23 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
   }, [])
 
   useEffect(() => setArmedId(null), [sessionId])
+
+  // Close the menu on outside click / Escape.
+  useEffect(() => {
+    if (!expanded) return
+    function onDoc(e: MouseEvent): void {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setExpanded(false)
+    }
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setExpanded(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [expanded])
 
   // Load the skills actually installed for this session's agent (Copilot/Claude).
   useEffect(() => {
@@ -111,118 +130,109 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
     if (armedId === id) setArmedId(null)
   }
 
-  if (!expanded) {
-    return (
-      <div className="skills-bar skills-bar--min">
-        <button
-          type="button"
-          className="skill-chip skill-chip--toggle"
-          onClick={() => setExpanded(true)}
-          title="Open skills"
-        >
-          ⚡ Skills
-        </button>
-      </div>
-    )
-  }
-
   return (
-    <div className="skills-bar">
-      <div className="skills-bar__top">
-        <button
-          type="button"
-          className="skill-chip skill-chip--toggle is-open"
-          onClick={() => {
-            setExpanded(false)
-            setArmedId(null)
-            setAdding(false)
-          }}
-          title="Minimize"
-        >
-          ⚡ Skills ▾
-        </button>
-        <input
-          className="skills-bar__search"
-          placeholder="Filter…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Filter skills"
-        />
-        <div className="skills-bar__chips">
-          {ordered.map((sk) => (
+    <div className={`skills-menu ${expanded ? 'is-open' : ''}`} ref={rootRef}>
+      <button
+        type="button"
+        className="btn btn--outline skills-menu__toggle"
+        onClick={() => {
+          setExpanded((v) => !v)
+          setArmedId(null)
+          setAdding(false)
+        }}
+        aria-expanded={expanded}
+        title="Skills"
+      >
+        <Icon name="zap" size={13} />
+        Skills
+      </button>
+
+      {expanded && (
+        <div className="skills-menu__panel">
+          <input
+            className="skills-bar__search"
+            placeholder="Filter…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Filter skills"
+            autoFocus
+          />
+          <div className="skills-menu__chips">
+            {ordered.map((sk) => (
+              <button
+                type="button"
+                key={sk.id}
+                className={`skill-chip ${armedId === sk.id ? 'is-armed' : ''} ${
+                  favSet.has(sk.id) ? 'is-fav' : ''
+                }`}
+                onClick={() => onChip(sk)}
+                title={sk.description}
+              >
+                {favSet.has(sk.id) && <span className="skill-chip__star">★</span>}
+                {sk.name}
+                {armedId === sk.id && <span className="skill-chip__go">↵</span>}
+              </button>
+            ))}
             <button
               type="button"
-              key={sk.id}
-              className={`skill-chip ${armedId === sk.id ? 'is-armed' : ''} ${
-                favSet.has(sk.id) ? 'is-fav' : ''
-              }`}
-              onClick={() => onChip(sk)}
-              title={sk.description}
+              className="skill-chip skill-chip--add"
+              onClick={() => setAdding((v) => !v)}
+              title="Add a custom skill"
             >
-              {favSet.has(sk.id) && <span className="skill-chip__star">★</span>}
-              {sk.name}
-              {armedId === sk.id && <span className="skill-chip__go">↵</span>}
+              ＋ Add
             </button>
-          ))}
-          <button
-            type="button"
-            className="skill-chip skill-chip--add"
-            onClick={() => setAdding((v) => !v)}
-            title="Add a custom skill"
-          >
-            ＋ Add
-          </button>
-        </div>
-      </div>
-
-      {adding && (
-        <div className="skill-add">
-          <input
-            className="skill-add__input"
-            placeholder="Name (e.g. Deploy)"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-          <input
-            className="skill-add__input"
-            placeholder="use ___ to  (token)"
-            value={form.invoke}
-            onChange={(e) => setForm({ ...form, invoke: e.target.value })}
-          />
-          <input
-            className="skill-add__input skill-add__input--desc"
-            placeholder="Description (optional)"
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-          />
-          <button type="button" className="btn btn--primary" onClick={addSkill} disabled={!form.name.trim()}>
-            Add
-          </button>
-        </div>
-      )}
-
-      {armed && (
-        <div className="skills-bar__desc">
-          <div className="skills-bar__desc-body">
-            <span className="skills-bar__desc-name">{armed.name}</span>
-            <span className="skills-bar__desc-text">{armed.description}</span>
           </div>
-          <button
-            type="button"
-            className="icon-btn"
-            title={favSet.has(armed.id) ? 'Unfavorite' : 'Favorite'}
-            onClick={() => toggleFavorite(armed.id)}
-          >
-            {favSet.has(armed.id) ? '★' : '☆'}
-          </button>
-          {armed.custom && (
-            <button type="button" className="icon-btn" title="Remove skill" onClick={() => removeSkill(armed.id)}>
-              🗑
-            </button>
+
+          {adding && (
+            <div className="skill-add">
+              <input
+                className="skill-add__input"
+                placeholder="Name (e.g. Deploy)"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+              <input
+                className="skill-add__input"
+                placeholder="use ___ to  (token)"
+                value={form.invoke}
+                onChange={(e) => setForm({ ...form, invoke: e.target.value })}
+              />
+              <input
+                className="skill-add__input skill-add__input--desc"
+                placeholder="Description (optional)"
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+              />
+              <button type="button" className="btn btn--primary" onClick={addSkill} disabled={!form.name.trim()}>
+                Add
+              </button>
+            </div>
           )}
-          <button type="button" className="btn btn--primary skills-bar__invoke" onClick={() => invoke(armed)}>
-            Invoke · “use {armed.invoke} to …”
-          </button>
+
+          {armed && (
+            <div className="skills-bar__desc">
+              <div className="skills-bar__desc-body">
+                <span className="skills-bar__desc-name">{armed.name}</span>
+                <span className="skills-bar__desc-text">{armed.description}</span>
+              </div>
+              <button
+                type="button"
+                className="icon-btn"
+                title={favSet.has(armed.id) ? 'Unfavorite' : 'Favorite'}
+                onClick={() => toggleFavorite(armed.id)}
+              >
+                {favSet.has(armed.id) ? '★' : '☆'}
+              </button>
+              {armed.custom && (
+                <button type="button" className="icon-btn" title="Remove skill" onClick={() => removeSkill(armed.id)}>
+                  🗑
+                </button>
+              )}
+              <button type="button" className="btn btn--primary skills-bar__invoke" onClick={() => invoke(armed)}>
+                Invoke · “use {armed.invoke} to …”
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

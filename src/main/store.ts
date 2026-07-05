@@ -23,6 +23,7 @@ export interface PersistedSession {
   cwd: string
   label: string
   characterId: string
+  color?: string
   tag?: string
 }
 

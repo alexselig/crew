@@ -79,6 +79,8 @@ export interface SessionInfo {
   id: string
   label: string
   characterId: string
+  /** Identity color (one of CHARACTER_COLORS) that tints the illustrated face. */
+  color: string
   presetId: string | null
   command: string
   args: string[]
@@ -137,6 +139,7 @@ export const IPC = {
   SESSION_RESIZE: 'session:resize',
   SESSION_RENAME: 'session:rename',
   SESSION_SET_CHARACTER: 'session:setCharacter',
+  SESSION_SET_COLOR: 'session:setColor',
   SESSION_SET_TAG: 'session:setTag',
   SESSION_REORDER: 'session:reorder',
   ROSTER_GET: 'roster:get',
