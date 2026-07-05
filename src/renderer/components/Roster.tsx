@@ -138,24 +138,24 @@ export function Roster(props: Props): JSX.Element {
         {collapsed ? (
           <div className="roster__collapsed-head">
             <div className="roster__collapsed-top">
-              <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
-                <Icon name="settings" />
-              </button>
               <button
                 type="button"
                 className="icon-btn"
                 title={viewMode === 'grid' ? 'Focus view' : 'Grid view'}
-                onClick={() => {
-                  if (viewMode === 'grid') {
-                    onSetCollapsed(false)
-                    onSetViewMode('single')
-                  } else {
-                    onSetViewMode('grid')
-                  }
-                }}
+                onClick={() => onSetViewMode(viewMode === 'grid' ? 'single' : 'grid')}
               >
                 <Icon name={viewMode === 'grid' ? 'columns' : 'grid'} />
               </button>
+              {viewMode === 'single' && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Expand sidebar"
+                  onClick={() => onSetCollapsed(false)}
+                >
+                  <Icon name="chevrons-right" />
+                </button>
+              )}
             </div>
             <button
               type="button"

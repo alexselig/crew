@@ -13,6 +13,7 @@ interface IconProps {
     | 'columns'
     | 'settings'
     | 'chevrons-left'
+    | 'chevrons-right'
     | 'chevron-down'
     | 'zap'
   size?: number
@@ -81,6 +82,12 @@ const PATHS: Record<IconProps['name'], JSX.Element> = {
     <>
       <polyline points="11 17 6 12 11 7" />
       <polyline points="18 17 13 12 18 7" />
+    </>
+  ),
+  'chevrons-right': (
+    <>
+      <polyline points="13 17 18 12 13 7" />
+      <polyline points="6 17 11 12 6 7" />
     </>
   ),
   // Single chevron pointing down: disclosure toggle.
