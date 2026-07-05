@@ -1,5 +1,6 @@
-// Character color palette — 16 vivid rainbow hues offered when personalizing a
-// session's character. Bright enough to read against the near-black Obsidian bg.
+// Character color palette — 15 vivid rainbow hues plus a neutral grey, offered
+// when personalizing a session's character. Bright enough to read against the
+// near-black Obsidian bg.
 // Used in main (random default at session creation) and the renderer color picker.
 
 export const CHARACTER_COLORS: string[] = [
@@ -13,12 +14,12 @@ export const CHARACTER_COLORS: string[] = [
   '#34d0c3', // teal
   '#37c0e6', // cyan
   '#4aa8ff', // sky
-  '#5f79ff', // indigo
   '#8a6dff', // violet
   '#b57cff', // purple
   '#d86fe0', // magenta
   '#ff6fb5', // pink
-  '#ff6f8f' // rose
+  '#ff6f8f', // rose
+  '#9aa4ad' // grey
 ]
 
 /** A random color for a brand-new session's character. */

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Preset, CreateSessionRequest, SessionSet } from '../../shared/types'
 import type { AgentStatus } from '../../shared/api'
+import { SessionSetChips } from './SessionSetChips'
 
 interface Props {
   presets: Preset[]
@@ -83,32 +84,15 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
 
         <div className="sets">
           <span className="field__label">Project sets</span>
-          <div className="sets__row">
-            {sets.length === 0 && <span className="sets__empty">None saved yet</span>}
-            {sets.map((s) => (
-              <span key={s.name} className="set-chip">
-                <button
-                  type="button"
-                  className="set-chip__launch"
-                  title={`Launch ${s.sessions.length} session(s)`}
-                  onClick={() => {
-                    void window.crew.launchSet(s.name)
-                    onCancel()
-                  }}
-                >
-                  ▶ {s.name} · {s.sessions.length}
-                </button>
-                <button
-                  type="button"
-                  className="set-chip__x"
-                  title="Delete set"
-                  onClick={() => void window.crew.deleteSet(s.name).then(setSets)}
-                >
-                  ✕
-                </button>
-              </span>
-            ))}
-          </div>
+          <SessionSetChips
+            sets={sets}
+            emptyText="None saved yet"
+            onLaunch={(name) => {
+              void window.crew.launchSet(name)
+              onCancel()
+            }}
+            onDelete={(name) => void window.crew.deleteSet(name).then(setSets)}
+          />
           <div className="sets__save">
             <input
               className="field__input"

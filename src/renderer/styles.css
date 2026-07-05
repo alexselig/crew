@@ -155,8 +155,7 @@ button {
 }
 
 .roster--collapsed .roster__toolbar {
-  justify-content: center;
-  padding: 10px 8px;
+  padding: 10px 14px;
 }
 
 .roster__tools {
@@ -221,6 +220,12 @@ button {
    padding, so a plain grid gap reads as too wide. */
 .card > .character {
   margin-right: -6px;
+}
+
+/* Compact (rail) cards center the mascot, so drop the label-pull negative
+   margin that would otherwise push the icon a few px right of center. */
+.card--compact > .character {
+  margin-right: 0;
 }
 
 .card:hover {
@@ -398,9 +403,16 @@ button {
   min-width: 0;
 }
 
+/* Match the nav card's icon→title spacing: cancel the header's 12px flex gap
+   between the mascot and the title block, mirroring `.card > .character`'s pull
+   so the title hugs the icon exactly as it does on the nav cards. */
+.session-header .char-picker--mascot {
+  margin-right: -12px;
+}
+
 .session-header__titlerow {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   min-width: 0;
 }
@@ -430,9 +442,13 @@ button {
   transform: rotate(180deg);
 }
 
-.session-header__label {
+/* The title bar always shows the SELECTED session, so match its size/weight to
+   that session's (selected) nav card name — see `.card.is-selected .card__name`,
+   which drops to 700. Scoped under .session-header so it outweighs the
+   `.editable-label { font: inherit }` reset. */
+.session-header .session-header__label {
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--ivory);
 }
 
@@ -883,6 +899,27 @@ button {
   line-height: 1.5;
 }
 
+/* Launch-screen "resume a set" chips, centered under the New Session button. */
+.empty__resume {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.empty__resume-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.empty__resume .sets__row {
+  justify-content: center;
+}
+
 .exited-pane {
   position: absolute;
   inset: 0;
@@ -1043,8 +1080,10 @@ button {
 .roster__footer-total {
   font-size: 14px;
   font-weight: 700;
+  line-height: 18px;
   color: var(--text);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ---------- View toggle ---------- */
@@ -1366,7 +1405,7 @@ button {
   flex: 0 1 auto;
   min-width: 0;
   font-weight: 800;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   color: var(--ivory);
   white-space: nowrap;
@@ -1895,19 +1934,24 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
 }
 
 /* Expand-sidebar button pinned to the right, above the New Session tile. */
 /* Enlarged "new session" tile: same height/shape as the expanded button. */
 .roster__new-tile {
-  font-size: 18px;
+  font-size: 10.5px;
   letter-spacing: normal;
 }
 
+/* Match the add-session tile width so the two stacked rail controls align. */
+.roster--collapsed .roster__expand {
+  width: 100%;
+}
+
 .roster--collapsed .roster__list {
-  padding: 8px;
+  padding: 2px 8px;
   gap: 2px;
   overflow-x: hidden;
 }
@@ -1933,7 +1977,15 @@ button {
 
 .roster--collapsed .roster__footer {
   justify-content: center;
-  padding: 10px 6px;
+  padding: 14px 6px;
+  overflow: hidden;
+}
+
+/* Collapsed rail is only ~84px wide: shrink the total (the shared line-box
+   height keeps the toolbar above it from shifting) and keep it on one line so a
+   6-digit credit count (e.g. 123,456 cr) fits without wrapping. */
+.roster--collapsed .roster__footer-total {
+  font-size: 11px;
 }
 
 /* ---------- Groups / tags ---------- */
@@ -2599,4 +2651,213 @@ button {
 
 .asset:hover .asset__insert {
   opacity: 1;
+}
+
+/* ---------- Title launch sequence ---------- */
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: radial-gradient(120% 120% at 50% 46%, #141518 0%, #0a0a0b 58%);
+  opacity: 1;
+  transition: opacity 600ms ease;
+  cursor: pointer;
+}
+
+.intro--reveal {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.intro__field {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Each icon: positioner translates from its scattered spot to dead-center; the
+   inner element self-centers and shrinks to nothing, so it collapses behind the
+   logo. Both transitions run together for the "all at the same time" fly-in. */
+.intro__icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(var(--tx), var(--ty));
+  transition: transform var(--dur, 1000ms) cubic-bezier(0.5, 0, 0.85, 0.4);
+  will-change: transform;
+}
+
+.intro__icon-inner {
+  display: block;
+  color: rgba(242, 241, 234, 0.16);
+  transform: translate(-50%, -50%) scale(1);
+  transform-origin: center;
+  transition:
+    transform var(--dur, 1000ms) cubic-bezier(0.5, 0, 0.85, 0.4),
+    color var(--dur, 1000ms) ease-in;
+}
+
+.intro__icon-inner .character__art {
+  display: block;
+}
+
+.intro--converge .intro__icon,
+.intro--grow .intro__icon,
+.intro--settle .intro__icon,
+.intro--reveal .intro__icon {
+  transform: translate(0, 0);
+}
+
+/* As they fly in, icons ignite from faint white to a random icon-set color,
+   reaching full color exactly as the movement ends (shrunk behind the logo). */
+.intro--converge .intro__icon-inner,
+.intro--grow .intro__icon-inner,
+.intro--settle .intro__icon-inner,
+.intro--reveal .intro__icon-inner {
+  transform: translate(-50%, -50%) scale(0);
+  color: var(--tint, rgba(242, 241, 234, 0.16));
+}
+
+.intro__logo {
+  position: relative;
+  z-index: 2;
+  pointer-events: none;
+  transform: scale(1);
+  transition: transform 420ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+/* Zoom in 10% on "grow"; "settle"/"reveal" carry no scale override, so the logo
+   transitions back to its original size before the app is revealed — and snaps
+   back faster than it grew. */
+.intro--grow .intro__logo {
+  transform: scale(1.1);
+}
+
+.intro--settle .intro__logo,
+.intro--reveal .intro__logo {
+  transition-duration: 200ms;
+}
+
+/* "click to start" prompt — small, centered near the bottom. Pulses while the
+   poster waits for input, then fades out the moment the animation starts. */
+.intro__start {
+  position: absolute;
+  left: 50%;
+  bottom: calc(8vh + 30px);
+  transform: translateX(-50%);
+  z-index: 3;
+  pointer-events: none;
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  color: rgba(242, 241, 234, 0.55);
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.intro--idle .intro__start {
+  animation: intro-start-pulse 1.9s ease-in-out infinite;
+}
+
+@keyframes intro-start-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intro,
+  .intro__icon,
+  .intro__icon-inner,
+  .intro__logo {
+    transition-duration: 300ms;
+  }
+  .intro--idle .intro__start {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* ---------- Crew brand lockup ---------- */
+.crew-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(14px, 2.4vh, 26px);
+  color: var(--ivory);
+  user-select: none;
+}
+
+.crew-logo__word {
+  font-family: 'Newsreader', Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(66px, 12vw, 128px);
+  line-height: 0.9;
+  letter-spacing: 0.01em;
+}
+
+.crew-logo__divider {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: min(340px, 52vw);
+}
+
+.crew-logo__rule {
+  flex: 1;
+  height: 1px;
+}
+
+.crew-logo__divider .crew-logo__rule:first-child {
+  background: linear-gradient(to right, transparent, rgba(242, 241, 234, 0.45));
+}
+
+.crew-logo__divider .crew-logo__rule:last-child {
+  background: linear-gradient(to left, transparent, rgba(242, 241, 234, 0.45));
+}
+
+.crew-logo__term {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--ivory);
+}
+
+.crew-logo__term svg {
+  display: block;
+}
+
+.crew-logo__tag {
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+  font-weight: 400;
+  font-size: clamp(12px, 1.4vw, 16px);
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+  color: rgba(242, 241, 234, 0.82);
+}
+
+/* Clickable wordmarks replay the title sequence. */
+button.roster__wordmark,
+button.grid-topbar__wordmark {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+button.roster__wordmark:hover,
+button.grid-topbar__wordmark:hover {
+  opacity: 0.66;
 }

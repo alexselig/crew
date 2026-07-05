@@ -10,6 +10,7 @@ import { BroadcastModal } from './components/BroadcastModal'
 import { AnalyticsModal } from './components/AnalyticsModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
+import { TitleSequence } from './components/TitleSequence'
 import { focusTerminal } from './terminal-pool'
 import { existingGroups } from './grouping'
 import { NEEDS_YOU } from '../shared/types'
@@ -23,8 +24,20 @@ export function App(): JSX.Element {
   const [showBroadcast, setShowBroadcast] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [showTranscripts, setShowTranscripts] = useState(false)
+  // The title launch sequence plays on boot (waiting for a "click to start")
+  // and replays on logo click. Skipped under automation (Playwright e2e) so it
+  // never blocks the tests, which drive the app directly.
+  const [showIntro, setShowIntro] = useState(
+    () => typeof navigator === 'undefined' || !navigator.webdriver
+  )
   const anyOverlay =
-    showSettings || showPalette || showBroadcast || showAnalytics || showTranscripts || c.showNew
+    showSettings ||
+    showPalette ||
+    showBroadcast ||
+    showAnalytics ||
+    showTranscripts ||
+    showIntro ||
+    c.showNew
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
   const usedCharacterIds = c.roster
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
@@ -151,6 +164,7 @@ export function App(): JSX.Element {
         onReorderGroups={c.reorderGroups}
         onSelect={c.setSelectedId}
         onNew={() => c.setShowNew(true)}
+        onReplayIntro={() => setShowIntro(true)}
         onOpenSettings={() => setShowSettings(true)}
         onBroadcast={() => setShowBroadcast(true)}
         onAnalytics={() => setShowAnalytics(true)}
@@ -178,6 +192,7 @@ export function App(): JSX.Element {
           onExpand={focusSession}
           onClose={close}
           onNew={() => c.setShowNew(true)}
+          onReplayIntro={() => setShowIntro(true)}
           onSetViewMode={c.setViewMode}
           onOpenSettings={() => setShowSettings(true)}
           onBroadcast={() => setShowBroadcast(true)}
@@ -240,6 +255,8 @@ export function App(): JSX.Element {
           onClose={() => setShowTranscripts(false)}
         />
       )}
+
+      {showIntro && <TitleSequence onDone={() => setShowIntro(false)} />}
     </div>
   )
 }

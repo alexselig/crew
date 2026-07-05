@@ -1,7 +1,6 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
-import { NEEDS_YOU } from '../../shared/types'
 import { formatUsd, formatCredits } from '../state-meta'
 import { SessionCard } from './SessionCard'
 import { GroupPicker } from './GroupPicker'
@@ -32,6 +31,7 @@ interface Props {
   onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
   onNew: () => void
+  onReplayIntro?: () => void
   onOpenSettings: () => void
   onBroadcast: () => void
   onAnalytics: () => void
@@ -65,6 +65,7 @@ export function Roster(props: Props): JSX.Element {
     onReorderGroups,
     onSelect,
     onNew,
+    onReplayIntro,
     onOpenSettings,
     onBroadcast,
     onAnalytics,
@@ -77,7 +78,6 @@ export function Roster(props: Props): JSX.Element {
     onSetTag
   } = props
 
-  const waiting = roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
   const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
   const totalCredits = roster.reduce((sum, s) => sum + (s.creditsUsed || 0), 0)
   const overBudget = budgetUsd > 0 && totalUsd >= budgetUsd
@@ -184,22 +184,18 @@ export function Roster(props: Props): JSX.Element {
         ) : (
           <>
             <div className="roster__titlebar">
-              <span className="roster__wordmark">Crew</span>
+              <button
+                type="button"
+                className="roster__wordmark"
+                title="Replay intro"
+                onClick={onReplayIntro}
+              >
+                Crew
+              </button>
               <div className="roster__titlebar-right">
-                {waiting.length > 0 ? (
-                  <button
-                    type="button"
-                    className="status status--attention roster__waiting"
-                    title={`${waiting.length} waiting for you — group by attention`}
-                    onClick={() => onSetGroupMode('needs')}
-                  >
-                    {waiting.length} WAITING
-                  </button>
-                ) : (
-                  <span className="roster__count">
-                    {roster.length} {roster.length === 1 ? 'SESSION' : 'SESSIONS'}
-                  </span>
-                )}
+                <span className="roster__count">
+                  {roster.length} {roster.length === 1 ? 'SESSION' : 'SESSIONS'}
+                </span>
                 <button
                   type="button"
                   className="icon-btn roster__collapse"

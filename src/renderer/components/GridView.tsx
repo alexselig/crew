@@ -3,6 +3,7 @@ import { NEEDS_YOU } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
+import { ResumeSets } from './ResumeSets'
 import { formatUsd, formatCredits } from '../state-meta'
 import { groupSessions, existingGroups, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
@@ -23,6 +24,7 @@ interface Props {
   onExpand: (id: string) => void
   onClose: (id: string) => void
   onNew: () => void
+  onReplayIntro?: () => void
   onSetViewMode: (m: ViewMode) => void
   onOpenSettings: () => void
   onBroadcast: () => void
@@ -49,6 +51,7 @@ export function GridView({
   onExpand,
   onClose,
   onNew,
+  onReplayIntro,
   onOpenSettings,
   onBroadcast,
   onAnalytics,
@@ -82,6 +85,7 @@ export function GridView({
           <button type="button" className="btn btn--primary btn--lg" onClick={onNew}>
             ＋ New Session
           </button>
+          <ResumeSets />
         </div>
       </main>
     )
@@ -124,7 +128,14 @@ export function GridView({
     <main className="gridview">
       <div className="grid-topbar">
         <div className="grid-topbar__left">
-          <span className="grid-topbar__wordmark">Crew</span>
+          <button
+            type="button"
+            className="grid-topbar__wordmark"
+            title="Replay intro"
+            onClick={onReplayIntro}
+          >
+            Crew
+          </button>
           <span className="grid-topbar__sub">All sessions · {roster.length}</span>
         </div>
         <div className="grid-topbar__right">

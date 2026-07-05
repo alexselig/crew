@@ -9,6 +9,7 @@ import { TerminalView } from './TerminalView'
 import { AssetsPanel } from './AssetsPanel'
 import { SkillsBar } from './SkillsBar'
 import { TagChip } from './TagChip'
+import { ResumeSets } from './ResumeSets'
 import { focusTerminal } from '../terminal-pool'
 
 interface Props {
@@ -53,6 +54,7 @@ export function SessionView({
           <button type="button" className="btn btn--primary btn--lg" onClick={onNew}>
             ＋ New Session
           </button>
+          <ResumeSets />
         </div>
       </main>
     )

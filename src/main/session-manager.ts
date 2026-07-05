@@ -80,7 +80,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id: string; characterId: string; color?: string; extraArgs?: string[]; tag?: string }
+    restore?: { id?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || process.env.SHELL || '/bin/zsh'
@@ -425,6 +425,26 @@ export class SessionManager extends EventEmitter {
           extraArgs,
           tag: p.tag
         }
+      )
+    })
+  }
+
+  /**
+   * Re-launch a saved named set of sessions (see Store.sets). Like restore(),
+   * this spawns each session fresh and applies the preset's resume args
+   * (e.g. --continue) when conversation resume is enabled, so relaunching a set
+   * genuinely resumes its agents rather than starting them cold.
+   */
+  launchSet(name: string): SessionInfo[] {
+    const set = this.store.sets.find((s) => s.name === name)
+    if (!set) return []
+    const resume = this.store.settings.resumeConversations
+    return set.sessions.map((d) => {
+      const preset = getPreset(d.presetId)
+      const extraArgs = resume ? preset?.resumeArgs ?? [] : []
+      return this.create(
+        { presetId: d.presetId, command: d.command, args: d.args, cwd: d.cwd, label: d.label },
+        extraArgs.length ? { extraArgs } : undefined
       )
     })
   }

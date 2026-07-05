@@ -212,11 +212,7 @@ function registerIpc(): void {
     return store.upsertSet({ name, sessions })
   })
   ipcMain.handle(IPC.SETS_LAUNCH, (_e, name: string) => {
-    const set = store.sets.find((s) => s.name === name)
-    if (!set) return
-    for (const d of set.sessions) {
-      manager.create({ presetId: d.presetId, command: d.command, args: d.args, cwd: d.cwd, label: d.label })
-    }
+    manager.launchSet(name)
   })
   ipcMain.handle(IPC.SETS_DELETE, (_e, name: string) => store.deleteSet(name))
   ipcMain.handle(IPC.EVENTS_GET, () => manager.getEvents())
