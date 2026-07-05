@@ -176,7 +176,7 @@ button {
 .card {
   position: relative;
   display: grid;
-  grid-template-columns: 38px 1fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
   padding: 10px;
@@ -208,7 +208,7 @@ button {
 }
 
 .card__name {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--ivory);
   white-space: nowrap;
@@ -394,7 +394,7 @@ button {
 }
 
 .session-header__label {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 800;
   color: var(--ivory);
 }
@@ -1173,6 +1173,12 @@ button {
   gap: 5px;
 }
 
+.grid-topbar__new {
+  width: auto;
+  height: 34px;
+  padding: 0 16px;
+}
+
 .grid-footer {
   display: flex;
   align-items: center;
@@ -1323,10 +1329,20 @@ button {
   min-width: 0;
   font-weight: 800;
   font-size: 18px;
+  line-height: 1;
   color: var(--ivory);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Group tag sized to the session name's cap height, vertically centered. */
+.tile__header .tag-chip {
+  height: 14px;
+  padding: 0 6px;
+  line-height: 1;
+  font-size: 9.5px;
+  align-self: center;
 }
 
 .tile__status {

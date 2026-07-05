@@ -130,16 +130,9 @@ export function GridView({
           <span className="grid-topbar__sub">All sessions · {roster.length}</span>
         </div>
         <div className="grid-topbar__right">
-          {waiting > 0 && (
-            <button
-              type="button"
-              className="status status--attention"
-              title="Group by attention"
-              onClick={() => onSetGroupMode('needs')}
-            >
-              {waiting} WAITING FOR YOU
-            </button>
-          )}
+          <button type="button" className="btn btn--newsession grid-topbar__new" onClick={onNew}>
+            ＋ New Session
+          </button>
           <ViewToggle mode="grid" onChange={onSetViewMode} />
           <div className="grid-topbar__tools">
             <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
