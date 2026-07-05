@@ -150,6 +150,13 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.roster--collapsed .roster__toolbar {
+  justify-content: center;
+  padding: 10px 8px;
 }
 
 .roster__tools {
@@ -540,6 +547,7 @@ button {
 .tile__char {
   display: inline-flex;
   align-items: center;
+  margin-right: -10px;
 }
 
 .character--run .character__glyph {
@@ -1880,31 +1888,18 @@ button {
 /* Collapsed rail */
 .roster--collapsed .roster__header {
   align-items: center;
-  padding: 58px 6px 12px;
+  padding: 58px 14px 12px;
 }
 
 .roster__collapsed-head {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   gap: 8px;
   width: 100%;
 }
 
 /* Expand-sidebar button pinned to the right, above the New Session tile. */
-.roster__expand {
-  align-self: flex-end;
-}
-
-/* Collapsed rail: view toggle sits below the New Session tile, full width. */
-.roster__collapsed-head > .view-toggle {
-  width: 100%;
-}
-
-.roster__collapsed-head .view-toggle__btn {
-  flex: 1;
-}
-
 /* Enlarged "new session" tile: same height/shape as the expanded button. */
 .roster__new-tile {
   font-size: 18px;
@@ -1912,17 +1907,16 @@ button {
 }
 
 .roster--collapsed .roster__list {
-  padding: 8px 6px;
-  gap: 6px;
+  padding: 8px;
+  gap: 2px;
+  overflow-x: hidden;
 }
 
 .card--compact {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  text-align: center;
-  gap: 5px;
-  padding: 10px 4px;
+  justify-content: center;
+  padding: 10px;
 }
 
 .card__cname {

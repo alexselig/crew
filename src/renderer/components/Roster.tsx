@@ -180,7 +180,6 @@ export function Roster(props: Props): JSX.Element {
             >
               ＋
             </button>
-            <ViewToggle mode={viewMode} onChange={onSetViewMode} />
           </div>
         ) : (
           <>
@@ -215,22 +214,6 @@ export function Roster(props: Props): JSX.Element {
             <button type="button" className="btn btn--newsession" onClick={onNew}>
               ＋ New Session
             </button>
-
-            <div className="roster__toolbar">
-              <ViewToggle mode={viewMode} onChange={onSetViewMode} />
-              <div className="roster__tools">
-                <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
-                <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
-                  <Icon name="broadcast" />
-                </button>
-                <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
-                  <Icon name="chart" />
-                </button>
-                <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
-                  <Icon name="settings" />
-                </button>
-              </div>
-            </div>
           </>
         )}
       </div>
@@ -257,6 +240,24 @@ export function Roster(props: Props): JSX.Element {
           ))
         ) : (
           roster.map(renderCard)
+        )}
+      </div>
+
+      <div className="roster__toolbar">
+        <ViewToggle mode={viewMode} onChange={onSetViewMode} />
+        {!railed && (
+          <div className="roster__tools">
+            <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
+            <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
+              <Icon name="broadcast" />
+            </button>
+            <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
+              <Icon name="chart" />
+            </button>
+            <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
+              <Icon name="settings" />
+            </button>
+          </div>
         )}
       </div>
 
