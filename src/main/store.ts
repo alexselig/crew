@@ -14,6 +14,15 @@ export interface CharacterAssignment {
   lastLabel: string
 }
 
+/** Last known main-window frame, so Crew reopens where you left it (e.g. on a
+ * second monitor). Restored only if it still lands on a connected display. */
+export interface WindowBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 /** A session descriptor persisted so it can be re-launched on next startup. */
 export interface PersistedSession {
   id: string
@@ -46,6 +55,7 @@ interface StoreData {
   recentDirs: string[]
   sessions: PersistedSession[]
   sets: SessionSet[]
+  windowBounds?: WindowBounds
 }
 
 const EMPTY: StoreData = {
@@ -77,7 +87,8 @@ export class Store {
         settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
         recentDirs: raw.recentDirs ?? [],
         sessions: raw.sessions ?? [],
-        sets: raw.sets ?? []
+        sets: raw.sets ?? [],
+        windowBounds: raw.windowBounds
       }
     } catch {
       return { ...EMPTY, characters: {}, recentDirs: [], sessions: [], sets: [] }
@@ -148,5 +159,14 @@ export class Store {
     this.data.sets = this.data.sets.filter((s) => s.name !== name)
     this.persist()
     return this.data.sets
+  }
+
+  get windowBounds(): WindowBounds | undefined {
+    return this.data.windowBounds
+  }
+
+  setWindowBounds(bounds: WindowBounds): void {
+    this.data.windowBounds = bounds
+    this.persist()
   }
 }

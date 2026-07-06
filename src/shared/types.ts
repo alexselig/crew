@@ -142,6 +142,7 @@ export const IPC = {
   SESSION_SET_COLOR: 'session:setColor',
   SESSION_SET_TAG: 'session:setTag',
   SESSION_REORDER: 'session:reorder',
+  WINDOW_OPEN: 'window:open',
   ROSTER_GET: 'roster:get',
   PRESETS_GET: 'presets:get',
   CHARACTERS_GET: 'characters:get',

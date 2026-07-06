@@ -26,10 +26,14 @@ export function App(): JSX.Element {
   const [showTranscripts, setShowTranscripts] = useState(false)
   // The title launch sequence plays on boot (waiting for a "click to start")
   // and replays on logo click. Skipped under automation (Playwright e2e) so it
-  // never blocks the tests, which drive the app directly.
-  const [showIntro, setShowIntro] = useState(
-    () => typeof navigator === 'undefined' || !navigator.webdriver
-  )
+  // never blocks the tests, and on secondary windows (?intro=0) so only the
+  // first window plays it.
+  const [showIntro, setShowIntro] = useState(() => {
+    if (typeof navigator !== 'undefined' && navigator.webdriver) return false
+    if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('intro') === '0')
+      return false
+    return true
+  })
   const anyOverlay =
     showSettings ||
     showPalette ||
@@ -110,7 +114,8 @@ export function App(): JSX.Element {
         setShowPalette((v) => !v)
       } else if (k === 'n') {
         e.preventDefault()
-        c.setShowNew(true)
+        if (e.shiftKey) void window.crew.openWindow()
+        else c.setShowNew(true)
       } else if (k === 'j') {
         e.preventDefault()
         jumpNextWaiting()
@@ -136,6 +141,13 @@ export function App(): JSX.Element {
     }))
     const actions: PaletteItem[] = [
       { id: 'act-new', label: 'New Session', glyph: '＋', hint: '⌘N', run: () => c.setShowNew(true) },
+      {
+        id: 'act-window',
+        label: 'New Window',
+        glyph: '⧉',
+        hint: '⇧⌘N',
+        run: () => void window.crew.openWindow()
+      },
       {
         id: 'act-view',
         label: c.viewMode === 'grid' ? 'Switch to focus view' : 'Switch to grid view',

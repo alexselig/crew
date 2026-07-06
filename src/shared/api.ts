@@ -74,6 +74,8 @@ export interface CrewAPI {
   setColor(id: string, color: string): Promise<void>
   setTag(id: string, tag: string): Promise<void>
   reorder(orderedIds: string[]): Promise<void>
+  /** Open an additional app window (e.g. to use a second monitor). */
+  openWindow(): Promise<void>
   getRoster(): Promise<SessionInfo[]>
   getPresets(): Promise<Preset[]>
   getCharacters(): Promise<CharacterDef[]>

@@ -14,6 +14,7 @@ const ICON_B64 =
 
 export interface TrayCallbacks {
   onShow: () => void
+  onNewWindow: () => void
   onNewSession: () => void
   onJump: (id: string) => void
   onQuit: () => void
@@ -78,6 +79,7 @@ export class CrewTray {
   private buildMenu(active: SessionInfo[], waiting: SessionInfo[]): Menu {
     const items: MenuItemConstructorOptions[] = [
       { label: '＋  New Session', click: () => this.cb.onNewSession() },
+      { label: '⧉  New Window', click: () => this.cb.onNewWindow() },
       { type: 'separator' }
     ]
 

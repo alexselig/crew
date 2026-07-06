@@ -1,7 +1,8 @@
 // Electron main entry: owns the app lifecycle, the single main window, the tray,
 // and the full IPC surface described in shared/types.ts.
 
-import { app, BrowserWindow, ipcMain, dialog, protocol, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell, screen } from 'electron'
+import type { Rectangle, Display } from 'electron'
 import { isAbsolute, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { accessSync, constants, writeFileSync } from 'node:fs'
@@ -19,7 +20,6 @@ import { builtinPresets } from './presets'
 import { listInstalledSkills } from './skills'
 import { CHARACTERS } from './characters'
 
-let win: BrowserWindow | null = null
 let tray: CrewTray | null = null
 let manager: SessionManager
 let store: Store
@@ -34,10 +34,74 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'crew-asset', privileges: { secure: true, supportFetchAPI: true, stream: true } }
 ])
 
-function createWindow(): void {
-  win = new BrowserWindow({
-    width: 1120,
-    height: 740,
+function broadcast(channel: string, payload?: unknown): void {
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload)
+}
+
+/** The window the user is most likely acting on: the focused one, else any. */
+function focusedWindow(): BrowserWindow | null {
+  return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
+}
+
+function debounce(fn: () => void, ms: number): () => void {
+  let t: ReturnType<typeof setTimeout> | undefined
+  return () => {
+    if (t) clearTimeout(t)
+    t = setTimeout(fn, ms)
+  }
+}
+
+/** True if the frame is visible on some connected display (guards stale bounds
+ * saved while a now-disconnected monitor was attached). */
+function boundsOnSomeDisplay(b: Rectangle): boolean {
+  return screen.getAllDisplays().some((d) => {
+    const a = d.workArea
+    return (
+      b.x < a.x + a.width - 60 &&
+      b.x + b.width > a.x + 60 &&
+      b.y < a.y + a.height - 24 &&
+      b.y + b.height > a.y + 24
+    )
+  })
+}
+
+function centeredOn(display: Display, width: number, height: number): Rectangle {
+  const a = display.workArea
+  const w = Math.min(width, a.width - 80)
+  const h = Math.min(height, a.height - 80)
+  return {
+    x: Math.round(a.x + (a.width - w) / 2),
+    y: Math.round(a.y + (a.height - h) / 2),
+    width: w,
+    height: h
+  }
+}
+
+/** Where the FIRST window opens: the remembered frame if still valid, else
+ * centered on the primary display. */
+function defaultBounds(): Rectangle {
+  const saved = store.windowBounds
+  if (saved && boundsOnSomeDisplay(saved)) return saved
+  return centeredOn(screen.getPrimaryDisplay(), 1120, 740)
+}
+
+/** Where an ADDITIONAL window opens: a monitor that has no Crew window yet (so a
+ * second window lands on your other screen), else offset from the current one. */
+function newWindowBounds(): Rectangle {
+  const usedIds = new Set(
+    BrowserWindow.getAllWindows().map((w) => screen.getDisplayMatching(w.getBounds()).id)
+  )
+  const free = screen.getAllDisplays().find((d) => !usedIds.has(d.id))
+  if (free) return centeredOn(free, 1120, 740)
+  const f = focusedWindow()?.getBounds()
+  if (f) return { x: f.x + 40, y: f.y + 40, width: f.width, height: f.height }
+  return defaultBounds()
+}
+
+function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): BrowserWindow {
+  const intro = opts.intro ?? true
+  const w = new BrowserWindow({
+    ...(opts.bounds ?? defaultBounds()),
     minWidth: 860,
     minHeight: 540,
     title: 'Crew',
@@ -52,23 +116,32 @@ function createWindow(): void {
     }
   })
 
-  win.on('ready-to-show', () => win?.show())
+  w.on('ready-to-show', () => {
+    w.show()
+    w.focus()
+  })
 
-  // Closing the window hides it (keep running in the tray) unless truly quitting.
-  win.on('close', (e) => {
-    if (!isQuitting) {
+  // Closing the LAST window hides it (keep running in the tray, menu-bar style);
+  // closing an extra window really closes it.
+  w.on('close', (e) => {
+    if (!isQuitting && BrowserWindow.getAllWindows().length === 1) {
       e.preventDefault()
-      win?.hide()
+      w.hide()
     }
   })
 
-  win.on('closed', () => {
-    win = null
-  })
+  // Remember the frame so Crew reopens where you left it (e.g. a second monitor).
+  const saveBounds = debounce(() => {
+    if (!w.isDestroyed() && !w.isMinimized() && !w.isFullScreen()) {
+      store.setWindowBounds(w.getBounds())
+    }
+  }, 400)
+  w.on('resize', saveBounds)
+  w.on('move', saveBounds)
 
   // Resume the previous session set once the renderer is ready to receive their
-  // output. Guarded so it only happens on the first load of the app's lifetime.
-  win.webContents.once('did-finish-load', () => {
+  // output. Guarded so it only happens once per app lifetime (the first window).
+  w.webContents.once('did-finish-load', () => {
     if (sessionsRestored) return
     sessionsRestored = true
     manager.restore()
@@ -76,29 +149,40 @@ function createWindow(): void {
 
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) {
-    void win.loadURL(devUrl)
+    void w.loadURL(intro ? devUrl : `${devUrl}?intro=0`)
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'))
+    void w.loadFile(
+      join(__dirname, '../renderer/index.html'),
+      intro ? undefined : { query: { intro: '0' } }
+    )
   }
+  return w
+}
+
+/** Open an additional window, preferring a monitor without a Crew window. The
+ * launch sequence only plays on the first window, not on extra ones. */
+function openWindow(): void {
+  createWindow({ intro: false, bounds: newWindowBounds() })
 }
 
 function showWindow(): void {
-  if (!win) {
+  const w = focusedWindow()
+  if (!w) {
     createWindow()
     return
   }
-  win.show()
-  win.focus()
+  w.show()
+  w.focus()
 }
 
 function jumpTo(id: string): void {
   showWindow()
-  win?.webContents.send(IPC.EVT_JUMP, id)
+  focusedWindow()?.webContents.send(IPC.EVT_JUMP, id)
 }
 
 function openNewSession(): void {
   showWindow()
-  win?.webContents.send(IPC.EVT_NEW)
+  focusedWindow()?.webContents.send(IPC.EVT_NEW)
 }
 
 function applyLoginItem(enabled: boolean): void {
@@ -133,10 +217,10 @@ function whichSync(cmd: string): string | null {
 }
 
 function wireManager(): void {
-  manager.on('output', (p) => win?.webContents.send(IPC.EVT_OUTPUT, p))
+  manager.on('output', (p) => broadcast(IPC.EVT_OUTPUT, p))
 
   manager.on('state', (info) =>
-    win?.webContents.send(IPC.EVT_STATE, {
+    broadcast(IPC.EVT_STATE, {
       id: info.id,
       state: info.state,
       stateChangedAt: info.stateChangedAt
@@ -144,7 +228,7 @@ function wireManager(): void {
   )
 
   manager.on('roster', (roster) => {
-    win?.webContents.send(IPC.EVT_ROSTER, roster)
+    broadcast(IPC.EVT_ROSTER, roster)
     tray?.update(roster)
     assets.sync(roster)
   })
@@ -155,7 +239,7 @@ function wireManager(): void {
     if (!NEEDS_YOU.includes(to) || NEEDS_YOU.includes(from)) return
     const s = store.settings
     if (!s.notifications) return
-    if (s.notifyOnlyWhenUnfocused && win?.isFocused()) return
+    if (s.notifyOnlyWhenUnfocused && BrowserWindow.getAllWindows().some((w) => w.isFocused())) return
     tray?.notify(session, !s.sound)
   })
 }
@@ -179,6 +263,9 @@ function registerIpc(): void {
     manager.setTag(p.id, p.tag)
   )
   ipcMain.handle(IPC.SESSION_REORDER, (_e, orderedIds: string[]) => manager.reorder(orderedIds))
+  ipcMain.handle(IPC.WINDOW_OPEN, () => {
+    openWindow()
+  })
   ipcMain.handle(IPC.ROSTER_GET, () => manager.roster())
   ipcMain.handle(IPC.PRESETS_GET, () => builtinPresets())
   ipcMain.handle(IPC.CHARACTERS_GET, () => CHARACTERS)
@@ -264,7 +351,7 @@ app.whenReady().then(() => {
   store = new Store(join(app.getPath('userData'), 'crew-store.json'))
   recorder = new TranscriptRecorder(join(app.getPath('userData'), 'transcripts'))
   manager = new SessionManager(store, recorder)
-  assets = new AssetWatchers((id, list) => win?.webContents.send(IPC.EVT_ASSETS, { id, assets: list }))
+  assets = new AssetWatchers((id, list) => broadcast(IPC.EVT_ASSETS, { id, assets: list }))
   applyLoginItem(store.settings.launchAtLogin)
 
   // Serve previewable files — only ones the asset watcher has vouched for.
@@ -287,6 +374,7 @@ app.whenReady().then(() => {
 
   tray = new CrewTray({
     onShow: showWindow,
+    onNewWindow: openWindow,
     onNewSession: openNewSession,
     onJump: jumpTo,
     onQuit: () => {
