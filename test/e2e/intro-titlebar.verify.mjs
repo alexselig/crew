@@ -179,7 +179,7 @@ async function main() {
   ok(convergeMs >= 1800, 'fly-in runs longer than before', `(${convergeMs}ms of converge)`)
   ok(maxScale >= 1.06, 'logo zooms in ~10%', `(peak scale ${maxScale})`)
   ok(minAfterPeak <= 1.03, 'logo returns to original size', `(min after peak ${minAfterPeak})`)
-  ok(holdMs >= 1800, 'holds ~2s on the logo before revealing', `(${holdMs}ms hold)`)
+  ok(holdMs >= 900, 'holds ~1s on the logo before revealing', `(${holdMs}ms hold)`)
 
   // Icons should have ignited from white to random icon-set colors by end of move.
   ok(tintColors && tintColors.length > 15, 'captured icon colors at end of movement',

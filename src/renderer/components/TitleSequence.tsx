@@ -58,7 +58,7 @@ function buildField(): { icons: IconSpec[]; convergeMs: number } {
 
 const GROW_MS = 420
 const SETTLE_MS = 240
-const HOLD_MS = 2000
+const HOLD_MS = 1000
 const REVEAL_MS = 600
 
 interface Props {
@@ -71,8 +71,8 @@ interface Props {
  * "click to start" prompt; the animation only begins when the user clicks. It
  * then flies every animal icon behind the logo while shrinking them away — the
  * on-screen ones first, then a longer tail of off-screen ones — zooms the lone
- * logo in by 10% and back to its original size, holds for a couple of seconds,
- * then fades out to reveal the app.
+ * logo in by 10% and back to its original size, holds for a second, then fades
+ * out to reveal the app.
  */
 export function TitleSequence({ onDone }: Props): JSX.Element {
   const [phase, setPhase] = useState<Phase>('idle')
