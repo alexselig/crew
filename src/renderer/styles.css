@@ -1289,50 +1289,46 @@ button {
   align-items: stretch;
 }
 
-/* Grid density (flat grid only; grouped view keeps default tiles). Scroll snaps
-   to whole tiles so a partial scroll settles on a majority-visible session.
-   `two`  = two full-height tiles, horizontal scroll.
-   `four` = 2x2 sized so 4 fill the viewport.
-   `six`  = 2x3 sized so 6 fill the viewport (fits on a 4K screen). */
-.gridview--two .gridview__scroll {
+/* Grid density (flat grid only; grouped view keeps default tiles). All three
+   scroll HORIZONTALLY: a fixed number of rows fills the height, tiles flow into
+   columns (2 visible), and you scroll left/right for the rest. Scroll snaps to
+   columns so a partial scroll settles on majority-visible sessions.
+   `two`  = 1 row  (2 full-height tiles visible).
+   `four` = 2 rows (4 tiles visible, 2x2).
+   `six`  = 3 rows (6 tiles visible, 2x3). */
+.gridview--two .gridview__scroll,
+.gridview--four .gridview__scroll,
+.gridview--six .gridview__scroll {
   overflow-x: auto;
   overflow-y: hidden;
   scroll-snap-type: x mandatory;
 }
 
-.gridview__scroll > .grid--two {
+.gridview__scroll > .grid--two,
+.gridview__scroll > .grid--four,
+.gridview__scroll > .grid--six {
   grid-template-columns: none;
   grid-auto-flow: column;
   grid-auto-columns: calc(50% - 0.5px);
+  height: 100%;
+}
+
+.grid--two {
   grid-template-rows: 100%;
-  height: 100%;
-}
-
-.grid--two .tile {
-  height: 100%;
-}
-
-.gridview--four .gridview__scroll,
-.gridview--six .gridview__scroll {
-  scroll-snap-type: y mandatory;
 }
 
 .grid--four {
-  grid-auto-rows: calc((100vh - 100px) / 2);
+  grid-template-rows: repeat(2, 1fr);
 }
 
 .grid--six {
-  grid-auto-rows: calc((100vh - 100px) / 3);
-}
-
-.grid--four .tile,
-.grid--six .tile {
-  height: auto;
+  grid-template-rows: repeat(3, 1fr);
 }
 
 .grid--two .tile,
 .grid--four .tile,
 .grid--six .tile {
+  height: auto;
   scroll-snap-align: start;
 }
 

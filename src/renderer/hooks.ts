@@ -4,8 +4,8 @@ import type { GroupMode } from './grouping'
 import { writeTo, disposePooled } from './terminal-pool'
 
 export type ViewMode = 'single' | 'grid'
-/** Grid density levels (flat grid): `two` = two full-height tiles with horizontal
- *  scroll, `four` = 2x2, `six` = 2x3 sized so 6 fit on a 4K screen. */
+/** Grid density (all horizontal-scroll): `two` = 1 row (2 tiles), `four` = 2 rows
+ *  (2x2), `six` = 3 rows (2x3); scroll left/right for more, snapping to columns. */
 export type GridDensity = 'two' | 'four' | 'six'
 
 const NAV_MIN = 200
