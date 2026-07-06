@@ -97,6 +97,11 @@ button {
   }
 }
 
+/* Collapsing back to the rail uses the same fade/slide entrance as opening. */
+.roster--collapsed.roster--float {
+  animation: roster-float-in 0.18s ease-out;
+}
+
 /* Keep the main content in column 2 while the floating rail overlays column 1. */
 .app--nav-floating > main {
   grid-column: 2;
