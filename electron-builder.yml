@@ -1,0 +1,25 @@
+appId: com.alexselig.crew
+productName: Crew
+copyright: Copyright © 2026 Alex Selig
+directories:
+  buildResources: build
+  output: dist
+# electron-vite emits the app into out/; production node_modules (incl. the
+# native node-pty) are bundled automatically.
+files:
+  - out/**/*
+  - package.json
+# node-pty ships a native .node binary + a helper it spawns, which must live
+# outside the asar archive to load/execute.
+asarUnpack:
+  - "**/node_modules/node-pty/**/*"
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  # Local, unsigned (ad-hoc) build — no Developer ID needed to install.
+  identity: null
+  target:
+    - dmg
+    - zip
+dmg:
+  title: ${productName}

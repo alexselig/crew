@@ -15,6 +15,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
     "test:e2e": "npm run build && node test/e2e/crew.e2e.mjs",
+    "dist": "npm run build && electron-builder --mac",
     "rebuild:native": "electron-rebuild -f -w node-pty"
   },
   "dependencies": {
@@ -29,6 +30,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "electron": "^31.3.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^2.3.0",
     "playwright": "1.49",
     "react": "^18.3.1",
