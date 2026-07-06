@@ -68,9 +68,9 @@ button {
   min-height: 0;
 }
 
-/* Hover-to-expand: a manually-collapsed nav floats open over the content.
-   No width transition — the rail and expanded layouts differ, so animating the
-   width reflows the content and looks jumpy; snap open instead. */
+/* Hover-to-expand: a manually-collapsed nav floats open over the content. The
+   width snaps (animating it reflows the differing rail/expanded layouts), but a
+   quick opacity+slide fade-in on open keeps it from feeling abrupt. */
 .roster--float {
   position: absolute;
   left: 0;
@@ -83,6 +83,18 @@ button {
 .roster--float.is-expanded {
   width: var(--nav-expanded, 300px);
   box-shadow: 20px 0 50px rgba(0, 0, 0, 0.55);
+  animation: roster-float-in 0.18s ease-out;
+}
+
+@keyframes roster-float-in {
+  from {
+    opacity: 0.35;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 /* Keep the main content in column 2 while the floating rail overlays column 1. */
@@ -113,6 +125,9 @@ button {
   justify-content: space-between;
   gap: 8px;
   padding-left: 4px;
+  /* Match the collapsed rail's expand control / spacer height so the header is
+     the same height whether or not the collapse button is shown (no hover jump). */
+  min-height: 26px;
 }
 
 .roster__wordmark {
@@ -449,6 +464,7 @@ button {
 .session-header .session-header__label {
   font-size: 16px;
   font-weight: 700;
+  line-height: 1;
   color: var(--ivory);
 }
 
@@ -1406,9 +1422,10 @@ button {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-/* Needs you: a 3px solid ivory top edge — the attention signal. */
-.tile.is-needsyou {
-  box-shadow: inset 0 3px 0 var(--ivory);
+/* Needs you: same-weight ivory underline below the title bar, matching the
+   cobalt selected line (attention signal; wins over selected when both apply). */
+.tile.is-needsyou .tile__header {
+  box-shadow: inset 0 -2px 0 var(--ivory);
 }
 
 .tile.is-dragging {
@@ -1993,6 +2010,13 @@ button {
 /* Match the add-session tile width so the two stacked rail controls align. */
 .roster--collapsed .roster__expand {
   width: 100%;
+}
+
+/* Invisible stand-in for the (single-view-only) expand button, so the grid-view
+   collapsed rail keeps the same vertical rhythm and the "+" tile doesn't jump. */
+.roster__expand-spacer {
+  height: 26px;
+  flex-shrink: 0;
 }
 
 .roster--collapsed .roster__list {

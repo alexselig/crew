@@ -189,7 +189,7 @@ export function Roster(props: Props): JSX.Element {
       <div className="roster__header">
         {railed ? (
           <div className="roster__collapsed-head" onMouseEnter={onHeadEnter} onMouseLeave={onHeadLeave}>
-            {viewMode === 'single' && (
+            {viewMode === 'single' ? (
               <button
                 type="button"
                 className="icon-btn roster__expand"
@@ -198,6 +198,10 @@ export function Roster(props: Props): JSX.Element {
               >
                 <Icon name="chevron-right" />
               </button>
+            ) : (
+              // Grid view has no expand control; reserve its space so the "+" tile
+              // sits where the floated new-session button does (no jump on hover).
+              <span className="roster__expand-spacer" aria-hidden="true" />
             )}
             <button
               type="button"
@@ -223,14 +227,16 @@ export function Roster(props: Props): JSX.Element {
                 <span className="roster__count">
                   {roster.length} {roster.length === 1 ? 'SESSION' : 'SESSIONS'}
                 </span>
-                <button
-                  type="button"
-                  className="icon-btn roster__collapse"
-                  title={collapsed ? 'Keep sidebar open' : 'Collapse sidebar'}
-                  onClick={() => onSetCollapsed(!collapsed)}
-                >
-                  <Icon name={collapsed ? 'chevron-right' : 'chevron-left'} />
-                </button>
+                {viewMode === 'single' && (
+                  <button
+                    type="button"
+                    className="icon-btn roster__collapse"
+                    title={collapsed ? 'Keep sidebar open' : 'Collapse sidebar'}
+                    onClick={() => onSetCollapsed(!collapsed)}
+                  >
+                    <Icon name={collapsed ? 'chevron-right' : 'chevron-left'} />
+                  </button>
+                )}
               </div>
             </div>
 

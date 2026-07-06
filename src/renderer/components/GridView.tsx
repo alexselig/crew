@@ -1,11 +1,9 @@
 import { useEffect } from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
-import { NEEDS_YOU } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { ResumeSets } from './ResumeSets'
-import { formatUsd, formatCredits } from '../state-meta'
 import { groupSessions, existingGroups, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
@@ -106,9 +104,6 @@ export function GridView({
 
   const charById = (id: string): CharacterDef | undefined => characters.find((c) => c.id === id)
   const activeCharacterIds = roster.filter((s) => s.status === 'active').map((s) => s.characterId)
-  const waiting = roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state)).length
-  const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
-  const totalCredits = roster.reduce((sum, s) => sum + (s.creditsUsed || 0), 0)
 
   function renderTile(s: SessionInfo): JSX.Element {
     const h = dnd.cardHandlers(s)
@@ -193,22 +188,6 @@ export function GridView({
           <div className={`grid ${density ? `grid--${density}` : ''}`}>{roster.map(renderTile)}</div>
         )}
       </div>
-
-      {(showSpend || showCredits) && (
-        <div className="grid-footer">
-          <span className="grid-footer__note">
-            {waiting > 0
-              ? `${waiting} waiting for you`
-              : `${roster.length} ${roster.length === 1 ? 'session' : 'sessions'}`}
-          </span>
-          <span className="grid-footer__total">
-            TOTAL{' '}
-            {showSpend && <span>{formatUsd(totalUsd)}</span>}
-            {showSpend && showCredits && <span className="dot-sep"> · </span>}
-            {showCredits && <span>{formatCredits(totalCredits)} cr</span>}
-          </span>
-        </div>
-      )}
     </main>
   )
 }
