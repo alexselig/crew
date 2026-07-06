@@ -100,6 +100,31 @@ async function main() {
   }
   ok(sawEcho, 'live terminal output works in the second window')
 
+  // --- Independent view state (the multi-screen grouping/display bug) ---
+  ok(page1.url().includes('w=0'), 'first window gets slot 0', `(${new URL(page1.url()).search})`)
+  ok(page2.url().includes('w=1'), 'second window gets slot 1', `(${new URL(page2.url()).search})`)
+
+  const chooseGroup = async (page, label) => {
+    await page.locator('button[title="Group sessions"]').first().click()
+    await page.locator('.group-menu__item', { hasText: label }).first().click()
+    await sleep(150)
+  }
+
+  // Group by tag in window 1 only; window 2 must stay ungrouped.
+  await chooseGroup(page1, 'By group')
+  const w1cls = (await page1.locator('button[title="Group sessions"]').first().getAttribute('class')) || ''
+  const w2cls = (await page2.locator('button[title="Group sessions"]').first().getAttribute('class')) || ''
+  ok(w1cls.includes('is-active'), 'window 1 reflects its own grouping choice')
+  ok(!w2cls.includes('is-active'), 'window 2 is unaffected by window 1 grouping')
+
+  // Each window persists to its own slot namespace, never a shared key.
+  const keys = await page1.evaluate(() => ({
+    w0: localStorage.getItem('crew.w0.groupMode'),
+    w1: localStorage.getItem('crew.w1.groupMode')
+  }))
+  ok(keys.w0 === 'tag', 'window 1 view state persists to its own slot key', `(crew.w0.groupMode=${keys.w0})`)
+  ok(keys.w1 !== 'tag', 'window 2 slot key not clobbered by window 1', `(crew.w1.groupMode=${keys.w1})`)
+
   await app.close()
   console.log(fail === 0 ? '\nALL CHECKS PASSED' : `\n${fail} CHECK(S) FAILED`)
   process.exit(fail === 0 ? 0 : 1)

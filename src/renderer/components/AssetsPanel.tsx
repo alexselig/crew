@@ -4,6 +4,7 @@ import { assetUrl } from '../../shared/assets'
 import { shellQuote } from '../../shared/shell-quote'
 import { focusTerminal } from '../terminal-pool'
 import { onPreviewRequest } from '../preview-bus'
+import { readViewPref, writeViewPref } from '../window-scope'
 import { Since } from './Since'
 import { Icon } from './Icon'
 
@@ -53,7 +54,7 @@ function Preview({ asset }: { asset: AssetItem }): JSX.Element {
  */
 export function AssetsPanel({ sessionId }: { sessionId: string }): JSX.Element | null {
   const [assets, setAssets] = useState<AssetItem[]>([])
-  const [open, setOpen] = useState<boolean>(() => localStorage.getItem('crew.assetsOpen') !== '0')
+  const [open, setOpen] = useState<boolean>(() => readViewPref('assetsOpen') !== '0')
   const [selected, setSelected] = useState<AssetItem | null>(null)
 
   useEffect(() => {
@@ -68,7 +69,7 @@ export function AssetsPanel({ sessionId }: { sessionId: string }): JSX.Element |
     // panel if it's collapsed).
     const offPreview = onPreviewRequest((sid, item) => {
       if (sid !== sessionId) return
-      localStorage.setItem('crew.assetsOpen', '1')
+      writeViewPref('assetsOpen', '1')
       setOpen(true)
       setSelected(item)
     })
@@ -88,7 +89,7 @@ export function AssetsPanel({ sessionId }: { sessionId: string }): JSX.Element |
 
   function toggle(): void {
     setOpen((v) => {
-      localStorage.setItem('crew.assetsOpen', v ? '0' : '1')
+      writeViewPref('assetsOpen', v ? '0' : '1')
       return !v
     })
   }

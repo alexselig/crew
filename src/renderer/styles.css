@@ -1163,6 +1163,11 @@ button {
   box-shadow: var(--shadow);
 }
 
+.group-menu--up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .group-menu__item {
   display: flex;
   align-items: center;

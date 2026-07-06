@@ -2,10 +2,10 @@
 // and the full IPC surface described in shared/types.ts.
 
 import { app, BrowserWindow, ipcMain, dialog, protocol, shell, screen } from 'electron'
-import type { Rectangle, Display } from 'electron'
+import type { Rectangle, Display, MessageBoxOptions } from 'electron'
 import { isAbsolute, join, resolve } from 'node:path'
-import { homedir } from 'node:os'
-import { accessSync, constants, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { accessSync, constants, writeFileSync, appendFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { IPC, NEEDS_YOU } from '../shared/types'
 import type { CreateSessionRequest, Settings } from '../shared/types'
@@ -27,6 +27,47 @@ let recorder: TranscriptRecorder
 let assets: AssetWatchers
 let isQuitting = false
 let sessionsRestored = false
+
+// Persist why the app went down so a "it just disappeared" report is
+// diagnosable after the fact. Appends to <userData>/crew-crash.log (falls back
+// to the temp dir before the app is ready). Crucially, an uncaught exception in
+// the main process no longer kills Crew — it's logged and the app keeps running
+// (a menu-bar app vanishing is worse than limping on), and a real native crash
+// still surfaces via render-/child-process-gone.
+function crashLog(kind: string, detail: string): void {
+  const line = `[${new Date().toISOString()}] ${kind}: ${detail}\n`
+  let dir = tmpdir()
+  try {
+    dir = app.getPath('userData')
+  } catch {
+    /* before ready */
+  }
+  try {
+    appendFileSync(join(dir, 'crew-crash.log'), line)
+  } catch {
+    /* best effort */
+  }
+  console.error('[crew]', kind, detail)
+}
+
+process.on('uncaughtException', (err) => crashLog('uncaughtException', (err && err.stack) || String(err)))
+process.on('unhandledRejection', (reason) => crashLog('unhandledRejection', String(reason)))
+app.on('render-process-gone', (_e, _wc, details) =>
+  crashLog('render-process-gone', JSON.stringify(details))
+)
+app.on('child-process-gone', (_e, details) => crashLog('child-process-gone', JSON.stringify(details)))
+
+// Each window gets the smallest free slot so its view state (grouping, density,
+// nav, collapsed groups) persists to its own localStorage namespace (?w=<slot>),
+// keeping windows on different screens independent. Freed when the window closes
+// so a later window reuses the slot (and its saved layout).
+const usedWindowSlots = new Set<number>()
+function allocWindowSlot(): number {
+  let s = 0
+  while (usedWindowSlots.has(s)) s++
+  usedWindowSlots.add(s)
+  return s
+}
 
 // crew-asset:// serves preview files (images/HTML/…) to the renderer in both
 // dev (http origin) and prod (file origin). Must be registered before ready.
@@ -77,12 +118,23 @@ function centeredOn(display: Display, width: number, height: number): Rectangle 
   }
 }
 
-/** Where the FIRST window opens: the remembered frame if still valid, else
- * centered on the primary display. */
+/** Where the FIRST window opens. It always lands on the primary display — the
+ * screen carrying the menu bar, i.e. the one the user is actually sitting in
+ * front of. A frame remembered on another display (an external monitor that's
+ * since been turned off, put to sleep, or is simply out of view) is the classic
+ * "the app launched but there's no window" trap, so the exact remembered frame
+ * is only restored when it's on the primary display; otherwise we re-center
+ * there at the remembered size. Summoning (tray / activate) can still pull the
+ * window to whichever display you're on via revealOnActiveDisplay. */
 function defaultBounds(): Rectangle {
+  const primary = screen.getPrimaryDisplay()
   const saved = store.windowBounds
-  if (saved && boundsOnSomeDisplay(saved)) return saved
-  return centeredOn(screen.getPrimaryDisplay(), 1120, 740)
+  if (saved && boundsOnSomeDisplay(saved)) {
+    const savedDisplay = screen.getDisplayNearestPoint({ x: saved.x, y: saved.y })
+    if (savedDisplay.id === primary.id) return saved
+    return centeredOn(primary, saved.width, saved.height)
+  }
+  return centeredOn(primary, 1120, 740)
 }
 
 /** Where an ADDITIONAL window opens: a monitor that has no Crew window yet (so a
@@ -121,6 +173,10 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
     w.focus()
   })
 
+  // This window's per-window state namespace; released when it's really closed.
+  const slot = allocWindowSlot()
+  w.on('closed', () => usedWindowSlots.delete(slot))
+
   // Closing the LAST window hides it (keep running in the tray, menu-bar style);
   // closing an extra window really closes it.
   w.on('close', (e) => {
@@ -149,12 +205,13 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
 
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) {
-    void w.loadURL(intro ? devUrl : `${devUrl}?intro=0`)
+    const params = new URLSearchParams({ w: String(slot) })
+    if (!intro) params.set('intro', '0')
+    void w.loadURL(`${devUrl}?${params.toString()}`)
   } else {
-    void w.loadFile(
-      join(__dirname, '../renderer/index.html'),
-      intro ? undefined : { query: { intro: '0' } }
-    )
+    const query: Record<string, string> = { w: String(slot) }
+    if (!intro) query.intro = '0'
+    void w.loadFile(join(__dirname, '../renderer/index.html'), { query })
   }
   return w
 }
@@ -165,12 +222,28 @@ function openWindow(): void {
   createWindow({ intro: false, bounds: newWindowBounds() })
 }
 
+/** Bring a window onto the primary display — the menu-bar screen the user is in
+ * front of — whenever Crew is summoned, so it can't stay stranded on an external
+ * monitor that's off or out of view. Only moves the window when it isn't already
+ * on the primary display (or is off-screen entirely); size is kept and clamped
+ * to fit the work area. */
+function revealWindow(w: BrowserWindow): void {
+  const primary = screen.getPrimaryDisplay()
+  const b = w.getBounds()
+  const onPrimary = screen.getDisplayNearestPoint({ x: b.x, y: b.y }).id === primary.id
+  if (!onPrimary || !boundsOnSomeDisplay(b)) {
+    w.setBounds(centeredOn(primary, b.width, b.height))
+  }
+}
+
 function showWindow(): void {
   const w = focusedWindow()
   if (!w) {
     createWindow()
     return
   }
+  if (w.isMinimized()) w.restore()
+  revealWindow(w)
   w.show()
   w.focus()
 }
@@ -183,6 +256,71 @@ function jumpTo(id: string): void {
 function openNewSession(): void {
   showWindow()
   focusedWindow()?.webContents.send(IPC.EVT_NEW)
+}
+
+let quitDialogOpen = false
+
+/** Under automation the quit prompt is skipped: Playwright drives Electron with
+ * a remote-debugging port and a blocked before-quit would hang app.close().
+ * CREW_NO_QUIT_CONFIRM=1 is an explicit override. */
+function quitConfirmDisabled(): boolean {
+  return (
+    process.env.CREW_NO_QUIT_CONFIRM === '1' ||
+    app.commandLine.hasSwitch('remote-debugging-port')
+  )
+}
+
+/** Release resources on the way out. Safe to call once; everything is
+ * optional-chained because a redundant second instance never built them. */
+function teardown(): void {
+  crashLog('quit', 'tearing down')
+  recorder?.dispose()
+  manager?.disposeAll()
+  assets?.disposeAll()
+  tray?.destroy()
+}
+
+/** Commit to quitting: flips isQuitting so the window-close handler stops
+ * hiding and the next before-quit runs teardown instead of re-prompting. */
+function reallyQuit(): void {
+  isQuitting = true
+  app.quit()
+}
+
+/** Guard against accidental quits — a reflexive Cmd+Q or a mis-clicked tray
+ * item shouldn't silently kill Crew and every running session. Prompt first;
+ * only tear down if the user confirms. */
+async function confirmQuit(): Promise<void> {
+  if (isQuitting) return
+  if (quitConfirmDisabled()) {
+    reallyQuit()
+    return
+  }
+  if (quitDialogOpen) {
+    BrowserWindow.getAllWindows()
+      .find((w) => w.isVisible())
+      ?.focus()
+    return
+  }
+  quitDialogOpen = true
+  const active = manager?.roster().filter((s) => s.status === 'active').length ?? 0
+  const parent = BrowserWindow.getAllWindows().find((w) => w.isVisible()) ?? null
+  const opts: MessageBoxOptions = {
+    type: 'question',
+    buttons: ['Quit Crew', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message: 'Quit Crew?',
+    detail:
+      active > 0
+        ? `${active} running session${active === 1 ? '' : 's'} will be stopped.`
+        : 'Crew will stop running and won’t watch your sessions until reopened.'
+  }
+  const { response } = parent
+    ? await dialog.showMessageBox(parent, opts)
+    : await dialog.showMessageBox(opts)
+  quitDialogOpen = false
+  if (response === 0) reallyQuit()
 }
 
 function applyLoginItem(enabled: boolean): void {
@@ -228,6 +366,9 @@ function wireManager(): void {
   )
 
   manager.on('roster', (roster) => {
+    // During quit, killed sessions emit a final roster asynchronously; the tray
+    // and asset watchers are being torn down, so don't touch them.
+    if (isQuitting) return
     broadcast(IPC.EVT_ROSTER, roster)
     tray?.update(roster)
     assets.sync(roster)
@@ -347,7 +488,19 @@ function registerIpc(): void {
   )
 }
 
-app.whenReady().then(() => {
+// One running Crew owns the tray, sessions and windows. A second launch (the
+// user re-opening the app, or a stale hidden instance being started again) must
+// not spin up a duplicate background process — it hands off to the primary,
+// which reveals its window on the display the user is actually looking at.
+if (!app.requestSingleInstanceLock()) {
+  // A redundant second instance: hand off to the primary and exit silently
+  // (no quit prompt — this process never showed a window).
+  isQuitting = true
+  app.quit()
+} else {
+  app.on('second-instance', () => showWindow())
+
+  app.whenReady().then(() => {
   store = new Store(join(app.getPath('userData'), 'crew-store.json'))
   recorder = new TranscriptRecorder(join(app.getPath('userData'), 'transcripts'))
   manager = new SessionManager(store, recorder)
@@ -378,8 +531,7 @@ app.whenReady().then(() => {
     onNewSession: openNewSession,
     onJump: jumpTo,
     onQuit: () => {
-      isQuitting = true
-      app.quit()
+      void confirmQuit()
     }
   })
 
@@ -390,13 +542,22 @@ app.whenReady().then(() => {
     else showWindow()
   })
 })
+}
 
-app.on('before-quit', () => {
-  isQuitting = true
-  recorder?.dispose()
-  manager?.disposeAll()
-  assets?.disposeAll()
-  tray?.destroy()
+app.on('before-quit', (e) => {
+  if (isQuitting) {
+    teardown()
+    return
+  }
+  // Not yet confirmed. Under automation, allow this quit to proceed (tear down
+  // inline, no re-entrant app.quit()). Otherwise hold it and ask.
+  if (quitConfirmDisabled()) {
+    isQuitting = true
+    teardown()
+    return
+  }
+  e.preventDefault()
+  void confirmQuit()
 })
 
 // Keep running in the tray after the window closes (macOS-style menu-bar app).

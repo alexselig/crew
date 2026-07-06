@@ -32,6 +32,7 @@ const STATE_LABEL: Record<string, string> = {
 
 export class CrewTray {
   private readonly tray: Tray
+  private destroyed = false
 
   constructor(private readonly cb: TrayCallbacks) {
     const img = nativeImage.createFromDataURL('data:image/png;base64,' + ICON_B64)
@@ -43,6 +44,10 @@ export class CrewTray {
   }
 
   update(roster: SessionInfo[]): void {
+    // A killed session's async PTY exit can emit one last roster during quit,
+    // after the native tray is already gone — updating it then throws
+    // "Tray is destroyed". Ignore any updates once we've torn down.
+    if (this.destroyed || this.tray.isDestroyed()) return
     const active = roster.filter((s) => s.status === 'active')
     const waiting = active.filter((s) => NEEDS_YOU.includes(s.state))
     const onlyApprovals =
@@ -61,6 +66,7 @@ export class CrewTray {
   }
 
   notify(session: SessionInfo, silent = false): void {
+    if (this.destroyed) return
     if (!Notification.isSupported()) return
     const ch = getCharacter(session.characterId)
     const n = new Notification({
@@ -73,6 +79,7 @@ export class CrewTray {
   }
 
   destroy(): void {
+    this.destroyed = true
     this.tray.destroy()
   }
 

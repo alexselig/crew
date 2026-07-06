@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import type { GroupMode } from '../grouping'
 
@@ -16,6 +16,9 @@ interface Props {
 /** Shared grouping control used by the roster header and the grid toolbar. */
 export function GroupPicker({ mode, onChoose }: Props): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [dropUp, setDropUp] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -33,13 +36,28 @@ export function GroupPicker({ mode, onChoose }: Props): JSX.Element {
     }
   }, [open])
 
+  // Flip the flyout above the button when it would overflow the bottom of the
+  // viewport (e.g. the roster toolbar sits at the bottom of the screen).
+  useLayoutEffect(() => {
+    if (!open) {
+      setDropUp(false)
+      return
+    }
+    const anchor = rootRef.current?.getBoundingClientRect()
+    const menuHeight = menuRef.current?.offsetHeight ?? 0
+    if (!anchor) return
+    const spaceBelow = window.innerHeight - anchor.bottom
+    const spaceAbove = anchor.top
+    setDropUp(spaceBelow < menuHeight + 8 && spaceAbove > spaceBelow)
+  }, [open])
+
   function choose(m: GroupMode): void {
     onChoose(m)
     setOpen(false)
   }
 
   return (
-    <div className="group-picker">
+    <div className="group-picker" ref={rootRef}>
       <button
         type="button"
         className={`icon-btn ${mode !== 'none' ? 'is-active' : ''}`}
@@ -51,7 +69,7 @@ export function GroupPicker({ mode, onChoose }: Props): JSX.Element {
         <Icon name="filter" />
       </button>
       {open && (
-        <div className="group-menu" role="menu">
+        <div ref={menuRef} className={`group-menu ${dropUp ? 'group-menu--up' : ''}`} role="menu">
           {GROUP_OPTIONS.map((o) => (
             <button
               type="button"

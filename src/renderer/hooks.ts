@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, Preset, CharacterDef, Settings } from '../shared/types'
 import type { GroupMode } from './grouping'
 import { writeTo, disposePooled } from './terminal-pool'
+import { windowSlot, readViewPref, writeViewPref } from './window-scope'
 
 export type ViewMode = 'single' | 'grid'
 /** Grid density (all horizontal-scroll): `two` = 1 row (2 tiles), `four` = 2 rows
@@ -48,31 +49,32 @@ export function useCrew(): CrewState {
   const [showNew, setShowNew] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('single')
   const [gridDensity, setGridDensityState] = useState<GridDensity>(() => {
-    const v = localStorage.getItem('crew.gridDensity')
+    const v = readViewPref('gridDensity')
     return v === 'two' || v === 'four' || v === 'six' ? v : 'four'
   })
   const [navWidth, setNavWidthState] = useState<number>(() => {
-    const v = Number(localStorage.getItem('crew.navWidth'))
+    const v = Number(readViewPref('navWidth'))
     return v >= NAV_MIN && v <= NAV_MAX ? v : NAV_DEFAULT
   })
   const [navCollapsed, setNavCollapsedState] = useState<boolean>(
-    () => localStorage.getItem('crew.navCollapsed') === '1'
+    () => readViewPref('navCollapsed') === '1'
   )
   const [groupMode, setGroupModeState] = useState<GroupMode>(() => {
-    const saved = localStorage.getItem('crew.groupMode')
+    const saved = readViewPref('groupMode')
     if (saved === 'none' || saved === 'needs' || saved === 'tag') return saved
-    return localStorage.getItem('crew.groupByTag') === '1' ? 'tag' : 'none'
+    if (windowSlot === 0 && localStorage.getItem('crew.groupByTag') === '1') return 'tag'
+    return 'none'
   })
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     try {
-      return new Set<string>(JSON.parse(localStorage.getItem('crew.collapsedGroups') || '[]'))
+      return new Set<string>(JSON.parse(readViewPref('collapsedGroups') || '[]'))
     } catch {
       return new Set<string>()
     }
   })
   const [groupOrder, setGroupOrderState] = useState<string[]>(() => {
     try {
-      const v = JSON.parse(localStorage.getItem('crew.groupOrder') || '[]')
+      const v = JSON.parse(readViewPref('groupOrder') || '[]')
       return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
     } catch {
       return []
@@ -84,32 +86,32 @@ export function useCrew(): CrewState {
   const setNavWidth = (w: number): void => {
     const clamped = Math.min(NAV_MAX, Math.max(NAV_MIN, Math.round(w)))
     setNavWidthState(clamped)
-    localStorage.setItem('crew.navWidth', String(clamped))
+    writeViewPref('navWidth', String(clamped))
   }
   const setGridDensity = (d: GridDensity): void => {
     setGridDensityState(d)
-    localStorage.setItem('crew.gridDensity', d)
+    writeViewPref('gridDensity', d)
   }
   const setNavCollapsed = (v: boolean): void => {
     setNavCollapsedState(v)
-    localStorage.setItem('crew.navCollapsed', v ? '1' : '0')
+    writeViewPref('navCollapsed', v ? '1' : '0')
   }
   const setGroupMode = (m: GroupMode): void => {
     setGroupModeState(m)
-    localStorage.setItem('crew.groupMode', m)
+    writeViewPref('groupMode', m)
   }
   const toggleGroup = (name: string): void => {
     setCollapsedGroups((prev) => {
       const n = new Set(prev)
       if (n.has(name)) n.delete(name)
       else n.add(name)
-      localStorage.setItem('crew.collapsedGroups', JSON.stringify([...n]))
+      writeViewPref('collapsedGroups', JSON.stringify([...n]))
       return n
     })
   }
   const reorderGroups = (names: string[]): void => {
     setGroupOrderState(names)
-    localStorage.setItem('crew.groupOrder', JSON.stringify(names))
+    writeViewPref('groupOrder', JSON.stringify(names))
   }
   const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]): void => {
     void window.crew.updateSettings({ [key]: value } as Partial<Settings>).then(setSettings)
