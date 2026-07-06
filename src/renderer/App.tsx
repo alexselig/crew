@@ -83,6 +83,26 @@ export function App(): JSX.Element {
   // Global keyboard shortcuts.
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
+      // Arrow keys scroll the grid when focus is on the app chrome — but never
+      // eat them while a text field or the terminal (an xterm hidden textarea)
+      // has focus.
+      if (e.key.startsWith('Arrow') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const el = document.activeElement as HTMLElement | null
+        const tag = el?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
+        const sc = document.querySelector<HTMLElement>('.gridview__scroll')
+        if (!sc) return
+        const tile = sc.querySelector<HTMLElement>('.tile')
+        const stepX = tile?.offsetWidth ?? 240
+        const stepY = tile?.offsetHeight ?? 240
+        const dx = e.key === 'ArrowLeft' ? -stepX : e.key === 'ArrowRight' ? stepX : 0
+        const dy = e.key === 'ArrowUp' ? -stepY : e.key === 'ArrowDown' ? stepY : 0
+        if (dx || dy) {
+          e.preventDefault()
+          sc.scrollBy({ left: dx, top: dy, behavior: 'smooth' })
+        }
+        return
+      }
       if (!(e.metaKey || e.ctrlKey)) return
       const k = e.key.toLowerCase()
       if (k === 'k') {
@@ -133,7 +153,8 @@ export function App(): JSX.Element {
   }, [c.roster, c.characters, c.viewMode, c.selectedId])
 
   const navIsCollapsed = c.navCollapsed || c.viewMode === 'grid'
-  const navFloating = c.viewMode === 'single' && c.navCollapsed
+  // Float the rail open on hover whenever it is collapsed — in grid view too.
+  const navFloating = navIsCollapsed
   return (
     <div
       className={`app ${navIsCollapsed ? 'app--nav-collapsed' : ''} ${navFloating ? 'app--nav-floating' : ''}`}
@@ -151,6 +172,10 @@ export function App(): JSX.Element {
         selectedId={c.selectedId}
         viewMode={c.viewMode}
         onSetViewMode={c.setViewMode}
+        onGridRepeat={() => {
+          const order = ['two', 'four', 'six'] as const
+          c.setGridDensity(order[(order.indexOf(c.gridDensity) + 1) % order.length])
+        }}
         collapsed={navIsCollapsed}
         hoverExpand={navFloating}
         onSetCollapsed={c.setNavCollapsed}
@@ -182,6 +207,7 @@ export function App(): JSX.Element {
           roster={c.roster}
           characters={c.characters}
           selectedId={c.selectedId}
+          gridDensity={c.gridDensity}
           groupMode={c.groupMode}
           onSetGroupMode={c.setGroupMode}
           collapsedGroups={c.collapsedGroups}

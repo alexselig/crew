@@ -563,7 +563,9 @@ button {
 .tile__char {
   display: inline-flex;
   align-items: center;
-  margin-right: -10px;
+  /* Collapse the mascot's built-in box padding (~8.5px each side) so the header
+     hugs the icon with the intended 5px above/below (see .tile__header). */
+  margin: -8.5px -10px -8.5px 0;
 }
 
 .character--run .character__glyph {
@@ -1287,6 +1289,53 @@ button {
   align-items: stretch;
 }
 
+/* Grid density (flat grid only; grouped view keeps default tiles). Scroll snaps
+   to whole tiles so a partial scroll settles on a majority-visible session.
+   `two`  = two full-height tiles, horizontal scroll.
+   `four` = 2x2 sized so 4 fill the viewport.
+   `six`  = 2x3 sized so 6 fill the viewport (fits on a 4K screen). */
+.gridview--two .gridview__scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+}
+
+.gridview__scroll > .grid--two {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: calc(50% - 0.5px);
+  grid-template-rows: 100%;
+  height: 100%;
+}
+
+.grid--two .tile {
+  height: 100%;
+}
+
+.gridview--four .gridview__scroll,
+.gridview--six .gridview__scroll {
+  scroll-snap-type: y mandatory;
+}
+
+.grid--four {
+  grid-auto-rows: calc((100vh - 100px) / 2);
+}
+
+.grid--six {
+  grid-auto-rows: calc((100vh - 100px) / 3);
+}
+
+.grid--four .tile,
+.grid--six .tile {
+  height: auto;
+}
+
+.grid--two .tile,
+.grid--four .tile,
+.grid--six .tile {
+  scroll-snap-align: start;
+}
+
 .grid-groups {
   display: flex;
   flex-direction: column;
@@ -1378,7 +1427,7 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 18px;
+  padding: 5px 18px;
   border-bottom: 1px solid var(--border-soft);
   background: transparent;
   flex-shrink: 0;

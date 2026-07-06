@@ -4,6 +4,9 @@ import type { GroupMode } from './grouping'
 import { writeTo, disposePooled } from './terminal-pool'
 
 export type ViewMode = 'single' | 'grid'
+/** Grid density levels (flat grid): `two` = two full-height tiles with horizontal
+ *  scroll, `four` = 2x2, `six` = 2x3 sized so 6 fit on a 4K screen. */
+export type GridDensity = 'two' | 'four' | 'six'
 
 const NAV_MIN = 200
 const NAV_MAX = 520
@@ -20,6 +23,8 @@ export interface CrewState {
   setShowNew: (v: boolean) => void
   viewMode: ViewMode
   setViewMode: (m: ViewMode) => void
+  gridDensity: GridDensity
+  setGridDensity: (d: GridDensity) => void
   navWidth: number
   setNavWidth: (w: number) => void
   navCollapsed: boolean
@@ -42,6 +47,10 @@ export function useCrew(): CrewState {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('single')
+  const [gridDensity, setGridDensityState] = useState<GridDensity>(() => {
+    const v = localStorage.getItem('crew.gridDensity')
+    return v === 'two' || v === 'four' || v === 'six' ? v : 'four'
+  })
   const [navWidth, setNavWidthState] = useState<number>(() => {
     const v = Number(localStorage.getItem('crew.navWidth'))
     return v >= NAV_MIN && v <= NAV_MAX ? v : NAV_DEFAULT
@@ -76,6 +85,10 @@ export function useCrew(): CrewState {
     const clamped = Math.min(NAV_MAX, Math.max(NAV_MIN, Math.round(w)))
     setNavWidthState(clamped)
     localStorage.setItem('crew.navWidth', String(clamped))
+  }
+  const setGridDensity = (d: GridDensity): void => {
+    setGridDensityState(d)
+    localStorage.setItem('crew.gridDensity', d)
   }
   const setNavCollapsed = (v: boolean): void => {
     setNavCollapsedState(v)
@@ -170,6 +183,8 @@ export function useCrew(): CrewState {
     setShowNew,
     viewMode,
     setViewMode,
+    gridDensity,
+    setGridDensity,
     navWidth,
     setNavWidth,
     navCollapsed,

@@ -57,6 +57,7 @@ export function GridTile({
   return (
     <div
       className={`tile ${needsYou ? 'is-needsyou' : ''} ${selected ? 'is-selected' : ''} ${isDragging ? 'is-dragging' : ''} ${isDragOver ? 'is-drag-over' : ''}`}
+      data-session-id={session.id}
       onClick={onSelect}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -78,7 +79,6 @@ export function GridTile({
           <CharacterPicker
             variant="mascot"
             size={48}
-            dot
             state={session.state}
             color={session.color}
             characters={characters}

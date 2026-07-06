@@ -7,10 +7,13 @@ import type { ViewMode } from '../hooks'
  */
 export function ViewToggle({
   mode,
-  onChange
+  onChange,
+  onGridRepeat
 }: {
   mode: ViewMode
   onChange: (m: ViewMode) => void
+  /** Called when the grid button is clicked while already in grid view. */
+  onGridRepeat?: () => void
 }): JSX.Element {
   return (
     <div className="view-toggle" role="tablist" aria-label="View mode">
@@ -29,8 +32,8 @@ export function ViewToggle({
         role="tab"
         aria-selected={mode === 'grid'}
         className={`view-toggle__btn ${mode === 'grid' ? 'is-active' : ''}`}
-        title="Grid view"
-        onClick={() => onChange('grid')}
+        title={mode === 'grid' ? 'Grid view — click to change density' : 'Grid view'}
+        onClick={() => (mode === 'grid' && onGridRepeat ? onGridRepeat() : onChange('grid'))}
       >
         <Icon name="grid" size={14} />
       </button>

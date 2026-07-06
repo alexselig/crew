@@ -18,6 +18,7 @@ interface Props {
   selectedId: string | null
   viewMode: ViewMode
   onSetViewMode: (m: ViewMode) => void
+  onGridRepeat: () => void
   collapsed: boolean
   hoverExpand?: boolean
   onSetCollapsed: (v: boolean) => void
@@ -52,6 +53,7 @@ export function Roster(props: Props): JSX.Element {
     selectedId,
     viewMode,
     onSetViewMode,
+    onGridRepeat,
     collapsed,
     hoverExpand,
     onSetCollapsed,
@@ -102,19 +104,44 @@ export function Roster(props: Props): JSX.Element {
 
   const [navHover, setNavHover] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>()
-  // When the nav is manually collapsed (focus view), hovering floats it open as
-  // an overlay; leaving collapses it. `railed` = render the compact rail.
+  const leaveTimer = useRef<ReturnType<typeof setTimeout>>()
+  // When the nav is manually collapsed (focus view), hovering the session list
+  // floats it open as an overlay; leaving collapses it. `railed` = compact rail.
   const canFloat = collapsed && (hoverExpand ?? false)
   const railed = collapsed && !(canFloat && navHover)
-  // Hover-intent delay so a quick click on a rail control lands before the panel
-  // floats open (which would otherwise swap that control out from under the cursor).
-  useEffect(() => () => clearTimeout(hoverTimer.current), [])
-  function onRailEnter(): void {
+  useEffect(
+    () => () => {
+      clearTimeout(hoverTimer.current)
+      clearTimeout(leaveTimer.current)
+    },
+    []
+  )
+  function startFloat(): void {
     if (canFloat) hoverTimer.current = setTimeout(() => setNavHover(true), 300)
+  }
+  function onRailEnter(): void {
+    clearTimeout(leaveTimer.current)
+    startFloat()
   }
   function onRailLeave(): void {
     clearTimeout(hoverTimer.current)
-    setNavHover(false)
+    // Grace period so moving the cursor toward an edge control doesn't collapse
+    // the panel out from under the click.
+    leaveTimer.current = setTimeout(() => setNavHover(false), 220)
+  }
+  // The collapsed-rail controls (expand / new session) are a no-float zone: while
+  // the cursor is over them the panel must not float open, otherwise the hover
+  // swaps the expand button out before the user can click it.
+  function onHeadEnter(): void {
+    clearTimeout(hoverTimer.current)
+  }
+  function onHeadLeave(e: React.MouseEvent): void {
+    const aside = (e.currentTarget as HTMLElement).closest('.roster')
+    // Re-arm the float only when moving deeper into the rail (the session list);
+    // if the cursor is leaving the rail entirely, onRailLeave handles collapse.
+    if (aside && e.relatedTarget instanceof Node && aside.contains(e.relatedTarget)) {
+      startFloat()
+    }
   }
   const grouped = groupMode !== 'none' && !railed
   const dnd = useCardDnd(roster, railed ? 'disabled' : groupMode, onReorder, onSetTag)
@@ -161,7 +188,7 @@ export function Roster(props: Props): JSX.Element {
     >
       <div className="roster__header">
         {railed ? (
-          <div className="roster__collapsed-head">
+          <div className="roster__collapsed-head" onMouseEnter={onHeadEnter} onMouseLeave={onHeadLeave}>
             {viewMode === 'single' && (
               <button
                 type="button"
@@ -240,7 +267,7 @@ export function Roster(props: Props): JSX.Element {
       </div>
 
       <div className="roster__toolbar">
-        <ViewToggle mode={viewMode} onChange={onSetViewMode} />
+        <ViewToggle mode={viewMode} onChange={onSetViewMode} onGridRepeat={onGridRepeat} />
         {!railed && (
           <div className="roster__tools">
             <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />

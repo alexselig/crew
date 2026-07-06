@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
 import { GridTile } from './GridTile'
@@ -8,12 +9,13 @@ import { formatUsd, formatCredits } from '../state-meta'
 import { groupSessions, existingGroups, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
-import type { ViewMode } from '../hooks'
+import type { ViewMode, GridDensity } from '../hooks'
 
 interface Props {
   roster: SessionInfo[]
   characters: CharacterDef[]
   selectedId: string | null
+  gridDensity: GridDensity
   groupMode: GroupMode
   onSetGroupMode: (m: GroupMode) => void
   collapsedGroups: Set<string>
@@ -41,6 +43,7 @@ export function GridView({
   roster,
   characters,
   selectedId,
+  gridDensity,
   groupMode,
   onSetGroupMode,
   collapsedGroups,
@@ -67,6 +70,8 @@ export function GridView({
   // grouping, dragging a tile onto another group (or its header) retags it;
   // 'needs' groups are state-derived, so tile dragging is off there.
   const grouped = groupMode !== 'none'
+  // Density layouts apply to the flat grid only; grouped view keeps default tiles.
+  const density = grouped ? null : gridDensity
   const groups = grouped ? groupSessions(roster, groupMode, groupOrder) : []
   const gdnd = useGroupReorder(
     groups.map((g) => g.name),
@@ -74,6 +79,14 @@ export function GridView({
   )
   const dnd = useCardDnd(roster, groupMode, onReorder, onSetTag)
   const tagGroups = existingGroups(roster)
+
+  // Clicking a session in the nav selects it — scroll its tile into view so the
+  // picked session is visible in the grid.
+  useEffect(() => {
+    if (!selectedId) return
+    const el = document.querySelector(`.tile[data-session-id="${CSS.escape(selectedId)}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+  }, [selectedId])
 
   if (roster.length === 0) {
     return (
@@ -125,7 +138,7 @@ export function GridView({
   }
 
   return (
-    <main className="gridview">
+    <main className={`gridview ${density ? `gridview--${density}` : ''}`}>
       <div className="grid-topbar">
         <div className="grid-topbar__left">
           <button
@@ -177,7 +190,7 @@ export function GridView({
             ))}
           </div>
         ) : (
-          <div className="grid">{roster.map(renderTile)}</div>
+          <div className={`grid ${density ? `grid--${density}` : ''}`}>{roster.map(renderTile)}</div>
         )}
       </div>
 
