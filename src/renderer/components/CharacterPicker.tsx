@@ -26,6 +26,8 @@ interface Props {
   size?: number
   /** Show the status dot on the mascot trigger (used in grid tiles). */
   dot?: boolean
+  /** Autopilot state, so the mascot trigger wears the pilot costume. */
+  autopilot?: boolean
 }
 
 /** Current character as a trigger; click opens a glyph gallery to reassign it. */
@@ -39,7 +41,8 @@ export function CharacterPicker({
   variant = 'button',
   state = 'IDLE',
   size = 34,
-  dot = false
+  dot = false,
+  autopilot = false
 }: Props): JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -64,7 +67,7 @@ export function CharacterPicker({
           title="Change character"
           onClick={() => setOpen((v) => !v)}
         >
-          <Character glyph={current?.glyph ?? '●'} id={current?.id} color={color} state={state} size={size} dot={dot} />
+          <Character glyph={current?.glyph ?? '●'} id={current?.id} color={color} state={state} size={size} dot={dot} autopilot={autopilot} />
         </button>
       ) : (
         <button

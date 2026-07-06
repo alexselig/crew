@@ -12,18 +12,21 @@ interface Props {
   size?: number
   /** Show the small status dot overlay (used on cards). */
   dot?: boolean
+  /** When the session is on autopilot (Claude Code acceptEdits), wear the pilot costume. */
+  autopilot?: boolean
 }
 
-export function Character({ glyph, state, id, color, size = 26, dot = true }: Props): JSX.Element {
+export function Character({ glyph, state, id, color, size = 26, dot = true, autopilot = false }: Props): JSX.Element {
   const meta = STATE_META[state]
   const art = id !== undefined && hasCharacterArt(id)
   return (
     <span
-      className={`character character--${meta.anim}`}
+      className={`character character--${meta.anim}${autopilot ? ' character--autopilot' : ''}`}
       style={{ fontSize: size, width: size * 1.35, height: size * 1.35, color }}
+      title={autopilot ? 'autopilot' : undefined}
     >
       {art ? (
-        <CharacterArt id={id as string} size={size} />
+        <CharacterArt id={id as string} size={size} variant={autopilot ? 'pilot' : 'base'} />
       ) : (
         <span className="character__glyph">{glyph}</span>
       )}

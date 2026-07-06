@@ -20,11 +20,15 @@ import { pickCharacter } from './characters'
 import { randomCharacterColor, fallbackCharacterColor } from '../shared/palette'
 import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
+import { AutopilotWatcher, isClaudeSession } from './autopilot'
 
 const TICK_MS = 250
 const DEFAULT_COLS = 100
 const DEFAULT_ROWS = 30
 const EVENT_CAP = 2000
+// Poll Claude transcripts for autopilot every ~1s (4 ticks) — cheap, since an
+// unchanged transcript is not re-read.
+const AUTOPILOT_POLL_TICKS = 4
 
 interface Managed {
   info: SessionInfo
@@ -63,6 +67,9 @@ export class SessionManager extends EventEmitter {
   private readonly events: ActivityEvent[] = []
   // Coalesces cost-driven roster updates into the tick loop (max ~4/s).
   private rosterDirty = false
+  // Detects Claude Code autopilot (acceptEdits) from session transcripts.
+  private readonly autopilot = new AutopilotWatcher()
+  private autopilotTick = 0
   // Set during shutdown so PTY exit handlers don't overwrite the saved session
   // list with an empty one (which would defeat resume-on-next-launch).
   private disposing = false
@@ -120,6 +127,7 @@ export class SessionManager extends EventEmitter {
       exitCode: null,
       costUsd: 0,
       creditsUsed: 0,
+      autopilot: false,
       tag: restore?.tag,
       createdAt: now,
       stateChangedAt: now
@@ -335,6 +343,7 @@ export class SessionManager extends EventEmitter {
       }
     }
     this.sessions.delete(id)
+    this.autopilot.forget(id)
     this.stopTimerIfIdle()
     this.emitRoster()
     this.persistSessions()
@@ -478,12 +487,27 @@ export class SessionManager extends EventEmitter {
     this.timer = setInterval(() => {
       const now = Date.now()
       for (const m of this.sessions.values()) m.detector?.tick(now)
+      this.pollAutopilot()
       // Flush any cost updates accumulated from output since the last tick.
       if (this.rosterDirty) {
         this.rosterDirty = false
         this.emitRoster()
       }
     }, TICK_MS)
+  }
+
+  /** Refresh autopilot state for active Claude sessions (throttled). */
+  private pollAutopilot(): void {
+    this.autopilotTick = (this.autopilotTick + 1) % AUTOPILOT_POLL_TICKS
+    if (this.autopilotTick !== 0) return
+    for (const m of this.sessions.values()) {
+      if (m.info.status !== 'active' || !isClaudeSession(m.info)) continue
+      const on = this.autopilot.isAutopilot(m.info.id, m.info.cwd)
+      if (on !== m.info.autopilot) {
+        m.info.autopilot = on
+        this.rosterDirty = true
+      }
+    }
   }
 
   private stopTimerIfIdle(): void {

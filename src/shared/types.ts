@@ -97,6 +97,12 @@ export interface SessionInfo {
   costUsd: number
   /** Latest credit/usage count the agent has reported (e.g. Copilot AIC; 0 if none). */
   creditsUsed: number
+  /**
+   * True when the agent is running autonomously (Claude Code's acceptEdits /
+   * "auto pilot" permission mode), detected from its session transcript. Drives
+   * the pilot-costume character art.
+   */
+  autopilot: boolean
   /** Optional user tag for grouping (e.g. a project name). */
   tag?: string
   createdAt: number
