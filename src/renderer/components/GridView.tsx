@@ -155,6 +155,14 @@ export function GridView({
             <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
               <Icon name="chart" />
             </button>
+            <button
+              type="button"
+              className="icon-btn"
+              title="New window (⇧⌘N)"
+              onClick={() => void window.crew.openWindow()}
+            >
+              <Icon name="windows" />
+            </button>
             <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
               <Icon name="settings" />
             </button>
