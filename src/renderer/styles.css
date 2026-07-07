@@ -2325,14 +2325,41 @@ button {
   background: var(--bg-elev-2);
 }
 
-.bcast-glyph {
-  font-size: 15px;
-}
-
 .bcast-label {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.bcast-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.bcast-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.bcast-preset:hover {
+  background: rgba(242, 241, 234, 0.05);
+  border-color: var(--hair-strong);
+}
+
+.bcast-preset__glyph {
+  font-size: 13px;
 }
 
 .sets {
