@@ -7,6 +7,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { accessSync, constants, writeFileSync, appendFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
 import { IPC, NEEDS_YOU } from '../shared/types'
 import type { CreateSessionRequest, Settings } from '../shared/types'
 import type { AgentStatus } from '../shared/api'
@@ -323,6 +324,41 @@ async function confirmQuit(): Promise<void> {
   if (response === 0) reallyQuit()
 }
 
+/** GUI-launched apps (Finder/Dock/Spotlight) inherit a minimal PATH that omits
+ * shell additions (nvm, bun, ~/.agency, /opt/homebrew, …), so agents such as
+ * `copilot` show up as "not found on PATH". Recover the real PATH from a
+ * login+interactive shell and merge it into process.env, so both agent
+ * detection (whichSync) and session spawns (node-pty) can find the binaries.
+ * Terminal launches already have the full PATH; the merge just de-dupes. */
+function hydrateShellPath(): void {
+  if (process.platform === 'win32') return
+  const shell = process.env.SHELL || '/bin/zsh'
+  const M = '__CREW_PATH__'
+  try {
+    // ${PATH} is braced so the marker can't be swallowed into the variable name;
+    // spawnSync (not execFileSync) still returns stdout even if an interactive
+    // zsh exits non-zero for lack of a TTY.
+    const res = spawnSync(shell, ['-ilc', `printf '%s' "${M}\${PATH}${M}"`], {
+      encoding: 'utf8',
+      timeout: 5000,
+      env: { ...process.env, TERM: process.env.TERM || 'xterm-256color' }
+    })
+    const shellPath = (res.stdout || '').match(new RegExp(`${M}(.*)${M}`))?.[1]?.trim()
+    if (!shellPath) return
+    const seen = new Set<string>()
+    const merged: string[] = []
+    for (const p of [...shellPath.split(':'), ...(process.env.PATH || '').split(':')]) {
+      if (p && !seen.has(p)) {
+        seen.add(p)
+        merged.push(p)
+      }
+    }
+    process.env.PATH = merged.join(':')
+  } catch {
+    /* keep the inherited PATH */
+  }
+}
+
 function applyLoginItem(enabled: boolean): void {
   try {
     app.setLoginItemSettings({ openAtLogin: enabled })
@@ -512,6 +548,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => showWindow())
 
   app.whenReady().then(() => {
+  hydrateShellPath()
   store = new Store(join(app.getPath('userData'), 'crew-store.json'))
   recorder = new TranscriptRecorder(join(app.getPath('userData'), 'transcripts'))
   manager = new SessionManager(store, recorder)
