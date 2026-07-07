@@ -1,4 +1,4 @@
-// Autopilot detection for Claude Code sessions.
+// Autopilot detection for agent sessions.
 //
 // Claude Code records the active permission mode on every user message in its
 // session transcript (~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl) as
@@ -8,6 +8,11 @@
 // find the newest transcript in the project dir and read the last permissionMode
 // out of its tail. The file signature (path+size+mtime) is cached so an
 // unchanged transcript is never re-read.
+//
+// The GitHub Copilot CLI has no such transcript, but its TUI footer names the
+// current approval mode ("autopilot · / commands · → next tab"). Since Crew owns
+// the PTY it sees that footer in the raw output, so for Copilot we read the mode
+// out of the (ANSI-stripped) output tail instead — see latestCopilotFooterMode.
 
 import { readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
@@ -25,6 +30,37 @@ const PERMISSION_MODE_RE = /"permissionMode":"([a-zA-Z]+)"/g
 /** True for sessions launched as Claude Code (the only agent with these transcripts). */
 export function isClaudeSession(info: Pick<SessionInfo, 'presetId' | 'command'>): boolean {
   return info.presetId === 'claude-code' || basename(info.command) === 'claude'
+}
+
+/** True for GitHub Copilot CLI sessions (its footer exposes the autopilot mode). */
+export function isCopilotSession(info: Pick<SessionInfo, 'presetId' | 'command'>): boolean {
+  return info.presetId === 'copilot-cli' || basename(info.command) === 'copilot'
+}
+
+/**
+ * The Copilot CLI renders a footer hint of the form
+ *   "<mode> · / commands · → next tab"
+ * where <mode> is "plan" or "autopilot"; the default mode shows no leading token
+ * ("/ commands · ? help · → next tab"). Shift+Tab cycles default → plan →
+ * autopilot. We read the mode from the *last* footer in the ANSI-stripped output
+ * tail (older footers linger earlier in the stream, so only the most recent one
+ * reflects the current mode). Returns null when no footer is present, so callers
+ * can keep the last known mode instead of flipping spuriously mid-stream.
+ */
+export function latestCopilotFooterMode(text: string): 'autopilot' | 'plan' | 'default' | null {
+  const i = text.lastIndexOf('/ commands')
+  if (i < 0) return null
+  // The mode token (if any) immediately precedes "/ commands": "<mode> · /…".
+  const before = text.slice(Math.max(0, i - 24), i)
+  if (/autopilot\s+\u00b7\s*$/.test(before)) return 'autopilot'
+  if (/plan\s+\u00b7\s*$/.test(before)) return 'plan'
+  return 'default'
+}
+
+/** Copilot autopilot state from an output tail, or null when undetermined. */
+export function isCopilotAutopilot(text: string): boolean | null {
+  const mode = latestCopilotFooterMode(text)
+  return mode == null ? null : mode === 'autopilot'
 }
 
 /**

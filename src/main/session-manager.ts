@@ -20,7 +20,7 @@ import { pickCharacter } from './characters'
 import { randomCharacterColor, fallbackCharacterColor } from '../shared/palette'
 import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
-import { AutopilotWatcher, isClaudeSession } from './autopilot'
+import { AutopilotWatcher, isClaudeSession, isCopilotSession, isCopilotAutopilot } from './autopilot'
 
 const TICK_MS = 250
 const DEFAULT_COLS = 100
@@ -29,6 +29,9 @@ const EVENT_CAP = 2000
 // Poll Claude transcripts for autopilot every ~1s (4 ticks) — cheap, since an
 // unchanged transcript is not re-read.
 const AUTOPILOT_POLL_TICKS = 4
+// Recent ANSI-stripped output kept per Copilot session so pollAutopilot can read
+// the current approval mode from its TUI footer. Small: the footer redraws often.
+const COPILOT_TAIL_CHARS = 16384
 
 interface Managed {
   info: SessionInfo
@@ -38,6 +41,8 @@ interface Managed {
   credits: CostParser
   cols: number
   rows: number
+  // ANSI-stripped output tail; used to read the Copilot CLI autopilot footer.
+  outTail: string
 }
 
 export interface Transition {
@@ -67,7 +72,8 @@ export class SessionManager extends EventEmitter {
   private readonly events: ActivityEvent[] = []
   // Coalesces cost-driven roster updates into the tick loop (max ~4/s).
   private rosterDirty = false
-  // Detects Claude Code autopilot (acceptEdits) from session transcripts.
+  // Detects Claude Code autopilot (acceptEdits) from session transcripts;
+  // Copilot CLI autopilot is read from its TUI footer (see pollAutopilot).
   private readonly autopilot = new AutopilotWatcher()
   private autopilotTick = 0
   // Set during shutdown so PTY exit handlers don't overwrite the saved session
@@ -182,7 +188,7 @@ export class SessionManager extends EventEmitter {
       info.status = 'error'
       info.exitCode = 127
       info.errorMessage = `Failed to launch ${command} in ${cwd}: ${err instanceof Error ? err.message : String(err)}`
-      this.sessions.set(id, { info, proc: null, detector: null, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS })
+      this.sessions.set(id, { info, proc: null, detector: null, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, outTail: '' })
       this.store.setAssignment(key, { characterId, lastLabel: label })
       this.emitRoster()
       const message = err instanceof Error ? err.message : String(err)
@@ -192,7 +198,7 @@ export class SessionManager extends EventEmitter {
 
     info.pid = proc.pid
     const detector = new StateDetector(now, cfg, (state, reason) => this.onState(id, state, reason))
-    const managed: Managed = { info, proc, detector, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
+    const managed: Managed = { info, proc, detector, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, outTail: '' }
     this.sessions.set(id, managed)
     this.store.setAssignment(key, { characterId, lastLabel: label })
 
@@ -203,6 +209,11 @@ export class SessionManager extends EventEmitter {
       this.emit('output', { id, data })
       managed.detector?.pushOutput(data, Date.now())
       const clean = stripAnsi(data)
+      // Copilot CLI exposes its approval mode only in the TUI footer; keep a
+      // rolling tail so pollAutopilot can read it (Claude uses transcripts).
+      if (isCopilotSession(managed.info)) {
+        managed.outTail = (managed.outTail + clean).slice(-COPILOT_TAIL_CHARS)
+      }
       if (this.recorder && this.store.settings.captureTranscripts) this.recorder.append(id, clean)
       if (managed.cost.push(clean)) {
         managed.info.costUsd = managed.cost.usd
@@ -519,13 +530,24 @@ export class SessionManager extends EventEmitter {
     }, TICK_MS)
   }
 
-  /** Refresh autopilot state for active Claude sessions (throttled). */
+  /** Refresh autopilot state for active agent sessions (throttled). */
   private pollAutopilot(): void {
     this.autopilotTick = (this.autopilotTick + 1) % AUTOPILOT_POLL_TICKS
     if (this.autopilotTick !== 0) return
     for (const m of this.sessions.values()) {
-      if (m.info.status !== 'active' || !isClaudeSession(m.info)) continue
-      const on = this.autopilot.isAutopilot(m.info.id, m.info.cwd)
+      if (m.info.status !== 'active') continue
+      let on: boolean
+      if (isClaudeSession(m.info)) {
+        // Claude Code: read the permission mode from its session transcript.
+        on = this.autopilot.isAutopilot(m.info.id, m.info.cwd)
+      } else if (isCopilotSession(m.info)) {
+        // Copilot CLI: read the mode from its TUI footer in recent output.
+        // null = footer not in the tail → keep the last known state.
+        const detected = isCopilotAutopilot(m.outTail)
+        on = detected == null ? m.info.autopilot : detected
+      } else {
+        continue
+      }
       if (on !== m.info.autopilot) {
         m.info.autopilot = on
         this.rosterDirty = true

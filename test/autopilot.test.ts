@@ -6,6 +6,9 @@ import {
   AutopilotWatcher,
   isAutopilotMode,
   isClaudeSession,
+  isCopilotAutopilot,
+  isCopilotSession,
+  latestCopilotFooterMode,
   latestPermissionMode,
   projectDirFor
 } from '../src/main/autopilot'
@@ -22,6 +25,53 @@ describe('isClaudeSession', () => {
   it('rejects other agents', () => {
     expect(isClaudeSession({ presetId: 'copilot-cli', command: 'copilot' })).toBe(false)
     expect(isClaudeSession({ presetId: 'shell', command: '/bin/zsh' })).toBe(false)
+  })
+})
+
+describe('isCopilotSession', () => {
+  it('matches the copilot-cli preset or a bare copilot command', () => {
+    expect(isCopilotSession({ presetId: 'copilot-cli', command: 'copilot' })).toBe(true)
+    expect(isCopilotSession({ presetId: null, command: '/opt/gh/copilot' })).toBe(true)
+  })
+
+  it('rejects other agents', () => {
+    expect(isCopilotSession({ presetId: 'claude-code', command: 'claude' })).toBe(false)
+  })
+})
+
+describe('latestCopilotFooterMode', () => {
+  // Real ANSI-stripped Copilot CLI footers (Shift+Tab cycles default→plan→autopilot).
+  const DEFAULT_FOOTER = '/ commands \u00b7 ? help \u00b7 \u2192 next tab'
+  const PLAN_FOOTER = 'plan \u00b7 / commands \u00b7 ? help \u00b7 \u2192 next tab'
+  const AUTOPILOT_FOOTER = 'autopilot \u00b7 / commands \u00b7 \u2192 next tab'
+
+  it('reads the mode token that precedes the footer', () => {
+    expect(latestCopilotFooterMode(AUTOPILOT_FOOTER)).toBe('autopilot')
+    expect(latestCopilotFooterMode(PLAN_FOOTER)).toBe('plan')
+    expect(latestCopilotFooterMode(DEFAULT_FOOTER)).toBe('default')
+  })
+
+  it('returns null when no footer is present', () => {
+    expect(latestCopilotFooterMode('just some agent output about autopilot')).toBeNull()
+    expect(latestCopilotFooterMode('')).toBeNull()
+  })
+
+  it('uses the LAST footer when several are in the tail', () => {
+    // Turned autopilot on, then back off: the newest footer wins.
+    expect(latestCopilotFooterMode(`${AUTOPILOT_FOOTER}\n spinner… \n${DEFAULT_FOOTER}`)).toBe('default')
+    // On during a burst of streaming with no newer footer stays autopilot.
+    expect(latestCopilotFooterMode(`${DEFAULT_FOOTER}\n…\n${AUTOPILOT_FOOTER}\nworking…`)).toBe('autopilot')
+  })
+
+  it('is not fooled by the word "autopilot" in prose (needs the footer separator)', () => {
+    expect(latestCopilotFooterMode('the user asked about autopilot / commands earlier')).toBe('default')
+  })
+
+  it('isCopilotAutopilot maps the mode to a boolean, null when undetermined', () => {
+    expect(isCopilotAutopilot(AUTOPILOT_FOOTER)).toBe(true)
+    expect(isCopilotAutopilot(PLAN_FOOTER)).toBe(false)
+    expect(isCopilotAutopilot(DEFAULT_FOOTER)).toBe(false)
+    expect(isCopilotAutopilot('no footer yet')).toBeNull()
   })
 })
 

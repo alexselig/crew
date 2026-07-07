@@ -12,7 +12,7 @@ interface Props {
   size?: number
   /** Show the small status dot overlay (used on cards). */
   dot?: boolean
-  /** When the session is on autopilot (Claude Code acceptEdits), wear the pilot costume. */
+  /** When the session is on autopilot (Claude acceptEdits / Copilot autopilot), wear the pilot costume. */
   autopilot?: boolean
 }
 
