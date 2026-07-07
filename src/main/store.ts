@@ -34,6 +34,8 @@ export interface PersistedSession {
   characterId: string
   color?: string
   tag?: string
+  /** The agent's session UUID, so restore reattaches the same conversation. */
+  agentSessionId?: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {

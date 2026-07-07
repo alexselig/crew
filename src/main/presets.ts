@@ -25,6 +25,11 @@ export function builtinPresets(): Preset[] {
       approveKeys: 'y\r',
       denyKeys: 'n\r',
       installHint: 'npm i -g @github/copilot',
+      // Copilot's --session-id both sets a new session's UUID and resumes an
+      // existing one by ID, so Crew controls each session's id and resumes a
+      // saved set precisely. --continue stays as a fallback for legacy sessions
+      // started before Crew tracked ids.
+      sessionIdFlag: '--session-id=',
       resumeArgs: ['--continue'],
       quietMs: 800,
       confirmMs: 400,

@@ -436,7 +436,18 @@ function registerIpc(): void {
     const sessions = manager
       .roster()
       .filter((s) => s.status === 'active')
-      .map((s) => ({ presetId: s.presetId, command: s.command, args: s.args, cwd: s.cwd, label: s.label }))
+      .map((s) => ({
+        presetId: s.presetId,
+        command: s.command,
+        args: s.args,
+        cwd: s.cwd,
+        label: s.label,
+        id: s.id,
+        agentSessionId: s.agentSessionId,
+        characterId: s.characterId,
+        color: s.color,
+        tag: s.tag
+      }))
     return store.upsertSet({ name, sessions })
   })
   ipcMain.handle(IPC.SETS_LAUNCH, (_e, name: string) => {

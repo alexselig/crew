@@ -87,13 +87,17 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string }
+    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || process.env.SHELL || '/bin/zsh'
     const args = req.args && req.args.length ? req.args : preset?.args ?? []
     const cwd = req.cwd || process.env.HOME || process.cwd()
     const id = restore?.id ?? randomUUID()
+    // The agent's own session UUID: reused when resuming (so we reattach the same
+    // conversation), freshly minted otherwise. Passed via the preset's
+    // sessionIdFlag (e.g. Copilot's --session-id=).
+    const agentSessionId = restore?.agentSessionId ?? randomUUID()
     const now = Date.now()
 
     const key = identityKey(req.presetId, cwd)
@@ -120,6 +124,7 @@ export class SessionManager extends EventEmitter {
       presetId: req.presetId,
       command,
       args,
+      agentSessionId,
       cwd,
       state: 'STARTING',
       status: 'active',
@@ -151,9 +156,18 @@ export class SessionManager extends EventEmitter {
 
     let proc: pty.IPty
     try {
-      // Resume args (e.g. --continue) are applied to the launch only, never
-      // stored in info.args — so a resumed session isn't re-flagged next time.
-      const spawnArgs = restore?.extraArgs?.length ? [...args, ...restore.extraArgs] : args
+      // Launch-time args (never persisted into info.args, so flags never
+      // accumulate). For an agent with a session-id flag (Copilot): mint a fresh
+      // --session-id for a new session, reuse it to reattach on a known resume,
+      // and fall back to --continue only for a legacy session whose id we never
+      // captured. Other agents (Claude) just get their resume args.
+      let idArgs: string[] = []
+      let resumeExtra = restore?.extraArgs ?? []
+      if (preset?.sessionIdFlag && (restore?.agentSessionId || !restore)) {
+        idArgs = [preset.sessionIdFlag + agentSessionId]
+        resumeExtra = []
+      }
+      const spawnArgs = [...args, ...idArgs, ...resumeExtra]
       proc = pty.spawn(command, spawnArgs, {
         name: 'xterm-256color',
         cols: DEFAULT_COLS,
@@ -409,7 +423,8 @@ export class SessionManager extends EventEmitter {
         label: m.info.label,
         characterId: m.info.characterId,
         color: m.info.color,
-        tag: m.info.tag
+        tag: m.info.tag,
+        agentSessionId: m.info.agentSessionId
       }))
     this.store.saveSessions(list)
   }
@@ -429,6 +444,7 @@ export class SessionManager extends EventEmitter {
         { presetId: p.presetId, command: p.command, args: p.args, cwd: p.cwd, label: p.label },
         {
           id: p.id,
+          agentSessionId: resume ? p.agentSessionId : undefined,
           characterId: p.characterId,
           color: p.color ?? fallbackCharacterColor(p.id),
           extraArgs,
@@ -453,7 +469,14 @@ export class SessionManager extends EventEmitter {
       const extraArgs = resume ? preset?.resumeArgs ?? [] : []
       return this.create(
         { presetId: d.presetId, command: d.command, args: d.args, cwd: d.cwd, label: d.label },
-        extraArgs.length ? { extraArgs } : undefined
+        {
+          id: d.id,
+          agentSessionId: resume ? d.agentSessionId : undefined,
+          characterId: d.characterId,
+          color: d.color,
+          extraArgs: extraArgs.length ? extraArgs : undefined,
+          tag: d.tag
+        }
       )
     })
   }

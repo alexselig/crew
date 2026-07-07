@@ -41,6 +41,13 @@ export interface Preset {
   /** Extra args appended when *resuming* this agent on startup (e.g. ['--continue']). */
   resumeArgs?: string[]
   /**
+   * When set, every launch appends `<sessionIdFlag><uuid>` (e.g. Copilot's
+   * `--session-id=`). That flag both sets the UUID for a NEW session and resumes
+   * an EXISTING one by ID, so Crew can dictate each session's id and later
+   * reattach to that exact conversation — the basis for resuming a saved set.
+   */
+  sessionIdFlag?: string
+  /**
    * Regex (source string) whose first capture group is a cumulative USD amount
    * the agent prints (e.g. Claude Code's "Total cost: $0.42"). Latest/highest wins.
    */
@@ -84,6 +91,9 @@ export interface SessionInfo {
   presetId: string | null
   command: string
   args: string[]
+  /** The agent's own session UUID (e.g. passed via Copilot's --session-id) so
+   * this exact conversation can be reattached later — the key to resuming a set. */
+  agentSessionId?: string
   cwd: string
   state: SessionState
   status: SessionStatus
@@ -127,6 +137,12 @@ export interface SessionSet {
     args: string[]
     cwd: string
     label: string
+    /** Preserved so resuming a set restores the same agent conversation + look. */
+    id?: string
+    agentSessionId?: string
+    characterId?: string
+    color?: string
+    tag?: string
   }>
 }
 
