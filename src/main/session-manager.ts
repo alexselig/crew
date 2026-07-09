@@ -16,7 +16,7 @@ import { CostParser, DEFAULT_COST_REGEX_SRC, DEFAULT_CREDITS_REGEX_SRC } from '.
 import type { SessionInfo, CreateSessionRequest, SessionState } from '../shared/types'
 import type { ActivityEvent } from '../shared/api'
 import { getPreset } from './presets'
-import { pickCharacter } from './characters'
+import { pickCharacter, isCharacterId } from './characters'
 import { randomCharacterColor, fallbackCharacterColor } from '../shared/palette'
 import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
@@ -113,7 +113,13 @@ export class SessionManager extends EventEmitter {
         .map((m) => m.info.characterId)
     )
     const saved = this.store.getAssignment(key)
-    const characterId = restore?.characterId ?? pickCharacter(usedChars, saved?.characterId)
+    // Heal invalid character ids (e.g. a legacy session UUID stored as the
+    // characterId, which would render as a bare colored circle) by falling back
+    // to a real, unused character instead of trusting the persisted value.
+    const requested = restore?.characterId
+    const characterId = isCharacterId(requested)
+      ? (requested as string)
+      : pickCharacter(usedChars, saved?.characterId)
     const color = restore?.color ?? randomCharacterColor()
 
     const base = cwd.split('/').filter(Boolean).pop() || 'session'
@@ -304,6 +310,9 @@ export class SessionManager extends EventEmitter {
   setCharacter(id: string, characterId: string): void {
     const m = this.sessions.get(id)
     if (!m) return
+    // Ignore anything that isn't a real character (e.g. a stray session id),
+    // which would otherwise persist and render as a bare colored circle.
+    if (!isCharacterId(characterId)) return
     const previous = m.info.characterId
     if (previous === characterId) return
     // Keep active characters unique: if another active session already wears this
@@ -397,7 +406,10 @@ export class SessionManager extends EventEmitter {
       ids.splice(idx, 0, info.id)
       this.reorder(ids)
     }
-    return { ...info, characterId: character, color }
+    // Return the live info: setCharacter drops an invalid legacy id, so the
+    // session may have healed to a freshly-picked character.
+    const healed = this.sessions.get(info.id)
+    return healed ? { ...healed.info } : { ...info, color }
   }
 
   disposeAll(): void {

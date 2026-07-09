@@ -28,14 +28,19 @@ export function getCharacter(id: string): CharacterDef | undefined {
   return CHARACTERS.find((c) => c.id === id)
 }
 
+/** True when `id` is a real character (guards against stray ids, e.g. a session UUID). */
+export function isCharacterId(id: string | undefined | null): boolean {
+  return id != null && CHARACTERS.some((c) => c.id === id)
+}
+
 /**
  * Pick the next character for a new session.
- * - Honor `preferred` (e.g. a remembered assignment) when it is free.
+ * - Honor `preferred` (e.g. a remembered assignment) when it is a real, free character.
  * - Otherwise return the first character not currently in use.
  * - If every character is in use, cycle deterministically so we never crash.
  */
 export function pickCharacter(used: Set<string>, preferred?: string): string {
-  if (preferred && !used.has(preferred)) return preferred
+  if (preferred && isCharacterId(preferred) && !used.has(preferred)) return preferred
   for (const c of CHARACTERS) {
     if (!used.has(c.id)) return c.id
   }
