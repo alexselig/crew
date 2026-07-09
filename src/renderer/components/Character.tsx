@@ -30,6 +30,13 @@ export function Character({ glyph, state, id, color, size = 26, dot = true, auto
       ) : (
         <span className="character__glyph">{glyph}</span>
       )}
+      {autopilot && (
+        <span className="character__pilot" aria-label="autopilot" title="autopilot">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+            <path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" />
+          </svg>
+        </span>
+      )}
       {dot && <span className="character__dot" style={{ background: meta.color }} />}
     </span>
   )
