@@ -2457,6 +2457,86 @@ button {
   flex: 1;
 }
 
+/* Workspace membership picker (New Session modal) */
+.ws-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.ws-chip:hover {
+  background: rgba(242, 241, 234, 0.05);
+  border-color: var(--hair-strong);
+}
+
+.ws-chip.is-on {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+
+.ws-chip__mark {
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.modal__hint--tight {
+  margin: 0 0 2px;
+}
+
+/* Active-workspace indicator in the roster header */
+.roster__workspace {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 2px 0 8px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.roster__workspace-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roster__workspace-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.roster__workspace-clear:hover {
+  color: var(--text);
+  background: var(--bg-elev-2);
+}
+
 /* ---------- Scrollbars ---------- */
 ::-webkit-scrollbar {
   width: 10px;

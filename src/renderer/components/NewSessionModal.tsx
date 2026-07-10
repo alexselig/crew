@@ -2,17 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import type { Preset, CreateSessionRequest, SessionSet } from '../../shared/types'
 import type { AgentStatus } from '../../shared/api'
 import { SessionSetChips } from './SessionSetChips'
+import { normalizeSetNames, workspaceNames } from '../../shared/workspaces'
 
 interface Props {
   presets: Preset[]
   homeDir: string
+  /** Workspaces to pre-select (e.g. the active workspace filter). */
+  defaultSets?: string[]
   onCancel: () => void
   onCreate: (req: CreateSessionRequest) => void
 }
 
 const CUSTOM = '__custom__'
 
-export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props): JSX.Element {
+export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, onCreate }: Props): JSX.Element {
   const [presetId, setPresetId] = useState<string>(presets[0]?.id ?? CUSTOM)
   const [cwd, setCwd] = useState<string>(homeDir)
   const [command, setCommand] = useState('')
@@ -22,12 +25,40 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
   const [agents, setAgents] = useState<AgentStatus[]>([])
   const [sets, setSets] = useState<SessionSet[]>([])
   const [setName, setSetName] = useState('')
+  // Workspaces the new session will join, plus any freshly-typed names not yet
+  // saved as sets. Pre-seeded with the active workspace when creating inside one.
+  const [selectedSets, setSelectedSets] = useState<string[]>(() => normalizeSetNames(defaultSets))
+  const [extraNames, setExtraNames] = useState<string[]>([])
+  const [newWs, setNewWs] = useState('')
   const firstFieldRef = useRef<HTMLSelectElement>(null)
 
   useEffect(() => {
     void window.crew.detectAgents().then(setAgents)
     void window.crew.getSets().then(setSets)
   }, [])
+
+  // All workspace names offered as membership chips: saved sets ∪ typed-new ∪ selected.
+  const availableSets = workspaceNames(
+    [...sets.map((s) => s.name), ...extraNames, ...selectedSets],
+    []
+  )
+  const isSelected = (name: string): boolean =>
+    selectedSets.some((s) => s.toLowerCase() === name.toLowerCase())
+  const toggleSet = (name: string): void =>
+    setSelectedSets((prev) =>
+      prev.some((s) => s.toLowerCase() === name.toLowerCase())
+        ? prev.filter((s) => s.toLowerCase() !== name.toLowerCase())
+        : [...prev, name]
+    )
+  const addWorkspace = (): void => {
+    const name = newWs.trim()
+    if (!name) return
+    if (!availableSets.some((s) => s.toLowerCase() === name.toLowerCase())) {
+      setExtraNames((prev) => [...prev, name])
+    }
+    if (!isSelected(name)) setSelectedSets((prev) => [...prev, name])
+    setNewWs('')
+  }
 
   // Default the cwd once the home dir arrives (async).
   useEffect(() => {
@@ -57,6 +88,7 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
     e.preventDefault()
     if (!canCreate) return
     const preset = presets.find((p) => p.id === presetId)
+    const chosenSets = normalizeSetNames(selectedSets)
     const req: CreateSessionRequest = isCustom
       ? {
           presetId: null,
@@ -64,7 +96,8 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
           args: tokenize(args),
           cwd: cwd.trim(),
           label: label.trim() || undefined,
-          initialPrompt: initialPrompt.trim() || undefined
+          initialPrompt: initialPrompt.trim() || undefined,
+          sets: chosenSets
         }
       : {
           presetId: preset!.id,
@@ -72,7 +105,8 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
           args: preset!.args,
           cwd: cwd.trim(),
           label: label.trim() || undefined,
-          initialPrompt: initialPrompt.trim() || undefined
+          initialPrompt: initialPrompt.trim() || undefined,
+          sets: chosenSets
         }
     onCreate(req)
   }
@@ -83,7 +117,46 @@ export function NewSessionModal({ presets, homeDir, onCancel, onCreate }: Props)
         <h2 className="modal__title">New Session</h2>
 
         <div className="sets">
-          <span className="field__label">Project sets</span>
+          <span className="field__label">Workspaces</span>
+          <p className="modal__hint modal__hint--tight">
+            Add this session to one or more workspaces — switch between them from File ▸ Change Workspace.
+          </p>
+          <div className="ws-picker">
+            {availableSets.length === 0 && (
+              <span className="sets__empty">No workspaces yet — add one below.</span>
+            )}
+            {availableSets.map((name) => (
+              <button
+                type="button"
+                key={name}
+                className={`ws-chip ${isSelected(name) ? 'is-on' : ''}`}
+                aria-pressed={isSelected(name)}
+                onClick={() => toggleSet(name)}
+              >
+                <span className="ws-chip__mark">{isSelected(name) ? '✓' : '＋'}</span>
+                {name}
+              </button>
+            ))}
+          </div>
+          <div className="sets__save">
+            <input
+              className="field__input"
+              placeholder="New workspace name…"
+              value={newWs}
+              onChange={(e) => setNewWs(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addWorkspace()
+                }
+              }}
+            />
+            <button type="button" className="btn" disabled={!newWs.trim()} onClick={addWorkspace}>
+              ＋ Add
+            </button>
+          </div>
+
+          <span className="field__label">Saved sets</span>
           <SessionSetChips
             sets={sets}
             emptyText="None saved yet"

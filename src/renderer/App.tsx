@@ -14,6 +14,7 @@ import { TitleSequence } from './components/TitleSequence'
 import { focusTerminal } from './terminal-pool'
 import { existingGroups } from './grouping'
 import { NEEDS_YOU } from '../shared/types'
+import { sessionInWorkspace } from '../shared/workspaces'
 import { STATE_META } from './state-meta'
 import type { CreateSessionRequest } from '../shared/types'
 
@@ -46,6 +47,12 @@ export function App(): JSX.Element {
   const usedCharacterIds = c.roster
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
     .map((s) => s.characterId)
+  // Roster filtered to the active workspace (null = All). Non-destructive: hidden
+  // sessions keep running; this only changes what's shown.
+  const visibleRoster = useMemo(
+    () => c.roster.filter((s) => sessionInWorkspace(s.sets, c.activeWorkspace)),
+    [c.roster, c.activeWorkspace]
+  )
 
   async function create(req: CreateSessionRequest): Promise<void> {
     const info = await window.crew.createSession(req)
@@ -68,6 +75,16 @@ export function App(): JSX.Element {
     c.setViewMode('single')
   }
 
+  // When a workspace filter hides the selected session, fall back to the first
+  // visible one so the focus view never shows a hidden session.
+  useEffect(() => {
+    if (!c.activeWorkspace) return
+    if (c.selectedId && !visibleRoster.some((s) => s.id === c.selectedId)) {
+      c.setSelectedId(visibleRoster[0]?.id ?? null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [c.activeWorkspace, visibleRoster, c.selectedId])
+
   // Return keyboard focus to the terminal whenever overlays (modals/palette)
   // close — otherwise focus is left on <body> and typed input goes nowhere.
   useEffect(() => {
@@ -78,7 +95,7 @@ export function App(): JSX.Element {
   }, [anyOverlay, c.viewMode, c.selectedId])
 
   function jumpNextWaiting(): void {
-    const waiting = c.roster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
+    const waiting = visibleRoster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
     if (waiting.length === 0) return
     const cur = waiting.findIndex((s) => s.id === c.selectedId)
     focusSession(waiting[(cur + 1) % waiting.length].id)
@@ -121,7 +138,7 @@ export function App(): JSX.Element {
         jumpNextWaiting()
       } else if (/^[1-9]$/.test(e.key)) {
         e.preventDefault()
-        const s = c.roster[Number(e.key) - 1]
+        const s = visibleRoster[Number(e.key) - 1]
         if (s) focusSession(s.id)
       }
     }
@@ -131,7 +148,7 @@ export function App(): JSX.Element {
   }, [c.roster, c.selectedId])
 
   const paletteItems = useMemo<PaletteItem[]>(() => {
-    const sessionItems: PaletteItem[] = c.roster.map((s) => ({
+    const sessionItems: PaletteItem[] = visibleRoster.map((s) => ({
       id: 'sess-' + s.id,
       label: s.label,
       hint: STATE_META[s.state].label,
@@ -160,9 +177,26 @@ export function App(): JSX.Element {
       { id: 'act-transcripts', label: 'Search transcripts…', glyph: '🔎', run: () => setShowTranscripts(true) },
       { id: 'act-settings', label: 'Open Settings', glyph: '⚙', run: () => setShowSettings(true) }
     ]
-    return [...sessionItems, ...actions]
+    // Workspace switching (mirrors the File → Change Workspace menu).
+    const workspaceItems: PaletteItem[] = [
+      {
+        id: 'ws-all',
+        label: 'Workspace: All Sessions',
+        glyph: '🗂',
+        keywords: 'workspace change filter set',
+        run: () => c.setActiveWorkspace(null)
+      },
+      ...c.workspaces.map((name) => ({
+        id: 'ws-' + name,
+        label: `Workspace: ${name}`,
+        glyph: '🗂',
+        keywords: 'workspace change filter set',
+        run: () => c.setActiveWorkspace(name)
+      }))
+    ]
+    return [...sessionItems, ...actions, ...workspaceItems]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [c.roster, c.characters, c.viewMode, c.selectedId])
+  }, [visibleRoster, c.characters, c.viewMode, c.selectedId, c.workspaces, c.activeWorkspace])
 
   const navIsCollapsed = c.navCollapsed || c.viewMode === 'grid'
   // Float the rail open on hover whenever it is collapsed — in grid view too.
@@ -178,7 +212,7 @@ export function App(): JSX.Element {
       }
     >
       <Roster
-        roster={c.roster}
+        roster={visibleRoster}
         characters={c.characters}
         presets={c.presets}
         selectedId={c.selectedId}
@@ -188,6 +222,7 @@ export function App(): JSX.Element {
           const order = ['two', 'four', 'six'] as const
           c.setGridDensity(order[(order.indexOf(c.gridDensity) + 1) % order.length])
         }}
+        gridDensity={c.gridDensity}
         collapsed={navIsCollapsed}
         hoverExpand={navFloating}
         onSetCollapsed={c.setNavCollapsed}
@@ -212,14 +247,17 @@ export function App(): JSX.Element {
         onClose={close}
         onReorder={(ids) => void window.crew.reorder(ids)}
         onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
+        activeWorkspace={c.activeWorkspace}
+        onClearWorkspace={() => c.setActiveWorkspace(null)}
       />
 
       {c.viewMode === 'grid' ? (
         <GridView
-          roster={c.roster}
+          roster={visibleRoster}
           characters={c.characters}
           selectedId={c.selectedId}
           gridDensity={c.gridDensity}
+          activeWorkspace={c.activeWorkspace}
           groupMode={c.groupMode}
           onSetGroupMode={c.setGroupMode}
           collapsedGroups={c.collapsedGroups}
@@ -263,6 +301,7 @@ export function App(): JSX.Element {
         <NewSessionModal
           presets={c.presets}
           homeDir={c.homeDir}
+          defaultSets={c.activeWorkspace ? [c.activeWorkspace] : []}
           onCancel={() => c.setShowNew(false)}
           onCreate={create}
         />

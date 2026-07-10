@@ -1,8 +1,8 @@
 // Electron main entry: owns the app lifecycle, the single main window, the tray,
 // and the full IPC surface described in shared/types.ts.
 
-import { app, BrowserWindow, ipcMain, dialog, protocol, shell, screen } from 'electron'
-import type { Rectangle, Display, MessageBoxOptions } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell, screen, Menu } from 'electron'
+import type { Rectangle, Display, MessageBoxOptions, MenuItemConstructorOptions } from 'electron'
 import { isAbsolute, join, resolve } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { accessSync, constants, writeFileSync, appendFileSync } from 'node:fs'
@@ -28,6 +28,10 @@ let recorder: TranscriptRecorder
 let assets: AssetWatchers
 let isQuitting = false
 let sessionsRestored = false
+// Active workspace (named set) filter shown in the "Change Workspace" menu. null
+// = "All Sessions". Held app-wide (mirrors the focused window's filter) so the
+// menu can show a radio checkmark; the renderer persists its own per-window copy.
+let activeWorkspace: string | null = null
 
 // Persist why the app went down so a "it just disappeared" report is
 // diagnosable after the fact. Appends to <userData>/crew-crash.log (falls back
@@ -199,6 +203,9 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
   // Resume the previous session set once the renderer is ready to receive their
   // output. Guarded so it only happens once per app lifetime (the first window).
   w.webContents.once('did-finish-load', () => {
+    // Match this window to the app-wide workspace filter (the renderer also
+    // persists its own per-window copy across reloads).
+    if (activeWorkspace != null) w.webContents.send(IPC.EVT_WORKSPACE, activeWorkspace)
     if (sessionsRestored) return
     sessionsRestored = true
     manager.restore()
@@ -258,6 +265,62 @@ function openNewSession(): void {
   showWindow()
   focusedWindow()?.webContents.send(IPC.EVT_NEW)
 }
+
+/** Switch the active workspace filter: tell the focused window and refresh the
+ *  menu checkmark. `name` is a workspace name or null for "All Sessions". */
+function setActiveWorkspace(name: string | null): void {
+  activeWorkspace = name
+  focusedWindow()?.webContents.send(IPC.EVT_WORKSPACE, name)
+  rebuildAppMenu()
+}
+
+/** Build the macOS application menu. Standard roles are preserved; the File menu
+ *  gains New Session / New Window and a "Change Workspace" flyout listing every
+ *  saved workspace (radio-checked on the active one) plus "All Sessions". */
+function rebuildAppMenu(): void {
+  const names = store ? store.workspaceNames() : []
+  const workspaceItems: MenuItemConstructorOptions[] = [
+    {
+      label: 'All Sessions',
+      type: 'radio',
+      checked: activeWorkspace == null,
+      click: () => setActiveWorkspace(null)
+    }
+  ]
+  if (names.length) {
+    workspaceItems.push({ type: 'separator' })
+    for (const name of names) {
+      workspaceItems.push({
+        label: name,
+        type: 'radio',
+        checked: activeWorkspace === name,
+        click: () => setActiveWorkspace(name)
+      })
+    }
+  }
+
+  const isMac = process.platform === 'darwin'
+  const template: MenuItemConstructorOptions[] = [
+    ...(isMac ? [{ role: 'appMenu' as const }] : []),
+    {
+      label: 'File',
+      submenu: [
+        { label: 'New Session', click: () => openNewSession() },
+        { label: 'New Window', click: () => openWindow() },
+        { type: 'separator' },
+        { label: 'Change Workspace', submenu: workspaceItems },
+        { type: 'separator' },
+        isMac ? { role: 'close' } : { role: 'quit' }
+      ]
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' }
+  ]
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 
 let quitDialogOpen = false
 
@@ -422,7 +485,12 @@ function wireManager(): void {
 }
 
 function registerIpc(): void {
-  ipcMain.handle(IPC.SESSION_CREATE, (_e, req: CreateSessionRequest) => manager.create(req))
+  ipcMain.handle(IPC.SESSION_CREATE, (_e, req: CreateSessionRequest) => {
+    const info = manager.create(req)
+    // A new session may introduce new workspace names → refresh the menu flyout.
+    if (req.sets && req.sets.length) rebuildAppMenu()
+    return info
+  })
   ipcMain.handle(IPC.SESSION_CLOSE, (_e, id: string) => {
     manager.close(id)
   })
@@ -439,6 +507,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.SESSION_SET_TAG, (_e, p: { id: string; tag: string }) =>
     manager.setTag(p.id, p.tag)
   )
+  ipcMain.handle(IPC.SESSION_SET_WORKSPACES, (_e, p: { id: string; sets: string[] }) => {
+    manager.setWorkspaces(p.id, p.sets)
+    rebuildAppMenu()
+  })
   ipcMain.handle(IPC.SESSION_REORDER, (_e, orderedIds: string[]) => manager.reorder(orderedIds))
   ipcMain.handle(IPC.WINDOW_OPEN, () => {
     openWindow()
@@ -482,14 +554,26 @@ function registerIpc(): void {
         agentSessionId: s.agentSessionId,
         characterId: s.characterId,
         color: s.color,
-        tag: s.tag
+        tag: s.tag,
+        sets: s.sets
       }))
-    return store.upsertSet({ name, sessions })
+    const sets = store.upsertSet({ name, sessions })
+    // Saving a snapshot also makes every currently-open session a member of this
+    // workspace, so existing sessions (not just newly-created ones) can join it.
+    manager.addWorkspaceToActive(name)
+    rebuildAppMenu()
+    return sets
   })
   ipcMain.handle(IPC.SETS_LAUNCH, (_e, name: string) => {
     manager.launchSet(name)
   })
-  ipcMain.handle(IPC.SETS_DELETE, (_e, name: string) => store.deleteSet(name))
+  ipcMain.handle(IPC.SETS_DELETE, (_e, name: string) => {
+    const sets = store.deleteSet(name)
+    manager.removeWorkspaceEverywhere(name)
+    if (activeWorkspace === name) setActiveWorkspace(null)
+    rebuildAppMenu()
+    return sets
+  })
   ipcMain.handle(IPC.EVENTS_GET, () => manager.getEvents())
   ipcMain.handle(IPC.ASSETS_LIST, (_e, id: string) => assets.list(id))
   // Both act only on paths the watcher currently knows — no arbitrary FS access.
@@ -571,6 +655,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   registerIpc()
+  rebuildAppMenu()
   createWindow()
 
   tray = new CrewTray({

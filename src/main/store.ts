@@ -8,6 +8,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Settings, SessionSet } from '../shared/types'
+import { workspaceNames, normalizeSetNames } from '../shared/workspaces'
 
 export interface CharacterAssignment {
   characterId: string
@@ -34,6 +35,8 @@ export interface PersistedSession {
   characterId: string
   color?: string
   tag?: string
+  /** Workspaces (named sets) this session belongs to. */
+  sets?: string[]
   /** The agent's session UUID, so restore reattaches the same conversation. */
   agentSessionId?: string
 }
@@ -161,6 +164,28 @@ export class Store {
     this.data.sets = this.data.sets.filter((s) => s.name !== name)
     this.persist()
     return this.data.sets
+  }
+
+  /** Register workspace names as (possibly empty) sets so they persist and show
+   *  up in menus/pickers even before a snapshot of open sessions is saved. */
+  ensureSets(names: readonly string[]): void {
+    let changed = false
+    const existing = new Set(this.data.sets.map((s) => s.name.toLowerCase()))
+    for (const name of normalizeSetNames(names)) {
+      if (existing.has(name.toLowerCase())) continue
+      this.data.sets.push({ name, sessions: [] })
+      existing.add(name.toLowerCase())
+      changed = true
+    }
+    if (changed) this.persist()
+  }
+
+  /** Union of all known workspace names: explicit sets + every session's membership. */
+  workspaceNames(): string[] {
+    return workspaceNames(
+      this.data.sets.map((s) => s.name),
+      this.data.sessions.map((s) => s.sets)
+    )
   }
 
   get windowBounds(): WindowBounds | undefined {

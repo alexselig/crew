@@ -17,6 +17,7 @@ import type { SessionInfo, CreateSessionRequest, SessionState } from '../shared/
 import type { ActivityEvent } from '../shared/api'
 import { getPreset } from './presets'
 import { pickCharacter, isCharacterId } from './characters'
+import { normalizeSetNames, addToSets, removeFromSets } from '../shared/workspaces'
 import { randomCharacterColor, fallbackCharacterColor } from '../shared/palette'
 import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
@@ -93,7 +94,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string }
+    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[] }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || process.env.SHELL || '/bin/zsh'
@@ -121,6 +122,11 @@ export class SessionManager extends EventEmitter {
       ? (requested as string)
       : pickCharacter(usedChars, saved?.characterId)
     const color = restore?.color ?? randomCharacterColor()
+    // Workspace membership: from a restore/set descriptor, else the create
+    // request's chosen workspaces. Register the names so they persist and appear
+    // in the Change Workspace menu even before a snapshot is saved.
+    const sets = normalizeSetNames(restore?.sets ?? req.sets ?? [])
+    if (sets.length) this.store.ensureSets(sets)
 
     const base = cwd.split('/').filter(Boolean).pop() || 'session'
     const label =
@@ -146,6 +152,7 @@ export class SessionManager extends EventEmitter {
       creditsUsed: 0,
       autopilot: false,
       tag: restore?.tag,
+      sets,
       createdAt: now,
       stateChangedAt: now
     }
@@ -278,6 +285,40 @@ export class SessionManager extends EventEmitter {
     const m = this.sessions.get(id)
     if (!m) return
     m.info.tag = tag.trim() || undefined
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Replace a session's workspace membership with `names` (deduped/validated). */
+  setWorkspaces(id: string, names: string[]): void {
+    const m = this.sessions.get(id)
+    if (!m) return
+    const sets = normalizeSetNames(names)
+    m.info.sets = sets
+    if (sets.length) this.store.ensureSets(sets)
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Add workspace `name` to every currently-active session (used when saving a
+   *  snapshot set, so existing sessions become members of that workspace). */
+  addWorkspaceToActive(name: string): void {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    for (const m of this.sessions.values()) {
+      if (m.info.status !== 'active') continue
+      m.info.sets = addToSets(m.info.sets, trimmed)
+    }
+    this.store.ensureSets([trimmed])
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Strip workspace `name` from every session's membership (used on set delete). */
+  removeWorkspaceEverywhere(name: string): void {
+    for (const m of this.sessions.values()) {
+      m.info.sets = removeFromSets(m.info.sets, name)
+    }
     this.emitRoster()
     this.persistSessions()
   }
@@ -447,6 +488,7 @@ export class SessionManager extends EventEmitter {
         characterId: m.info.characterId,
         color: m.info.color,
         tag: m.info.tag,
+        sets: m.info.sets,
         agentSessionId: m.info.agentSessionId
       }))
     this.store.saveSessions(list)
@@ -471,7 +513,8 @@ export class SessionManager extends EventEmitter {
           characterId: p.characterId,
           color: p.color ?? fallbackCharacterColor(p.id),
           extraArgs,
-          tag: p.tag
+          tag: p.tag,
+          sets: p.sets
         }
       )
     })
@@ -498,7 +541,8 @@ export class SessionManager extends EventEmitter {
           characterId: d.characterId,
           color: d.color,
           extraArgs: extraArgs.length ? extraArgs : undefined,
-          tag: d.tag
+          tag: d.tag,
+          sets: d.sets
         }
       )
     })

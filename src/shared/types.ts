@@ -116,6 +116,8 @@ export interface SessionInfo {
   autopilot: boolean
   /** Optional user tag for grouping (e.g. a project name). */
   tag?: string
+  /** Workspaces (named sets) this session belongs to; a session can be in many. */
+  sets?: string[]
   createdAt: number
   stateChangedAt: number
 }
@@ -127,6 +129,8 @@ export interface CreateSessionRequest {
   cwd: string
   label?: string
   initialPrompt?: string
+  /** Workspaces (named sets) to add the new session to. */
+  sets?: string[]
 }
 
 /** A saved "project set" of sessions that can be launched together. */
@@ -144,6 +148,8 @@ export interface SessionSet {
     characterId?: string
     color?: string
     tag?: string
+    /** Workspace memberships to restore for this session. */
+    sets?: string[]
   }>
 }
 
@@ -164,6 +170,7 @@ export const IPC = {
   SESSION_SET_CHARACTER: 'session:setCharacter',
   SESSION_SET_COLOR: 'session:setColor',
   SESSION_SET_TAG: 'session:setTag',
+  SESSION_SET_WORKSPACES: 'session:setWorkspaces',
   SESSION_REORDER: 'session:reorder',
   WINDOW_OPEN: 'window:open',
   ROSTER_GET: 'roster:get',
@@ -192,5 +199,6 @@ export const IPC = {
   EVT_ROSTER: 'evt:roster',
   EVT_JUMP: 'evt:jump',
   EVT_NEW: 'evt:new',
+  EVT_WORKSPACE: 'evt:workspace',
   EVT_ASSETS: 'evt:assets'
 } as const

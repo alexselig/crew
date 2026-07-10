@@ -14,6 +14,8 @@ interface Props {
   characters: CharacterDef[]
   selectedId: string | null
   gridDensity: GridDensity
+  /** Active workspace filter name (null = All), shown in the top bar. */
+  activeWorkspace?: string | null
   groupMode: GroupMode
   onSetGroupMode: (m: GroupMode) => void
   collapsedGroups: Set<string>
@@ -42,6 +44,7 @@ export function GridView({
   characters,
   selectedId,
   gridDensity,
+  activeWorkspace,
   groupMode,
   onSetGroupMode,
   collapsedGroups,
@@ -91,8 +94,17 @@ export function GridView({
       <main className="gridview gridview--empty">
         <div className="empty">
           <div className="empty__glyph">▦</div>
-          <h2>No sessions yet</h2>
-          <p>Launch some agents and they'll appear here as a live dashboard.</p>
+          {activeWorkspace ? (
+            <>
+              <h2>No sessions in “{activeWorkspace}”</h2>
+              <p>This workspace has no sessions yet. Add one, or switch back to all sessions.</p>
+            </>
+          ) : (
+            <>
+              <h2>No sessions yet</h2>
+              <p>Launch some agents and they'll appear here as a live dashboard.</p>
+            </>
+          )}
           <button type="button" className="btn btn--primary btn--lg" onClick={onNew}>
             ＋ New Session
           </button>
@@ -144,7 +156,9 @@ export function GridView({
           >
             Crew
           </button>
-          <span className="grid-topbar__sub">All sessions · {roster.length}</span>
+          <span className="grid-topbar__sub">
+            {activeWorkspace ? `▚ ${activeWorkspace}` : 'All sessions'} · {roster.length}
+          </span>
         </div>
         <div className="grid-topbar__right">
           <div className="grid-topbar__tools">

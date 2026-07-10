@@ -9,7 +9,7 @@ import { ViewToggle } from './ViewToggle'
 import { groupSessions, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
-import type { ViewMode } from '../hooks'
+import type { ViewMode, GridDensity } from '../hooks'
 
 interface Props {
   roster: SessionInfo[]
@@ -19,6 +19,7 @@ interface Props {
   viewMode: ViewMode
   onSetViewMode: (m: ViewMode) => void
   onGridRepeat: () => void
+  gridDensity: GridDensity
   collapsed: boolean
   hoverExpand?: boolean
   onSetCollapsed: (v: boolean) => void
@@ -43,6 +44,9 @@ interface Props {
   onClose: (id: string) => void
   onReorder: (orderedIds: string[]) => void
   onSetTag: (id: string, tag: string) => void
+  /** Active workspace filter (null = All), shown as a clearable indicator. */
+  activeWorkspace?: string | null
+  onClearWorkspace?: () => void
 }
 
 export function Roster(props: Props): JSX.Element {
@@ -54,6 +58,7 @@ export function Roster(props: Props): JSX.Element {
     viewMode,
     onSetViewMode,
     onGridRepeat,
+    gridDensity,
     collapsed,
     hoverExpand,
     onSetCollapsed,
@@ -77,7 +82,9 @@ export function Roster(props: Props): JSX.Element {
     onRestart,
     onClose,
     onReorder,
-    onSetTag
+    onSetTag,
+    activeWorkspace,
+    onClearWorkspace
   } = props
 
   const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
@@ -240,6 +247,22 @@ export function Roster(props: Props): JSX.Element {
               </div>
             </div>
 
+            {activeWorkspace && (
+              <div className="roster__workspace" title="Active workspace filter">
+                <span className="roster__workspace-name">▚ {activeWorkspace}</span>
+                {onClearWorkspace && (
+                  <button
+                    type="button"
+                    className="roster__workspace-clear"
+                    title="Show all sessions"
+                    onClick={onClearWorkspace}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
+
             <button type="button" className="btn btn--newsession" onClick={onNew}>
               ＋ New Session
             </button>
@@ -273,7 +296,7 @@ export function Roster(props: Props): JSX.Element {
       </div>
 
       <div className="roster__toolbar">
-        <ViewToggle mode={viewMode} onChange={onSetViewMode} onGridRepeat={onGridRepeat} />
+        <ViewToggle mode={viewMode} density={gridDensity} onChange={onSetViewMode} onGridRepeat={onGridRepeat} />
         {!railed && (
           <div className="roster__tools">
             <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />

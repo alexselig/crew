@@ -73,6 +73,8 @@ export interface CrewAPI {
   setCharacter(id: string, characterId: string): Promise<void>
   setColor(id: string, color: string): Promise<void>
   setTag(id: string, tag: string): Promise<void>
+  /** Replace a session's workspace (named set) memberships. */
+  setWorkspaces(id: string, sets: string[]): Promise<void>
   reorder(orderedIds: string[]): Promise<void>
   /** Open an additional app window (e.g. to use a second monitor). */
   openWindow(): Promise<void>
@@ -120,5 +122,7 @@ export interface CrewAPI {
   onRoster(cb: (roster: SessionInfo[]) => void): Unsubscribe
   onJump(cb: (id: string) => void): Unsubscribe
   onNew(cb: () => void): Unsubscribe
+  /** Active workspace filter changed from the app menu (name, or null for All). */
+  onWorkspace(cb: (name: string | null) => void): Unsubscribe
   onAssets(cb: (e: AssetsEvent) => void): Unsubscribe
 }

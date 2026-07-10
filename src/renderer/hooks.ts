@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionInfo, Preset, CharacterDef, Settings } from '../shared/types'
 import type { GroupMode } from './grouping'
 import { writeTo, disposePooled } from './terminal-pool'
 import { windowSlot, readViewPref, writeViewPref } from './window-scope'
+import { workspaceNames } from '../shared/workspaces'
 
 export type ViewMode = 'single' | 'grid'
 /** Grid density (all horizontal-scroll): `two` = 1 row (2 tiles), `four` = 2 rows
@@ -36,6 +37,13 @@ export interface CrewState {
   toggleGroup: (name: string) => void
   groupOrder: string[]
   reorderGroups: (names: string[]) => void
+  /** Active workspace filter (null = All Sessions). */
+  activeWorkspace: string | null
+  setActiveWorkspace: (name: string | null) => void
+  /** All known workspace (named set) names — saved sets ∪ live memberships. */
+  workspaces: string[]
+  /** Re-fetch saved set names (after save/delete in a modal). */
+  refreshWorkspaces: () => void
   settings: Settings | null
   setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
 }
@@ -81,7 +89,19 @@ export function useCrew(): CrewState {
     }
   })
   const [settings, setSettings] = useState<Settings | null>(null)
+  const [activeWorkspace, setActiveWorkspaceState] = useState<string | null>(
+    () => readViewPref('activeWorkspace') || null
+  )
+  const [setNames, setSetNames] = useState<string[]>([])
   const knownIds = useRef<Set<string>>(new Set())
+
+  const setActiveWorkspace = (name: string | null): void => {
+    setActiveWorkspaceState(name)
+    writeViewPref('activeWorkspace', name ?? '')
+  }
+  const refreshWorkspaces = (): void => {
+    void window.crew.getSets().then((s) => setSetNames(s.map((x) => x.name)))
+  }
 
   const setNavWidth = (w: number): void => {
     const clamped = Math.min(NAV_MAX, Math.max(NAV_MIN, Math.round(w)))
@@ -129,6 +149,7 @@ export function useCrew(): CrewState {
     void window.crew.getCharacters().then((c) => mounted && setCharacters(c))
     void window.crew.getHomeDir().then((h) => mounted && setHomeDir(h))
     void window.crew.getSettings().then((s) => mounted && setSettings(s))
+    void window.crew.getSets().then((s) => mounted && setSetNames(s.map((x) => x.name)))
 
     const offRoster = window.crew.onRoster((r) => setRoster(r))
     const offState = window.crew.onState((e) =>
@@ -144,6 +165,7 @@ export function useCrew(): CrewState {
       setShowNew(false)
     })
     const offNew = window.crew.onNew(() => setShowNew(true))
+    const offWorkspace = window.crew.onWorkspace((name) => setActiveWorkspace(name))
 
     return () => {
       mounted = false
@@ -152,6 +174,7 @@ export function useCrew(): CrewState {
       offOutput()
       offJump()
       offNew()
+      offWorkspace()
     }
   }, [])
 
@@ -173,6 +196,12 @@ export function useCrew(): CrewState {
     }
     knownIds.current = current
   }, [roster])
+
+  // Known workspace names: saved sets ∪ every session's live membership.
+  const workspaces = useMemo(
+    () => workspaceNames(setNames, roster.map((s) => s.sets)),
+    [setNames, roster]
+  )
 
   return {
     roster,
@@ -197,6 +226,10 @@ export function useCrew(): CrewState {
     toggleGroup,
     groupOrder,
     reorderGroups,
+    activeWorkspace,
+    setActiveWorkspace,
+    workspaces,
+    refreshWorkspaces,
     settings,
     setSetting
   }

@@ -20,6 +20,7 @@ const api: CrewAPI = {
     ipcRenderer.invoke(IPC.SESSION_SET_CHARACTER, { id, characterId }),
   setColor: (id, color) => ipcRenderer.invoke(IPC.SESSION_SET_COLOR, { id, color }),
   setTag: (id, tag) => ipcRenderer.invoke(IPC.SESSION_SET_TAG, { id, tag }),
+  setWorkspaces: (id, sets) => ipcRenderer.invoke(IPC.SESSION_SET_WORKSPACES, { id, sets }),
   reorder: (orderedIds) => ipcRenderer.invoke(IPC.SESSION_REORDER, orderedIds),
   openWindow: () => ipcRenderer.invoke(IPC.WINDOW_OPEN),
   getRoster: () => ipcRenderer.invoke(IPC.ROSTER_GET),
@@ -53,6 +54,7 @@ const api: CrewAPI = {
   onRoster: (cb) => subscribe(IPC.EVT_ROSTER, cb),
   onJump: (cb) => subscribe(IPC.EVT_JUMP, cb),
   onNew: (cb) => subscribe(IPC.EVT_NEW, () => cb()),
+  onWorkspace: (cb) => subscribe(IPC.EVT_WORKSPACE, cb),
   onAssets: (cb) => subscribe(IPC.EVT_ASSETS, cb)
 }
 
