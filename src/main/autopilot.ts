@@ -9,10 +9,13 @@
 // out of its tail. The file signature (path+size+mtime) is cached so an
 // unchanged transcript is never re-read.
 //
-// The GitHub Copilot CLI has no such transcript, but its TUI footer names the
-// current approval mode ("autopilot · / commands · → next tab"). Since Crew owns
-// the PTY it sees that footer in the raw output, so for Copilot we read the mode
-// out of the (ANSI-stripped) output tail instead — see latestCopilotFooterMode.
+// The GitHub Copilot CLI records mode changes authoritatively in its own event
+// log: ~/.copilot/session-state/<agentSessionId>/events.jsonl gets a compact
+// `{"type":"session.mode_changed",...,"newMode":"autopilot|interactive|plan"}`
+// line every time you press Shift+Tab. Crew mints each session's id (via
+// --session-id) so it knows this path exactly, and reads the last newMode out of
+// the file tail — far more reliable than scraping the redrawn TUI footer (which
+// truncates at narrow widths). "autopilot" is the only autonomous mode.
 
 import { readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
@@ -21,56 +24,43 @@ import { basename } from 'node:path'
 import type { SessionInfo } from '../shared/types'
 
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
+/** Copilot per-session event logs live here, one dir per agentSessionId. */
+const COPILOT_STATE_DIR = join(homedir(), '.copilot', 'session-state')
 /** permissionMode values that mean the agent is acting autonomously. */
 const AUTOPILOT_MODES = new Set(['acceptEdits', 'bypassPermissions'])
 /** How much of the transcript tail to scan for the latest permissionMode. */
 const TAIL_BYTES = 512 * 1024
 const PERMISSION_MODE_RE = /"permissionMode":"([a-zA-Z]+)"/g
+/** Copilot's session.mode_changed events carry the new mode in `newMode`. */
+const COPILOT_MODE_RE = /"session\.mode_changed"[^\n]*?"newMode":"([a-zA-Z]+)"/g
 
 /** True for sessions launched as Claude Code (the only agent with these transcripts). */
 export function isClaudeSession(info: Pick<SessionInfo, 'presetId' | 'command'>): boolean {
   return info.presetId === 'claude-code' || basename(info.command) === 'claude'
 }
 
-/** True for GitHub Copilot CLI sessions (its footer exposes the autopilot mode). */
+/** True for GitHub Copilot CLI sessions. */
 export function isCopilotSession(info: Pick<SessionInfo, 'presetId' | 'command'>): boolean {
   return info.presetId === 'copilot-cli' || basename(info.command) === 'copilot'
 }
 
-/**
- * The Copilot CLI renders a footer hint of the form
- *   "<mode> · / commands · → next tab"
- * where <mode> is "plan" or "autopilot"; the default mode shows no leading token
- * ("/ commands · ? help · → next tab"). Shift+Tab cycles default → plan →
- * autopilot. We read the mode from the *last* footer in the ANSI-stripped output
- * tail (older footers linger earlier in the stream, so only the most recent one
- * reflects the current mode). Returns null when no footer is present, so callers
- * can keep the last known mode instead of flipping spuriously mid-stream.
- *
- * Narrow terminals (e.g. grid-view tiles) truncate the label and drop the spaces
- * around the "·" separator — "autopilot · / commands" becomes "autopilo·/ commands"
- * or "autopi· / commands" — so we match a *prefix* of the mode word, not the whole
- * word, and tolerate the missing spaces. The default footer has no "<word> ·"
- * before "/ commands", so it never matches and falls through to 'default'.
- */
-export function latestCopilotFooterMode(text: string): 'autopilot' | 'plan' | 'default' | null {
-  const i = text.lastIndexOf('/ commands')
-  if (i < 0) return null
-  // The mode label (if any) sits just before a "·" separator ahead of "/ commands".
-  const before = text.slice(Math.max(0, i - 24), i)
-  const m = /([A-Za-z]{2,})\s*\u00b7\s*$/.exec(before)
-  if (!m) return 'default'
-  const token = m[1].toLowerCase()
-  // Prefix match so truncated labels still register (e.g. "autopilo", "autopi").
-  if (token.length >= 4 && 'autopilot'.startsWith(token)) return 'autopilot'
-  if ('plan'.startsWith(token)) return 'plan'
-  return 'default'
+/** Path to a Copilot session's event log, given the agent's session UUID. */
+export function copilotEventsPath(agentSessionId: string, baseDir: string = COPILOT_STATE_DIR): string {
+  return join(baseDir, agentSessionId, 'events.jsonl')
 }
 
-/** Copilot autopilot state from an output tail, or null when undetermined. */
-export function isCopilotAutopilot(text: string): boolean | null {
-  const mode = latestCopilotFooterMode(text)
-  return mode == null ? null : mode === 'autopilot'
+/** The last `newMode` from session.mode_changed events in a chunk of log text, or null. */
+export function latestCopilotMode(text: string): string | null {
+  COPILOT_MODE_RE.lastIndex = 0
+  let last: string | null = null
+  let m: RegExpExecArray | null
+  while ((m = COPILOT_MODE_RE.exec(text)) !== null) last = m[1]
+  return last
+}
+
+/** True when a Copilot mode string means the agent runs autonomously. */
+export function isCopilotAutopilotMode(mode: string | null): boolean {
+  return mode === 'autopilot'
 }
 
 /**
@@ -168,6 +158,75 @@ export class AutopilotWatcher {
     const mode = latestPermissionMode(readTail(latest.path, latest.size)) ?? prev?.mode ?? null
     this.cache.set(sessionId, { ...latest, mode })
     return isAutopilotMode(mode)
+  }
+
+  /** Drop cached state for a closed session. */
+  forget(sessionId: string): void {
+    this.cache.delete(sessionId)
+  }
+}
+
+/** Read a byte range [start, end) of a file as utf8. */
+function readRange(path: string, start: number, end: number): string {
+  const len = end - start
+  if (len <= 0) return ''
+  const fd = openSync(path, 'r')
+  try {
+    const buf = Buffer.allocUnsafe(len)
+    const read = readSync(fd, buf, 0, len, start)
+    return buf.toString('utf8', 0, read)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+interface CopilotCached {
+  path: string
+  /** Byte offset up to which we've already scanned this log. */
+  offset: number
+  mode: string | null
+}
+
+/**
+ * Polls Copilot event logs to tell whether a session is on autopilot. Keyed by
+ * Crew session id; resolves the log via the agent's session UUID.
+ *
+ * Copilot always launches interactive (Crew never passes --autopilot), so the
+ * first time we see a session we assume "interactive" and remember the log's
+ * current end offset WITHOUT scanning its (possibly 100MB+) history. Each later
+ * poll reads only the bytes appended since last time and applies the newest
+ * session.mode_changed found there — so a Shift+Tab is caught within ~1s at any
+ * terminal width, and a resumed session correctly starts interactive again.
+ */
+export class CopilotAutopilotWatcher {
+  private readonly cache = new Map<string, CopilotCached>()
+
+  /** @param stateDir base dir for Copilot session state (override in tests). */
+  constructor(private readonly stateDir: string = COPILOT_STATE_DIR) {}
+
+  /** Current autopilot state for a Copilot session with the given agent UUID. */
+  isAutopilot(sessionId: string, agentSessionId: string | undefined): boolean {
+    if (!agentSessionId) return false
+    const path = copilotEventsPath(agentSessionId, this.stateDir)
+    let size: number
+    try {
+      size = statSync(path).size
+    } catch {
+      // No log yet (session still starting) — interactive, don't cache.
+      return false
+    }
+    const prev = this.cache.get(sessionId)
+    if (!prev || prev.path !== path || size < prev.offset) {
+      // First sight (or the log was truncated/rotated): assume the launch mode
+      // and start watching from the current end — never scan the huge history.
+      this.cache.set(sessionId, { path, offset: size, mode: 'interactive' })
+      return false
+    }
+    if (size === prev.offset) return isCopilotAutopilotMode(prev.mode)
+    // Scan only the newly-appended bytes for the latest mode change.
+    const mode = latestCopilotMode(readRange(path, prev.offset, size)) ?? prev.mode
+    this.cache.set(sessionId, { path, offset: size, mode })
+    return isCopilotAutopilotMode(mode)
   }
 
   /** Drop cached state for a closed session. */

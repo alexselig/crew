@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   AutopilotWatcher,
+  CopilotAutopilotWatcher,
+  copilotEventsPath,
   isAutopilotMode,
   isClaudeSession,
-  isCopilotAutopilot,
+  isCopilotAutopilotMode,
   isCopilotSession,
-  latestCopilotFooterMode,
+  latestCopilotMode,
   latestPermissionMode,
   projectDirFor
 } from '../src/main/autopilot'
@@ -39,49 +41,117 @@ describe('isCopilotSession', () => {
   })
 })
 
-describe('latestCopilotFooterMode', () => {
-  // Real ANSI-stripped Copilot CLI footers (Shift+Tab cycles default→plan→autopilot).
-  const DEFAULT_FOOTER = '/ commands \u00b7 ? help \u00b7 \u2192 next tab'
-  const PLAN_FOOTER = 'plan \u00b7 / commands \u00b7 ? help \u00b7 \u2192 next tab'
-  const AUTOPILOT_FOOTER = 'autopilot \u00b7 / commands \u00b7 \u2192 next tab'
+describe('latestCopilotMode', () => {
+  // Real compact on-disk lines from ~/.copilot/session-state/<id>/events.jsonl.
+  const line = (newMode: string, prev = 'interactive'): string =>
+    `{"type":"session.mode_changed","data":{"previousMode":"${prev}","newMode":"${newMode}"},"id":"x","timestamp":"t"}`
 
-  it('reads the mode token that precedes the footer', () => {
-    expect(latestCopilotFooterMode(AUTOPILOT_FOOTER)).toBe('autopilot')
-    expect(latestCopilotFooterMode(PLAN_FOOTER)).toBe('plan')
-    expect(latestCopilotFooterMode(DEFAULT_FOOTER)).toBe('default')
+  it('returns the newMode of the LAST mode_changed event in the log tail', () => {
+    const log = [
+      line('autopilot'),
+      '{"type":"assistant.message","data":{}}',
+      line('interactive', 'autopilot'),
+      '{"type":"tool.execution_start","data":{}}',
+      line('autopilot', 'interactive')
+    ].join('\n')
+    expect(latestCopilotMode(log)).toBe('autopilot')
   })
 
-  it('returns null when no footer is present', () => {
-    expect(latestCopilotFooterMode('just some agent output about autopilot')).toBeNull()
-    expect(latestCopilotFooterMode('')).toBeNull()
+  it('reads plan and interactive too', () => {
+    expect(latestCopilotMode(line('plan'))).toBe('plan')
+    expect(latestCopilotMode(line('interactive', 'autopilot'))).toBe('interactive')
   })
 
-  it('uses the LAST footer when several are in the tail', () => {
-    // Turned autopilot on, then back off: the newest footer wins.
-    expect(latestCopilotFooterMode(`${AUTOPILOT_FOOTER}\n spinner… \n${DEFAULT_FOOTER}`)).toBe('default')
-    // On during a burst of streaming with no newer footer stays autopilot.
-    expect(latestCopilotFooterMode(`${DEFAULT_FOOTER}\n…\n${AUTOPILOT_FOOTER}\nworking…`)).toBe('autopilot')
+  it('returns null when the tail has no mode-change line', () => {
+    expect(latestCopilotMode('{"type":"assistant.message","data":{}}\n')).toBeNull()
+    expect(latestCopilotMode('')).toBeNull()
   })
 
-  it('is not fooled by the word "autopilot" in prose (needs the footer separator)', () => {
-    expect(latestCopilotFooterMode('the user asked about autopilot / commands earlier')).toBe('default')
+  it('is not fooled by newMode in unrelated events', () => {
+    expect(latestCopilotMode('{"type":"other","data":{"newMode":"autopilot"}}')).toBeNull()
+  })
+})
+
+describe('isCopilotAutopilotMode', () => {
+  it('treats only "autopilot" as autonomous', () => {
+    expect(isCopilotAutopilotMode('autopilot')).toBe(true)
+    expect(isCopilotAutopilotMode('interactive')).toBe(false)
+    expect(isCopilotAutopilotMode('plan')).toBe(false)
+    expect(isCopilotAutopilotMode(null)).toBe(false)
+  })
+})
+
+describe('copilotEventsPath', () => {
+  it('builds session-state/<agentSessionId>/events.jsonl', () => {
+    expect(copilotEventsPath('abc-123', '/base')).toMatch(/[/\\]base[/\\]abc-123[/\\]events\.jsonl$/)
+  })
+})
+
+describe('CopilotAutopilotWatcher', () => {
+  const dirs: string[] = []
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   })
 
-  it('tolerates narrow-terminal truncation of the label (real captures)', () => {
-    // Copilot truncates the label and drops the spaces around "·" when the
-    // terminal is narrow (grid-view tiles); we must still detect autopilot.
-    expect(latestCopilotFooterMode('autopilo\u00b7/ commands \u00b7 \u2192 next')).toBe('autopilot')
-    expect(latestCopilotFooterMode('autopi\u00b7 / commands \u00b7 \u2192')).toBe('autopilot')
-    expect(latestCopilotFooterMode('autopi\u00b7 / commands')).toBe('autopilot')
-    // A narrow default footer has no "<label> ·" before "/ commands".
-    expect(latestCopilotFooterMode('/ commands \u00b7 ? he')).toBe('default')
+  function setup(): { stateDir: string; id: string; path: string; write: (lines: string[]) => void } {
+    const stateDir = mkdtempSync(join(tmpdir(), 'crew-copilot-'))
+    dirs.push(stateDir)
+    const id = 'agent-uuid-1'
+    mkdirSync(join(stateDir, id), { recursive: true })
+    const path = join(stateDir, id, 'events.jsonl')
+    const write = (lines: string[]): void => writeFileSync(path, lines.join('\n') + '\n')
+    return { stateDir, id, path, write }
+  }
+  const mode = (m: string, p = 'interactive'): string =>
+    `{"type":"session.mode_changed","data":{"previousMode":"${p}","newMode":"${m}"}}`
+
+  it('is false when the session has no event log yet', () => {
+    const stateDir = mkdtempSync(join(tmpdir(), 'crew-copilot-'))
+    dirs.push(stateDir)
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(w.isAutopilot('s1', 'missing-uuid')).toBe(false)
   })
 
-  it('isCopilotAutopilot maps the mode to a boolean, null when undetermined', () => {
-    expect(isCopilotAutopilot(AUTOPILOT_FOOTER)).toBe(true)
-    expect(isCopilotAutopilot(PLAN_FOOTER)).toBe(false)
-    expect(isCopilotAutopilot(DEFAULT_FOOTER)).toBe(false)
-    expect(isCopilotAutopilot('no footer yet')).toBeNull()
+  it('is false when agentSessionId is undefined', () => {
+    const w = new CopilotAutopilotWatcher()
+    expect(w.isAutopilot('s1', undefined)).toBe(false)
+  })
+
+  it('assumes interactive on first sight, ignoring pre-existing history', () => {
+    // A session resumed by Crew launches interactive even if its log ends in an
+    // autopilot line from a previous run — first sight must not report autopilot.
+    const { stateDir, id, write } = setup()
+    write([mode('autopilot')])
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(w.isAutopilot('s1', id)).toBe(false)
+  })
+
+  it('flips to autopilot when a mode change is APPENDED after watching starts', () => {
+    const { stateDir, id, write } = setup()
+    write(['{"type":"session.start","data":{}}'])
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(w.isAutopilot('s1', id)).toBe(false)
+    write(['{"type":"session.start","data":{}}', mode('autopilot')])
+    expect(w.isAutopilot('s1', id)).toBe(true)
+    // …and back off.
+    write(['{"type":"session.start","data":{}}', mode('autopilot'), mode('interactive', 'autopilot')])
+    expect(w.isAutopilot('s1', id)).toBe(false)
+  })
+
+  it('keeps the last known mode when appended output has no mode-change line', () => {
+    const { stateDir, id, write } = setup()
+    write(['{"type":"session.start","data":{}}'])
+    const w = new CopilotAutopilotWatcher(stateDir)
+    w.isAutopilot('s1', id)
+    write(['{"type":"session.start","data":{}}', mode('autopilot')])
+    expect(w.isAutopilot('s1', id)).toBe(true)
+    write(['{"type":"session.start","data":{}}', mode('autopilot'), '{"type":"assistant.message","data":{}}'])
+    expect(w.isAutopilot('s1', id)).toBe(true)
+  })
+
+  it('forget() drops cached state without throwing', () => {
+    const w = new CopilotAutopilotWatcher()
+    expect(() => w.forget('nope')).not.toThrow()
   })
 })
 
