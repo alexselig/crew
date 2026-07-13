@@ -280,6 +280,7 @@ export function App(): JSX.Element {
           showCredits={c.settings?.showCredits ?? false}
           onReorder={(ids) => void window.crew.reorder(ids)}
           onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
+          allGroups={existingGroups(c.roster)}
           onSetCharacter={(id, ch) => void window.crew.setCharacter(id, ch)}
           onSetColor={(id, color) => void window.crew.setColor(id, color)}
         />

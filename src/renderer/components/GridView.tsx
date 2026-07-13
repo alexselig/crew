@@ -38,6 +38,8 @@ interface Props {
   showCredits: boolean
   onReorder: (orderedIds: string[]) => void
   onSetTag: (id: string, tag: string) => void
+  /** All known group names (from the full roster) offered by the per-session group picker. */
+  allGroups?: string[]
   onSetCharacter: (id: string, characterId: string) => void
   onSetColor: (id: string, color: string) => void
 }
@@ -68,6 +70,7 @@ export function GridView({
   showCredits,
   onReorder,
   onSetTag,
+  allGroups,
   onSetCharacter,
   onSetColor
 }: Props): JSX.Element {
@@ -84,7 +87,7 @@ export function GridView({
     onReorderGroups
   )
   const dnd = useCardDnd(roster, groupMode, onReorder, onSetTag)
-  const tagGroups = existingGroups(roster)
+  const tagGroups = allGroups ?? existingGroups(roster)
 
   // Clicking a session in the nav selects it — scroll its tile into view so the
   // picked session is visible in the grid.
@@ -212,7 +215,7 @@ export function GridView({
                   <span className="group__count">{g.items.length}</span>
                 </button>
                 {!collapsedGroups.has(g.name) && (
-                  <div className="grid">{g.items.map(renderTile)}</div>
+                  <div className={`grid grid--grouped grid--g-${gridDensity}`}>{g.items.map(renderTile)}</div>
                 )}
               </section>
             ))}
