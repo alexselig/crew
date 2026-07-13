@@ -1,6 +1,6 @@
 {
   "name": "crew",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "description": "Crew — a menu-bar mission control for AI terminal sessions. Each session gets a character; red dot when it's waiting on you.",
   "author": "Alex Selig",

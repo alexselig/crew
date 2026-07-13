@@ -60,7 +60,7 @@ export function GroupPicker({ mode, onChoose }: Props): JSX.Element {
     <div className="group-picker" ref={rootRef}>
       <button
         type="button"
-        className={`icon-btn ${mode !== 'none' ? 'is-active' : ''}`}
+        className="icon-btn"
         title="Group sessions"
         aria-haspopup="menu"
         aria-expanded={open}

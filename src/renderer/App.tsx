@@ -201,6 +201,11 @@ export function App(): JSX.Element {
   const navIsCollapsed = c.navCollapsed || c.viewMode === 'grid'
   // Float the rail open on hover whenever it is collapsed — in grid view too.
   const navFloating = navIsCollapsed
+  // Advance the grid density 2 → 4 → 6 → 2 (shared by the rail + grid top-bar toggles).
+  const cycleGridDensity = (): void => {
+    const order = ['two', 'four', 'six'] as const
+    c.setGridDensity(order[(order.indexOf(c.gridDensity) + 1) % order.length])
+  }
   return (
     <div
       className={`app ${navIsCollapsed ? 'app--nav-collapsed' : ''} ${navFloating ? 'app--nav-floating' : ''}`}
@@ -218,10 +223,7 @@ export function App(): JSX.Element {
         selectedId={c.selectedId}
         viewMode={c.viewMode}
         onSetViewMode={c.setViewMode}
-        onGridRepeat={() => {
-          const order = ['two', 'four', 'six'] as const
-          c.setGridDensity(order[(order.indexOf(c.gridDensity) + 1) % order.length])
-        }}
+        onGridRepeat={cycleGridDensity}
         gridDensity={c.gridDensity}
         collapsed={navIsCollapsed}
         hoverExpand={navFloating}
@@ -270,6 +272,7 @@ export function App(): JSX.Element {
           onNew={() => c.setShowNew(true)}
           onReplayIntro={() => setShowIntro(true)}
           onSetViewMode={c.setViewMode}
+          onGridRepeat={cycleGridDensity}
           onOpenSettings={() => setShowSettings(true)}
           onBroadcast={() => setShowBroadcast(true)}
           onAnalytics={() => setShowAnalytics(true)}

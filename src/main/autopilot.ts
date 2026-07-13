@@ -46,14 +46,24 @@ export function isCopilotSession(info: Pick<SessionInfo, 'presetId' | 'command'>
  * tail (older footers linger earlier in the stream, so only the most recent one
  * reflects the current mode). Returns null when no footer is present, so callers
  * can keep the last known mode instead of flipping spuriously mid-stream.
+ *
+ * Narrow terminals (e.g. grid-view tiles) truncate the label and drop the spaces
+ * around the "·" separator — "autopilot · / commands" becomes "autopilo·/ commands"
+ * or "autopi· / commands" — so we match a *prefix* of the mode word, not the whole
+ * word, and tolerate the missing spaces. The default footer has no "<word> ·"
+ * before "/ commands", so it never matches and falls through to 'default'.
  */
 export function latestCopilotFooterMode(text: string): 'autopilot' | 'plan' | 'default' | null {
   const i = text.lastIndexOf('/ commands')
   if (i < 0) return null
-  // The mode token (if any) immediately precedes "/ commands": "<mode> · /…".
+  // The mode label (if any) sits just before a "·" separator ahead of "/ commands".
   const before = text.slice(Math.max(0, i - 24), i)
-  if (/autopilot\s+\u00b7\s*$/.test(before)) return 'autopilot'
-  if (/plan\s+\u00b7\s*$/.test(before)) return 'plan'
+  const m = /([A-Za-z]{2,})\s*\u00b7\s*$/.exec(before)
+  if (!m) return 'default'
+  const token = m[1].toLowerCase()
+  // Prefix match so truncated labels still register (e.g. "autopilo", "autopi").
+  if (token.length >= 4 && 'autopilot'.startsWith(token)) return 'autopilot'
+  if ('plan'.startsWith(token)) return 'plan'
   return 'default'
 }
 

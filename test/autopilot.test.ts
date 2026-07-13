@@ -67,6 +67,16 @@ describe('latestCopilotFooterMode', () => {
     expect(latestCopilotFooterMode('the user asked about autopilot / commands earlier')).toBe('default')
   })
 
+  it('tolerates narrow-terminal truncation of the label (real captures)', () => {
+    // Copilot truncates the label and drops the spaces around "·" when the
+    // terminal is narrow (grid-view tiles); we must still detect autopilot.
+    expect(latestCopilotFooterMode('autopilo\u00b7/ commands \u00b7 \u2192 next')).toBe('autopilot')
+    expect(latestCopilotFooterMode('autopi\u00b7 / commands \u00b7 \u2192')).toBe('autopilot')
+    expect(latestCopilotFooterMode('autopi\u00b7 / commands')).toBe('autopilot')
+    // A narrow default footer has no "<label> ·" before "/ commands".
+    expect(latestCopilotFooterMode('/ commands \u00b7 ? he')).toBe('default')
+  })
+
   it('isCopilotAutopilot maps the mode to a boolean, null when undetermined', () => {
     expect(isCopilotAutopilot(AUTOPILOT_FOOTER)).toBe(true)
     expect(isCopilotAutopilot(PLAN_FOOTER)).toBe(false)

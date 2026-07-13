@@ -3,6 +3,7 @@ import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
+import { ViewToggle } from './ViewToggle'
 import { ResumeSets } from './ResumeSets'
 import { groupSessions, existingGroups, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
@@ -28,6 +29,8 @@ interface Props {
   onNew: () => void
   onReplayIntro?: () => void
   onSetViewMode: (m: ViewMode) => void
+  /** Cycle grid density (2 → 4 → 6), driven by the grid button in the top bar. */
+  onGridRepeat: () => void
   onOpenSettings: () => void
   onBroadcast: () => void
   onAnalytics: () => void
@@ -56,6 +59,8 @@ export function GridView({
   onClose,
   onNew,
   onReplayIntro,
+  onSetViewMode,
+  onGridRepeat,
   onOpenSettings,
   onBroadcast,
   onAnalytics,
@@ -162,6 +167,12 @@ export function GridView({
         </div>
         <div className="grid-topbar__right">
           <div className="grid-topbar__tools">
+            <ViewToggle
+              mode="grid"
+              density={gridDensity}
+              onChange={onSetViewMode}
+              onGridRepeat={onGridRepeat}
+            />
             <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
             <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
               <Icon name="broadcast" />
