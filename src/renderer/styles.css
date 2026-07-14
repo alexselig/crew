@@ -1391,33 +1391,38 @@ button {
   scroll-snap-align: start;
 }
 
-/* Grouped density: every group is a fixed **2-column** grid (matching the user's
-   "2 column / 2 column · 2 row / 2 column · 3 row" model — always two columns).
-   Tiles flow row-first so both columns stay balanced even for small groups (no
-   lonely, half-empty column). Density sets the row height so 1 / 2 / 3 rows fill
-   a screenful — the same tile sizes as the flat grid at each density — and groups
-   stack with the page scrolling vertically. Column-first shelves were dropped:
-   they left small groups as a single stacked column with a large empty block, and
-   made the density toggle look inert when every group was small. */
+/* Grouped density: each group is a horizontally-scrolling shelf that mirrors the
+   flat grid, per group. Tiles flow COLUMN-first into N fixed rows (two=1, four=2,
+   six=3) and you scroll left/right for the rest. Row height is a fraction of the
+   viewport, so tiles are the SAME size as the flat grid at each density — and the
+   toggle always visibly resizes them, even for a small group that can't fill the
+   extra rows (the old fixed-height shelf made four vs six look identical there).
+   Small groups may leave empty trailing cells in the last column; that's fine. */
 .grid--grouped {
-  grid-auto-flow: row;
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: calc(50% - 0.5px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
 }
 
 .grid--grouped.grid--g-two {
-  grid-auto-rows: calc(100vh - 64px);
+  grid-template-rows: calc(100vh - 64px);
 }
 
 .grid--grouped.grid--g-four {
-  grid-auto-rows: calc((100vh - 64px) / 2);
+  grid-template-rows: repeat(2, calc((100vh - 64px) / 2));
 }
 
 .grid--grouped.grid--g-six {
-  grid-auto-rows: calc((100vh - 64px) / 3);
+  grid-template-rows: repeat(3, calc((100vh - 64px) / 3));
 }
 
 .grid--grouped .tile {
   height: auto;
-  min-height: 200px;
+  min-height: 180px;
+  scroll-snap-align: start;
 }
 
 .grid-groups {
