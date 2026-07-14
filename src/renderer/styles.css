@@ -1558,8 +1558,11 @@ button {
   background: var(--term-bg);
 }
 
+/* Extra bottom clearance so the terminal's fit (rows floored from the tile's
+   fractional 1fr height) always leaves the last row fully visible — otherwise the
+   input prompt / footer row gets bisected at the tile's bottom edge. */
 .tile__body .term-mount {
-  padding: 8px 6px 8px 10px;
+  padding: 8px 6px 16px 10px;
 }
 
 .tile__exited {
@@ -2127,9 +2130,10 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 4px 2px;
+  padding: 6px 4px 5px;
   background: transparent;
   border: none;
+  border-bottom: 2px solid var(--text-faint);
   color: var(--text-dim);
   font-size: 11px;
   font-weight: 700;
