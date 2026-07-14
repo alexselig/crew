@@ -9,63 +9,87 @@
 // Output: SHOTS/{00-loading,01-grid,02-focus,03-new-session,04-skills,05-compact}.png
 
 import { _electron as electron } from 'playwright'
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
 import { resolve, join } from 'node:path'
+import { homedir } from 'node:os'
 
 const SHOTS = process.env.SHOTS || '/tmp/crew-shots'
 const ROOT = resolve('/Users/alexselig/crew')
 const DATA_DIR = '/tmp/crew-shots-data'
 const NODE_BIN = process.execPath
+
+// Autopilot staging. Crew detects a session as "on autopilot" from its agent's
+// own state — for Claude Code, the permissionMode in its transcript under
+// ~/.claude/projects/<cwd-with-dashes>/. We fake ONE session as a Claude session
+// (a `claude`-named symlink to node, so isClaudeSession() is true while we still
+// run our own scripted output) working out of a throwaway cwd, and drop a
+// transcript there whose permissionMode is "acceptEdits" — which Crew surfaces as
+// the pilot costume. Everything lives under /tmp and is removed on exit; the only
+// touch to ~/.claude is a single clearly-named throwaway project dir, also removed.
+const SHIM_DIR = '/tmp/crew-shots-bin'
+const CLAUDE_SHIM = join(SHIM_DIR, 'claude')
+const AP_CWD = '/tmp/crew-shots-proj/atlas-web'
+const AP_PROJECT_DIR = join(homedir(), '.claude', 'projects', AP_CWD.replace(/[^a-zA-Z0-9]/g, '-'))
+
 mkdirSync(SHOTS, { recursive: true })
 
 // Distinct character + vivid identity color per session (colors from
 // src/shared/palette.ts, spread across the wheel: orange / cyan / green / violet).
+// Names are generic placeholders — NOT real projects. One session (atlas-web) runs
+// on autopilot (see the staging note above) so the pilot costume is on display.
 const SESSIONS = [
   {
-    label: 'the-iron-wake',
+    label: 'atlas-web',
     character: 'fox',
     color: '#ff7a3c', // orange
+    autopilot: true, // running unattended — shows the pilot costume
+    command: CLAUDE_SHIM,
+    cwd: AP_CWD,
     // "working": print rich content, then keep emitting dots so it stays WORKING.
     script:
-      'process.stdout.write("the-iron-wake \\u00b7 godot 4.3\\n' +
-      'Added parallax fog layer to Blackwake Harbor\\n' +
-      '\\u2713 fog_layer.gd        +38  -4\\n' +
-      '\\u2713 harbor_scene.tscn   updated\\n' +
-      '\\u2713 export-release Web \\u2192 docs/   (2.3s)\\n' +
-      'Total cost: $0.31\\n\\n' +
-      'Wiring the lighthouse beam shader\\u2026\\n' +
-      '\\u2713 beam.gdshader created\\n' +
-      '\\u2192 tuning falloff + bloom\\n");' +
+      'process.stdout.write("atlas-web \\u00b7 vite + react\\n' +
+      'Refactoring checkout into a guided wizard\\n' +
+      '\\u2713 CheckoutSteps.tsx     +64  -12\\n' +
+      '\\u2713 useCartTotals.ts      added\\n' +
+      '\\u2713 npm test \\u2014 48 passed   (3.1s)\\n' +
+      'Total cost: $0.28\\n\\n' +
+      'Extracting the address form into a step\\u2026\\n' +
+      '\\u2713 AddressStep.tsx created\\n' +
+      '\\u2192 wiring validation + autosave\\n");' +
       'setInterval(()=>process.stdout.write("."),300)'
   },
   {
-    label: 'poseforge',
+    label: 'nimbus-api',
     character: 'bear',
     color: '#37c0e6', // cyan
     script:
-      'process.stdout.write("Generating pose sheet (gemini-2.5-flash-image)\\n' +
-      '\\u2713 4/6 poses rendered\\n' +
-      'Total cost: $0.42\\n");' +
+      'process.stdout.write("nimbus-api \\u00b7 go 1.23\\n' +
+      'Adding token-bucket rate limiting to the gateway\\n' +
+      '\\u2713 middleware/ratelimit.go   +91\\n' +
+      '\\u2713 100 req/min per API key\\n' +
+      'Total cost: $0.35\\n");' +
       'setInterval(()=>process.stdout.write("."),300)'
   },
   {
-    label: 'farmframe',
+    label: 'beacon-db',
     character: 'deer',
     color: '#7ed957', // green
     // "waiting": print a question ending in a prompt, then idle.
     script:
-      'process.stdout.write("Prisma schema change detected\\n' +
-      '  drift: add column projects.archived_at\\n\\n' +
-      'Apply this migration to dev.db? (y/n)\\n> ");' +
+      'process.stdout.write("beacon-db \\u00b7 migration check\\n' +
+      'Schema drift detected on staging\\n' +
+      '  add index on events(created_at)\\n\\n' +
+      'Apply this migration to staging? (y/n)\\n> ");' +
       'setInterval(()=>{},1000)'
   },
   {
-    label: 'crew',
+    label: 'lumen-cli',
     character: 'owl',
     color: '#8a6dff', // violet
     script:
-      'process.stdout.write("Two approaches for the skills menu:\\n' +
-      '  1) floating overlay   2) docked bar\\n\\n' +
+      'process.stdout.write("lumen-cli\\n' +
+      'Two ways to structure the plugin API:\\n' +
+      '  1) hook registry   2) event bus\\n\\n' +
       'Which do you prefer? \\u203a ");' +
       'setInterval(()=>{},1000)'
   }
@@ -112,13 +136,45 @@ async function main() {
   await waitUntil(async () => (await page.locator('.intro').count()) === 0, 'intro dismissed', 12000)
   await wait(400)
 
+  // Stage the autopilot session's Claude shim + a transcript whose permissionMode
+  // is "acceptEdits" so Crew's autopilot poll flips atlas-web into pilot mode.
+  rmSync(SHIM_DIR, { recursive: true, force: true })
+  mkdirSync(SHIM_DIR, { recursive: true })
+  symlinkSync(NODE_BIN, CLAUDE_SHIM)
+  mkdirSync(AP_CWD, { recursive: true })
+  mkdirSync(AP_PROJECT_DIR, { recursive: true })
+  // Seed a few previewable files in the autopilot session's cwd so its Assets
+  // panel isn't empty — a plausible vite project (all generic, no real names).
+  mkdirSync(join(AP_CWD, 'public'), { recursive: true })
+  writeFileSync(
+    join(AP_CWD, 'index.html'),
+    '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <link rel="icon" href="/public/logo.svg" />\n    <title>atlas-web</title>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.tsx"></script>\n  </body>\n</html>\n'
+  )
+  writeFileSync(
+    join(AP_CWD, 'public', 'logo.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#ff7a3c"/><path d="M20 45 L32 19 L44 45 M25 37 H39" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>\n'
+  )
+  writeFileSync(
+    join(AP_CWD, 'public', 'og-image.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#0f1115"/><rect x="80" y="90" width="120" height="120" rx="26" fill="#ff7a3c"/><path d="M110 178 L140 110 L170 178 M122 156 H158" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text x="80" y="340" font-family="Georgia, serif" font-size="76" fill="#f2f1ea">atlas-web</text><text x="80" y="400" font-family="monospace" font-size="30" fill="#9aa3af">a faster checkout experience</text></svg>\n'
+  )
+  writeFileSync(
+    join(AP_PROJECT_DIR, 'shot.jsonl'),
+    JSON.stringify({
+      type: 'user',
+      timestamp: new Date().toISOString(),
+      permissionMode: 'acceptEdits',
+      message: { role: 'user', content: 'go' }
+    }) + '\n'
+  )
+
   // Create the four sessions in order.
   for (const s of SESSIONS) {
     await page.evaluate(
-      async ({ node, script, label, root }) => {
-        await window.crew.createSession({ presetId: null, command: node, args: ['-e', script], cwd: root, label })
+      async ({ command, script, label, cwd }) => {
+        await window.crew.createSession({ presetId: null, command, args: ['-e', script], cwd, label })
       },
-      { node: NODE_BIN, script: s.script, label: s.label, root: ROOT }
+      { command: s.command || NODE_BIN, script: s.script, label: s.label, cwd: s.cwd || ROOT }
     )
     await wait(250)
   }
@@ -139,6 +195,13 @@ async function main() {
   }
   // Let output settle so states resolve (2 working, 2 waiting) and colors apply.
   await wait(1600)
+  // Wait for the autopilot poll to read the acceptEdits transcript so atlas-web is
+  // wearing the pilot costume before we capture.
+  await waitUntil(
+    async () => (await page.evaluate(() => window.crew.getRoster())).some((s) => s.label === 'atlas-web' && s.autopilot === true),
+    'atlas-web on autopilot',
+    12000
+  )
 
   // ---- 01: grid (mission control) ----
   await page.locator('.view-toggle__btn').nth(1).click()
@@ -151,8 +214,8 @@ async function main() {
   // ---- 02: focus (roster + live terminal + assets) ----
   await page.locator('.view-toggle__btn').nth(0).click()
   await waitUntil(async () => (await page.locator('.session-view').count()) === 1, 'focus view')
-  // Select the-iron-wake in the roster.
-  await page.locator('.roster__list .card:has-text("the-iron-wake")').click()
+  // Select the autopilot session (atlas-web) so the pilot costume is prominent.
+  await page.locator('.roster__list .card:has-text("atlas-web")').click()
   await page.mouse.move(1100, 700)
   await wait(600)
   await page.screenshot({ path: join(SHOTS, '02-focus.png') })
@@ -187,6 +250,10 @@ async function main() {
   }
 
   await app.close()
+  // Remove the autopilot staging (temp shim + throwaway cwd + fake Claude project).
+  rmSync(SHIM_DIR, { recursive: true, force: true })
+  rmSync('/tmp/crew-shots-proj', { recursive: true, force: true })
+  rmSync(AP_PROJECT_DIR, { recursive: true, force: true })
   console.log('Screenshots written to', SHOTS)
 }
 
