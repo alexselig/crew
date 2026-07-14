@@ -108,7 +108,7 @@ export function SessionCard({
       </div>
 
       <span className="card__status">
-        <StatusTag state={session.state} />
+        <StatusTag state={session.state} dot={false} />
       </span>
 
       <div className="card__actions">

@@ -12,10 +12,13 @@ import { STATE_META } from '../state-meta'
 export function StatusTag({
   state,
   variant = 'label',
+  dot = true,
   className = ''
 }: {
   state: SessionState
   variant?: 'label' | 'chip'
+  /** Show the leading cobalt dot on the `working` label (default true). */
+  dot?: boolean
   className?: string
 }): JSX.Element {
   const m = STATE_META[state]
@@ -23,7 +26,7 @@ export function StatusTag({
     <span
       className={`status status--${m.tone} ${variant === 'chip' ? 'status--chip' : ''} ${className}`.trim()}
     >
-      {m.tone === 'working' && variant === 'label' && <span className="status__dot" aria-hidden />}
+      {dot && m.tone === 'working' && variant === 'label' && <span className="status__dot" aria-hidden />}
       {m.short}
     </span>
   )
