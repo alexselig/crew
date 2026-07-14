@@ -21,7 +21,23 @@ export const CHARACTERS: CharacterDef[] = [
   { id: 'koala', name: 'Koala', glyph: '🐨', color: '#9ba7b0' },
   { id: 'panda', name: 'Panda', glyph: '🐼', color: '#9aa0a6' },
   { id: 'penguin', name: 'Penguin', glyph: '🐧', color: '#6c8ebf' },
-  { id: 'duck', name: 'Duck', glyph: '🦆', color: '#e0b84a' }
+  { id: 'duck', name: 'Duck', glyph: '🦆', color: '#e0b84a' },
+  { id: 'cat', name: 'Cat', glyph: '🐱', color: '#a7a2ad' },
+  { id: 'dog', name: 'Dog', glyph: '🐶', color: '#cf9b62' },
+  { id: 'tiger', name: 'Tiger', glyph: '🐯', color: '#db7f2b' },
+  { id: 'pig', name: 'Pig', glyph: '🐷', color: '#e6a0ab' },
+  { id: 'wolf', name: 'Wolf', glyph: '🐺', color: '#8b95a1' },
+  { id: 'cow', name: 'Cow', glyph: '🐮', color: '#d5cabb' },
+  { id: 'horse', name: 'Horse', glyph: '🐴', color: '#a5673a' },
+  { id: 'mouse', name: 'Mouse', glyph: '🐭', color: '#b6aeb0' },
+  { id: 'hamster', name: 'Hamster', glyph: '🐹', color: '#cf9f5a' },
+  { id: 'sheep', name: 'Sheep', glyph: '🐑', color: '#e4ded3' },
+  { id: 'goat', name: 'Goat', glyph: '🐐', color: '#bcae97' },
+  { id: 'rooster', name: 'Rooster', glyph: '🐔', color: '#cf5245' },
+  { id: 'hippo', name: 'Hippo', glyph: '🦛', color: '#a291a8' },
+  { id: 'rhino', name: 'Rhino', glyph: '🦏', color: '#94969c' },
+  { id: 'giraffe', name: 'Giraffe', glyph: '🦒', color: '#d6a03e' },
+  { id: 'llama', name: 'Llama', glyph: '🦙', color: '#c9a878' }
 ]
 
 export function getCharacter(id: string): CharacterDef | undefined {
