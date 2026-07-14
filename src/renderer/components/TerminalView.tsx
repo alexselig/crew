@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { getPooled, focusTerminal } from '../terminal-pool'
+import { getPooled, focusTerminal, markPrompt } from '../terminal-pool'
 import { quotePaths } from '../../shared/shell-quote'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
@@ -57,7 +57,14 @@ export function TerminalView({
     const ro = new ResizeObserver(() => fit())
     ro.observe(host)
 
-    const dataSub = p.term.onData((d) => window.crew.sendInput(id, d))
+    // Forward keystrokes to the PTY. A carriage return means the user submitted
+    // input, so drop a yellow landmark on that row (see markPrompt). Pasting
+    // multi-line text can also carry a newline; an occasional extra mark is
+    // harmless for a spotting aid.
+    const dataSub = p.term.onData((d) => {
+      window.crew.sendInput(id, d)
+      if (d.includes('\r') || d.includes('\n')) markPrompt(id)
+    })
 
     return () => {
       cancelAnimationFrame(raf)
