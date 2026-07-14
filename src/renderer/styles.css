@@ -1393,28 +1393,31 @@ button {
 /* Grouped view = ONE horizontal strip. Tiles fill each group column-major (down
    the N density rows, then rightward) exactly like the flat grid, but every group
    starts on a fresh column — groups never share a column. The strip scrolls
-   HORIZONTALLY through all groups and is one row-band tall (no vertical scroll).
-   Tile columns are half the content width (== flat grid tiles); a group's last
-   column may hold empty trailing cells, which is expected. Adjacent groups are
-   separated by a divider (no in-strip headers). */
+   HORIZONTALLY and is one row-band tall. Tile columns are sized to exactly half the
+   VISIBLE scroll area via container-query units (50cqw), so every column is the same
+   width regardless of viewport, nav width, or scrollbars — and the outer scroll
+   container is a query container with overflow hidden, so a group's horizontal
+   scrollbar can't feed back into a vertical scrollbar (the old 100vw calc did, which
+   made columns different widths and the layout bounce). Adjacent groups are split by
+   a divider (no in-strip headers); a group's last column may hold empty cells. */
+.gridview__scroll:has(.grid-groups) {
+  overflow: hidden;
+  container-type: inline-size;
+}
+
 .grid-groups {
   display: flex;
   flex-direction: row;
   height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scroll-snap-type: x proximity;
-  /* Tile column width = half the grid content area, matching the flat grid. */
-  --tile-col-w: calc((100vw - var(--nav-width, 84px)) / 2 - 0.5px);
 }
 
 .grid-group {
   display: flex;
   flex-direction: column;
   flex: none;
-  min-width: 0;
-  min-height: 0;
-  scroll-snap-align: start;
+  height: 100%;
 }
 
 /* Clear boundary between adjacent groups (darker + thicker than tile hairlines). */
@@ -1423,11 +1426,14 @@ button {
 }
 
 .grid--grouped {
-  flex: 1;
-  min-height: 0;
+  height: 100%;
   display: grid;
+  /* Reset the base .grid's `repeat(2, minmax(0,1fr))` so EVERY column (explicit +
+     implicit) comes from grid-auto-columns — otherwise the first two columns are
+     flexible and shrink, making columns different widths. */
+  grid-template-columns: none;
   grid-auto-flow: column;
-  grid-auto-columns: var(--tile-col-w);
+  grid-auto-columns: calc(50cqw - 0.5px);
   gap: 1px;
   background: var(--border-soft);
 }
@@ -2178,6 +2184,7 @@ button {
 
 .group__name {
   flex: 1;
+  color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
