@@ -79,7 +79,9 @@ export function GridView({
   // grouping, dragging a tile onto another group (or its header) retags it;
   // 'needs' groups are state-derived, so tile dragging is off there.
   const grouped = groupMode !== 'none'
-  // Density layouts apply to the flat grid only; grouped view keeps default tiles.
+  // `density` drives the flat grid's horizontal-scroll layout (main + grid class).
+  // Grouped view scrolls vertically instead, so it does NOT set the density class
+  // on <main>; each group applies `grid--g-${gridDensity}` for its 2-column rows.
   const density = grouped ? null : gridDensity
   const groups = grouped ? groupSessions(roster, groupMode, groupOrder) : []
   const gdnd = useGroupReorder(

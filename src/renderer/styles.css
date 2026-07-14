@@ -19,8 +19,6 @@
   --danger: #e5484d;
   --radius: 4px;
   --radius-sm: 2px;
-  /* Row height for a grouped density "shelf" (see .grid--grouped). */
-  --shelf-row: 300px;
   --shadow: 0 10px 44px rgba(0, 0, 0, 0.6);
   --term-bg: #0a0a0b;
   font-synthesis: none;
@@ -1393,35 +1391,33 @@ button {
   scroll-snap-align: start;
 }
 
-/* Grouped density: each group is a horizontally-scrolling shelf whose row count
-   matches the density (two=1, four=2, six=3), mirroring the flat grid's "N tiles
-   visible" semantics. The page still scrolls vertically between groups, so each
-   shelf gets a fixed row height (rows can't resolve as % in an auto-height,
-   vertically-scrolling parent). */
+/* Grouped density: every group is a fixed **2-column** grid (matching the user's
+   "2 column / 2 column · 2 row / 2 column · 3 row" model — always two columns).
+   Tiles flow row-first so both columns stay balanced even for small groups (no
+   lonely, half-empty column). Density sets the row height so 1 / 2 / 3 rows fill
+   a screenful — the same tile sizes as the flat grid at each density — and groups
+   stack with the page scrolling vertically. Column-first shelves were dropped:
+   they left small groups as a single stacked column with a large empty block, and
+   made the density toggle look inert when every group was small. */
 .grid--grouped {
-  grid-template-columns: none;
-  grid-auto-flow: column;
-  grid-auto-columns: calc(50% - 0.5px);
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
+  grid-auto-flow: row;
 }
 
 .grid--grouped.grid--g-two {
-  grid-template-rows: var(--shelf-row);
+  grid-auto-rows: calc(100vh - 64px);
 }
 
 .grid--grouped.grid--g-four {
-  grid-template-rows: repeat(2, var(--shelf-row));
+  grid-auto-rows: calc((100vh - 64px) / 2);
 }
 
 .grid--grouped.grid--g-six {
-  grid-template-rows: repeat(3, var(--shelf-row));
+  grid-auto-rows: calc((100vh - 64px) / 3);
 }
 
 .grid--grouped .tile {
-  height: var(--shelf-row);
-  scroll-snap-align: start;
+  height: auto;
+  min-height: 200px;
 }
 
 .grid-groups {
