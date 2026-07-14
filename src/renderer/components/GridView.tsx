@@ -6,8 +6,7 @@ import { Icon } from './Icon'
 import { ViewToggle } from './ViewToggle'
 import { ResumeSets } from './ResumeSets'
 import { groupSessions, existingGroups, type GroupMode } from '../grouping'
-import { useGroupReorder } from '../useGroupReorder'
-import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
+import { useCardDnd } from '../useCardDnd'
 import type { ViewMode, GridDensity } from '../hooks'
 
 interface Props {
@@ -52,10 +51,7 @@ export function GridView({
   activeWorkspace,
   groupMode,
   onSetGroupMode,
-  collapsedGroups,
-  onToggleGroup,
   groupOrder,
-  onReorderGroups,
   onSelect,
   onExpand,
   onClose,
@@ -74,20 +70,13 @@ export function GridView({
   onSetCharacter,
   onSetColor
 }: Props): JSX.Element {
-  // Tiles hold static positions (roster order) that the user can rearrange by
-  // dragging a tile header. They never auto-reshuffle on state changes. In tag
-  // grouping, dragging a tile onto another group (or its header) retags it;
-  // 'needs' groups are state-derived, so tile dragging is off there.
+  // Tiles hold static positions (roster order) the user can rearrange by dragging.
   const grouped = groupMode !== 'none'
-  // `density` drives the flat grid's density class on <main> + the grid. Grouped
-  // view instead renders each group as its own horizontal-scroll shelf via
-  // `grid--g-${gridDensity}`, so it leaves <main> without the density class.
+  // `density` sets the flat grid's density class on <main> + the grid. Grouped view
+  // scrolls horizontally instead (each group is a column-major band via
+  // `grid--g-${gridDensity}`), so it leaves <main> without the density class.
   const density = grouped ? null : gridDensity
   const groups = grouped ? groupSessions(roster, groupMode, groupOrder) : []
-  const gdnd = useGroupReorder(
-    groups.map((g) => g.name),
-    onReorderGroups
-  )
   const dnd = useCardDnd(roster, groupMode, onReorder, onSetTag)
   const tagGroups = allGroups ?? existingGroups(roster)
 
@@ -205,20 +194,7 @@ export function GridView({
           <div className="grid-groups">
             {groups.map((g) => (
               <section className="grid-group" key={g.name}>
-                <button
-                  type="button"
-                  className={`grid-group__header ${g.kind === 'needs' ? 'grid-group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${(gdnd.overName === g.name && gdnd.dragging !== g.name) || dnd.overGroup === g.name ? 'is-drag-over' : ''}`}
-                  onClick={() => onToggleGroup(g.name)}
-                  title={groupMode === 'tag' ? 'Drag to reorder groups · drop a session here to move it' : 'Drag to reorder groups'}
-                  {...mergeHeaderDnd(gdnd.handlers(g.name), dnd, g.name)}
-                >
-                  <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
-                  <span className="grid-group__name">{g.name}</span>
-                  <span className="group__count">{g.items.length}</span>
-                </button>
-                {!collapsedGroups.has(g.name) && (
-                  <div className={`grid grid--grouped grid--g-${gridDensity}`}>{g.items.map(renderTile)}</div>
-                )}
+                <div className={`grid grid--grouped grid--g-${gridDensity}`}>{g.items.map(renderTile)}</div>
               </section>
             ))}
           </div>

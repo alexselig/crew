@@ -254,8 +254,7 @@ button {
 
 .card.is-selected {
   background: rgba(43, 76, 242, 0.13);
-  border-radius: 4px 4px 0 0;
-  box-shadow: inset 0 -2px 0 var(--accent);
+  border-radius: 4px;
 }
 
 .card.is-inactive {
@@ -1391,92 +1390,63 @@ button {
   scroll-snap-align: start;
 }
 
-/* Grouped density: each group is a horizontally-scrolling shelf that mirrors the
-   flat grid, per group. Tiles flow COLUMN-first into N fixed rows (two=1, four=2,
-   six=3) and you scroll left/right for the rest. Row height is a fraction of the
-   viewport, so tiles are the SAME size as the flat grid at each density — and the
-   toggle always visibly resizes them, even for a small group that can't fill the
-   extra rows (the old fixed-height shelf made four vs six look identical there).
-   Small groups may leave empty trailing cells in the last column; that's fine. */
-.grid--grouped {
-  grid-template-columns: none;
-  grid-auto-flow: column;
-  grid-auto-columns: calc(50% - 0.5px);
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-}
-
-.grid--grouped.grid--g-two {
-  grid-template-rows: calc(100vh - 64px);
-}
-
-.grid--grouped.grid--g-four {
-  grid-template-rows: repeat(2, calc((100vh - 64px) / 2));
-}
-
-.grid--grouped.grid--g-six {
-  grid-template-rows: repeat(3, calc((100vh - 64px) / 3));
-}
-
-.grid--grouped .tile {
-  height: auto;
-  min-height: 180px;
-  scroll-snap-align: start;
-}
-
+/* Grouped view = ONE horizontal strip. Tiles fill each group column-major (down
+   the N density rows, then rightward) exactly like the flat grid, but every group
+   starts on a fresh column — groups never share a column. The strip scrolls
+   HORIZONTALLY through all groups and is one row-band tall (no vertical scroll).
+   Tile columns are half the content width (== flat grid tiles); a group's last
+   column may hold empty trailing cells, which is expected. Adjacent groups are
+   separated by a divider (no in-strip headers). */
 .grid-groups {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  /* Tile column width = half the grid content area, matching the flat grid. */
+  --tile-col-w: calc((100vw - var(--nav-width, 84px)) / 2 - 0.5px);
 }
 
 .grid-group {
   display: flex;
   flex-direction: column;
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+  scroll-snap-align: start;
 }
 
-.grid-group__header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 24px 10px;
-  border: none;
-  border-bottom: 1px solid var(--border-soft);
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  text-align: left;
+/* Clear boundary between adjacent groups (darker + thicker than tile hairlines). */
+.grid-group:not(:first-child) {
+  border-left: 2px solid var(--bg);
 }
 
-.grid-group__header:hover {
-  color: var(--text);
-}
-
-.grid-group__header[draggable='true'] {
-  cursor: grab;
-}
-
-.grid-group__header.is-dragging {
-  opacity: 0.45;
-}
-
-.grid-group__header.is-drag-over {
-  box-shadow: inset 0 2px 0 0 var(--accent);
-}
-
-.grid-group__header--needs {
-  color: var(--ivory);
-}
-
-.grid-group__header--needs:hover {
-  color: var(--ivory);
-}
-
-.grid-group__name {
+.grid--grouped {
   flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--tile-col-w);
+  gap: 1px;
+  background: var(--border-soft);
+}
+
+.grid--grouped.grid--g-two {
+  grid-template-rows: 1fr;
+}
+
+.grid--grouped.grid--g-four {
+  grid-template-rows: repeat(2, 1fr);
+}
+
+.grid--grouped.grid--g-six {
+  grid-template-rows: repeat(3, 1fr);
+}
+
+.grid--grouped .tile {
+  height: auto;
+  min-height: 0;
 }
 
 .tile {
@@ -2188,8 +2158,22 @@ button {
 }
 
 .group__chevron {
-  width: 12px;
-  font-size: 9px;
+  display: none;
+}
+
+.group__header:hover .group__name {
+  filter: brightness(1.18);
+}
+
+.group__toggle {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--text-faint);
+}
+
+.group__header:hover .group__toggle {
+  color: var(--text-dim);
 }
 
 .group__name {

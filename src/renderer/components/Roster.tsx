@@ -7,6 +7,7 @@ import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { ViewToggle } from './ViewToggle'
 import { groupSessions, type GroupMode } from '../grouping'
+import { groupColor } from '../../shared/palette'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
 import type { ViewMode, GridDensity } from '../hooks'
@@ -283,9 +284,16 @@ export function Roster(props: Props): JSX.Element {
                 title={groupMode === 'tag' ? 'Drag to reorder groups · drop a session here to move it' : 'Drag to reorder groups'}
                 {...mergeHeaderDnd(gdnd.handlers(g.name), dnd, g.name)}
               >
-                <span className="group__chevron">{collapsedGroups.has(g.name) ? '▸' : '▾'}</span>
-                <span className="group__name">{g.name}</span>
+                <span
+                  className="group__name"
+                  style={g.kind === 'needs' ? undefined : { color: groupColor(g.name) }}
+                >
+                  {g.name}
+                </span>
                 <span className="group__count">{g.items.length}</span>
+                <span className="group__toggle" aria-hidden="true">
+                  <Icon name={collapsedGroups.has(g.name) ? 'chevron-right' : 'chevron-down'} size={13} />
+                </span>
               </button>
               {!collapsedGroups.has(g.name) && g.items.map(renderCard)}
             </div>

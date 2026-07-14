@@ -33,3 +33,14 @@ export function fallbackCharacterColor(seed: string): string {
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
   return CHARACTER_COLORS[h % CHARACTER_COLORS.length]
 }
+
+/**
+ * A stable, distinct color for a group label, so groups are easy to tell apart in
+ * the nav. Hashes the name onto the vivid hues (skipping the trailing neutral grey).
+ */
+export function groupColor(name: string): string {
+  const vivid = CHARACTER_COLORS.slice(0, CHARACTER_COLORS.length - 1)
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return vivid[h % vivid.length]
+}
