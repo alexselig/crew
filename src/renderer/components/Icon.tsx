@@ -112,9 +112,9 @@ const PATHS: Record<IconProps['name'], JSX.Element> = {
     <>
       <path d="m3 16 4 4 4-4" />
       <path d="M7 20V4" />
-      <line x1="11" y1="6" x2="21" y2="6" />
-      <line x1="11" y1="12" x2="18" y2="12" />
-      <line x1="11" y1="18" x2="15" y2="18" />
+      <line x1="13" y1="6" x2="22" y2="6" />
+      <line x1="13" y1="12" x2="19" y2="12" />
+      <line x1="13" y1="18" x2="16" y2="18" />
     </>
   ),
   // Two overlapping screens: open an additional window (second monitor).
