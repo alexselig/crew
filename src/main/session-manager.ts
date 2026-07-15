@@ -68,6 +68,10 @@ export class SessionManager extends EventEmitter {
   private readonly events: ActivityEvent[] = []
   // Coalesces cost-driven roster updates into the tick loop (max ~4/s).
   private rosterDirty = false
+  // Set when session metadata that must survive restart changes (e.g. a prompt
+  // stamps lastPromptAt); flushed to disk on the tick so we don't writeFile on
+  // every keystroke.
+  private persistDirty = false
   // Detects autopilot from each agent's own state: Claude Code's acceptEdits from
   // its transcript; Copilot's "autopilot" mode from its session event log.
   private readonly autopilot = new AutopilotWatcher()
@@ -90,7 +94,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; lastPromptAt?: number }
+    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; createdAt?: number; lastPromptAt?: number }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || process.env.SHELL || '/bin/zsh'
@@ -149,7 +153,7 @@ export class SessionManager extends EventEmitter {
       autopilot: false,
       tag: restore?.tag,
       sets,
-      createdAt: now,
+      createdAt: restore?.createdAt ?? now,
       stateChangedAt: now,
       lastPromptAt: restore?.lastPromptAt ?? now
     }
@@ -273,10 +277,12 @@ export class SessionManager extends EventEmitter {
     m.detector?.notifyInput(Date.now())
     // A carriage return/newline means the user submitted a prompt — stamp it so
     // the 'recent' grouping re-buckets this session as most-recent. Flushed via
-    // the debounced rosterDirty tick (avoids emitting on every keystroke).
+    // the debounced rosterDirty tick (avoids emitting on every keystroke), and
+    // persisted (persistDirty) so the timestamp survives restart/reinstall.
     if (data.includes('\r') || data.includes('\n')) {
       m.info.lastPromptAt = Date.now()
       this.rosterDirty = true
+      this.persistDirty = true
     }
   }
 
@@ -454,6 +460,10 @@ export class SessionManager extends EventEmitter {
   }
 
   disposeAll(): void {
+    // Capture the freshest state (e.g. a lastPromptAt stamped since the last
+    // persist-triggering action) while sessions are still active — before we
+    // freeze persistence and kill the procs.
+    this.persistSessions()
     // Freeze persistence first: the kills below fire onExit handlers that would
     // otherwise save an empty session list and wipe the resume state.
     this.disposing = true
@@ -490,6 +500,7 @@ export class SessionManager extends EventEmitter {
         tag: m.info.tag,
         sets: m.info.sets,
         agentSessionId: m.info.agentSessionId,
+        createdAt: m.info.createdAt,
         lastPromptAt: m.info.lastPromptAt
       }))
     this.store.saveSessions(list)
@@ -516,6 +527,7 @@ export class SessionManager extends EventEmitter {
           extraArgs,
           tag: p.tag,
           sets: p.sets,
+          createdAt: p.createdAt,
           lastPromptAt: p.lastPromptAt
         }
       )
@@ -584,6 +596,12 @@ export class SessionManager extends EventEmitter {
       if (this.rosterDirty) {
         this.rosterDirty = false
         this.emitRoster()
+      }
+      // Flush metadata that must survive restart (e.g. lastPromptAt from a
+      // prompt) at most once per tick.
+      if (this.persistDirty) {
+        this.persistDirty = false
+        this.persistSessions()
       }
     }, TICK_MS)
   }

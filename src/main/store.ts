@@ -39,6 +39,8 @@ export interface PersistedSession {
   sets?: string[]
   /** The agent's session UUID, so restore reattaches the same conversation. */
   agentSessionId?: string
+  /** Epoch ms the session was first created, preserved across restart. */
+  createdAt?: number
   /** Epoch ms of the user's last prompt, so 'recent' grouping survives restart. */
   lastPromptAt?: number
 }

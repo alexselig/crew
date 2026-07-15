@@ -294,13 +294,14 @@ button {
   display: inline-flex;
   align-items: center;
   justify-self: end;
+  grid-column: 3;
+  grid-row: 1;
 }
 
 .card__actions {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: center;
   display: none;
   gap: 4px;
 }
@@ -777,6 +778,22 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Nav card actions (restart / close ✕): larger square hit targets. The border
+   is hidden at rest so a clean square highlight appears only on hover. */
+.card__actions .mini-btn--icon {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 13px;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+}
+
+.card__actions .mini-btn--icon:hover {
+  background: rgba(242, 241, 234, 0.1);
+  border-color: transparent;
 }
 
 /* ---------- Editable label ---------- */
