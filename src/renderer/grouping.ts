@@ -1,7 +1,7 @@
 import type { SessionInfo } from '../shared/types'
 import { NEEDS_YOU } from '../shared/types'
 
-export type GroupMode = 'none' | 'needs' | 'tag'
+export type GroupMode = 'none' | 'needs' | 'tag' | 'recent'
 
 export interface SessionGroup {
   name: string
@@ -11,9 +11,38 @@ export interface SessionGroup {
 
 const needsYou = (s: SessionInfo): boolean => s.status === 'active' && NEEDS_YOU.includes(s.state)
 
+const HOUR = 3_600_000
+const DAY = 24 * HOUR
+const WEEK = 7 * DAY
+const MONTH = 30 * DAY
+
+/** Recency buckets by how long ago the user last prompted the session
+ * (lastPromptAt), most-recent first. `max` is the exclusive upper age bound in
+ * ms; the last bucket catches everything older. */
+const RECENT_BUCKETS: Array<{ name: string; max: number }> = [
+  { name: 'Last hour', max: HOUR },
+  { name: 'Last day', max: DAY },
+  { name: 'Last week', max: WEEK },
+  { name: 'Last month', max: MONTH },
+  { name: 'Older', max: Number.POSITIVE_INFINITY }
+]
+
+function recentBucket(ageMs: number): string {
+  for (const b of RECENT_BUCKETS) if (ageMs < b.max) return b.name
+  return 'Older'
+}
+
+/** The timestamp a session is bucketed by in 'recent' mode: the user's last
+ * prompt, falling back to creation time for sessions never prompted. */
+function recencyOf(s: SessionInfo): number {
+  return s.lastPromptAt ?? s.createdAt
+}
+
 /** Bucket sessions for grouped display. Roster order is preserved within each
  * group. 'tag' groups by the session's group label ("Ungrouped" when unset);
- * 'needs' splits into "Needs you" and "Working". `order` applies the user's
+ * 'needs' splits into "Needs you" and "Working"; 'recent' buckets by how long
+ * ago the user last prompted the session (Last hour / day / week / month /
+ * Older). `order` applies the user's
  * manual group ordering; groups not present in `order` keep their natural
  * (first-appearance) order after the ordered ones. */
 export function groupSessions(
@@ -37,6 +66,25 @@ export function groupSessions(
     const rest = roster.filter((s) => !needsYou(s))
     if (needs.length) groups.push({ name: 'Needs you', items: needs, kind: 'needs' })
     if (rest.length) groups.push({ name: 'Working', items: rest })
+  } else if (mode === 'recent') {
+    const now = Date.now()
+    const byBucket = new Map<string, SessionInfo[]>()
+    for (const s of roster) {
+      const name = recentBucket(now - recencyOf(s))
+      const arr = byBucket.get(name)
+      if (arr) arr.push(s)
+      else byBucket.set(name, [s])
+    }
+    // Emit buckets in fixed recent→old order; sort each oldest-first (by last
+    // prompt) so a freshly prompted session appends to the BOTTOM of its bucket
+    // instead of shoving the others down (minimal tile jumping).
+    for (const b of RECENT_BUCKETS) {
+      const items = byBucket.get(b.name)
+      if (items && items.length) {
+        items.sort((x, y) => recencyOf(x) - recencyOf(y))
+        groups.push({ name: b.name, items })
+      }
+    }
   }
   if (order.length) {
     const rank = (name: string): number => {

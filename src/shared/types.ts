@@ -120,6 +120,10 @@ export interface SessionInfo {
   sets?: string[]
   createdAt: number
   stateChangedAt: number
+  /** Time (ms) the user last submitted a prompt to this session (pressed Enter);
+   * initialized to createdAt. Drives the 'recent' grouping so the most recently
+   * prompted sessions bucket as "Last hour" etc. */
+  lastPromptAt?: number
 }
 
 export interface CreateSessionRequest {

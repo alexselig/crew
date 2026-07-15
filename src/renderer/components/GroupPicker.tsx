@@ -5,7 +5,8 @@ import type { GroupMode } from '../grouping'
 export const GROUP_OPTIONS: Array<{ mode: GroupMode; label: string }> = [
   { mode: 'none', label: 'No grouping' },
   { mode: 'needs', label: 'Needs you' },
-  { mode: 'tag', label: 'By group' }
+  { mode: 'tag', label: 'By group' },
+  { mode: 'recent', label: 'By recent' }
 ]
 
 interface Props {

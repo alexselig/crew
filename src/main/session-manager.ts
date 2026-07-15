@@ -150,7 +150,8 @@ export class SessionManager extends EventEmitter {
       tag: restore?.tag,
       sets,
       createdAt: now,
-      stateChangedAt: now
+      stateChangedAt: now,
+      lastPromptAt: now
     }
 
     const cfg: DetectionConfig = {
@@ -270,6 +271,13 @@ export class SessionManager extends EventEmitter {
       /* exited */
     }
     m.detector?.notifyInput(Date.now())
+    // A carriage return/newline means the user submitted a prompt — stamp it so
+    // the 'recent' grouping re-buckets this session as most-recent. Flushed via
+    // the debounced rosterDirty tick (avoids emitting on every keystroke).
+    if (data.includes('\r') || data.includes('\n')) {
+      m.info.lastPromptAt = Date.now()
+      this.rosterDirty = true
+    }
   }
 
   setTag(id: string, tag: string): void {

@@ -69,7 +69,7 @@ export function useCrew(): CrewState {
   )
   const [groupMode, setGroupModeState] = useState<GroupMode>(() => {
     const saved = readViewPref('groupMode')
-    if (saved === 'none' || saved === 'needs' || saved === 'tag') return saved
+    if (saved === 'none' || saved === 'needs' || saved === 'tag' || saved === 'recent') return saved
     if (windowSlot === 0 && localStorage.getItem('crew.groupByTag') === '1') return 'tag'
     return 'none'
   })
