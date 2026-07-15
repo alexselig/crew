@@ -11,25 +11,22 @@ export interface SessionGroup {
 
 const needsYou = (s: SessionInfo): boolean => s.status === 'active' && NEEDS_YOU.includes(s.state)
 
-const HOUR = 3_600_000
-const DAY = 24 * HOUR
-const WEEK = 7 * DAY
-const MONTH = 30 * DAY
+const MIN = 60_000
+const HOUR = 60 * MIN
 
 /** Recency buckets by how long ago the user last prompted the session
  * (lastPromptAt), most-recent first. `max` is the exclusive upper age bound in
  * ms; the last bucket catches everything older. */
 const RECENT_BUCKETS: Array<{ name: string; max: number }> = [
-  { name: 'Last hour', max: HOUR },
-  { name: 'Last day', max: DAY },
-  { name: 'Last week', max: WEEK },
-  { name: 'Last month', max: MONTH },
-  { name: 'Older', max: Number.POSITIVE_INFINITY }
+  { name: 'Last 30 min', max: 30 * MIN },
+  { name: 'Last 2 hrs', max: 2 * HOUR },
+  { name: 'Last day', max: 24 * HOUR },
+  { name: 'Last week+', max: Number.POSITIVE_INFINITY }
 ]
 
 function recentBucket(ageMs: number): string {
   for (const b of RECENT_BUCKETS) if (ageMs < b.max) return b.name
-  return 'Older'
+  return RECENT_BUCKETS[RECENT_BUCKETS.length - 1].name
 }
 
 /** The timestamp a session is bucketed by in 'recent' mode: the user's last
@@ -41,8 +38,8 @@ function recencyOf(s: SessionInfo): number {
 /** Bucket sessions for grouped display. Roster order is preserved within each
  * group. 'tag' groups by the session's group label ("Ungrouped" when unset);
  * 'needs' splits into "Needs you" and "Working"; 'recent' buckets by how long
- * ago the user last prompted the session (Last hour / day / week / month /
- * Older). `order` applies the user's
+ * ago the user last prompted the session (Last 30 min / 2 hrs / day / week+).
+ * `order` applies the user's
  * manual group ordering; groups not present in `order` keep their natural
  * (first-appearance) order after the ordered ones. */
 export function groupSessions(

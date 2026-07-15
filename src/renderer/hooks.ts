@@ -14,6 +14,18 @@ const NAV_MIN = 200
 const NAV_MAX = 520
 const NAV_DEFAULT = 300
 
+/** Force a re-render on an interval while `active`, so wall-clock-derived views
+ *  (the 'recent' grouping buckets) migrate sessions between buckets as time
+ *  passes rather than freezing until an unrelated roster update. */
+export function useNowTick(active: boolean, intervalMs = 30_000): void {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => setTick((n) => n + 1), intervalMs)
+    return () => clearInterval(t)
+  }, [active, intervalMs])
+}
+
 export interface CrewState {
   roster: SessionInfo[]
   presets: Preset[]

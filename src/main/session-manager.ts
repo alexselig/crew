@@ -90,7 +90,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[] }
+    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; lastPromptAt?: number }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || process.env.SHELL || '/bin/zsh'
@@ -151,7 +151,7 @@ export class SessionManager extends EventEmitter {
       sets,
       createdAt: now,
       stateChangedAt: now,
-      lastPromptAt: now
+      lastPromptAt: restore?.lastPromptAt ?? now
     }
 
     const cfg: DetectionConfig = {
@@ -489,7 +489,8 @@ export class SessionManager extends EventEmitter {
         color: m.info.color,
         tag: m.info.tag,
         sets: m.info.sets,
-        agentSessionId: m.info.agentSessionId
+        agentSessionId: m.info.agentSessionId,
+        lastPromptAt: m.info.lastPromptAt
       }))
     this.store.saveSessions(list)
   }
@@ -514,7 +515,8 @@ export class SessionManager extends EventEmitter {
           color: p.color ?? fallbackCharacterColor(p.id),
           extraArgs,
           tag: p.tag,
-          sets: p.sets
+          sets: p.sets,
+          lastPromptAt: p.lastPromptAt
         }
       )
     })

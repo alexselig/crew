@@ -9,6 +9,7 @@ import { ViewToggle } from './ViewToggle'
 import { groupSessions, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
+import { useNowTick } from '../hooks'
 import type { ViewMode, GridDensity } from '../hooks'
 
 interface Props {
@@ -151,6 +152,7 @@ export function Roster(props: Props): JSX.Element {
     }
   }
   const grouped = groupMode !== 'none' && !railed
+  useNowTick(grouped && groupMode === 'recent')
   const dnd = useCardDnd(roster, railed ? 'disabled' : groupMode, onReorder, onSetTag)
 
   function renderCard(s: SessionInfo): JSX.Element {

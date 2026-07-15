@@ -6,6 +6,7 @@ import { Icon } from './Icon'
 import { ResumeSets } from './ResumeSets'
 import { groupSessions, existingGroups, type GroupMode } from '../grouping'
 import { useCardDnd } from '../useCardDnd'
+import { useNowTick } from '../hooks'
 import type { ViewMode, GridDensity } from '../hooks'
 
 interface Props {
@@ -69,6 +70,7 @@ export function GridView({
 }: Props): JSX.Element {
   // Tiles hold static positions (roster order) the user can rearrange by dragging.
   const grouped = groupMode !== 'none'
+  useNowTick(grouped && groupMode === 'recent')
   // `density` sets the flat grid's density class on <main> + the grid. Grouped view
   // scrolls horizontally instead (each group is a column-major band via
   // `grid--g-${gridDensity}`), so it leaves <main> without the density class.
