@@ -105,6 +105,32 @@ async function waitUntil(fn, desc, timeout = 15000, interval = 200) {
   throw new Error(`timeout: ${desc}`)
 }
 
+// The Assets panel loads thumbnails over crew-asset://, which 404s if the <img>
+// requests a file before the cwd scan has populated the allowlist — a broken
+// image that never retries. Wait for every thumbnail to decode, force-reloading
+// any that are still broken (a fresh cache-bust re-requests, and by then the
+// file is allowlisted). Returns false if some stay broken past the timeout.
+async function ensureThumbsLoaded(page, timeout = 6000) {
+  const start = Date.now()
+  while (Date.now() - start < timeout) {
+    const st = await page.evaluate(() => {
+      const imgs = [...document.querySelectorAll('.asset__thumb')]
+      let broken = 0
+      for (const img of imgs) {
+        if (!img.complete || img.naturalWidth === 0) {
+          broken++
+          const base = (img.getAttribute('src') || '').split('?')[0]
+          if (base) img.setAttribute('src', base + '?v=' + Date.now() + '-' + Math.random())
+        }
+      }
+      return { total: imgs.length, broken }
+    })
+    if (st.total > 0 && st.broken === 0) return true
+    await wait(300)
+  }
+  return false
+}
+
 async function main() {
   rmSync(DATA_DIR, { recursive: true, force: true })
   const app = await electron.launch({
@@ -144,7 +170,8 @@ async function main() {
   mkdirSync(AP_CWD, { recursive: true })
   mkdirSync(AP_PROJECT_DIR, { recursive: true })
   // Seed a few previewable files in the autopilot session's cwd so its Assets
-  // panel isn't empty — a plausible vite project (all generic, no real names).
+  // panel shows real image thumbnails — a plausible checkout refactor's output
+  // (all generic, no real names). SVGs render crisply at the 40px thumbnail size.
   mkdirSync(join(AP_CWD, 'public'), { recursive: true })
   writeFileSync(
     join(AP_CWD, 'index.html'),
@@ -152,11 +179,24 @@ async function main() {
   )
   writeFileSync(
     join(AP_CWD, 'public', 'logo.svg'),
-    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#ff7a3c"/><path d="M20 45 L32 19 L44 45 M25 37 H39" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>\n'
+    '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="28" fill="#ff7a3c"/><path d="M40 90 L64 38 L88 90 M50 74 H78" stroke="#fff" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>\n'
   )
+  // A square mock of the checkout wizard the agent is building — reads as a mini
+  // UI card even at thumbnail size (and center-crops cleanly).
   writeFileSync(
-    join(AP_CWD, 'public', 'og-image.svg'),
-    '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="#0f1115"/><rect x="80" y="90" width="120" height="120" rx="26" fill="#ff7a3c"/><path d="M110 178 L140 110 L170 178 M122 156 H158" stroke="#fff" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text x="80" y="340" font-family="Georgia, serif" font-size="76" fill="#f2f1ea">atlas-web</text><text x="80" y="400" font-family="monospace" font-size="30" fill="#9aa3af">a faster checkout experience</text></svg>\n'
+    join(AP_CWD, 'public', 'checkout-preview.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">' +
+      '<rect width="400" height="400" fill="#0f1115"/>' +
+      '<rect x="44" y="40" width="312" height="320" rx="22" fill="#f5f6f8"/>' +
+      '<text x="72" y="96" font-family="Georgia, serif" font-size="32" fill="#1a1c22">Checkout</text>' +
+      '<circle cx="250" cy="84" r="7" fill="#ff7a3c"/><circle cx="280" cy="84" r="7" fill="#d7dae0"/><circle cx="310" cy="84" r="7" fill="#d7dae0"/>' +
+      '<rect x="72" y="132" width="256" height="34" rx="8" fill="#e7e9ee"/>' +
+      '<rect x="72" y="182" width="256" height="34" rx="8" fill="#e7e9ee"/>' +
+      '<rect x="72" y="232" width="118" height="34" rx="8" fill="#e7e9ee"/>' +
+      '<rect x="210" y="232" width="118" height="34" rx="8" fill="#e7e9ee"/>' +
+      '<rect x="72" y="296" width="256" height="42" rx="11" fill="#ff7a3c"/>' +
+      '<rect x="150" y="312" width="100" height="10" rx="5" fill="#fff"/>' +
+      '</svg>\n'
   )
   writeFileSync(
     join(AP_PROJECT_DIR, 'shot.jsonl'),
@@ -218,6 +258,10 @@ async function main() {
   await page.locator('.roster__list .card:has-text("atlas-web")').click()
   await page.mouse.move(1100, 700)
   await wait(600)
+  // Make sure the asset thumbnails have actually decoded (crew-asset:// first-
+  // paint race) so the panel shows real previews, not broken-image icons.
+  await ensureThumbsLoaded(page)
+  await wait(200)
   await page.screenshot({ path: join(SHOTS, '02-focus.png') })
 
   // ---- 03: skills gallery (built-in skills fall back when no agent) ----
