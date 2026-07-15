@@ -36,12 +36,25 @@ describe("groupSessions 'recent'", () => {
     const roster = [
       sess({ id: 'week', lastPromptAt: now - 3 * DAY }),
       sess({ id: 'halfhour', lastPromptAt: now - 10 * MIN }),
+      sess({ id: 'fresh', lastPromptAt: now - 2 * MIN }),
       sess({ id: 'day', lastPromptAt: now - 5 * HOUR }),
       sess({ id: 'hours', lastPromptAt: now - 90 * MIN })
     ]
     const groups = groupSessions(roster, 'recent')
-    expect(groups.map((g) => g.name)).toEqual(['Last 30 min', 'Last 2 hrs', 'Last day', 'Last week+'])
-    expect(groups.map((g) => g.items.map((s) => s.id))).toEqual([['halfhour'], ['hours'], ['day'], ['week']])
+    expect(groups.map((g) => g.name)).toEqual([
+      'Last 5 min',
+      'Last 30 min',
+      'Last 2 hrs',
+      'Last day',
+      'Last week+'
+    ])
+    expect(groups.map((g) => g.items.map((s) => s.id))).toEqual([
+      ['fresh'],
+      ['halfhour'],
+      ['hours'],
+      ['day'],
+      ['week']
+    ])
   })
 
   it('omits empty buckets and keeps fixed order', () => {

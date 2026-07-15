@@ -18,6 +18,7 @@ const HOUR = 60 * MIN
  * (lastPromptAt), most-recent first. `max` is the exclusive upper age bound in
  * ms; the last bucket catches everything older. */
 const RECENT_BUCKETS: Array<{ name: string; max: number }> = [
+  { name: 'Last 5 min', max: 5 * MIN },
   { name: 'Last 30 min', max: 30 * MIN },
   { name: 'Last 2 hrs', max: 2 * HOUR },
   { name: 'Last day', max: 24 * HOUR },
@@ -38,8 +39,8 @@ function recencyOf(s: SessionInfo): number {
 /** Bucket sessions for grouped display. Roster order is preserved within each
  * group. 'tag' groups by the session's group label ("Ungrouped" when unset);
  * 'needs' splits into "Needs you" and "Working"; 'recent' buckets by how long
- * ago the user last prompted the session (Last 30 min / 2 hrs / day / week+).
- * `order` applies the user's
+ * ago the user last prompted the session (Last 5 min / 30 min / 2 hrs / day /
+ * week+). `order` applies the user's
  * manual group ordering; groups not present in `order` keep their natural
  * (first-appearance) order after the ordered ones. */
 export function groupSessions(
