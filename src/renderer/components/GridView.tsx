@@ -131,8 +131,8 @@ export function GridView({
         onSelect={() => onSelect(s.id)}
         onExpand={() => onExpand(s.id)}
         onClose={() => onClose(s.id)}
-        onSetCharacter={(cid) => onSetCharacter(s.id, cid)}
-        onSetColor={(col) => onSetColor(s.id, col)}
+        onSetCharacter={onSetCharacter}
+        onSetColor={onSetColor}
         onSetTag={(t) => onSetTag(s.id, t)}
         onDragStart={h?.onDragStart}
         onDragOver={h?.onDragOver}
