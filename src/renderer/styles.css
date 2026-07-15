@@ -2188,7 +2188,7 @@ button {
 
 .group__name {
   flex: 1;
-  color: var(--accent-text);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
