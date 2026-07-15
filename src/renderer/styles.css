@@ -3187,3 +3187,102 @@ button.roster__wordmark:hover,
 button.grid-topbar__wordmark:hover {
   opacity: 0.66;
 }
+
+/* ---------- Autopilot takeoff ---------- */
+/* When a session flips into autopilot, its mascot flies a little plane across
+   the top title-bar band. The layer is a fixed, click-through strip; each
+   .takeoff is a self-removing one-shot (see TakeoffLayer.tsx). Sits above app
+   content and dropdowns but below modals (z 100) and the intro (z 2000). */
+.takeoff-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 72px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 90;
+}
+
+.takeoff {
+  position: absolute;
+  top: calc(14px + var(--lane, 0px));
+  left: 0;
+  will-change: transform, opacity;
+  animation: takeoff-fly 2200ms cubic-bezier(0.42, 0, 0.5, 1) forwards;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.5));
+}
+
+.takeoff__craft {
+  position: relative;
+  display: block;
+  width: 72px;
+  height: 48px;
+}
+
+.takeoff__plane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* Seat the pilot mascot in the cockpit (proportions matched to the 96×64 plane
+   viewBox: animal ~0.35 of craft width, nudged up so it pokes above the body). */
+.takeoff__pilot {
+  position: absolute;
+  left: 19px;
+  top: -3px;
+  display: block;
+}
+
+/* A dashed contrail streaming out behind the tail, fading to the left. */
+.takeoff__trail {
+  position: absolute;
+  top: 30px;
+  right: 58px;
+  width: 120px;
+  height: 3px;
+  border-radius: 3px;
+  background: repeating-linear-gradient(
+    90deg,
+    currentColor 0,
+    currentColor 7px,
+    transparent 7px,
+    transparent 15px
+  );
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 85%);
+  mask-image: linear-gradient(90deg, transparent, #000 85%);
+  opacity: 0.5;
+}
+
+@keyframes takeoff-fly {
+  0% {
+    transform: translateX(-96px) translateY(14px) rotate(-3deg) scale(0.92);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  38% {
+    transform: translateX(28vw) translateY(12px) rotate(-3deg) scale(0.96);
+  }
+  58% {
+    transform: translateX(50vw) translateY(-4px) rotate(-11deg) scale(1);
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(108vw) translateY(-44px) rotate(-15deg) scale(1.06);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .takeoff-layer {
+    display: none;
+  }
+}

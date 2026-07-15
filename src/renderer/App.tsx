@@ -11,6 +11,7 @@ import { AnalyticsModal } from './components/AnalyticsModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { TitleSequence } from './components/TitleSequence'
+import { TakeoffLayer } from './components/TakeoffLayer'
 import { focusTerminal } from './terminal-pool'
 import { existingGroups } from './grouping'
 import { NEEDS_YOU } from '../shared/types'
@@ -344,6 +345,8 @@ export function App(): JSX.Element {
       )}
 
       {showIntro && <TitleSequence onDone={() => setShowIntro(false)} />}
+
+      <TakeoffLayer roster={c.roster} />
     </div>
   )
 }
