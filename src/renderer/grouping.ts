@@ -13,6 +13,7 @@ const needsYou = (s: SessionInfo): boolean => s.status === 'active' && NEEDS_YOU
 
 const MIN = 60_000
 const HOUR = 60 * MIN
+const DAY = 24 * HOUR
 
 /** Recency buckets by how long ago the user last prompted the session
  * (lastPromptAt), most-recent first. `max` is the exclusive upper age bound in
@@ -21,8 +22,17 @@ const RECENT_BUCKETS: Array<{ name: string; max: number }> = [
   { name: 'Last 5 min', max: 5 * MIN },
   { name: 'Last 30 min', max: 30 * MIN },
   { name: 'Last 2 hrs', max: 2 * HOUR },
-  { name: 'Last day', max: 24 * HOUR },
+  { name: 'Last day', max: DAY },
   { name: 'Last week+', max: Number.POSITIVE_INFINITY }
+]
+
+/** Count-based fallback buckets used when the roster spans more than a day —
+ * where the time buckets would dump most sessions into the oldest bucket. Ranges
+ * are by recency rank (0-based, most-recent first): [start, end). */
+const RANK_BUCKETS: Array<{ name: string; start: number; end: number }> = [
+  { name: 'Most recent 4', start: 0, end: 4 },
+  { name: 'Most recent 5-12', start: 4, end: 12 },
+  { name: '13+', start: 12, end: Number.POSITIVE_INFINITY }
 ]
 
 function recentBucket(ageMs: number): string {
@@ -40,7 +50,9 @@ function recencyOf(s: SessionInfo): number {
  * group. 'tag' groups by the session's group label ("Ungrouped" when unset);
  * 'needs' splits into "Needs you" and "Working"; 'recent' buckets by how long
  * ago the user last prompted the session (Last 5 min / 30 min / 2 hrs / day /
- * week+). `order` applies the user's
+ * week+) — but when the roster spans more than a day it falls back to
+ * count-based buckets (Most recent 4 / 5-12 / 13+) so groups stay a sane size.
+ * `order` applies the user's
  * manual group ordering; groups not present in `order` keep their natural
  * (first-appearance) order after the ordered ones. */
 export function groupSessions(
@@ -66,21 +78,42 @@ export function groupSessions(
     if (rest.length) groups.push({ name: 'Working', items: rest })
   } else if (mode === 'recent') {
     const now = Date.now()
-    const byBucket = new Map<string, SessionInfo[]>()
-    for (const s of roster) {
-      const name = recentBucket(now - recencyOf(s))
-      const arr = byBucket.get(name)
-      if (arr) arr.push(s)
-      else byBucket.set(name, [s])
-    }
-    // Emit buckets in fixed recent→old order; sort each oldest-first (by last
-    // prompt) so a freshly prompted session appends to the BOTTOM of its bucket
-    // instead of shoving the others down (minimal tile jumping).
-    for (const b of RECENT_BUCKETS) {
-      const items = byBucket.get(b.name)
-      if (items && items.length) {
-        items.sort((x, y) => recencyOf(x) - recencyOf(y))
-        groups.push({ name: b.name, items })
+    // Newest-first ranking by last-prompt time (createdAt fallback).
+    const ranked = [...roster].sort((a, b) => recencyOf(b) - recencyOf(a))
+    const spansMoreThanDay =
+      ranked.length > 0 && now - recencyOf(ranked[ranked.length - 1]) > DAY
+    if (spansMoreThanDay) {
+      // Rank-based fallback: predictable group sizes when activity spans > 1 day
+      // (the time buckets would otherwise collapse everything into one bucket).
+      for (const b of RANK_BUCKETS) {
+        const slice = ranked.slice(
+          b.start,
+          b.end === Number.POSITIVE_INFINITY ? undefined : b.end
+        )
+        if (slice.length) {
+          // Oldest-first within the bucket (newest at the bottom) to match the
+          // anti-jump convention used by the time buckets.
+          slice.reverse()
+          groups.push({ name: b.name, items: slice })
+        }
+      }
+    } else {
+      const byBucket = new Map<string, SessionInfo[]>()
+      for (const s of roster) {
+        const name = recentBucket(now - recencyOf(s))
+        const arr = byBucket.get(name)
+        if (arr) arr.push(s)
+        else byBucket.set(name, [s])
+      }
+      // Emit buckets in fixed recent→old order; sort each oldest-first (by last
+      // prompt) so a freshly prompted session appends to the BOTTOM of its bucket
+      // instead of shoving the others down (minimal tile jumping).
+      for (const b of RECENT_BUCKETS) {
+        const items = byBucket.get(b.name)
+        if (items && items.length) {
+          items.sort((x, y) => recencyOf(x) - recencyOf(y))
+          groups.push({ name: b.name, items })
+        }
       }
     }
   }
