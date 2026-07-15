@@ -111,7 +111,13 @@ export function App(): JSX.Element {
         const el = document.activeElement as HTMLElement | null
         const tag = el?.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
-        const sc = document.querySelector<HTMLElement>('.gridview__scroll')
+        // The scrollable element differs by layout: the flat grid scrolls on
+        // .gridview__scroll, but grouped mode pins that to overflow:hidden and
+        // scrolls the inner horizontal .grid-groups strip instead. Target
+        // whichever is actually scrollable so arrows work in both states.
+        const sc =
+          document.querySelector<HTMLElement>('.grid-groups') ??
+          document.querySelector<HTMLElement>('.gridview__scroll')
         if (!sc) return
         const tile = sc.querySelector<HTMLElement>('.tile')
         const stepX = tile?.offsetWidth ?? 240
