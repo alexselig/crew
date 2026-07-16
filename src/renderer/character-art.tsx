@@ -6744,3 +6744,12 @@ export function CharacterArt({ id, size = 26, variant = 'base' }: CharacterArtPr
     </svg>
   )
 }
+
+/**
+ * The raw pilot (aviator) art group for `id`, in its native 512 coordinate
+ * space, for embedding inside another SVG (e.g. seated in a takeoff plane).
+ * Returns null when the id has no pilot art.
+ */
+export function pilotArtGroup(id: string): JSX.Element | null {
+  return ART_PILOT[id] ?? null
+}
