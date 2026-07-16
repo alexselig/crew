@@ -3275,76 +3275,87 @@ button.grid-topbar__wordmark:hover {
 }
 
 /* ---------- Autopilot takeoff ---------- */
-/* When a session flips into autopilot, its mascot flies a little plane across
-   the top title-bar band, then lifts off to the top-right with a contrail (see
-   TakeoffLayer.tsx). Horizontal travel, vertical climb, and fade live on
-   separate nested layers so each eases on ONE continuous curve — smooth, with
-   no per-keyframe velocity jerk. Click-through; above content/dropdowns, below
-   modals (z 100) and the intro (z 2000). */
-.takeoff-layer {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 150px;
+/* When a session flips into autopilot, the animation TAKES OVER that session's
+   own title bar: the bar's normal content fades out and the session's mascot
+   flies a little plane across it with a smooth climb, then the bar restores.
+   Scoped to the focus header (.session-header) and the grid-tile header
+   (.tile__header); each takeoff is sized to its bar at mount by HeaderTakeoff.
+   Horizontal travel, vertical climb, and fade are separate nested layers so each
+   eases on ONE continuous, hold-free curve — no per-keyframe velocity jerk — and
+   the travel is only the bar's width (not the viewport), keeping the terminal
+   speed low so the motion stays buttery. */
+.session-header,
+.tile__header {
+  position: relative;
+}
+
+/* Hide the bar's real content while a takeoff plays — kept in layout (no reflow),
+   just faded out so the plane owns the bar. */
+.session-header.is-taking-off > :not(.header-takeoff),
+.tile__header.is-taking-off > :not(.header-takeoff) {
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+
+/* opacity fade + clip — the overlay owns the bar and vertically centres the craft */
+.header-takeoff {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
   overflow: hidden;
   pointer-events: none;
-  z-index: 90;
+  z-index: 4;
+  animation: header-takeoff-fade var(--takeoff-dur, 2200ms) linear both;
 }
 
-/* opacity fade — its own layer */
-.takeoff {
-  position: absolute;
-  top: var(--lane, 0px);
-  left: 0;
-  animation: takeoff-fade 2600ms linear both;
-}
-
-/* horizontal cruise that accelerates off-screen — its own easing */
-.takeoff__fly {
-  display: block;
+/* horizontal cruise that accelerates across the bar — its own easing */
+.header-takeoff__fly {
+  display: inline-flex;
   will-change: transform;
-  animation: takeoff-x 2600ms cubic-bezier(0.42, 0, 0.86, 1) both;
+  transform: translateZ(0);
+  animation: header-takeoff-x var(--takeoff-dur, 2200ms) cubic-bezier(0.4, 0, 0.9, 1) both;
 }
 
-/* vertical climb + nose-up rotate — its own easing */
-.takeoff__craft {
-  position: relative;
-  display: inline-block;
+/* vertical climb + nose-up rotate — its own easing, no hold */
+.header-takeoff__craft {
+  display: inline-flex;
   transform-origin: 55% 60%;
   will-change: transform;
-  animation: takeoff-lift 2600ms cubic-bezier(0.5, 0, 0.72, 1) both;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
+  transform: translateZ(0);
+  animation: header-takeoff-lift var(--takeoff-dur, 2200ms) cubic-bezier(0.55, 0, 0.75, 1) both;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
 }
 
-/* The craft sizes to the plane art (its viewBox includes headroom for the
-   mascot); a fixed height keeps the different craft visually consistent. */
-.takeoff__plane {
+/* The craft (plane art + seated mascot) sizes to the bar height via --craft-h,
+   set by HeaderTakeoff; the viewBox headroom lets the mascot poke above. */
+.header-takeoff .takeoff__plane {
   display: block;
-  height: 124px;
+  height: var(--craft-h, 54px);
   width: auto;
   overflow: visible;
 }
 
-@keyframes takeoff-fade {
+@keyframes header-takeoff-fade {
   0% { opacity: 0; }
-  6% { opacity: 1; }
-  86% { opacity: 1; }
+  9% { opacity: 1; }
+  82% { opacity: 1; }
   100% { opacity: 0; }
 }
 
-@keyframes takeoff-x {
-  0% { transform: translateX(-120px); }
-  100% { transform: translateX(118vw); }
+/* --x0/--x1 (measured px, off-left → off-right) are set per bar by HeaderTakeoff. */
+@keyframes header-takeoff-x {
+  from { transform: translateX(var(--x0, -140px)); }
+  to { transform: translateX(var(--x1, 115%)); }
 }
 
-@keyframes takeoff-lift {
-  0%, 30% { transform: translateY(18px) rotate(-2deg); }
-  100% { transform: translateY(-54px) rotate(-15deg); }
+@keyframes header-takeoff-lift {
+  from { transform: translateY(12%) rotate(-2deg); }
+  to { transform: translateY(-62%) rotate(-13deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .takeoff-layer {
+  .header-takeoff {
     display: none;
   }
 }

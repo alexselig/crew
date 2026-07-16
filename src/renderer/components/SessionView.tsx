@@ -11,6 +11,7 @@ import { SkillsBar } from './SkillsBar'
 import { TagChip } from './TagChip'
 import { ResumeSets } from './ResumeSets'
 import { focusTerminal } from '../terminal-pool'
+import { useTakeoff, HeaderTakeoff } from './HeaderTakeoff'
 
 interface Props {
   session: SessionInfo | null
@@ -44,6 +45,7 @@ export function SessionView({
   onNew
 }: Props): JSX.Element {
   const [metaOpen, setMetaOpen] = useState(false)
+  const { flight, end } = useTakeoff(session?.id ?? '', session?.autopilot ?? false, session?.characterId ?? '')
   if (!session) {
     return (
       <main className="session-view session-view--empty">
@@ -74,7 +76,7 @@ export function SessionView({
 
   return (
     <main className="session-view">
-      <header className="session-header">
+      <header className={`session-header ${flight ? 'is-taking-off' : ''}`}>
         <CharacterPicker
           variant="mascot"
           size={48}
@@ -148,6 +150,15 @@ export function SessionView({
         >
           Close
         </button>
+        {flight && (
+          <HeaderTakeoff
+            flightKey={flight.key}
+            planeId={flight.planeId}
+            characterId={session.characterId}
+            color={session.color}
+            onEnd={end}
+          />
+        )}
       </header>
 
       {active && needsApproval && (

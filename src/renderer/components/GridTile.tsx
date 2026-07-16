@@ -6,6 +6,7 @@ import { StatusTag } from './StatusTag'
 import { Since } from './Since'
 import { TerminalView } from './TerminalView'
 import { TagChip } from './TagChip'
+import { useTakeoff, HeaderTakeoff } from './HeaderTakeoff'
 
 interface Props {
   session: SessionInfo
@@ -53,6 +54,7 @@ export function GridTile({
 }: Props): JSX.Element {
   const needsYou = session.status === 'active' && NEEDS_YOU.includes(session.state)
   const active = session.status === 'active'
+  const { flight, end } = useTakeoff(session.id, session.autopilot, session.characterId)
 
   return (
     <div
@@ -63,7 +65,7 @@ export function GridTile({
       onDrop={onDrop}
     >
       <div
-        className="tile__header"
+        className={`tile__header ${flight ? 'is-taking-off' : ''}`}
         draggable={Boolean(onDragStart)}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
@@ -135,6 +137,15 @@ export function GridTile({
         >
           ✕
         </button>
+        {flight && (
+          <HeaderTakeoff
+            flightKey={flight.key}
+            planeId={flight.planeId}
+            characterId={session.characterId}
+            color={session.color}
+            onEnd={end}
+          />
+        )}
       </div>
       <div className="tile__body">
         {active ? (
