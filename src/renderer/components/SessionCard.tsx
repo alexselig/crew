@@ -127,7 +127,7 @@ export function SessionCard({
         )}
         <button
           type="button"
-          className="mini-btn mini-btn--icon"
+          className="mini-btn mini-btn--icon mini-btn--close"
           title={inactive ? 'Dismiss' : 'Close session'}
           onClick={(e) => {
             e.stopPropagation()

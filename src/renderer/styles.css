@@ -805,6 +805,15 @@ button {
   border-color: transparent;
 }
 
+/* The close ✕ in the expanded nav card carries a hairline stroke that matches
+   the group-title divider (1px solid var(--text-faint)). The actions only reveal
+   on card hover, so the stroke appears then; the :hover selector keeps it from
+   being cleared by the transparent-border rule above when the ✕ itself is hovered. */
+.card__actions .mini-btn--close,
+.card__actions .mini-btn--close:hover {
+  border-color: var(--text-faint);
+}
+
 /* ---------- Editable label ---------- */
 .editable-label {
   background: transparent;
