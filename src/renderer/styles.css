@@ -2821,14 +2821,16 @@ button {
 }
 
 .assets-rail {
-  position: relative;
-  width: 30px;
-  min-width: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 32px;
+  min-width: 32px;
+  padding: 8px 0;
   border: none;
   border-left: 1px solid var(--border);
   background: var(--panel);
   color: var(--text-dim);
-  font-size: 14px;
 }
 
 .assets-rail:hover {
@@ -2836,11 +2838,38 @@ button {
   color: var(--text);
 }
 
+/* Chevron pinned to the top of the collapsed rail (mirrors the header's
+   collapse chevron); the whole rail is the click target that expands. */
+.assets-rail__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+
+.assets-rail:hover .assets-rail__toggle {
+  color: var(--text);
+}
+
+/* Vertical "ASSETS" spine + count pill, centered in the rail's remaining height. */
+.assets-rail__label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: auto 0;
+}
+
+.assets-rail__word {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .assets-rail__count {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
   background: var(--accent);
   color: #fff;
   border-radius: 999px;

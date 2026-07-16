@@ -117,8 +117,13 @@ export function AssetsPanel({ sessionId }: { sessionId: string }): JSX.Element |
         title="Show assets"
         onClick={toggle}
       >
-        <span className="assets-rail__glyph">🖼</span>
-        {assets.length > 0 && <span className="assets-rail__count">{assets.length}</span>}
+        <span className="assets-rail__toggle" aria-hidden="true">
+          <Icon name="chevron-left" size={14} />
+        </span>
+        <span className="assets-rail__label">
+          <span className="assets-rail__word">Assets</span>
+          {assets.length > 0 && <span className="assets-rail__count">{assets.length}</span>}
+        </span>
       </button>
     )
   }

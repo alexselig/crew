@@ -38,7 +38,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
   const [selectedSets, setSelectedSets] = useState<string[]>(() => normalizeSetNames(defaultSets))
   const [extraNames, setExtraNames] = useState<string[]>([])
   const [newWs, setNewWs] = useState('')
-  const firstFieldRef = useRef<HTMLSelectElement>(null)
+  const firstFieldRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     void window.crew.detectAgents().then(setAgents)
@@ -140,6 +140,17 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
       <form className="modal" onMouseDown={(e) => e.stopPropagation()} onSubmit={submit}>
         <h2 className="modal__title">New Session</h2>
 
+        <label className="field">
+          <span className="field__label">Label</span>
+          <input
+            ref={firstFieldRef}
+            className="field__input"
+            placeholder="auto from folder + agent"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+        </label>
+
         <div className="sets">
           <span className="field__label">Group</span>
           <p className="modal__hint modal__hint--tight">
@@ -225,7 +236,6 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
         <label className="field">
           <span className="field__label">Agent</span>
           <select
-            ref={firstFieldRef}
             className="field__input"
             value={presetId}
             onChange={(e) => setPresetId(e.target.value)}
@@ -282,37 +292,6 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
           </>
         )}
 
-        <label className="field">
-          <span className="field__label">Working directory</span>
-          <input
-            className="field__input"
-            placeholder={homeDir}
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          <span className="field__label">Label (optional)</span>
-          <input
-            className="field__input"
-            placeholder="auto from folder + agent"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          <span className="field__label">Initial prompt (optional)</span>
-          <textarea
-            className="field__input field__input--area"
-            placeholder="Sent to the agent on launch"
-            value={initialPrompt}
-            onChange={(e) => setInitialPrompt(e.target.value)}
-            rows={2}
-          />
-        </label>
-
         <div className="advanced">
           <button
             type="button"
@@ -325,6 +304,25 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
           </button>
           {advancedOpen && (
             <div className="advanced__body">
+              <label className="field">
+                <span className="field__label">Initial prompt (optional)</span>
+                <textarea
+                  className="field__input field__input--area"
+                  placeholder="Sent to the agent on launch"
+                  value={initialPrompt}
+                  onChange={(e) => setInitialPrompt(e.target.value)}
+                  rows={2}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">Working directory</span>
+                <input
+                  className="field__input"
+                  placeholder={homeDir}
+                  value={cwd}
+                  onChange={(e) => setCwd(e.target.value)}
+                />
+              </label>
               <span className="field__label">Saved sets</span>
               <SessionSetChips
                 sets={sets}
