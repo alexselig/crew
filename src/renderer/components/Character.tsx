@@ -14,9 +14,16 @@ interface Props {
   dot?: boolean
   /** When the session is on autopilot (Claude acceptEdits / Copilot autopilot), wear the pilot costume. */
   autopilot?: boolean
+  /**
+   * Show the ✈ autopilot badge (only has effect when `autopilot` is set). Kept on
+   * in the collapsed nav rail — where the mascot is the only status indicator — but
+   * turned off in the session title bar and the expanded nav card, which already
+   * carry a StatusTag reporting the same state.
+   */
+  badge?: boolean
 }
 
-export function Character({ glyph, state, id, color, size = 26, dot = true, autopilot = false }: Props): JSX.Element {
+export function Character({ glyph, state, id, color, size = 26, dot = true, autopilot = false, badge = true }: Props): JSX.Element {
   const meta = STATE_META[state]
   const art = id !== undefined && hasCharacterArt(id)
   return (
@@ -30,7 +37,7 @@ export function Character({ glyph, state, id, color, size = 26, dot = true, auto
       ) : (
         <span className="character__glyph">{glyph}</span>
       )}
-      {autopilot && (
+      {autopilot && badge && (
         <span
           className="character__pilot"
           aria-label="autopilot"

@@ -82,6 +82,7 @@ export function GridTile({
             state={session.state}
             color={session.color}
             autopilot={session.autopilot}
+            badge={false}
             characters={characters}
             currentId={session.characterId}
             usedIds={usedCharacterIds}

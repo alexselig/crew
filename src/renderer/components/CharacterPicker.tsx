@@ -29,6 +29,8 @@ interface Props {
   dot?: boolean
   /** Autopilot state, so the mascot trigger wears the pilot costume. */
   autopilot?: boolean
+  /** Show the ✈ autopilot badge on the mascot trigger (see Character.badge). */
+  badge?: boolean
 }
 
 const PANEL_W = 232
@@ -45,7 +47,8 @@ export function CharacterPicker({
   state = 'IDLE',
   size = 34,
   dot = false,
-  autopilot = false
+  autopilot = false,
+  badge = true
 }: Props): JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -147,7 +150,7 @@ export function CharacterPicker({
           title="Change character"
           onClick={() => setOpen((v) => !v)}
         >
-          <Character glyph={current?.glyph ?? '●'} id={current?.id} color={color} state={state} size={size} dot={dot} autopilot={autopilot} />
+          <Character glyph={current?.glyph ?? '●'} id={current?.id} color={color} state={state} size={size} dot={dot} autopilot={autopilot} badge={badge} />
         </button>
       ) : (
         <button
