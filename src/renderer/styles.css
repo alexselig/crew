@@ -3279,13 +3279,13 @@ button.grid-topbar__wordmark:hover {
 /* ---------- Autopilot takeoff ---------- */
 /* When a session flips into autopilot, the animation TAKES OVER that session's
    own title bar: the bar's normal content fades out and the session's mascot
-   flies a little plane across it with a smooth climb, then the bar restores.
-   Scoped to the focus header (.session-header) and the grid-tile header
-   (.tile__header); each takeoff is sized to its bar at mount by HeaderTakeoff.
-   Horizontal travel, vertical climb, and fade are separate nested layers so each
-   eases on ONE continuous, hold-free curve — no per-keyframe velocity jerk — and
-   the travel is only the bar's width (not the viewport), keeping the terminal
-   speed low so the motion stays buttery. */
+   flies its plane straight across, left to right, then the bar restores. The
+   plane starts parked at the left and ACCELERATES off the right (ease-in) — a
+   level "runway roll", not a climbing arc. Scoped to the focus header
+   (.session-header) and the grid-tile header (.tile__header); each takeoff is
+   sized to its bar at mount by HeaderTakeoff. Travel is only the bar's width
+   (measured px, set in JS), so the speed reads the same in a wide focus header
+   and a narrow grid tile. */
 .session-header,
 .tile__header {
   position: relative;
@@ -3311,21 +3311,21 @@ button.grid-topbar__wordmark:hover {
   animation: header-takeoff-fade var(--takeoff-dur, 2200ms) linear both;
 }
 
-/* horizontal cruise that accelerates across the bar — its own easing */
+/* horizontal cruise, left → right. Ease-in (slow start → accelerate off the
+   right) — the "starts slow, then accelerates" takeoff feel, tuned in
+   iconwork/takeoff-tuner.html. */
 .header-takeoff__fly {
   display: inline-flex;
   will-change: transform;
   transform: translateZ(0);
-  animation: header-takeoff-x var(--takeoff-dur, 2200ms) cubic-bezier(0.4, 0, 0.9, 1) both;
+  animation: header-takeoff-x var(--takeoff-dur, 2200ms) cubic-bezier(0.32, 0, 0.67, 0) both;
 }
 
-/* vertical climb + nose-up rotate — its own easing, no hold */
+/* The craft flies level — no climb, no pitch. Just the plane art (with the
+   rocket levelled at generation time via crot), vertically centred by the
+   overlay's flexbox. */
 .header-takeoff__craft {
   display: inline-flex;
-  transform-origin: 55% 60%;
-  will-change: transform;
-  transform: translateZ(0);
-  animation: header-takeoff-lift var(--takeoff-dur, 2200ms) cubic-bezier(0.55, 0, 0.75, 1) both;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
 }
 
@@ -3345,15 +3345,11 @@ button.grid-topbar__wordmark:hover {
   100% { opacity: 0; }
 }
 
-/* --x0/--x1 (measured px, off-left → off-right) are set per bar by HeaderTakeoff. */
+/* --x0/--x1 (measured px: parked at left → off the right edge) are set per bar
+   by HeaderTakeoff. */
 @keyframes header-takeoff-x {
-  from { transform: translateX(var(--x0, -140px)); }
+  from { transform: translateX(var(--x0, 6px)); }
   to { transform: translateX(var(--x1, 115%)); }
-}
-
-@keyframes header-takeoff-lift {
-  from { transform: translateY(12%) rotate(-2deg); }
-  to { transform: translateY(-62%) rotate(-13deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {

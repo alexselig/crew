@@ -58,10 +58,11 @@ interface Props {
 
 /**
  * The takeoff overlay: absolutely fills its title bar and flies the session's
- * mascot-piloted plane across it, left to right with a smooth climb. Sized to the
- * bar at mount (height → craft size, width → travel distance) so it fits both the
- * tall focus header and the shorter grid-tile header. Retires itself when the
- * fade animation ends.
+ * mascot-piloted plane straight across it, left to right. The plane starts parked
+ * at the left and accelerates off the right (ease-in, in CSS). Sized to the bar at
+ * mount (height → craft size, width → travel distance) so it fits both the tall
+ * focus header and the shorter grid-tile header. Retires itself when the fade
+ * animation ends.
  */
 export function HeaderTakeoff({ flightKey, planeId, characterId, color, onEnd }: Props): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
@@ -73,11 +74,10 @@ export function HeaderTakeoff({ flightKey, planeId, characterId, color, onEnd }:
     const h = el.offsetHeight
     const craftH = Math.max(34, Math.round(h * 0.92))
     el.style.setProperty('--craft-h', `${craftH}px`)
-    // Measure the laid-out craft width (after the height var is applied) so the
-    // plane enters fully off the left edge and exits fully off the right edge.
-    const fly = el.firstElementChild as HTMLElement | null
-    const craftW = fly ? fly.offsetWidth : Math.round(craftH * 1.4)
-    el.style.setProperty('--x0', `${-(craftW + 28)}px`)
+    // Runway-roll: start parked, fully visible at the left (so the ease-in "slow
+    // start" is visible motion, not a blank wait off-screen), then accelerate off
+    // the right edge.
+    el.style.setProperty('--x0', '6px')
     el.style.setProperty('--x1', `${w + 28}px`)
   }, [flightKey])
 
