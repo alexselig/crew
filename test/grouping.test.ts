@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { groupSessions } from '../src/renderer/grouping'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { groupSessions, _resetRecencyOrder } from '../src/renderer/grouping'
 import type { SessionInfo } from '../src/shared/types'
 
 const MIN = 60_000
@@ -30,6 +30,7 @@ function sess(over: Partial<SessionInfo> & { id: string }): SessionInfo {
 
 describe("groupSessions 'recent'", () => {
   const now = Date.now()
+  beforeEach(() => _resetRecencyOrder())
 
   it('uses time buckets when the roster is all within a day', () => {
     const roster = [
@@ -40,15 +41,9 @@ describe("groupSessions 'recent'", () => {
       sess({ id: 'hours', lastPromptAt: now - 90 * MIN })
     ]
     const groups = groupSessions(roster, 'recent')
-    expect(groups.map((g) => g.name)).toEqual([
-      'Last 5 min',
-      'Last 30 min',
-      'Last 2 hrs',
-      'Last day'
-    ])
+    expect(groups.map((g) => g.name)).toEqual(['Last 30 min', 'Last 2 hrs', 'Last day'])
     expect(groups.map((g) => g.items.map((s) => s.id))).toEqual([
-      ['fresh'],
-      ['halfhour'],
+      ['halfhour', 'fresh'],
       ['hours'],
       ['twenty', 'day']
     ])
@@ -101,5 +96,48 @@ describe("groupSessions 'recent'", () => {
   it('falls back to createdAt when a session was never prompted', () => {
     const roster = [sess({ id: 'fresh', createdAt: now - 10 * MIN, lastPromptAt: undefined })]
     expect(groupSessions(roster, 'recent')[0].name).toBe('Last 30 min')
+  })
+
+  it('keeps within-bucket order stable when a session is re-prompted in the same bucket', () => {
+    // A, B, C all in "Last 30 min", initial order oldest-first: A, B, C.
+    let roster = [
+      sess({ id: 'A', lastPromptAt: now - 20 * MIN }),
+      sess({ id: 'B', lastPromptAt: now - 15 * MIN }),
+      sess({ id: 'C', lastPromptAt: now - 10 * MIN })
+    ]
+    let g = groupSessions(roster, 'recent')
+    expect(g[0].name).toBe('Last 30 min')
+    expect(g[0].items.map((s) => s.id)).toEqual(['A', 'B', 'C'])
+
+    // Re-prompt A (still within 30 min → same bucket): A must NOT jump around;
+    // the first few items stay put.
+    roster = [
+      sess({ id: 'A', lastPromptAt: now }),
+      sess({ id: 'B', lastPromptAt: now - 15 * MIN }),
+      sess({ id: 'C', lastPromptAt: now - 10 * MIN })
+    ]
+    g = groupSessions(roster, 'recent')
+    expect(g[0].items.map((s) => s.id)).toEqual(['A', 'B', 'C'])
+  })
+
+  it('appends a session to the end of a bucket when it first enters that bucket', () => {
+    // A in "Last 2 hrs"; B, C in "Last 30 min".
+    let roster = [
+      sess({ id: 'A', lastPromptAt: now - 90 * MIN }),
+      sess({ id: 'B', lastPromptAt: now - 20 * MIN }),
+      sess({ id: 'C', lastPromptAt: now - 10 * MIN })
+    ]
+    groupSessions(roster, 'recent')
+
+    // Prompt A → it jumps into "Last 30 min" and must land at the END, without
+    // disturbing B and C.
+    roster = [
+      sess({ id: 'A', lastPromptAt: now }),
+      sess({ id: 'B', lastPromptAt: now - 20 * MIN }),
+      sess({ id: 'C', lastPromptAt: now - 10 * MIN })
+    ]
+    const g = groupSessions(roster, 'recent')
+    const last30 = g.find((x) => x.name === 'Last 30 min')
+    expect(last30?.items.map((s) => s.id)).toEqual(['B', 'C', 'A'])
   })
 })
