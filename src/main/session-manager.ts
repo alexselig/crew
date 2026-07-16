@@ -151,7 +151,7 @@ export class SessionManager extends EventEmitter {
       costUsd: 0,
       creditsUsed: 0,
       autopilot: false,
-      tag: restore?.tag,
+      tag: restore?.tag ?? (req.tag && req.tag.trim() ? req.tag.trim() : undefined),
       sets,
       createdAt: restore?.createdAt ?? now,
       stateChangedAt: now,

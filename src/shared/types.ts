@@ -133,6 +133,8 @@ export interface CreateSessionRequest {
   cwd: string
   label?: string
   initialPrompt?: string
+  /** Group (tag) to assign the new session to, for "By group" grouping. */
+  tag?: string
   /** Workspaces (named sets) to add the new session to. */
   sets?: string[]
 }

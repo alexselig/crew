@@ -2573,6 +2573,37 @@ button {
   flex: 1;
 }
 
+/* Advanced disclosure (New Session modal): collapsed set-management. */
+.advanced {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 10px;
+}
+
+.advanced__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 0;
+}
+
+.advanced__toggle:hover {
+  color: var(--text);
+}
+
+.advanced__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 /* Workspace membership picker (New Session modal) */
 .ws-picker {
   display: flex;

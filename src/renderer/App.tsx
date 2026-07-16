@@ -312,6 +312,7 @@ export function App(): JSX.Element {
         <NewSessionModal
           presets={c.presets}
           homeDir={c.homeDir}
+          groups={existingGroups(c.roster)}
           defaultSets={c.activeWorkspace ? [c.activeWorkspace] : []}
           onCancel={() => c.setShowNew(false)}
           onCreate={create}

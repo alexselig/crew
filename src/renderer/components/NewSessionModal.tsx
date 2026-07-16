@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import type { Preset, CreateSessionRequest, SessionSet } from '../../shared/types'
 import type { AgentStatus } from '../../shared/api'
 import { SessionSetChips } from './SessionSetChips'
+import { Icon } from './Icon'
 import { normalizeSetNames, workspaceNames } from '../../shared/workspaces'
 
 interface Props {
   presets: Preset[]
   homeDir: string
+  /** Existing group (tag) names, offered as selectable chips. */
+  groups?: string[]
   /** Workspaces to pre-select (e.g. the active workspace filter). */
   defaultSets?: string[]
   onCancel: () => void
@@ -15,7 +18,7 @@ interface Props {
 
 const CUSTOM = '__custom__'
 
-export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, onCreate }: Props): JSX.Element {
+export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [], onCancel, onCreate }: Props): JSX.Element {
   const [presetId, setPresetId] = useState<string>(presets[0]?.id ?? CUSTOM)
   const [cwd, setCwd] = useState<string>(homeDir)
   const [command, setCommand] = useState('')
@@ -25,6 +28,11 @@ export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, 
   const [agents, setAgents] = useState<AgentStatus[]>([])
   const [sets, setSets] = useState<SessionSet[]>([])
   const [setName, setSetName] = useState('')
+  // Group (tag) the new session joins. Single-select; a typed name is created.
+  const [group, setGroup] = useState('')
+  const [newGroup, setNewGroup] = useState('')
+  // Set-management (launch/save saved sets) lives in a collapsed Advanced area.
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   // Workspaces the new session will join, plus any freshly-typed names not yet
   // saved as sets. Pre-seeded with the active workspace when creating inside one.
   const [selectedSets, setSelectedSets] = useState<string[]>(() => normalizeSetNames(defaultSets))
@@ -36,6 +44,19 @@ export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, 
     void window.crew.detectAgents().then(setAgents)
     void window.crew.getSets().then(setSets)
   }, [])
+
+  // Group chips: existing groups plus a freshly-typed one (so it shows selected).
+  const groupChips =
+    group.trim() && !groups.some((g) => g.toLowerCase() === group.trim().toLowerCase())
+      ? [...groups, group.trim()]
+      : groups
+  const isGroup = (name: string): boolean => group.trim().toLowerCase() === name.toLowerCase()
+  const addGroup = (): void => {
+    const name = newGroup.trim()
+    if (!name) return
+    setGroup(name)
+    setNewGroup('')
+  }
 
   // All workspace names offered as membership chips: saved sets ∪ typed-new ∪ selected.
   const availableSets = workspaceNames(
@@ -89,6 +110,7 @@ export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, 
     if (!canCreate) return
     const preset = presets.find((p) => p.id === presetId)
     const chosenSets = normalizeSetNames(selectedSets)
+    const tag = group.trim() || undefined
     const req: CreateSessionRequest = isCustom
       ? {
           presetId: null,
@@ -97,6 +119,7 @@ export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, 
           cwd: cwd.trim(),
           label: label.trim() || undefined,
           initialPrompt: initialPrompt.trim() || undefined,
+          tag,
           sets: chosenSets
         }
       : {
@@ -106,6 +129,7 @@ export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, 
           cwd: cwd.trim(),
           label: label.trim() || undefined,
           initialPrompt: initialPrompt.trim() || undefined,
+          tag,
           sets: chosenSets
         }
     onCreate(req)
@@ -115,6 +139,47 @@ export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, 
     <div className="modal-overlay" onMouseDown={onCancel}>
       <form className="modal" onMouseDown={(e) => e.stopPropagation()} onSubmit={submit}>
         <h2 className="modal__title">New Session</h2>
+
+        <div className="sets">
+          <span className="field__label">Group</span>
+          <p className="modal__hint modal__hint--tight">
+            Assign this session to a group (used by the “By group” grouping). Pick one or type a new name.
+          </p>
+          <div className="ws-picker">
+            {groupChips.length === 0 && (
+              <span className="sets__empty">No groups yet — create one below.</span>
+            )}
+            {groupChips.map((name) => (
+              <button
+                type="button"
+                key={name}
+                className={`ws-chip ${isGroup(name) ? 'is-on' : ''}`}
+                aria-pressed={isGroup(name)}
+                onClick={() => setGroup(isGroup(name) ? '' : name)}
+              >
+                <span className="ws-chip__mark">{isGroup(name) ? '✓' : '＋'}</span>
+                {name}
+              </button>
+            ))}
+          </div>
+          <div className="sets__save">
+            <input
+              className="field__input"
+              placeholder="New group name…"
+              value={newGroup}
+              onChange={(e) => setNewGroup(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addGroup()
+                }
+              }}
+            />
+            <button type="button" className="btn" disabled={!newGroup.trim()} onClick={addGroup}>
+              ＋ Add
+            </button>
+          </div>
+        </div>
 
         <div className="sets">
           <span className="field__label">Workspaces</span>
@@ -153,43 +218,6 @@ export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, 
             />
             <button type="button" className="btn" disabled={!newWs.trim()} onClick={addWorkspace}>
               ＋ Add
-            </button>
-          </div>
-
-          <span className="field__label">Saved sets</span>
-          <SessionSetChips
-            sets={sets}
-            emptyText="None saved yet"
-            onLaunch={(name) => {
-              void window.crew.launchSet(name)
-              onCancel()
-            }}
-            onDelete={(name) => void window.crew.deleteSet(name).then(setSets)}
-          />
-          <div className="sets__save">
-            <input
-              className="field__input"
-              placeholder="Save currently open sessions as…"
-              value={setName}
-              onChange={(e) => setSetName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  if (setName.trim()) void window.crew.saveSet(setName.trim()).then(setSets)
-                  setSetName('')
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="btn"
-              disabled={!setName.trim()}
-              onClick={() => {
-                void window.crew.saveSet(setName.trim()).then(setSets)
-                setSetName('')
-              }}
-            >
-              Save
             </button>
           </div>
         </div>
@@ -284,6 +312,58 @@ export function NewSessionModal({ presets, homeDir, defaultSets = [], onCancel, 
             rows={2}
           />
         </label>
+
+        <div className="advanced">
+          <button
+            type="button"
+            className="advanced__toggle"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen((v) => !v)}
+          >
+            <Icon name={advancedOpen ? 'chevron-down' : 'chevron-right'} size={12} />
+            Advanced
+          </button>
+          {advancedOpen && (
+            <div className="advanced__body">
+              <span className="field__label">Saved sets</span>
+              <SessionSetChips
+                sets={sets}
+                emptyText="None saved yet"
+                onLaunch={(name) => {
+                  void window.crew.launchSet(name)
+                  onCancel()
+                }}
+                onDelete={(name) => void window.crew.deleteSet(name).then(setSets)}
+              />
+              <div className="sets__save">
+                <input
+                  className="field__input"
+                  placeholder="Save currently open sessions as…"
+                  value={setName}
+                  onChange={(e) => setSetName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      if (setName.trim()) void window.crew.saveSet(setName.trim()).then(setSets)
+                      setSetName('')
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!setName.trim()}
+                  onClick={() => {
+                    void window.crew.saveSet(setName.trim()).then(setSets)
+                    setSetName('')
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="modal__actions">
           <button type="button" className="btn" onClick={onCancel}>
