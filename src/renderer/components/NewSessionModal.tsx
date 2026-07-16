@@ -137,7 +137,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
 
   return (
     <div className="modal-overlay" onMouseDown={onCancel}>
-      <form className="modal" onMouseDown={(e) => e.stopPropagation()} onSubmit={submit}>
+      <form className="modal modal--session" onMouseDown={(e) => e.stopPropagation()} onSubmit={submit}>
         <h2 className="modal__title">New Session</h2>
 
         <label className="field">
@@ -145,7 +145,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
           <input
             ref={firstFieldRef}
             className="field__input"
-            placeholder="auto from folder + agent"
+            placeholder="Name your session"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
@@ -154,7 +154,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
         <div className="sets">
           <span className="field__label">Group</span>
           <p className="modal__hint modal__hint--tight">
-            Assign this session to a group (used by the “By group” grouping). Pick one or type a new name.
+            Assign this session to a group (used for the group filter)
           </p>
           <div className="ws-picker">
             {groupChips.length === 0 && (
@@ -168,7 +168,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
                 aria-pressed={isGroup(name)}
                 onClick={() => setGroup(isGroup(name) ? '' : name)}
               >
-                <span className="ws-chip__mark">{isGroup(name) ? '✓' : '＋'}</span>
+                <span className="ws-chip__mark">＋</span>
                 {name}
               </button>
             ))}
@@ -195,7 +195,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
         <div className="sets">
           <span className="field__label">Workspaces</span>
           <p className="modal__hint modal__hint--tight">
-            Add this session to one or more workspaces — switch between them from File ▸ Change Workspace.
+            Add this session to one or more workspaces — switch between them from File › Change Workspace.
           </p>
           <div className="ws-picker">
             {availableSets.length === 0 && (
@@ -209,7 +209,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
                 aria-pressed={isSelected(name)}
                 onClick={() => toggleSet(name)}
               >
-                <span className="ws-chip__mark">{isSelected(name) ? '✓' : '＋'}</span>
+                <span className="ws-chip__mark">＋</span>
                 {name}
               </button>
             ))}
