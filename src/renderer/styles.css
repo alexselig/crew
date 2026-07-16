@@ -3200,7 +3200,7 @@ button.grid-topbar__wordmark:hover {
   top: 0;
   left: 0;
   right: 0;
-  height: 108px;
+  height: 150px;
   overflow: hidden;
   pointer-events: none;
   z-index: 90;
@@ -3224,40 +3224,20 @@ button.grid-topbar__wordmark:hover {
 /* vertical climb + nose-up rotate — its own easing */
 .takeoff__craft {
   position: relative;
-  display: block;
-  width: 82px;
-  height: 55px;
+  display: inline-block;
   transform-origin: 55% 60%;
   will-change: transform;
   animation: takeoff-lift 2600ms cubic-bezier(0.5, 0, 0.72, 1) both;
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
 }
 
+/* The craft sizes to the plane art (its viewBox includes headroom for the
+   mascot); a fixed height keeps the different craft visually consistent. */
 .takeoff__plane {
   display: block;
-  width: 82px;
-  height: 55px;
+  height: 124px;
+  width: auto;
   overflow: visible;
-}
-
-/* A dashed contrail streaming out behind the tail, fading to the left. */
-.takeoff__trail {
-  position: absolute;
-  top: 32px;
-  right: 62px;
-  width: 120px;
-  height: 3px;
-  border-radius: 3px;
-  background: repeating-linear-gradient(
-    90deg,
-    currentColor 0,
-    currentColor 7px,
-    transparent 7px,
-    transparent 15px
-  );
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 85%);
-  mask-image: linear-gradient(90deg, transparent, #000 85%);
-  opacity: 0.5;
 }
 
 @keyframes takeoff-fade {

@@ -84,7 +84,6 @@ export function TakeoffLayer({ roster }: Props): JSX.Element | null {
         >
           <span className="takeoff__fly">
             <span className="takeoff__craft">
-              <span className="takeoff__trail" />
               <PlaneCraft planeId={f.planeId} characterId={f.characterId} />
             </span>
           </span>
