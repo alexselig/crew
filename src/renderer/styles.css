@@ -579,14 +579,18 @@ button {
   box-sizing: border-box;
 }
 
-/* Autopilot: an unmistakable ✈ badge in the top-right corner plus a soft accent
-   glow on the whole face. The `character--autopilot` class is toggled by
-   Character when a session is running autonomously (Copilot autopilot / Claude
-   acceptEdits); sizing is in em so the badge scales with the character box. */
+/* Autopilot: an unmistakable ✈ badge that sits exactly where the standard-mode
+   status dot would be (lower-right), plus a soft accent glow on the whole face.
+   The `character--autopilot` class is toggled by Character when a session is
+   running autonomously (Copilot autopilot / Claude acceptEdits); sizing is in em
+   so the badge scales with the character box. */
 .character__pilot {
   position: absolute;
-  top: 2%;
-  right: 4%;
+  /* Center the badge on the status dot's center: the dot is 12px at
+     right:19%/bottom:22%, so its center is 6px in from that anchor; offset by
+     half the badge (0.21em) to land the badge's center on the same point. */
+  right: calc(19% + 6px - 0.21em);
+  bottom: calc(22% + 6px - 0.21em);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -605,6 +609,11 @@ button {
   width: 66%;
   height: 66%;
   display: block;
+}
+
+/* In autopilot the ✈ badge takes the status dot's place, so hide the dot. */
+.character--autopilot .character__dot {
+  display: none;
 }
 
 .character--autopilot .character__art,
