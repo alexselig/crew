@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getPooled, focusTerminal, markPrompt } from '../terminal-pool'
 import { quotePaths } from '../../shared/shell-quote'
 
@@ -7,6 +7,14 @@ import { quotePaths } from '../../shared/shell-quote'
 function hasFiles(e: React.DragEvent): boolean {
   return Array.from(e.dataTransfer.types).includes('Files')
 }
+
+// The session whose terminal was last focused. Tracked at module scope so we can
+// restore focus after a DOM re-parent (grid reorder / regrouping / view swap)
+// silently blurs xterm's hidden textarea — which otherwise leaves the terminal
+// unable to accept input until the user toggles views. `focusBound` ensures we
+// attach the focus listener to each pooled terminal only once.
+let lastFocusedTerminal: string | null = null
+const focusBound = new WeakSet<object>()
 
 /**
  * Mounts a pooled xterm terminal into the visible pane. The terminal instance
@@ -41,6 +49,16 @@ export function TerminalView({
       host.appendChild(p.term.element)
     }
 
+    // Remember this terminal as the focus target whenever it gains focus, so a
+    // later DOM re-parent that blurs it can hand focus back (see the layout
+    // effect below). Bound once per pooled terminal.
+    if (p.term.textarea && !focusBound.has(p.term)) {
+      p.term.textarea.addEventListener('focus', () => {
+        lastFocusedTerminal = id
+      })
+      focusBound.add(p.term)
+    }
+
     const fit = (): void => {
       try {
         p.fit.fit()
@@ -52,7 +70,9 @@ export function TerminalView({
 
     // Fit after layout settles.
     const raf = requestAnimationFrame(fit)
-    if (focusOnMount) p.term.focus()
+    // Focus on an explicit mount request, or when re-attaching the terminal that
+    // was focused before a remount (e.g. a tile moving between group columns).
+    if (focusOnMount || lastFocusedTerminal === id) p.term.focus()
 
     const ro = new ResizeObserver(() => fit())
     ro.observe(host)
@@ -76,6 +96,24 @@ export function TerminalView({
       }
     }
   }, [id, focusOnMount])
+
+  // Reordering tiles within a group re-parents the terminal's DOM node via
+  // React reconciliation (no remount, so the effect above doesn't run) which
+  // blurs xterm's textarea. Runs on every render: if this was the focused
+  // terminal and focus fell to <body> (i.e. lost to a re-parent, not handed to
+  // a real control the user clicked), reclaim it — so input keeps working
+  // without having to toggle views.
+  useLayoutEffect(() => {
+    if (lastFocusedTerminal !== id) return
+    const p = getPooled(id)
+    if (
+      p.opened &&
+      p.term.element?.isConnected &&
+      document.activeElement === document.body
+    ) {
+      p.term.focus()
+    }
+  })
 
   function onDragEnter(e: React.DragEvent): void {
     if (!hasFiles(e)) return
