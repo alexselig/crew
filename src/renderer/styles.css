@@ -2114,6 +2114,14 @@ button {
   overflow-x: hidden;
 }
 
+/* Collapsed rail: keep group headers (so the rail aligns with the expanded nav),
+   but show only the truncated title + the underline — the count and chevron have
+   no room in the narrow rail. */
+.roster--collapsed .group__count,
+.roster--collapsed .group__toggle {
+  display: none;
+}
+
 .card--compact {
   display: flex;
   align-items: center;

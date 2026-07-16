@@ -151,11 +151,11 @@ export function Roster(props: Props): JSX.Element {
       startFloat()
     }
   }
-  // `applyGrouping` drives the session ORDER (used even in the collapsed rail so
-  // it matches the expanded nav + grid); `grouped` additionally gates the group
-  // HEADER rows, which only the expanded nav has room for.
+  // Grouping applies in both the expanded nav and the collapsed rail — same
+  // session order AND group headers — so the two views stay aligned. The rail
+  // just renders each header compactly (truncated title + underline; the count
+  // and chevron are hidden via CSS).
   const applyGrouping = groupMode !== 'none'
-  const grouped = applyGrouping && !railed
   useNowTick(applyGrouping && groupMode === 'recent')
   const dnd = useCardDnd(roster, railed ? 'disabled' : groupMode, onReorder, onSetTag)
 
@@ -279,7 +279,7 @@ export function Roster(props: Props): JSX.Element {
       <div className="roster__list">
         {roster.length === 0 ? (
           !railed && <div className="roster__empty">No sessions yet.</div>
-        ) : grouped ? (
+        ) : applyGrouping ? (
           groups.map((g) => (
             <div className="group" key={g.name}>
               <button
@@ -298,11 +298,6 @@ export function Roster(props: Props): JSX.Element {
               {!collapsedGroups.has(g.name) && g.items.map(renderCard)}
             </div>
           ))
-        ) : railed && applyGrouping ? (
-          // The collapsed rail has no room for group headers, but must list
-          // sessions in the SAME order as the expanded nav and the grid so they
-          // don't drift out of sync — flatten the groups, keeping their order.
-          groups.flatMap((g) => g.items).map(renderCard)
         ) : (
           roster.map(renderCard)
         )}
