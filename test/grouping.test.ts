@@ -63,10 +63,10 @@ describe("groupSessions 'recent'", () => {
       sess({ id: `s${i}`, lastPromptAt: now - i * 3 * HOUR })
     )
     const groups = groupSessions(roster, 'recent')
-    expect(groups.map((g) => g.name)).toEqual(['Most recent 4', 'Most recent 5-12', '13+'])
+    expect(groups.map((g) => g.name)).toEqual(['4 most recent', '5-12 most recent', '13+ most recent'])
     // Bucket sizes: 4 / 8 / 2.
     expect(groups.map((g) => g.items.length)).toEqual([4, 8, 2])
-    // s0 is newest (rank 1) → bottom of "Most recent 4"; s13 oldest → bottom of "13+".
+    // s0 is newest (rank 1) → bottom of "4 most recent"; s13 oldest → bottom of "13+ most recent".
     expect(groups[0].items.map((s) => s.id)).toEqual(['s3', 's2', 's1', 's0'])
     expect(groups[2].items.map((s) => s.id)).toEqual(['s13', 's12'])
   })
@@ -77,7 +77,7 @@ describe("groupSessions 'recent'", () => {
       sess({ id: `s${i}`, lastPromptAt: now - i * 6 * HOUR })
     )
     const groups = groupSessions(roster, 'recent')
-    expect(groups.map((g) => g.name)).toEqual(['Most recent 4', 'Most recent 5-12'])
+    expect(groups.map((g) => g.name)).toEqual(['4 most recent', '5-12 most recent'])
     expect(groups.map((g) => g.items.length)).toEqual([4, 2])
   })
 

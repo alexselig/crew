@@ -29,9 +29,9 @@ const RECENT_BUCKETS: Array<{ name: string; max: number }> = [
  * where the time buckets would dump most sessions into the oldest bucket. Ranges
  * are by recency rank (0-based, most-recent first): [start, end). */
 const RANK_BUCKETS: Array<{ name: string; start: number; end: number }> = [
-  { name: 'Most recent 4', start: 0, end: 4 },
-  { name: 'Most recent 5-12', start: 4, end: 12 },
-  { name: '13+', start: 12, end: Number.POSITIVE_INFINITY }
+  { name: '4 most recent', start: 0, end: 4 },
+  { name: '5-12 most recent', start: 4, end: 12 },
+  { name: '13+ most recent', start: 12, end: Number.POSITIVE_INFINITY }
 ]
 
 // Stable within-bucket ordering for 'recent' mode. A session keeps its slot
@@ -68,7 +68,8 @@ function recencyOf(s: SessionInfo): number {
  * 'needs' splits into "Needs you" and "Working"; 'recent' buckets by how long
  * ago the user last prompted the session (Last 30 min / 2 hrs / day / week+) —
  * but when the roster spans more than a day it falls back to count-based buckets
- * (Most recent 4 / 5-12 / 13+) so groups stay a sane size. Within a bucket the
+ * (4 most recent / 5-12 most recent / 13+ most recent) so groups stay a sane
+ * size. Within a bucket the
  * order is stable: a session holds its slot while it stays in a bucket and is
  * appended to the end only when it first enters one (see bucketSlots).
  * `order` applies the user's
