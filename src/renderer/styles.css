@@ -579,11 +579,12 @@ button {
   box-sizing: border-box;
 }
 
-/* Autopilot: an unmistakable ✈ badge that sits exactly where the standard-mode
-   status dot would be (lower-right), plus a soft accent glow on the whole face.
-   The `character--autopilot` class is toggled by Character when a session is
-   running autonomously (Copilot autopilot / Claude acceptEdits); sizing is in em
-   so the badge scales with the character box. */
+/* Autopilot: the ✈ badge takes over the standard-mode status dot — it sits in
+   the same lower-right spot AND carries the same state color (its background is
+   set inline from STATE_META, exactly like the dot), so autopilot sessions keep
+   one unified working/waiting indicator instead of a dot plus a badge. The ✈ is
+   knocked out in the page bg color so it reads on every state color (including
+   the near-white "waiting" ivory). Sizing is in em so it scales with the box. */
 .character__pilot {
   position: absolute;
   /* Center the badge on the status dot's center: the dot is 12px at
@@ -597,8 +598,7 @@ button {
   width: 0.42em;
   height: 0.42em;
   border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
+  color: var(--bg);
   border: 0.05em solid var(--bg);
   box-sizing: border-box;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
