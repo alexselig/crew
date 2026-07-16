@@ -13,6 +13,7 @@ import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { TitleSequence } from './components/TitleSequence'
 import { focusTerminal } from './terminal-pool'
 import { existingGroups } from './grouping'
+import { arrowNavIntent } from './gridNav'
 import { NEEDS_YOU } from '../shared/types'
 import { sessionInWorkspace } from '../shared/workspaces'
 import { STATE_META } from './state-meta'
@@ -101,49 +102,64 @@ export function App(): JSX.Element {
     focusSession(waiting[(cur + 1) % waiting.length].id)
   }
 
+  // Grid column navigation with Left/Right arrows. Registered in the CAPTURE
+  // phase (third arg `true`) on purpose: xterm attaches its own capture-phase
+  // keydown listener to each terminal's hidden textarea and, for arrow keys,
+  // calls preventDefault + stopPropagation. So once a tile's terminal held
+  // focus the arrow never bubbled up to a normal window listener — the grid
+  // stopped scrolling and the keystroke was "grabbed" by the session. Handling
+  // it here, before xterm, lets the grid page left/right regardless of which
+  // tile's terminal is focused, while genuine text fields keep their caret keys.
+  useEffect(() => {
+    function onArrowCapture(e: KeyboardEvent): void {
+      const el = document.activeElement as HTMLElement | null
+      const active = el
+        ? {
+            tag: el.tagName,
+            isContentEditable: el.isContentEditable,
+            isTerminal: el.classList.contains('xterm-helper-textarea')
+          }
+        : null
+      // The scrollable element differs by layout: the flat grid scrolls on
+      // .gridview__scroll, but grouped mode pins that to overflow:hidden and
+      // scrolls the inner horizontal .grid-groups strip instead. Target
+      // whichever is actually scrollable so arrows work in both states.
+      const sc =
+        document.querySelector<HTMLElement>('.grid-groups') ??
+        document.querySelector<HTMLElement>('.gridview__scroll')
+      const dir = arrowNavIntent(e.key, e, active, Boolean(sc))
+      if (!dir || !sc) return
+      // We own this arrow — stop it before xterm's terminal handler consumes it.
+      e.preventDefault()
+      e.stopPropagation()
+      // Step ONE column per press, landing exactly on a column's left edge so a
+      // session is never left half cut off. Column edges are read from the tiles'
+      // real positions, so this works for both the flat grid and the grouped
+      // strip (whose 2px group dividers make the columns slightly irregular).
+      const scLeft = sc.getBoundingClientRect().left
+      const edges = Array.from(
+        new Set(
+          Array.from(sc.querySelectorAll<HTMLElement>('.tile'))
+            .filter((t) => t.getBoundingClientRect().width > 0)
+            .map((t) => Math.round(t.getBoundingClientRect().left - scLeft + sc.scrollLeft))
+        )
+      ).sort((a, b) => a - b)
+      const cur = sc.scrollLeft
+      const maxLeft = sc.scrollWidth - sc.clientWidth
+      let target =
+        dir === 'right'
+          ? edges.find((x) => x > cur + 2)
+          : [...edges].reverse().find((x) => x < cur - 2)
+      if (target === undefined) target = dir === 'right' ? maxLeft : 0
+      sc.scrollTo({ left: Math.max(0, Math.min(maxLeft, target)), behavior: 'smooth' })
+    }
+    window.addEventListener('keydown', onArrowCapture, true)
+    return () => window.removeEventListener('keydown', onArrowCapture, true)
+  }, [])
+
   // Global keyboard shortcuts.
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
-      // Arrow keys scroll the grid when focus is on the app chrome — but never
-      // eat them while a text field or the terminal (an xterm hidden textarea)
-      // has focus.
-      if (e.key.startsWith('Arrow') && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        const el = document.activeElement as HTMLElement | null
-        const tag = el?.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
-        // The scrollable element differs by layout: the flat grid scrolls on
-        // .gridview__scroll, but grouped mode pins that to overflow:hidden and
-        // scrolls the inner horizontal .grid-groups strip instead. Target
-        // whichever is actually scrollable so arrows work in both states.
-        const sc =
-          document.querySelector<HTMLElement>('.grid-groups') ??
-          document.querySelector<HTMLElement>('.gridview__scroll')
-        if (!sc) return
-        const dir = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
-        if (dir === 0) return
-        e.preventDefault()
-        // Step ONE column per press, landing exactly on a column's left edge so a
-        // session is never left half cut off. Column edges are read from the tiles'
-        // real positions, so this works for both the flat grid and the grouped
-        // strip (whose 2px group dividers make the columns slightly irregular).
-        const scLeft = sc.getBoundingClientRect().left
-        const edges = Array.from(
-          new Set(
-            Array.from(sc.querySelectorAll<HTMLElement>('.tile'))
-              .filter((t) => t.getBoundingClientRect().width > 0)
-              .map((t) => Math.round(t.getBoundingClientRect().left - scLeft + sc.scrollLeft))
-          )
-        ).sort((a, b) => a - b)
-        const cur = sc.scrollLeft
-        const maxLeft = sc.scrollWidth - sc.clientWidth
-        let target =
-          dir > 0
-            ? edges.find((x) => x > cur + 2)
-            : [...edges].reverse().find((x) => x < cur - 2)
-        if (target === undefined) target = dir > 0 ? maxLeft : 0
-        sc.scrollTo({ left: Math.max(0, Math.min(maxLeft, target)), behavior: 'smooth' })
-        return
-      }
       if (!(e.metaKey || e.ctrlKey)) return
       const k = e.key.toLowerCase()
       if (k === 'k') {
