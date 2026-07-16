@@ -8,6 +8,15 @@ function hasFiles(e: React.DragEvent): boolean {
   return Array.from(e.dataTransfer.types).includes('Files')
 }
 
+/** xterm's rendered cell height in CSS px (from its render service), or 0 when
+ *  not yet measured. Reaches into xterm internals (as FitAddon itself does);
+ *  guarded so a shape change just disables the row cap rather than throwing. */
+function cellHeightOf(term: { _core?: unknown }): number {
+  const dims = (term._core as { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } })
+    ?._renderService?.dimensions?.css?.cell?.height
+  return typeof dims === 'number' && dims > 0 ? dims : 0
+}
+
 // The session whose terminal was last focused. Tracked at module scope so we can
 // restore focus after a DOM re-parent (grid reorder / regrouping / view swap)
 // silently blurs xterm's hidden textarea — which otherwise leaves the terminal
@@ -59,9 +68,26 @@ export function TerminalView({
       focusBound.add(p.term)
     }
 
+    let disposed = false
     const fit = (): void => {
+      if (disposed) return
+      const host = hostRef.current
+      if (!host) return
       try {
         p.fit.fit()
+        // FitAddon subtracts padding measured on the .xterm element, but ours
+        // lives on the parent .term-mount (border-box), so it proposes one row too
+        // many and the bottom row (the input prompt / footer) gets clipped by the
+        // tile edge. Cap rows to the mount's true content height so the last row
+        // is always fully visible.
+        const cellH = cellHeightOf(p.term as unknown as { _core?: unknown })
+        if (cellH > 0) {
+          const cs = getComputedStyle(host)
+          const contentH =
+            host.clientHeight - parseFloat(cs.paddingTop || '0') - parseFloat(cs.paddingBottom || '0')
+          const maxRows = Math.max(1, Math.floor(contentH / cellH))
+          if (p.term.rows > maxRows) p.term.resize(p.term.cols, maxRows)
+        }
         window.crew.resize(id, p.term.cols, p.term.rows)
       } catch {
         /* container not measurable yet */
@@ -70,6 +96,13 @@ export function TerminalView({
 
     // Fit after layout settles.
     const raf = requestAnimationFrame(fit)
+    // The monospace web font (JetBrains Mono) loads asynchronously; xterm measures
+    // its cell height at open() time, so when the real font swaps in, the row
+    // count computed against the fallback metrics is stale and the tile clips the
+    // bottom row (the input prompt / footer gets bisected). The ResizeObserver
+    // below won't catch this — the container didn't resize — so re-fit once fonts
+    // are ready. Harmless no-op when the font is already loaded.
+    void document.fonts?.ready.then(fit)
     // Focus on an explicit mount request, or when re-attaching the terminal that
     // was focused before a remount (e.g. a tile moving between group columns).
     if (focusOnMount || lastFocusedTerminal === id) p.term.focus()
@@ -87,6 +120,7 @@ export function TerminalView({
     })
 
     return () => {
+      disposed = true
       cancelAnimationFrame(raf)
       ro.disconnect()
       dataSub.dispose()
