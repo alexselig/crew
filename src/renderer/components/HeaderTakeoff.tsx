@@ -56,12 +56,39 @@ interface Props {
   onEnd: () => void
 }
 
+/** Per-plane flight tuning (dialed in via iconwork/takeoff-tuner.html). `tilt` is
+ * the CSS rotate applied to the craft (CW+; the airliner/biplane art is drawn
+ * nose-high so a positive rotate brings them to a slight climb, while the rocket
+ * is levelled flat so it needs a negative rotate to nose up). y0/y1 are the
+ * start/finish vertical offsets in px (− = up), giving a gentle climb. */
+interface TakeoffTune {
+  tilt: string
+  durMs: number
+  ease: string
+  y0: number
+  y1: number
+}
+const PLANE_TUNE: TakeoffTune = {
+  tilt: '10deg',
+  durMs: 2200,
+  ease: 'cubic-bezier(0.54, 0, 0.49, 1)',
+  y0: 5,
+  y1: -20
+}
+const TAKEOFF_TUNE: Record<PlaneId, TakeoffTune> = {
+  airliner: PLANE_TUNE,
+  biplane: PLANE_TUNE,
+  // Rocket flies 13° nose-up; it's levelled flat at generation (crot 22), so up = negative rotate.
+  rocket: { ...PLANE_TUNE, tilt: '-13deg' }
+}
+
 /**
  * The takeoff overlay: absolutely fills its title bar and flies the session's
  * mascot-piloted plane straight across it, left to right. The plane starts parked
  * at the left and accelerates off the right (ease-in, in CSS). Sized to the bar at
  * mount (height → craft size, width → travel distance) so it fits both the tall
- * focus header and the shorter grid-tile header. Retires itself when the fade
+ * focus header and the shorter grid-tile header. Per-plane attitude/path (tilt,
+ * easing, vertical drift) come from TAKEOFF_TUNE. Retires itself when the fade
  * animation ends.
  */
 export function HeaderTakeoff({ flightKey, planeId, characterId, color, onEnd }: Props): JSX.Element {
@@ -79,7 +106,14 @@ export function HeaderTakeoff({ flightKey, planeId, characterId, color, onEnd }:
     // the right edge.
     el.style.setProperty('--x0', '6px')
     el.style.setProperty('--x1', `${w + 28}px`)
-  }, [flightKey])
+    // Per-plane attitude + path.
+    const tune = TAKEOFF_TUNE[planeId]
+    el.style.setProperty('--takeoff-tilt', tune.tilt)
+    el.style.setProperty('--takeoff-dur', `${tune.durMs}ms`)
+    el.style.setProperty('--takeoff-ease', tune.ease)
+    el.style.setProperty('--y0', `${tune.y0}px`)
+    el.style.setProperty('--y1', `${tune.y1}px`)
+  }, [flightKey, planeId])
 
   return (
     <div
