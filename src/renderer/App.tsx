@@ -119,15 +119,29 @@ export function App(): JSX.Element {
           document.querySelector<HTMLElement>('.grid-groups') ??
           document.querySelector<HTMLElement>('.gridview__scroll')
         if (!sc) return
-        const tile = sc.querySelector<HTMLElement>('.tile')
-        const stepX = tile?.offsetWidth ?? 240
-        const stepY = tile?.offsetHeight ?? 240
-        const dx = e.key === 'ArrowLeft' ? -stepX : e.key === 'ArrowRight' ? stepX : 0
-        const dy = e.key === 'ArrowUp' ? -stepY : e.key === 'ArrowDown' ? stepY : 0
-        if (dx || dy) {
-          e.preventDefault()
-          sc.scrollBy({ left: dx, top: dy, behavior: 'smooth' })
-        }
+        const dir = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+        if (dir === 0) return
+        e.preventDefault()
+        // Step ONE column per press, landing exactly on a column's left edge so a
+        // session is never left half cut off. Column edges are read from the tiles'
+        // real positions, so this works for both the flat grid and the grouped
+        // strip (whose 2px group dividers make the columns slightly irregular).
+        const scLeft = sc.getBoundingClientRect().left
+        const edges = Array.from(
+          new Set(
+            Array.from(sc.querySelectorAll<HTMLElement>('.tile'))
+              .filter((t) => t.getBoundingClientRect().width > 0)
+              .map((t) => Math.round(t.getBoundingClientRect().left - scLeft + sc.scrollLeft))
+          )
+        ).sort((a, b) => a - b)
+        const cur = sc.scrollLeft
+        const maxLeft = sc.scrollWidth - sc.clientWidth
+        let target =
+          dir > 0
+            ? edges.find((x) => x > cur + 2)
+            : [...edges].reverse().find((x) => x < cur - 2)
+        if (target === undefined) target = dir > 0 ? maxLeft : 0
+        sc.scrollTo({ left: Math.max(0, Math.min(maxLeft, target)), behavior: 'smooth' })
         return
       }
       if (!(e.metaKey || e.ctrlKey)) return

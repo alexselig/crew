@@ -1444,6 +1444,7 @@ button {
   height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
+  scroll-snap-type: x mandatory;
 }
 
 .grid-group {
@@ -1486,6 +1487,7 @@ button {
 .grid--grouped .tile {
   height: auto;
   min-height: 0;
+  scroll-snap-align: start;
 }
 
 .tile {
