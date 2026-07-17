@@ -23,6 +23,7 @@ interface IconProps {
     | 'plus'
     | 'search'
     | 'bell'
+    | 'tracker'
   size?: number
 }
 
@@ -146,6 +147,18 @@ const PATHS: Record<IconProps['name'], JSX.Element> = {
     <>
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
       <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </>
+  ),
+  // Clipboard + checklist with a check badge: the project tracker.
+  tracker: (
+    <>
+      <path d="M15.5 4H17a2 2 0 0 1 2 2v6.5" />
+      <path d="M8.5 4H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h5.5" />
+      <rect x="8" y="2.5" width="8" height="3.5" rx="1.2" />
+      <line x1="8.5" y1="10" x2="12.5" y2="10" />
+      <line x1="8.5" y1="14" x2="11.5" y2="14" />
+      <circle cx="17.5" cy="17.5" r="4" />
+      <path d="m15.9 17.6 1.1 1.1 2.1-2.3" />
     </>
   )
 }

@@ -9,6 +9,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { BroadcastModal } from './components/BroadcastModal'
 import { AnalyticsModal } from './components/AnalyticsModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
+import { ProjectTracker } from './components/ProjectTracker'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
@@ -28,6 +29,7 @@ export function App(): JSX.Element {
   const [showBroadcast, setShowBroadcast] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [showTranscripts, setShowTranscripts] = useState(false)
+  const [showTracker, setShowTracker] = useState(false)
   // The title launch sequence plays on boot (waiting for a "click to start")
   // and replays on logo click. Skipped under automation (Playwright e2e) so it
   // never blocks the tests, and on secondary windows (?intro=0) so only the
@@ -44,6 +46,7 @@ export function App(): JSX.Element {
     showBroadcast ||
     showAnalytics ||
     showTranscripts ||
+    showTracker ||
     showIntro ||
     c.showNew
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
@@ -307,6 +310,7 @@ export function App(): JSX.Element {
         onOpenSettings={() => setShowSettings(true)}
         onBroadcast={() => setShowBroadcast(true)}
         onAnalytics={() => setShowAnalytics(true)}
+        onOpenTracker={() => setShowTracker(true)}
         showSpend={c.settings?.showSpend ?? true}
         showCredits={c.settings?.showCredits ?? false}
         budgetUsd={c.settings?.budgetUsd ?? 0}
@@ -344,6 +348,7 @@ export function App(): JSX.Element {
           onOpenSettings={() => setShowSettings(true)}
           onBroadcast={() => setShowBroadcast(true)}
           onAnalytics={() => setShowAnalytics(true)}
+          onOpenTracker={() => setShowTracker(true)}
           showSpend={c.settings?.showSpend ?? true}
           showCredits={c.settings?.showCredits ?? false}
           staleHideHours={c.settings?.staleHideHours ?? 12}
@@ -406,6 +411,7 @@ export function App(): JSX.Element {
           onClose={() => setShowTranscripts(false)}
         />
       )}
+      {showTracker && <ProjectTracker roster={c.roster} onClose={() => setShowTracker(false)} />}
 
       {showIntro && <TitleSequence onDone={() => setShowIntro(false)} />}
     </div>

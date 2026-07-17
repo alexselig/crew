@@ -39,6 +39,7 @@ interface Props {
   onOpenSettings: () => void
   onBroadcast: () => void
   onAnalytics: () => void
+  onOpenTracker: () => void
   showSpend: boolean
   showCredits: boolean
   onReorder: (orderedIds: string[]) => void
@@ -69,6 +70,7 @@ export function GridView({
   onOpenSettings,
   onBroadcast,
   onAnalytics,
+  onOpenTracker,
   showSpend,
   showCredits,
   onReorder,
@@ -223,6 +225,9 @@ export function GridView({
             </button>
             <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
               <Icon name="chart" />
+            </button>
+            <button type="button" className="icon-btn" title="Project tracker" onClick={onOpenTracker}>
+              <Icon name="tracker" />
             </button>
             <button
               type="button"

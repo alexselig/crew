@@ -41,6 +41,7 @@ interface Props {
   onOpenSettings: () => void
   onBroadcast: () => void
   onAnalytics: () => void
+  onOpenTracker: () => void
   showSpend: boolean
   showCredits: boolean
   budgetUsd: number
@@ -85,6 +86,7 @@ export function Roster(props: Props): JSX.Element {
     onOpenSettings,
     onBroadcast,
     onAnalytics,
+    onOpenTracker,
     showSpend,
     showCredits,
     budgetUsd,
@@ -369,6 +371,9 @@ export function Roster(props: Props): JSX.Element {
             </button>
             <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
               <Icon name="chart" />
+            </button>
+            <button type="button" className="icon-btn" title="Project tracker" onClick={onOpenTracker}>
+              <Icon name="tracker" />
             </button>
             <button
               type="button"
