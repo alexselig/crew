@@ -129,6 +129,9 @@
 
   /* annotated callouts */
   .annot { position:relative; }
+  .annot-marks { position:relative; height:34px; margin-top:3px; }
+  .annot-marks .mark { top:8px; transform:translateX(-50%); }
+  .annot-marks .mark::after { content:''; position:absolute; left:50%; bottom:calc(100% + 1px); transform:translateX(-50%); width:2px; height:7px; background:var(--blue-2); border-radius:1px; }
   .mark { position:absolute; width:24px; height:24px; border-radius:50%; background:var(--blue); color:#fff; font-size:12px; font-weight:700; display:grid; place-items:center; transform:translate(-50%,-50%); border:2px solid var(--bg); box-shadow:0 3px 10px rgba(0,0,0,.5); z-index:2; }
   ol.legend { list-style:none; margin:14px 0 0; padding:0; display:grid; grid-template-columns:repeat(2,1fr); gap:8px 22px; counter-reset:lg; }
   @media (max-width:620px){ ol.legend{ grid-template-columns:1fr; } }
@@ -198,7 +201,7 @@
 <body>
 
 <nav>
-  <a class="brand" href="./index.html"><img src="./icon.png" alt="" />Crew</a>
+  <a class="brand" href="./index.html">Crew</a>
   <div class="nav-links">
     <a class="hide-sm" href="./index.html">Home</a>
     <a class="hide-sm" href="https://github.com/alexselig/crew">GitHub</a>
@@ -315,15 +318,17 @@
       <h2>The sidebar toolbar.</h2>
       <p class="lead">A tidy row of controls sits at the very bottom of the sidebar. Left to right:</p>
       <figure>
-        <div class="frame annot" id="annot-toolbar">
-          <img loading="lazy" src="assets/guide/toolbar.png" alt="The sidebar toolbar with view toggle and action buttons" />
-          <span class="mark" style="left:9.5%; top:51%">1</span>
-          <span class="mark" style="left:18.6%; top:51%">2</span>
-          <span class="mark" style="left:49.5%; top:51%">3</span>
-          <span class="mark" style="left:59.9%; top:51%">4</span>
-          <span class="mark" style="left:70.2%; top:51%">5</span>
-          <span class="mark" style="left:80.6%; top:51%">6</span>
-          <span class="mark" style="left:91%; top:51%">7</span>
+        <div class="annot">
+          <div class="frame"><img loading="lazy" src="assets/guide/toolbar.png" alt="The sidebar toolbar with view toggle and action buttons" /></div>
+          <div class="annot-marks">
+            <span class="mark" style="left:9.5%">1</span>
+            <span class="mark" style="left:18.6%">2</span>
+            <span class="mark" style="left:49.5%">3</span>
+            <span class="mark" style="left:59.9%">4</span>
+            <span class="mark" style="left:70.2%">5</span>
+            <span class="mark" style="left:80.6%">6</span>
+            <span class="mark" style="left:91%">7</span>
+          </div>
         </div>
         <ol class="legend">
           <li><b>Focus view</b> — one session, full width.</li>
@@ -343,16 +348,18 @@
       <h2>The session title bar.</h2>
       <p class="lead">In focus view, the header above the terminal is the session’s control strip.</p>
       <figure>
-        <div class="frame annot" id="annot-titlebar">
-          <img loading="lazy" src="assets/guide/titlebar.png" alt="The focus-view session title bar" />
-          <span class="mark" style="left:5.8%; top:50%">1</span>
-          <span class="mark" style="left:13.8%; top:50%">2</span>
-          <span class="mark" style="left:23%; top:50%">3</span>
-          <span class="mark" style="left:31.2%; top:50%">4</span>
-          <span class="mark" style="left:63.6%; top:50%">5</span>
-          <span class="mark" style="left:71.9%; top:50%">6</span>
-          <span class="mark" style="left:82.9%; top:50%">7</span>
-          <span class="mark" style="left:93.3%; top:50%">8</span>
+        <div class="annot">
+          <div class="frame"><img loading="lazy" src="assets/guide/titlebar.png" alt="The focus-view session title bar" /></div>
+          <div class="annot-marks">
+            <span class="mark" style="left:5.8%">1</span>
+            <span class="mark" style="left:13.8%">2</span>
+            <span class="mark" style="left:23%">3</span>
+            <span class="mark" style="left:31.2%">4</span>
+            <span class="mark" style="left:63.6%">5</span>
+            <span class="mark" style="left:71.9%">6</span>
+            <span class="mark" style="left:82.9%">7</span>
+            <span class="mark" style="left:93.3%">8</span>
+          </div>
         </div>
         <ol class="legend">
           <li><b>Character</b> — click to change the icon &amp; color (<a href="#characters">how</a>).</li>
@@ -374,14 +381,16 @@
       <h2>Grid tiles.</h2>
       <p class="lead">Each tile in grid view has a compact header over its live terminal. The header is also a drag handle — rearrange tiles by dragging them.</p>
       <figure>
-        <div class="frame annot" id="annot-tile">
-          <img loading="lazy" src="assets/guide/tile.png" alt="A single grid tile with header controls" />
-          <span class="mark" style="left:9.7%; top:8.9%">1</span>
-          <span class="mark" style="left:23.6%; top:8.9%">2</span>
-          <span class="mark" style="left:69.9%; top:8.9%">3</span>
-          <span class="mark" style="left:82%; top:8.9%">4</span>
-          <span class="mark" style="left:88.2%; top:8.9%">5</span>
-          <span class="mark" style="left:94.4%; top:8.9%">6</span>
+        <div class="annot">
+          <div class="frame"><img loading="lazy" src="assets/guide/tile-header.png" alt="A grid tile's header controls" /></div>
+          <div class="annot-marks">
+            <span class="mark" style="left:9.7%">1</span>
+            <span class="mark" style="left:23.6%">2</span>
+            <span class="mark" style="left:69.9%">3</span>
+            <span class="mark" style="left:82%">4</span>
+            <span class="mark" style="left:88.2%">5</span>
+            <span class="mark" style="left:94.4%">6</span>
+          </div>
         </div>
         <ol class="legend">
           <li><b>Character</b> — click to restyle; drag the header to move the tile.</li>
