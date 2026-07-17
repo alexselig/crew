@@ -7,6 +7,7 @@
 // where none are discovered.
 
 import type { InstalledSkill } from '../shared/api'
+import { groupColor } from '../shared/palette'
 
 
 export interface Skill {
@@ -82,12 +83,63 @@ export function saveCustomSkills(list: Skill[]): void {
   localStorage.setItem(CUSTOM_KEY, JSON.stringify(list))
 }
 
-/** Map a disk-discovered skill into a picker Skill (invoke token == its name). */
+/** Map a disk-discovered skill into a picker Skill. The display name drops the
+ * gstack `g_` namespace prefix for readability, but the invoke token keeps the
+ * skill's exact on-disk name so `use <invoke> to …` resolves correctly. */
 export function installedToSkill(s: InstalledSkill): Skill {
   return {
     id: s.id,
-    name: s.name,
+    name: s.name.replace(/^g_/, ''),
     invoke: s.name,
     description: s.description || `Run the ${s.name} skill.`
   }
+}
+
+// ---- Category taxonomy (for the grouped picker) ----
+// Derived from skill naming conventions (ios-*, design-*, document-*, …); any
+// skill that doesn't fit a bucket lands in "Other". User-added skills group
+// under "Custom". Order here is the display order in the picker.
+
+export type SkillCategory =
+  | 'Design'
+  | 'iOS'
+  | 'Release'
+  | 'Docs'
+  | 'Ops & Safety'
+  | 'Context'
+  | 'Other'
+  | 'Custom'
+
+export const SKILL_CATEGORY_ORDER: SkillCategory[] = [
+  'Design',
+  'iOS',
+  'Release',
+  'Docs',
+  'Ops & Safety',
+  'Context',
+  'Other',
+  'Custom'
+]
+
+/** Bucket a skill by its invoke token (falling back to name). */
+export function categoryOf(skill: Skill): SkillCategory {
+  if (skill.custom) return 'Custom'
+  // Strip the gstack `g_` namespace prefix so `g_design-review` buckets like
+  // `design-review`.
+  const t = (skill.invoke || skill.name).toLowerCase().replace(/^g_/, '')
+  if (t === 'ios-design-review' || t.startsWith('design') || t === 'diagram') return 'Design'
+  if (t.startsWith('ios')) return 'iOS'
+  if (t === 'document-release' || t.startsWith('land') || t.startsWith('gstack') || t === 'ship')
+    return 'Release'
+  if (t.startsWith('document') || t === 'make-pdf' || t === 'learn' || ['pdf', 'pptx', 'docx', 'xlsx'].includes(t))
+    return 'Docs'
+  if (['guard', 'health', 'investigate', 'freeze', 'careful', 'canary'].includes(t)) return 'Ops & Safety'
+  if (t.startsWith('context') || t === 'crew-screenshots' || t === 'cso') return 'Context'
+  return 'Other'
+}
+
+/** A stable swatch color for a category — hashed onto the shared palette (like
+ * nav group colors) so it stays consistent with the rest of the app. */
+export function categoryColor(category: SkillCategory): string {
+  return groupColor(category)
 }

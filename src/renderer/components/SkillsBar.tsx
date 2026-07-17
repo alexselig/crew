@@ -6,6 +6,9 @@ import {
   loadCustomSkills,
   saveCustomSkills,
   installedToSkill,
+  categoryOf,
+  categoryColor,
+  SKILL_CATEGORY_ORDER,
   type Skill
 } from '../skills'
 import { focusTerminal } from '../terminal-pool'
@@ -17,15 +20,26 @@ interface Props {
   agent?: string
 }
 
+/** A colored initial-swatch for a skill, tinted by its category. */
+function Swatch({ skill }: { skill: Skill }): JSX.Element {
+  const initial = skill.name.trim()[0]?.toUpperCase() ?? '?'
+  return (
+    <span className="skills-swatch" style={{ background: categoryColor(categoryOf(skill)) }} aria-hidden="true">
+      {initial}
+    </span>
+  )
+}
+
 /**
- * Skills picker. Minimized to a "⚡ Skills" chip; expands to a gallery. Favorites
- * are pinned first; users can add/remove their own skills (persisted locally).
- * Click a skill to preview its description; click again (or Invoke) to type
- * `use <skill> to ` into the session.
+ * Skills picker. Minimized to a "⚡ Skills" chip; expands to a categorized,
+ * searchable, favoritable list that matches Crew's design system. Clicking a
+ * skill selects it (opening a description footer with an INVOKE action);
+ * favorites pin to a row at the top. Users can add/remove their own skills
+ * (persisted locally). Invoking types `use <skill> to ` into the session.
  */
 export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
   const [expanded, setExpanded] = useState(false)
-  const [armedId, setArmedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [favorites, setFavorites] = useState<string[]>([])
   const [custom, setCustom] = useState<Skill[]>([])
   const [installed, setInstalled] = useState<Skill[]>([])
@@ -39,7 +53,7 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
     setCustom(loadCustomSkills())
   }, [])
 
-  useEffect(() => setArmedId(null), [sessionId])
+  useEffect(() => setSelectedId(null), [sessionId])
 
   // Close the menu on outside click / Escape.
   useEffect(() => {
@@ -75,27 +89,45 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
   }, [agent])
 
   const favSet = useMemo(() => new Set(favorites), [favorites])
-  const ordered = useMemo(() => {
-    const base = installed.length ? installed : SKILLS
-    const all = [...base, ...custom]
-    const q = query.trim().toLowerCase()
-    const filtered = q
-      ? all.filter((s) => (s.name + ' ' + s.description).toLowerCase().includes(q))
-      : all
-    return [...filtered.filter((s) => favSet.has(s.id)), ...filtered.filter((s) => !favSet.has(s.id))]
-  }, [installed, custom, favSet, query])
+  const allSkills = useMemo(
+    () => [...(installed.length ? installed : SKILLS), ...custom],
+    [installed, custom]
+  )
 
-  const armed = ordered.find((s) => s.id === armedId) ?? null
+  const q = query.trim().toLowerCase()
+  const matches = (s: Skill): boolean =>
+    !q || s.name.toLowerCase().includes(q) || s.invoke.toLowerCase().includes(q)
+
+  // Group the (filtered) skills into ordered, non-empty category sections.
+  const categories = useMemo(() => {
+    const byCat = new Map<string, Skill[]>()
+    for (const s of allSkills) {
+      if (!matches(s)) continue
+      const c = categoryOf(s)
+      const arr = byCat.get(c)
+      if (arr) arr.push(s)
+      else byCat.set(c, [s])
+    }
+    return SKILL_CATEGORY_ORDER.map((name) => ({ name, skills: byCat.get(name) ?? [] })).filter(
+      (c) => c.skills.length > 0
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allSkills, q])
+
+  const favoriteSkills = useMemo(
+    () => allSkills.filter((s) => favSet.has(s.id)),
+    [allSkills, favSet]
+  )
+
+  const totalMatches = categories.reduce((n, c) => n + c.skills.length, 0)
+  const noResults = q.length > 0 && totalMatches === 0
+  const selected = allSkills.find((s) => s.id === selectedId) ?? null
 
   function invoke(skill: Skill): void {
     window.crew.sendInput(sessionId, `use ${skill.invoke} to `)
     focusTerminal(sessionId)
-    setArmedId(null)
-  }
-
-  function onChip(skill: Skill): void {
-    if (armedId === skill.id) invoke(skill)
-    else setArmedId(skill.id)
+    setSelectedId(null)
+    setExpanded(false)
   }
 
   function toggleFavorite(id: string): void {
@@ -127,7 +159,7 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
     const next = custom.filter((s) => s.id !== id)
     setCustom(next)
     saveCustomSkills(next)
-    if (armedId === id) setArmedId(null)
+    if (selectedId === id) setSelectedId(null)
   }
 
   return (
@@ -137,7 +169,7 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
         className="btn btn--outline skills-menu__toggle"
         onClick={() => {
           setExpanded((v) => !v)
-          setArmedId(null)
+          setSelectedId(null)
           setAdding(false)
         }}
         aria-expanded={expanded}
@@ -149,87 +181,127 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
 
       {expanded && (
         <div className="skills-menu__panel">
-          <input
-            className="skills-bar__search"
-            placeholder="Filter…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Filter skills"
-            autoFocus
-          />
-          <div className="skills-menu__chips">
-            {ordered.map((sk) => (
-              <button
-                type="button"
-                key={sk.id}
-                className={`skill-chip ${armedId === sk.id ? 'is-armed' : ''} ${
-                  favSet.has(sk.id) ? 'is-fav' : ''
-                }`}
-                onClick={() => onChip(sk)}
-                title={sk.description}
-              >
-                {favSet.has(sk.id) && <span className="skill-chip__star">★</span>}
-                {sk.name}
-                {armedId === sk.id && <span className="skill-chip__go">↵</span>}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="skill-chip skill-chip--add"
-              onClick={() => setAdding((v) => !v)}
-              title="Add a custom skill"
-            >
-              ＋ Add
-            </button>
+          <div className="skills-panel__search">
+            <input
+              className={`skills-panel__input ${q ? 'is-active' : ''}`}
+              placeholder="Filter skills…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Filter skills"
+              autoFocus
+            />
           </div>
 
-          {adding && (
-            <div className="skill-add">
-              <input
-                className="skill-add__input"
-                placeholder="Name (e.g. Deploy)"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-              <input
-                className="skill-add__input"
-                placeholder="use ___ to  (token)"
-                value={form.invoke}
-                onChange={(e) => setForm({ ...form, invoke: e.target.value })}
-              />
-              <input
-                className="skill-add__input skill-add__input--desc"
-                placeholder="Description (optional)"
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-              />
-              <button type="button" className="btn btn--primary" onClick={addSkill} disabled={!form.name.trim()}>
-                Add
-              </button>
-            </div>
-          )}
-
-          {armed && (
-            <div className="skills-bar__desc">
-              <div className="skills-bar__desc-body">
-                <span className="skills-bar__desc-name">{armed.name}</span>
-                <span className="skills-bar__desc-text">{armed.description}</span>
+          <div className="skills-panel__body">
+            {favoriteSkills.length > 0 && !q && (
+              <div className="skills-cat">
+                <div className="skills-cat__label skills-cat__label--fav">★ Favorites</div>
+                <div className="skills-favrow">
+                  {favoriteSkills.map((sk) => (
+                    <button
+                      type="button"
+                      key={sk.id}
+                      className="skills-favchip"
+                      onClick={() => setSelectedId(sk.id)}
+                      title={sk.description}
+                    >
+                      <Swatch skill={sk} />
+                      {sk.name}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <button
-                type="button"
-                className="icon-btn"
-                title={favSet.has(armed.id) ? 'Unfavorite' : 'Favorite'}
-                onClick={() => toggleFavorite(armed.id)}
-              >
-                {favSet.has(armed.id) ? '★' : '☆'}
+            )}
+
+            {categories.map((cat) => (
+              <div className="skills-cat" key={cat.name}>
+                <div className="skills-cat__label">{cat.name}</div>
+                <div className="skills-cat__rows">
+                  {cat.skills.map((sk) => (
+                    <button
+                      type="button"
+                      key={sk.id}
+                      className={`skills-row ${selectedId === sk.id ? 'is-selected' : ''}`}
+                      onClick={() => setSelectedId(sk.id)}
+                      title={sk.description}
+                    >
+                      <Swatch skill={sk} />
+                      <span className="skills-row__name">{sk.name}</span>
+                      <span
+                        className={`skills-row__star ${favSet.has(sk.id) ? 'is-fav' : ''}`}
+                        role="button"
+                        aria-label={favSet.has(sk.id) ? 'Unfavorite' : 'Favorite'}
+                        title={favSet.has(sk.id) ? 'Unfavorite' : 'Favorite'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleFavorite(sk.id)
+                        }}
+                      >
+                        {favSet.has(sk.id) ? '★' : '☆'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {noResults && <div className="skills-empty">No skills match “{query}”</div>}
+
+            {adding ? (
+              <div className="skill-add">
+                <input
+                  className="skill-add__input"
+                  placeholder="Name (e.g. Deploy)"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+                <input
+                  className="skill-add__input"
+                  placeholder="use ___ to  (token)"
+                  value={form.invoke}
+                  onChange={(e) => setForm({ ...form, invoke: e.target.value })}
+                />
+                <input
+                  className="skill-add__input skill-add__input--desc"
+                  placeholder="Description (optional)"
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                />
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={addSkill}
+                  disabled={!form.name.trim()}
+                >
+                  Add
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="skills-addlink" onClick={() => setAdding(true)}>
+                ＋ Add a custom skill
               </button>
-              {armed.custom && (
-                <button type="button" className="icon-btn" title="Remove skill" onClick={() => removeSkill(armed.id)}>
+            )}
+          </div>
+
+          {selected && (
+            <div className="skills-panel__footer">
+              <Swatch skill={selected} />
+              <div className="skills-panel__footer-text">
+                <div className="skills-panel__footer-name">{selected.name}</div>
+                <div className="skills-panel__footer-desc">{selected.description}</div>
+              </div>
+              {selected.custom && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Remove skill"
+                  onClick={() => removeSkill(selected.id)}
+                >
                   🗑
                 </button>
               )}
-              <button type="button" className="btn btn--primary skills-bar__invoke" onClick={() => invoke(armed)}>
-                Invoke · “use {armed.invoke} to …”
+              <button type="button" className="skills-invoke" onClick={() => invoke(selected)}>
+                INVOKE
               </button>
             </div>
           )}

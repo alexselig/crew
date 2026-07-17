@@ -133,7 +133,7 @@ export function SessionCard({
         {onMinimize && (
           <button
             type="button"
-            className="mini-btn mini-btn--icon"
+            className="mini-btn mini-btn--icon mini-btn--min"
             title={minimized ? 'Restore session' : 'Minimize — hide until “Show more”'}
             onClick={(e) => {
               e.stopPropagation()
