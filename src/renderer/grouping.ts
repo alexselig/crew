@@ -67,9 +67,11 @@ function recencyOf(s: SessionInfo): number {
  * group. 'tag' groups by the session's group label ("Ungrouped" when unset);
  * 'needs' splits into "Needs you" and "Working"; 'recent' buckets by how long
  * ago the user last prompted the session (Last 30 min / 2 hrs / day / week+) —
- * but when the roster spans more than a day it falls back to count-based buckets
- * (4 most recent / 5-12 most recent / 13+ most recent) so groups stay a sane
- * size. Within a bucket the
+ * but when the roster spans more than a day AND fewer than 2 sessions have been
+ * prompted within the last day, it falls back to count-based buckets (4 most
+ * recent / 5-12 most recent / 13+ most recent) so groups stay a sane size. Once
+ * 2+ sessions get fresh prompts it switches back to the time buckets. Within a
+ * bucket the
  * order is stable: a session holds its slot while it stays in a bucket and is
  * appended to the end only when it first enters one (see bucketSlots).
  * `order` applies the user's
@@ -100,17 +102,27 @@ export function groupSessions(
     const now = Date.now()
     // Newest-first ranking by last-prompt time (createdAt fallback).
     const ranked = [...roster].sort((a, b) => recencyOf(b) - recencyOf(a))
-    const spansMoreThanDay =
-      ranked.length > 0 && now - recencyOf(ranked[ranked.length - 1]) > DAY
+    // Sessions prompted within the last day land in a finite time bucket (not
+    // "week+"), so they're what makes the time buckets useful.
+    const recentActive = ranked.filter((s) => now - recencyOf(s) < DAY).length
+    // Fall back to the count-based rank buckets only when the roster spans more
+    // than a day AND there isn't enough recent activity to populate the time
+    // buckets. As soon as 2+ sessions get fresh prompts, switch back to time
+    // buckets so the active work resurfaces into the fine-grained recent groups
+    // instead of staying stuck in "4 / 5-12 most recent".
+    const useRankBuckets =
+      ranked.length > 0 &&
+      now - recencyOf(ranked[ranked.length - 1]) > DAY &&
+      recentActive < 2
 
-    // Assign each session to a bucket. When the roster spans > 1 day, use the
-    // count-based rank fallback (predictable group sizes); otherwise the time
-    // buckets. `bucketNames` fixes the recent→old emit order.
-    const bucketNames = spansMoreThanDay
+    // Assign each session to a bucket. When the rank fallback is active, use the
+    // count-based buckets (predictable group sizes); otherwise the time buckets.
+    // `bucketNames` fixes the recent→old emit order.
+    const bucketNames = useRankBuckets
       ? RANK_BUCKETS.map((b) => b.name)
       : RECENT_BUCKETS.map((b) => b.name)
     const bucketOf = new Map<string, string>()
-    if (spansMoreThanDay) {
+    if (useRankBuckets) {
       ranked.forEach((s, i) => {
         const b =
           RANK_BUCKETS.find((rb) => i >= rb.start && i < rb.end) ??

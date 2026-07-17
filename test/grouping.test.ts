@@ -4,6 +4,7 @@ import type { SessionInfo } from '../src/shared/types'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
+const DAY = 24 * HOUR
 
 function sess(over: Partial<SessionInfo> & { id: string }): SessionInfo {
   const now = Date.now()
@@ -57,10 +58,11 @@ describe("groupSessions 'recent'", () => {
     expect(groupSessions(roster, 'recent').map((g) => g.name)).toEqual(['Last 2 hrs', 'Last day'])
   })
 
-  it('falls back to count buckets when the roster spans more than a day', () => {
-    // 14 sessions, the oldest ~2 days ago → time buckets would collapse; use ranks.
+  it('falls back to count buckets when the roster spans >1 day with little recent activity', () => {
+    // 14 sessions, all prompted more than a day ago (nothing recent) → time
+    // buckets would collapse into "week+"; use the count-based ranks instead.
     const roster = Array.from({ length: 14 }, (_, i) =>
-      sess({ id: `s${i}`, lastPromptAt: now - i * 3 * HOUR })
+      sess({ id: `s${i}`, lastPromptAt: now - (DAY + (i + 1) * HOUR) })
     )
     const groups = groupSessions(roster, 'recent')
     expect(groups.map((g) => g.name)).toEqual(['4 most recent', '5-12 most recent', '13+ most recent'])
@@ -72,13 +74,46 @@ describe("groupSessions 'recent'", () => {
   })
 
   it('count-fallback omits empty rank buckets', () => {
-    // 6 sessions spanning > 1 day → only the first two rank buckets appear.
+    // 6 stale sessions (all > 1 day, none recent) → only the first two rank buckets appear.
     const roster = Array.from({ length: 6 }, (_, i) =>
-      sess({ id: `s${i}`, lastPromptAt: now - i * 6 * HOUR })
+      sess({ id: `s${i}`, lastPromptAt: now - (DAY + (i + 1) * HOUR) })
     )
     const groups = groupSessions(roster, 'recent')
     expect(groups.map((g) => g.name)).toEqual(['4 most recent', '5-12 most recent'])
     expect(groups.map((g) => g.items.length)).toEqual([4, 2])
+  })
+
+  it('stays on the rank fallback while only one session is recently active', () => {
+    // 11 stale sessions + 1 fresh prompt = 1 recent (< 2) → still rank buckets.
+    const roster = [
+      ...Array.from({ length: 11 }, (_, i) =>
+        sess({ id: `old${i}`, lastPromptAt: now - (DAY + (i + 1) * HOUR) })
+      ),
+      sess({ id: 'active', lastPromptAt: now - 5 * MIN })
+    ]
+    const groups = groupSessions(roster, 'recent')
+    expect(groups.map((g) => g.name)).toEqual(['4 most recent', '5-12 most recent'])
+    // The lone active session ranks first → bottom of "4 most recent".
+    expect(groups[0].items[groups[0].items.length - 1].id).toBe('active')
+  })
+
+  it('switches back to time buckets once 2+ sessions get fresh prompts', () => {
+    // 10 stale sessions (> 1 day) + 2 freshly prompted → the rank fallback yields
+    // to time buckets so the active work resurfaces into the recent groups.
+    const roster = [
+      ...Array.from({ length: 10 }, (_, i) =>
+        sess({ id: `old${i}`, lastPromptAt: now - (DAY + (i + 1) * HOUR) })
+      ),
+      sess({ id: 'active1', lastPromptAt: now - 5 * MIN }),
+      sess({ id: 'active2', lastPromptAt: now - 40 * MIN })
+    ]
+    const groups = groupSessions(roster, 'recent')
+    expect(groups.map((g) => g.name)).toEqual(['Last 30 min', 'Last 2 hrs', 'Last week+'])
+    expect(groups.map((g) => g.name)).not.toContain('4 most recent')
+    expect(groups[0].items.map((s) => s.id)).toEqual(['active1'])
+    expect(groups[1].items.map((s) => s.id)).toEqual(['active2'])
+    // Every stale session lands in the catch-all oldest bucket.
+    expect((groups.find((g) => g.name === 'Last week+') as { items: unknown[] }).items.length).toBe(10)
   })
 
   it('within a bucket, orders oldest-first so a fresh prompt appends to the bottom', () => {
