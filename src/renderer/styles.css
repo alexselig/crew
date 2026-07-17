@@ -391,7 +391,7 @@ button {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 22px;
+  padding: 10px 22px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   -webkit-app-region: drag;
@@ -2939,7 +2939,7 @@ button {
   justify-content: center;
   width: 26px;
   height: 26px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--icon);
@@ -2947,6 +2947,7 @@ button {
 
 .assets-rail:hover .assets-rail__toggle {
   background: rgba(242, 241, 234, 0.05);
+  border-color: var(--border);
   color: var(--ivory);
 }
 
@@ -2968,15 +2969,6 @@ button {
   letter-spacing: 0.14em;
   font-size: 11px;
   font-weight: 700;
-}
-
-.assets-rail__count {
-  background: var(--accent);
-  color: #fff;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
 }
 
 .assets__header {

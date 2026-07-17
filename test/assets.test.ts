@@ -50,6 +50,15 @@ describe('ignore rules', () => {
     expect(isIgnoredDir('src')).toBe(false)
   })
 
+  it('skips build-output dirs during the scan but allows them for live watch events', () => {
+    // Bulk scan skips them (avoid flooding with pre-existing build artifacts)…
+    expect(isIgnoredDir('dist')).toBe(true)
+    expect(isIgnoredDir('out')).toBe(true)
+    // …but a freshly generated asset written into them should still appear.
+    expect(isIgnoredRelPath('dist/poster.png')).toBe(false)
+    expect(isIgnoredRelPath('out/assets/hero.png')).toBe(false)
+  })
+
   it('checks every directory segment of a relative path', () => {
     expect(isIgnoredRelPath('node_modules/pkg/logo.png')).toBe(true)
     expect(isIgnoredRelPath('src/.cache/x.png')).toBe(true)

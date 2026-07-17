@@ -76,32 +76,44 @@ export function assetMime(name: string): string {
   return EXT_MIME[assetExt(name)] ?? 'application/octet-stream'
 }
 
-/** Directories never worth scanning/watching for user-facing assets. */
-const IGNORED_DIRS = new Set([
+/** Directories that flood the *initial scan* with build/vendor noise, so they're
+ * skipped when indexing what already exists. They are NOT ignored by the live
+ * watcher: a file freshly generated into dist/ or out/ during the session is
+ * exactly the kind of asset the user wants to see appear automatically. */
+const BUILD_OUTPUT_DIRS = new Set(['dist', 'build', 'out', 'coverage', 'target', 'vendor'])
+
+/** Directories never worth scanning OR watching — dependency trees, caches and
+ * system folders that are pure noise. Applied to both the scan and live events. */
+const HARD_IGNORED_DIRS = new Set([
   'node_modules',
-  'dist',
-  'build',
-  'out',
-  'coverage',
-  'target',
-  'vendor',
   'venv',
   '__pycache__',
   'Library',
   'Applications'
 ])
 
-/** True for directory names that should be skipped entirely (incl. dot-dirs). */
+/** True for directory names skipped entirely by the bounded initial scan (dot-dirs,
+ * dependency/system dirs, and build-output dirs). */
 export function isIgnoredDir(name: string): boolean {
-  return name.startsWith('.') || IGNORED_DIRS.has(name)
+  return name.startsWith('.') || HARD_IGNORED_DIRS.has(name) || BUILD_OUTPUT_DIRS.has(name)
 }
 
-/** True if any directory segment of a cwd-relative path is ignored. */
+/** True for directory names that are pure noise even for a live watch event
+ * (dependency/cache/system dirs and dot-dirs). Build-output dirs are allowed here
+ * so newly generated assets show up automatically as they are created. */
+export function isHardIgnoredDir(name: string): boolean {
+  return name.startsWith('.') || HARD_IGNORED_DIRS.has(name)
+}
+
+/** True if a cwd-relative path should be ignored for a live watch event: one of
+ * its directory segments is a hard-ignored dir, or the file itself is a dot-file.
+ * Build-output dirs (dist/, out/, …) are intentionally allowed so generated
+ * assets appear the moment they're written. */
 export function isIgnoredRelPath(rel: string): boolean {
   const segs = rel.split(/[\\/]/)
   // All but the last segment are directories; also reject dot-files themselves.
   for (let i = 0; i < segs.length - 1; i++) {
-    if (isIgnoredDir(segs[i])) return true
+    if (isHardIgnoredDir(segs[i])) return true
   }
   const base = segs[segs.length - 1]
   return base.startsWith('.')

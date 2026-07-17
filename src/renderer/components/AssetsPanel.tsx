@@ -122,7 +122,6 @@ export function AssetsPanel({ sessionId }: { sessionId: string }): JSX.Element |
         </span>
         <span className="assets-rail__label">
           <span className="assets-rail__word">Assets</span>
-          {assets.length > 0 && <span className="assets-rail__count">{assets.length}</span>}
         </span>
       </button>
     )

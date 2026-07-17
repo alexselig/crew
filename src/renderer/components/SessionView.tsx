@@ -79,7 +79,7 @@ export function SessionView({
       <header className={`session-header ${flight ? 'is-taking-off' : ''}`}>
         <CharacterPicker
           variant="mascot"
-          size={48}
+          size={38}
           state={session.state}
           color={session.color}
           autopilot={session.autopilot}
