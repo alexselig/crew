@@ -304,7 +304,7 @@ export function App(): JSX.Element {
         onToggleMinimize={c.toggleMinimize}
         groupOrder={c.groupOrder}
         onReorderGroups={c.reorderGroups}
-        onSelect={c.setSelectedId}
+        onSelect={c.selectSession}
         onNew={() => c.setShowNew(true)}
         onReplayIntro={() => setShowIntro(true)}
         onOpenSettings={() => setShowSettings(true)}

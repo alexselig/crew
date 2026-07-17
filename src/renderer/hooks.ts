@@ -33,6 +33,8 @@ export interface CrewState {
   homeDir: string
   selectedId: string | null
   setSelectedId: (id: string | null) => void
+  /** Select a session by user action, restoring (un-minimizing) it if hidden. */
+  selectSession: (id: string) => void
   showNew: boolean
   setShowNew: (v: boolean) => void
   viewMode: ViewMode
@@ -166,6 +168,19 @@ export function useCrew(): CrewState {
       return n
     })
   }
+  // Selecting a session from the nav restores it: a minimized session should
+  // reappear (its pane opens in the grid) the moment the user clicks it, rather
+  // than staying hidden behind "show more".
+  const selectSession = (id: string): void => {
+    setMinimized((prev) => {
+      if (!prev.has(id)) return prev
+      const n = new Set(prev)
+      n.delete(id)
+      localStorage.setItem('crew.minimized', JSON.stringify([...n]))
+      return n
+    })
+    setSelectedId(id)
+  }
   const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]): void => {
     void window.crew.updateSettings({ [key]: value } as Partial<Settings>).then(setSettings)
   }
@@ -243,6 +258,7 @@ export function useCrew(): CrewState {
     homeDir,
     selectedId,
     setSelectedId,
+    selectSession,
     showNew,
     setShowNew,
     viewMode,
