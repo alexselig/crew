@@ -1585,42 +1585,82 @@ button {
   scroll-snap-align: start;
 }
 
-/* Grid "show more" cell: a labeled button that reveals a group's hidden or
-   minimized tiles. It sits in the grid like a tile and carries the group name
-   (nav title format) so you can tell which group it expands. */
+/* Grid "show more" cell: reveals a bucket's hidden/minimized tiles. Collapsed it
+   previews the hidden sessions' mascots (overlapping), the bucket label, and a
+   bordered "Show N more →" button — so you can tell what (and which group) it
+   expands. Sits in the grid like a tile. */
 .grid-showmore {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 12px;
   min-height: 120px;
   height: 100%;
   background: var(--bg);
-  border: 1px dashed var(--border);
+  border: none;
   color: var(--text-dim);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  transition: background 0.12s;
 }
 
 .grid-showmore:hover {
   background: var(--bg-elev);
-  color: var(--text);
-  border-color: var(--hair-strong);
+}
+
+/* Overlapping mascots of the hidden sessions. */
+.grid-showmore__avatars {
+  display: inline-flex;
+  align-items: center;
+}
+
+.grid-showmore__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-elev-2);
+  border: 2px solid var(--bg);
+  box-sizing: border-box;
+}
+
+.grid-showmore__avatar:not(:first-child) {
+  margin-left: -12px;
 }
 
 .grid-showmore__name {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: var(--text);
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
 }
 
-.grid-showmore__more {
-  font-size: 12px;
+/* The "Show N more →" pill. */
+.grid-showmore__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--text-dim);
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.grid-showmore:hover .grid-showmore__btn {
+  background: var(--bg-elev-2);
+  border-color: var(--hair-strong);
+}
+
+.grid-showmore__arrow {
+  font-size: 13px;
+  opacity: 0.8;
 }
 
 .tile {

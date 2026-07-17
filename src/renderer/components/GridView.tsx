@@ -3,6 +3,7 @@ import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
+import { Character } from './Character'
 import { ResumeSets } from './ResumeSets'
 import { groupSessions, existingGroups, partitionHidden, recencyOf, type GroupMode } from '../grouping'
 import { useCardDnd } from '../useCardDnd'
@@ -165,6 +166,39 @@ export function GridView({
     )
   }
 
+  // The "show more" cell that reveals a bucket's hidden/minimized tiles. Collapsed,
+  // it previews the hidden sessions' mascots (overlapping), the bucket label, and a
+  // "Show N more →" button; expanded, it's just a "Show less" toggle.
+  function renderShowMore(key: string, name: string | null, hidden: SessionInfo[]): JSX.Element {
+    const open = expandedGroups.has(key)
+    return (
+      <button type="button" className="grid-showmore" onClick={() => toggleExpand(key)}>
+        {!open && (
+          <span className="grid-showmore__avatars">
+            {hidden.slice(0, 4).map((s) => (
+              <span className="grid-showmore__avatar" key={s.id}>
+                <Character
+                  glyph={charById(s.characterId)?.glyph ?? '●'}
+                  id={s.characterId}
+                  color={s.color}
+                  state={s.state}
+                  size={24}
+                  dot={false}
+                  badge={false}
+                />
+              </span>
+            ))}
+          </span>
+        )}
+        {name && <span className="grid-showmore__name">{name}</span>}
+        <span className="grid-showmore__btn">
+          {open ? 'Show less' : `Show ${hidden.length} more`}
+          {!open && <span className="grid-showmore__arrow">→</span>}
+        </span>
+      </button>
+    )
+  }
+
   return (
     <main className={`gridview ${density ? `gridview--${density}` : ''}`}>
       <div className="grid-topbar">
@@ -216,18 +250,7 @@ export function GridView({
                   <div className={`grid grid--grouped grid--g-${gridDensity}`}>
                     {visible.map(renderTile)}
                     {open && hidden.map(renderTile)}
-                    {hidden.length > 0 && (
-                      <button
-                        type="button"
-                        className="grid-showmore"
-                        onClick={() => toggleExpand(g.name)}
-                      >
-                        <span className="grid-showmore__name">{g.name}</span>
-                        <span className="grid-showmore__more">
-                          {open ? 'Show less' : `Show ${hidden.length} more`}
-                        </span>
-                      </button>
-                    )}
+                    {hidden.length > 0 && renderShowMore(g.name, g.name, hidden)}
                   </div>
                 </section>
               )
@@ -241,17 +264,7 @@ export function GridView({
               <div className={`grid ${density ? `grid--${density}` : ''}`}>
                 {visible.map(renderTile)}
                 {open && hidden.map(renderTile)}
-                {hidden.length > 0 && (
-                  <button
-                    type="button"
-                    className="grid-showmore"
-                    onClick={() => toggleExpand('__all__')}
-                  >
-                    <span className="grid-showmore__more">
-                      {open ? 'Show less' : `Show ${hidden.length} more`}
-                    </span>
-                  </button>
-                )}
+                {hidden.length > 0 && renderShowMore('__all__', null, hidden)}
               </div>
             )
           })()
