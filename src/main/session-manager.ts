@@ -289,7 +289,15 @@ export class SessionManager extends EventEmitter {
   setTag(id: string, tag: string): void {
     const m = this.sessions.get(id)
     if (!m) return
-    m.info.tag = tag.trim() || undefined
+    const next = tag.trim() || undefined
+    if (m.info.tag === next) return
+    m.info.tag = next
+    // Re-slot the session to the end of the roster so grouped views place it at
+    // the end of its new group (where a freshly-added group member belongs),
+    // rather than leaving it stranded at its old position mid-group. Deleting
+    // then re-setting the Map key moves it to the end (insertion order).
+    this.sessions.delete(id)
+    this.sessions.set(id, m)
     this.emitRoster()
     this.persistSessions()
   }
