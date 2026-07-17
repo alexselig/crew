@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crew, explained — the complete field guide</title>
+<meta name="description" content="A complete, illustrated field guide to every feature in Crew: views, the sidebar and title-bar controls, the assets pane, sorting, groups, workspaces, characters &amp; colors, skills, broadcast, transcripts, the command palette and more." />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="Crew, explained — the complete field guide" />
+<meta property="og:description" content="Every feature of Crew, indexed and illustrated: from the assets pane to sorting views, title-bar buttons, characters, workspaces and keyboard shortcuts." />
+<meta property="og:image" content="./icon.png" />
+<meta name="theme-color" content="#050506" />
+<link rel="icon" type="image/png" href="./icon.png" />
+<link rel="apple-touch-icon" href="./icon.png" />
+<style>
+  @font-face { font-family:'Newsreader'; font-style:italic; font-weight:500; src:url('assets/fonts/newsreader-500-italic-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'Newsreader'; font-style:normal; font-weight:500; src:url('assets/fonts/newsreader-500-normal-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:400; src:url('assets/fonts/jetbrainsmono-400-normal-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:500; src:url('assets/fonts/jetbrainsmono-500-normal-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:600; src:url('assets/fonts/jetbrainsmono-600-normal-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:700; src:url('assets/fonts/jetbrainsmono-700-normal-latin.woff2') format('woff2'); font-display:swap; }
+
+  :root {
+    --bg:#050506; --surface:#0a0a0b; --cell:#0e0e10; --elev:#151517;
+    --line:#1c1c1f; --line-2:#2a2a2e; --footer-line:#17171a;
+    --ink:#f2f1ea; --body:#a6a6ac; --muted:#8b8b90; --faint:#6b6b70; --nav:#9a9aa0;
+    --blue:#2b4cf2; --blue-2:#5f79ff;
+    --serif:'Newsreader', Georgia, serif;
+    --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--mono); font-size:15px; line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection { background:var(--blue); color:var(--ink); }
+  a { color:var(--blue-2); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  img { max-width:100%; display:block; }
+
+  /* ---------- top nav ---------- */
+  nav {
+    position:sticky; top:0; z-index:50; height:60px;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 32px; background:rgba(5,5,6,0.82);
+    backdrop-filter:saturate(140%) blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .brand { display:inline-flex; align-items:center; gap:10px; font-family:var(--serif); font-style:italic; font-size:23px; color:var(--ink); }
+  .brand img { width:22px; height:22px; border-radius:5px; }
+  .nav-links { display:flex; align-items:center; gap:28px; font-size:13px; }
+  .nav-links a { color:var(--nav); }
+  .nav-links a:hover { color:var(--ink); text-decoration:none; }
+  .nav-cta { background:var(--blue); color:var(--ink) !important; padding:9px 18px; font-weight:600; }
+  .nav-cta:hover { background:#2743d6; }
+  @media (max-width:720px){ .nav-links a.hide-sm { display:none; } }
+
+  /* ---------- hero ---------- */
+  header.hero { position:relative; padding:72px 32px 40px; text-align:center; overflow:hidden; }
+  .hero .glow { position:absolute; inset:-40% -10% auto -10%; height:520px; z-index:0;
+    background:radial-gradient(50% 60% at 50% 10%, rgba(43,76,242,0.16), transparent 70%); pointer-events:none; }
+  .hero__in { position:relative; z-index:1; max-width:760px; margin:0 auto; }
+  .eyebrow { font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--blue-2); margin-bottom:20px; }
+  h1 { font-family:var(--serif); font-style:italic; font-weight:500; font-size:clamp(38px,6vw,64px); line-height:1.05; margin:0 0 20px; letter-spacing:-0.01em; }
+  h1 .accent { color:var(--blue-2); }
+  .hero__lede { font-size:17px; line-height:1.7; color:var(--body); max-width:60ch; margin:0 auto 24px; }
+  .hero__meta { font-size:12.5px; color:var(--faint); display:flex; flex-wrap:wrap; gap:8px 16px; justify-content:center; }
+  .hero__meta b { color:var(--body); font-weight:600; }
+
+  /* ---------- quick index ---------- */
+  .quickindex { max-width:1100px; margin:8px auto 8px; padding:0 32px; }
+  .quickindex__grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  @media (max-width:860px){ .quickindex__grid{ grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:480px){ .quickindex__grid{ grid-template-columns:1fr;} }
+  .qi { display:block; background:var(--cell); padding:16px 18px; color:var(--body); transition:background .12s; }
+  .qi:hover { background:var(--elev); text-decoration:none; }
+  .qi__n { font-size:11px; color:var(--faint); letter-spacing:.1em; }
+  .qi__t { display:block; margin-top:3px; color:var(--ink); font-weight:600; font-size:14px; }
+
+  /* ---------- layout ---------- */
+  .layout { display:grid; grid-template-columns:236px minmax(0,1fr); gap:52px; max-width:1180px; margin:56px auto 0; padding:0 32px; align-items:start; }
+  @media (max-width:960px){ .layout{ grid-template-columns:1fr; gap:0; } }
+
+  /* ---------- sticky TOC ---------- */
+  .toc { position:sticky; top:84px; align-self:start; font-size:13px; }
+  .toc__title { font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--faint); margin:0 0 14px; }
+  .toc ol { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; border-left:1px solid var(--line); }
+  .toc a { display:block; color:var(--muted); padding:5px 0 5px 14px; margin-left:-1px; border-left:1px solid transparent; line-height:1.35; }
+  .toc a:hover { color:var(--ink); text-decoration:none; }
+  .toc a.is-active { color:var(--ink); border-left-color:var(--blue-2); }
+  @media (max-width:960px){
+    .toc { position:static; margin-bottom:8px; border:1px solid var(--line); border-radius:12px; padding:18px; background:var(--surface); }
+    .toc__toggle { cursor:pointer; }
+    .toc ol { border-left:none; margin-top:14px; }
+    .toc[data-collapsed="true"] ol { display:none; }
+  }
+
+  /* ---------- content ---------- */
+  main { min-width:0; }
+  section.doc { scroll-margin-top:80px; padding-bottom:64px; border-bottom:1px solid var(--line); margin-bottom:64px; }
+  section.doc:last-of-type { border-bottom:none; }
+  .sec-eyebrow { font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--blue-2); margin-bottom:10px; }
+  h2 { font-family:var(--serif); font-style:italic; font-weight:500; font-size:clamp(28px,3.6vw,38px); line-height:1.12; margin:0 0 8px; }
+  h3 { font-size:15px; font-weight:700; color:var(--ink); margin:30px 0 10px; letter-spacing:.01em; }
+  p { color:var(--body); margin:0 0 16px; }
+  .lead { font-size:16.5px; color:var(--body); }
+  strong { color:var(--ink); font-weight:600; }
+  code { font-family:var(--mono); background:var(--elev); border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:.88em; color:var(--ink); }
+
+  ul.feat, ol.steps { margin:0 0 18px; padding:0; list-style:none; display:flex; flex-direction:column; gap:10px; }
+  ul.feat li { position:relative; padding-left:24px; color:var(--body); }
+  ul.feat li::before { content:''; position:absolute; left:4px; top:9px; width:6px; height:6px; border-radius:50%; background:var(--blue-2); }
+  ul.feat li b { color:var(--ink); }
+  ol.steps { counter-reset:step; }
+  ol.steps li { position:relative; padding-left:40px; color:var(--body); min-height:26px; }
+  ol.steps li::before { counter-increment:step; content:counter(step); position:absolute; left:0; top:-1px; width:26px; height:26px; border-radius:50%; background:var(--elev); border:1px solid var(--line-2); color:var(--ink); font-size:12px; font-weight:700; display:grid; place-items:center; }
+  ol.steps li b { color:var(--ink); }
+
+  /* ---------- figures ---------- */
+  figure { margin:22px 0; }
+  .frame { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--surface); box-shadow:0 24px 60px rgba(0,0,0,.45); cursor:zoom-in; position:relative; }
+  .frame img { width:100%; }
+  .frame--tight { max-width:520px; }
+  .frame--mid { max-width:760px; }
+  figcaption { margin-top:10px; font-size:12.5px; color:var(--faint); }
+  figcaption b { color:var(--muted); font-weight:600; }
+
+  /* annotated callouts */
+  .annot { position:relative; }
+  .mark { position:absolute; width:24px; height:24px; border-radius:50%; background:var(--blue); color:#fff; font-size:12px; font-weight:700; display:grid; place-items:center; transform:translate(-50%,-50%); border:2px solid var(--bg); box-shadow:0 3px 10px rgba(0,0,0,.5); z-index:2; }
+  ol.legend { list-style:none; margin:14px 0 0; padding:0; display:grid; grid-template-columns:repeat(2,1fr); gap:8px 22px; counter-reset:lg; }
+  @media (max-width:620px){ ol.legend{ grid-template-columns:1fr; } }
+  ol.legend li { position:relative; padding-left:30px; font-size:13px; color:var(--body); }
+  ol.legend li::before { counter-increment:lg; content:counter(lg); position:absolute; left:0; top:0; width:20px; height:20px; border-radius:50%; background:var(--blue); color:#fff; font-size:11px; font-weight:700; display:grid; place-items:center; }
+  ol.legend li b { color:var(--ink); font-weight:600; }
+
+  /* two-up */
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:720px){ .two{ grid-template-columns:1fr; } }
+
+  /* callout / note box */
+  .note { border:1px solid var(--line); border-left:2px solid var(--blue-2); background:linear-gradient(180deg, rgba(43,76,242,.05), transparent); border-radius:10px; padding:16px 18px; margin:20px 0; font-size:14px; color:var(--body); }
+  .note b { color:var(--ink); }
+
+  /* state chips */
+  .chips { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0 6px; }
+  .st { font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.06em; padding:5px 10px; border-radius:6px; display:inline-flex; align-items:center; gap:7px; }
+  .st .dot { width:7px; height:7px; border-radius:50%; }
+  .st--working { color:var(--blue-2); border:1px solid rgba(95,121,255,.35); }
+  .st--working .dot { background:var(--blue-2); }
+  .st--waiting { background:var(--ink); color:#0a0a0b; }
+  .st--approve { background:var(--ink); color:#0a0a0b; }
+  .st--idle { color:var(--muted); border:1px solid var(--line-2); }
+  .st--error { color:#e5484d; border:1px solid rgba(229,72,77,.4); }
+
+  /* swatches */
+  .swatches { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 4px; }
+  .sw { width:26px; height:26px; border-radius:50%; border:1px solid rgba(255,255,255,.14); }
+
+  /* comparison */
+  .compare { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin:18px 0; }
+  @media (max-width:620px){ .compare{ grid-template-columns:1fr; } }
+  .compare > div { background:var(--cell); padding:20px; }
+  .compare h4 { margin:0 0 8px; font-size:14px; color:var(--ink); }
+  .compare p { font-size:13.5px; margin:0; color:var(--muted); }
+  .compare .tagline { font-size:11px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:10px; }
+  .compare .tagline.group { color:#7ed957; }
+  .compare .tagline.ws { color:var(--blue-2); }
+
+  /* keyboard shortcuts */
+  .keys { display:grid; grid-template-columns:repeat(2,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin:16px 0; }
+  @media (max-width:620px){ .keys{ grid-template-columns:1fr; } }
+  .keys__row { background:var(--cell); padding:13px 18px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  .keys__row span { color:var(--body); font-size:13.5px; }
+  kbd { font-family:var(--mono); font-size:12px; background:var(--elev); border:1px solid var(--line-2); border-bottom-width:2px; border-radius:6px; padding:3px 8px; color:var(--ink); white-space:nowrap; }
+
+  /* diagram wrap */
+  .diagram { border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:22px; margin:18px 0; }
+  .diagram svg { width:100%; height:auto; display:block; }
+
+  /* footer */
+  footer { border-top:1px solid var(--footer-line); margin-top:40px; padding:28px 32px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; font-size:12.5px; color:var(--faint); }
+  footer .brand { font-size:16px; }
+  footer .f-links { display:flex; gap:22px; }
+  footer .f-links a { color:var(--faint); }
+
+  /* lightbox */
+  #lb { position:fixed; inset:0; background:rgba(5,5,6,.94); z-index:9999; display:none; align-items:center; justify-content:center; padding:40px; cursor:zoom-out; }
+  #lb.open { display:flex; }
+  #lb img { max-width:100%; max-height:100%; border-radius:12px; border:1px solid var(--line-2); box-shadow:0 40px 120px rgba(0,0,0,.7); }
+  #lb .lb-close { position:absolute; top:22px; right:26px; color:var(--nav); font-size:13px; }
+
+  .backtop { display:inline-block; margin-top:8px; font-size:12.5px; color:var(--faint); }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="brand" href="./index.html"><img src="./icon.png" alt="" />Crew</a>
+  <div class="nav-links">
+    <a class="hide-sm" href="./index.html">Home</a>
+    <a class="hide-sm" href="https://github.com/alexselig/crew">GitHub</a>
+    <a class="nav-cta" href="https://github.com/alexselig/crew/releases/latest/download/Crew-arm64.dmg">Download</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="glow"></div>
+  <div class="hero__in">
+    <div class="eyebrow">The Field Guide</div>
+    <h1>Crew, <span class="accent">explained</span>.</h1>
+    <p class="hero__lede">Crew runs a whole crew of AI coding agents side by side and tells you the moment one needs you. This is the complete tour — every view, every button, every panel — with a screenshot for each.</p>
+    <div class="hero__meta"><span><b>20</b> features indexed</span><span>·</span><span>Real screenshots</span><span>·</span><span>macOS · 100% local</span></div>
+  </div>
+</header>
+
+<div class="quickindex">
+  <div class="quickindex__grid">
+    <a class="qi" href="#views"><span class="qi__n">01</span><b class="qi__t">Focus &amp; Grid views</b></a>
+    <a class="qi" href="#sidebar"><span class="qi__n">02</span><b class="qi__t">The sidebar</b></a>
+    <a class="qi" href="#toolbar"><span class="qi__n">03</span><b class="qi__t">Sidebar toolbar</b></a>
+    <a class="qi" href="#titlebar"><span class="qi__n">04</span><b class="qi__t">The title bar</b></a>
+    <a class="qi" href="#tiles"><span class="qi__n">05</span><b class="qi__t">Grid tiles</b></a>
+    <a class="qi" href="#states"><span class="qi__n">06</span><b class="qi__t">Working vs waiting</b></a>
+    <a class="qi" href="#characters"><span class="qi__n">07</span><b class="qi__t">Characters &amp; colors</b></a>
+    <a class="qi" href="#new-session"><span class="qi__n">08</span><b class="qi__t">Creating a session</b></a>
+    <a class="qi" href="#groups-workspaces"><span class="qi__n">09</span><b class="qi__t">Groups vs workspaces</b></a>
+    <a class="qi" href="#sorting"><span class="qi__n">10</span><b class="qi__t">Sorting &amp; grouping</b></a>
+    <a class="qi" href="#assets"><span class="qi__n">11</span><b class="qi__t">The assets pane</b></a>
+    <a class="qi" href="#skills"><span class="qi__n">12</span><b class="qi__t">Skills</b></a>
+    <a class="qi" href="#broadcast"><span class="qi__n">13</span><b class="qi__t">Broadcast</b></a>
+    <a class="qi" href="#analytics"><span class="qi__n">14</span><b class="qi__t">Activity &amp; spend</b></a>
+    <a class="qi" href="#transcripts"><span class="qi__n">15</span><b class="qi__t">Transcripts</b></a>
+    <a class="qi" href="#palette"><span class="qi__n">16</span><b class="qi__t">Palette &amp; shortcuts</b></a>
+    <a class="qi" href="#settings"><span class="qi__n">17</span><b class="qi__t">Settings</b></a>
+    <a class="qi" href="#autopilot"><span class="qi__n">18</span><b class="qi__t">Autopilot</b></a>
+    <a class="qi" href="#windows"><span class="qi__n">19</span><b class="qi__t">Windows &amp; menu bar</b></a>
+    <a class="qi" href="#start"><span class="qi__n">20</span><b class="qi__t">Getting started</b></a>
+  </div>
+</div>
+
+<div class="layout">
+  <aside class="toc" id="toc" data-collapsed="false">
+    <p class="toc__title toc__toggle">On this page</p>
+    <ol>
+      <li><a href="#views">Focus &amp; Grid views</a></li>
+      <li><a href="#sidebar">The sidebar</a></li>
+      <li><a href="#toolbar">Sidebar toolbar</a></li>
+      <li><a href="#titlebar">The title bar</a></li>
+      <li><a href="#tiles">Grid tiles</a></li>
+      <li><a href="#states">Working vs waiting</a></li>
+      <li><a href="#characters">Characters &amp; colors</a></li>
+      <li><a href="#new-session">Creating a session</a></li>
+      <li><a href="#groups-workspaces">Groups vs workspaces</a></li>
+      <li><a href="#sorting">Sorting &amp; grouping</a></li>
+      <li><a href="#assets">The assets pane</a></li>
+      <li><a href="#skills">Skills</a></li>
+      <li><a href="#broadcast">Broadcast</a></li>
+      <li><a href="#analytics">Activity &amp; spend</a></li>
+      <li><a href="#transcripts">Transcripts</a></li>
+      <li><a href="#palette">Palette &amp; shortcuts</a></li>
+      <li><a href="#settings">Settings</a></li>
+      <li><a href="#autopilot">Autopilot</a></li>
+      <li><a href="#windows">Windows &amp; menu bar</a></li>
+      <li><a href="#start">Getting started</a></li>
+    </ol>
+  </aside>
+
+  <main>
+    <!-- 01 VIEWS -->
+    <section class="doc" id="views">
+      <div class="sec-eyebrow">01 · The canvas</div>
+      <h2>Two ways to see your crew.</h2>
+      <p class="lead">Crew has two top-level views, and you flip between them anytime with the toggle at the bottom of the sidebar (or <kbd>⌘K</kbd> → “Switch view”).</p>
+
+      <h3>Grid view — mission control</h3>
+      <p>Every session becomes a live tile with its own scrolling terminal, so you can watch the whole crew at a glance. Tiles auto-scroll to the latest output — right where an agent is asking for input.</p>
+      <figure>
+        <div class="frame"><img loading="lazy" src="assets/guide/grid.jpg" alt="Crew grid view with four live session tiles" /></div>
+        <figcaption>Grid view. The grid button doubles as a density control — click it again to cycle <b>Split (2)</b> → <b>Quad (4)</b> → <b>Six-up (6)</b>. Use <kbd>←</kbd> / <kbd>→</kbd> to page across columns.</figcaption>
+      </figure>
+
+      <h3>Focus view — one session, full attention</h3>
+      <p>Focus view gives a single session the whole canvas: its full terminal in the middle, the <a href="#skills">Skills</a> chip and <a href="#assets">Assets</a> pane on the right, and the roster on the left. Click any session (or press <kbd>⌘1</kbd>–<kbd>⌘9</kbd>) to focus it.</p>
+      <figure>
+        <div class="frame"><img loading="lazy" src="assets/guide/focus.jpg" alt="Crew focus view: roster, terminal and assets panel" /></div>
+        <figcaption>Focus view: roster (left), live terminal (center), assets pane (right).</figcaption>
+      </figure>
+    </section>
+
+    <!-- 02 SIDEBAR -->
+    <section class="doc" id="sidebar">
+      <div class="sec-eyebrow">02 · The roster</div>
+      <h2>The sidebar.</h2>
+      <p class="lead">The left sidebar — the <em>roster</em> — is your list of every session. Each row is a card showing the session’s character, name, how long it’s been in its current state, spend, and a live status.</p>
+      <ul class="feat">
+        <li><b>＋ New Session</b> launches an agent (see <a href="#new-session">creating a session</a>).</li>
+        <li>Each <b>card</b> shows the animated character, the label, time-in-state, optional spend, and a status tag. <b>Drag cards</b> to reorder them.</li>
+        <li>Hover a card for its <b>minimize</b> (hide behind “Show more”) and <b>close</b> controls; exited sessions show a <b>restart</b> ↻.</li>
+        <li>The <b>Crew</b> wordmark at the top replays the launch intro; the count shows how many sessions you’re running.</li>
+        <li>The footer totals your <b>spend</b> (and credits) across all sessions — it turns to a warning once you pass your <a href="#settings">budget</a>.</li>
+        <li>Drag the sidebar’s right edge to <b>resize</b> it; the <kbd>‹</kbd> button <b>collapses</b> it to a rail.</li>
+      </ul>
+      <div class="two">
+        <figure><div class="frame frame--tight"><img loading="lazy" src="assets/guide/card.png" alt="A single session card in the roster" /></div><figcaption>A session card: character, name, time-in-state · spend, and status.</figcaption></figure>
+        <figure><div class="frame frame--tight"><img loading="lazy" src="assets/guide/compact.jpg" alt="Collapsed sidebar rail" /></div><figcaption>Collapsed to a rail — just the characters. It floats open on hover.</figcaption></figure>
+      </div>
+    </section>
+
+    <!-- 03 TOOLBAR -->
+    <section class="doc" id="toolbar">
+      <div class="sec-eyebrow">03 · Bottom of the sidebar</div>
+      <h2>The sidebar toolbar.</h2>
+      <p class="lead">A tidy row of controls sits at the very bottom of the sidebar. Left to right:</p>
+      <figure>
+        <div class="frame annot" id="annot-toolbar">
+          <img loading="lazy" src="assets/guide/toolbar.png" alt="The sidebar toolbar with view toggle and action buttons" />
+          <span class="mark" style="left:9.5%; top:51%">1</span>
+          <span class="mark" style="left:18.6%; top:51%">2</span>
+          <span class="mark" style="left:49.5%; top:51%">3</span>
+          <span class="mark" style="left:59.9%; top:51%">4</span>
+          <span class="mark" style="left:70.2%; top:51%">5</span>
+          <span class="mark" style="left:80.6%; top:51%">6</span>
+          <span class="mark" style="left:91%; top:51%">7</span>
+        </div>
+        <ol class="legend">
+          <li><b>Focus view</b> — one session, full width.</li>
+          <li><b>Grid view</b> — the live dashboard; click again to change density.</li>
+          <li><b>Sort / group</b> — how the roster is organized (<a href="#sorting">see modes</a>).</li>
+          <li><b>Broadcast</b> — send one prompt to many sessions.</li>
+          <li><b>Activity &amp; spend</b> — the analytics panel.</li>
+          <li><b>New window</b> — a second Crew window (<kbd>⇧⌘N</kbd>).</li>
+          <li><b>Settings</b> — notifications, spend, transcripts and more.</li>
+        </ol>
+      </figure>
+    </section>
+
+    <!-- 04 TITLE BAR -->
+    <section class="doc" id="titlebar">
+      <div class="sec-eyebrow">04 · Focus view header</div>
+      <h2>The session title bar.</h2>
+      <p class="lead">In focus view, the header above the terminal is the session’s control strip.</p>
+      <figure>
+        <div class="frame annot" id="annot-titlebar">
+          <img loading="lazy" src="assets/guide/titlebar.png" alt="The focus-view session title bar" />
+          <span class="mark" style="left:5.8%; top:50%">1</span>
+          <span class="mark" style="left:13.8%; top:50%">2</span>
+          <span class="mark" style="left:23%; top:50%">3</span>
+          <span class="mark" style="left:31.2%; top:50%">4</span>
+          <span class="mark" style="left:63.6%; top:50%">5</span>
+          <span class="mark" style="left:71.9%; top:50%">6</span>
+          <span class="mark" style="left:82.9%; top:50%">7</span>
+          <span class="mark" style="left:93.3%; top:50%">8</span>
+        </div>
+        <ol class="legend">
+          <li><b>Character</b> — click to change the icon &amp; color (<a href="#characters">how</a>).</li>
+          <li><b>Label</b> — click to rename the session inline.</li>
+          <li><b>+ Group</b> — tag the session into a group.</li>
+          <li><b>Details</b> — expands the working directory, agent &amp; PID.</li>
+          <li><b>Time-in-state</b> — how long it’s been working / waiting.</li>
+          <li><b>Status</b> — the live state chip.</li>
+          <li><b>Restart</b> — relaunch the agent in place.</li>
+          <li><b>Close</b> — end the session.</li>
+        </ol>
+      </figure>
+      <div class="note"><b>Waiting on an approval?</b> When an agent asks a yes/no question, an <b>approval bar</b> appears under the header with one-tap <b>Approve</b>, <b>Deny</b>, <b>↵ Enter</b> and <b>Esc</b> buttons — no need to click into the terminal.</div>
+    </section>
+
+    <!-- 05 TILES -->
+    <section class="doc" id="tiles">
+      <div class="sec-eyebrow">05 · In the grid</div>
+      <h2>Grid tiles.</h2>
+      <p class="lead">Each tile in grid view has a compact header over its live terminal. The header is also a drag handle — rearrange tiles by dragging them.</p>
+      <figure>
+        <div class="frame annot" id="annot-tile">
+          <img loading="lazy" src="assets/guide/tile.png" alt="A single grid tile with header controls" />
+          <span class="mark" style="left:9.7%; top:8.9%">1</span>
+          <span class="mark" style="left:23.6%; top:8.9%">2</span>
+          <span class="mark" style="left:69.9%; top:8.9%">3</span>
+          <span class="mark" style="left:82%; top:8.9%">4</span>
+          <span class="mark" style="left:88.2%; top:8.9%">5</span>
+          <span class="mark" style="left:94.4%; top:8.9%">6</span>
+        </div>
+        <ol class="legend">
+          <li><b>Character</b> — click to restyle; drag the header to move the tile.</li>
+          <li><b>Label &amp; group</b> — name and optional group tag.</li>
+          <li><b>Status &amp; time</b> — working / waiting, and for how long.</li>
+          <li><b>Open in focus</b> — expand this session to the full view.</li>
+          <li><b>Minimize</b> — tuck it behind “Show more”.</li>
+          <li><b>Close</b> — end the session.</li>
+        </ol>
+      </figure>
+      <p>A session that needs you glows so it’s obvious even in a crowded grid.</p>
+    </section>
+
+    <!-- 06 STATES -->
+    <section class="doc" id="states">
+      <div class="sec-eyebrow">06 · The whole point</div>
+      <h2>Working vs. waiting.</h2>
+      <p class="lead">Because Crew owns each agent’s terminal (its PTY), it sees the full output stream and knows exactly when it last sent input. That lets it tell a <em>busy</em> agent apart from one that’s <em>blocked on you</em> — and surface the difference everywhere.</p>
+      <div class="chips">
+        <span class="st st--working"><span class="dot"></span>WORKING</span>
+        <span class="st st--waiting">WAITING</span>
+        <span class="st st--approve">APPROVE</span>
+        <span class="st st--idle">IDLE</span>
+        <span class="st st--error">ERROR</span>
+      </div>
+      <ul class="feat">
+        <li><b>Working</b> — output is flowing; the character animates and the chip is cobalt.</li>
+        <li><b>Waiting for you</b> — output went quiet at a prompt; the chip inverts to bright ivory, the loudest state in the app.</li>
+        <li><b>Needs approval</b> — a yes/no gate; answer it from the approval bar.</li>
+        <li><b>Idle / Exited / Error</b> — muted or restrained, so they never compete for attention.</li>
+      </ul>
+      <p>Detection uses output quiescence plus prompt signatures, with a debounce so brief pauses between token bursts don’t flip the dot, and a grace window after you type so echo isn’t mistaken for “done”. A <b>white dot</b> and a menu-bar badge appear when someone needs you; <kbd>⌘J</kbd> jumps straight to the next waiting session.</p>
+    </section>
+
+    <!-- 07 CHARACTERS -->
+    <section class="doc" id="characters">
+      <div class="sec-eyebrow">07 · Make it yours</div>
+      <h2>Characters &amp; colors.</h2>
+      <p class="lead">Every session gets its own animal character and color so you can recognize it at a glance — no reading labels. Click the character (in the title bar or on any tile) to open the picker.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/character-picker.jpg" alt="The character and color picker open" /></div>
+        <figcaption>The picker: choose from the animal gallery (characters already worn by other live sessions are dimmed so each stays unique), then pick an icon color from the swatch row.</figcaption>
+      </figure>
+      <p>The palette is sixteen hand-tuned hues, bright enough to read against the near-black UI:</p>
+      <div class="swatches" id="swatches" aria-hidden="true"></div>
+      <p>New sessions get a random color; change it anytime — it’s remembered per session.</p>
+    </section>
+
+    <!-- 08 NEW SESSION -->
+    <section class="doc" id="new-session">
+      <div class="sec-eyebrow">08 · Launch an agent</div>
+      <h2>Creating a session.</h2>
+      <p class="lead">Hit <b>＋ New Session</b> (or <kbd>⌘N</kbd>) to launch an agent. Crew detects installed agents for you and confirms they’re on your PATH.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/new-session.jpg" alt="The New Session dialog" /></div>
+        <figcaption>New Session: name it, drop it into a group and any workspaces, then pick an agent.</figcaption>
+      </figure>
+      <ol class="steps">
+        <li><b>Label</b> — an optional name (auto-derived from the folder + agent if blank).</li>
+        <li><b>Group</b> — assign a single group tag, used by the “By group” sort.</li>
+        <li><b>Workspaces</b> — add it to one or more workspaces to filter by later.</li>
+        <li><b>Agent</b> — Claude Code, Copilot CLI, a plain Shell, or <b>Custom command…</b> with your own command + arguments.</li>
+      </ol>
+      <p>Open <b>Advanced</b> for an <b>initial prompt</b> sent on launch, a custom <b>working directory</b>, and <b>saved sets</b> — snapshot the currently open sessions under a name and relaunch them all in one click later.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/new-session-advanced.jpg" alt="New Session dialog with Advanced options expanded" /></div>
+        <figcaption>Advanced: initial prompt, working directory, and saved session sets.</figcaption>
+      </figure>
+    </section>
+
+    <!-- 09 GROUPS VS WORKSPACES -->
+    <section class="doc" id="groups-workspaces">
+      <div class="sec-eyebrow">09 · Don’t mix them up</div>
+      <h2>Groups vs. workspaces.</h2>
+      <p class="lead">Two ways to organize sessions — they sound similar but do different jobs.</p>
+      <div class="compare">
+        <div>
+          <div class="tagline group">Group</div>
+          <h4>One label per session</h4>
+          <p>A single tag like <code>frontend</code> or <code>infra</code>. Groups cluster sessions under headers when you sort “By group” — but a session belongs to exactly one.</p>
+        </div>
+        <div>
+          <div class="tagline ws">Workspace</div>
+          <h4>Filter across many</h4>
+          <p>A session can belong to several workspaces (e.g. “July” <em>and</em> “Client X”). Switching the active workspace <b>filters</b> what you see — hidden sessions keep running.</p>
+        </div>
+      </div>
+      <div class="diagram" aria-hidden="true">
+        <svg viewBox="0 0 720 220" role="img">
+          <text x="8" y="24" fill="#8b8b90" font-family="'JetBrains Mono',monospace" font-size="12" letter-spacing="1.5">GROUP · one bucket each</text>
+          <rect x="8" y="40" width="150" height="150" rx="10" fill="#0e0e10" stroke="#1c1c1f"/>
+          <text x="20" y="60" fill="#7ed957" font-family="'JetBrains Mono',monospace" font-size="11">frontend</text>
+          <circle cx="40" cy="92" r="12" fill="none" stroke="#ff7a3c" stroke-width="2"/>
+          <circle cx="74" cy="92" r="12" fill="none" stroke="#8a6dff" stroke-width="2"/>
+          <rect x="8" y="40" width="150" height="150" rx="10" fill="none" stroke="transparent"/>
+          <rect x="170" y="40" width="150" height="150" rx="10" fill="#0e0e10" stroke="#1c1c1f"/>
+          <text x="182" y="60" fill="#37c0e6" font-family="'JetBrains Mono',monospace" font-size="11">infra</text>
+          <circle cx="202" cy="92" r="12" fill="none" stroke="#37c0e6" stroke-width="2"/>
+          <circle cx="236" cy="92" r="12" fill="none" stroke="#7ed957" stroke-width="2"/>
+
+          <line x1="360" y1="40" x2="360" y2="190" stroke="#1c1c1f"/>
+
+          <text x="392" y="24" fill="#8b8b90" font-family="'JetBrains Mono',monospace" font-size="12" letter-spacing="1.5">WORKSPACE · overlapping filters</text>
+          <rect x="392" y="48" width="180" height="120" rx="10" fill="rgba(43,76,242,.10)" stroke="#2b4cf2"/>
+          <text x="404" y="66" fill="#5f79ff" font-family="'JetBrains Mono',monospace" font-size="11">July</text>
+          <rect x="500" y="70" width="180" height="120" rx="10" fill="rgba(126,217,87,.08)" stroke="#4d7a3a"/>
+          <text x="600" y="184" fill="#7ed957" font-family="'JetBrains Mono',monospace" font-size="11" text-anchor="end">Client X</text>
+          <circle cx="452" cy="120" r="13" fill="none" stroke="#ff7a3c" stroke-width="2"/>
+          <circle cx="536" cy="120" r="13" fill="none" stroke="#8a6dff" stroke-width="2"/>
+          <circle cx="620" cy="120" r="13" fill="none" stroke="#37c0e6" stroke-width="2"/>
+        </svg>
+      </div>
+      <p>Switch the active workspace from the command palette (<kbd>⌘K</kbd> → “Workspace: …”) or <b>File › Change Workspace</b>. When a filter is on, the sidebar shows the active workspace with a one-click way to clear it.</p>
+    </section>
+
+    <!-- 10 SORTING -->
+    <section class="doc" id="sorting">
+      <div class="sec-eyebrow">10 · Organize the roster</div>
+      <h2>Sorting &amp; grouping.</h2>
+      <p class="lead">The sort button (in the sidebar toolbar and the grid top bar) groups your sessions four ways.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/sort-menu.jpg" alt="The sort / grouping menu open" /></div>
+        <figcaption>The grouping menu.</figcaption>
+      </figure>
+      <ul class="feat">
+        <li><b>No grouping</b> — one flat, drag-to-reorder list.</li>
+        <li><b>Needs you</b> — splits into “Needs you” and “Working” so blocked agents rise to the top.</li>
+        <li><b>By group</b> — clusters by each session’s group tag (drag a session onto a header to move it).</li>
+        <li><b>By recent</b> — buckets by how recently you prompted it (Last 30 min / 2 hrs / day / week+).</li>
+      </ul>
+      <p>Grouping applies in the grid too — each group becomes its own band:</p>
+      <figure>
+        <div class="frame"><img loading="lazy" src="assets/guide/grid-grouped.jpg" alt="Grid view grouped into Needs you and Working" /></div>
+        <figcaption>Grid grouped by “Needs you”. Groups collapse, reorder by dragging their header, and can tuck stale sessions behind a per-group “Show more”.</figcaption>
+      </figure>
+    </section>
+
+    <!-- 11 ASSETS -->
+    <section class="doc" id="assets">
+      <div class="sec-eyebrow">11 · See what it made</div>
+      <h2>The assets pane.</h2>
+      <p class="lead">The panel on the right of focus view watches the session’s working directory and previews what your agent creates — images, HTML pages, PDFs, video and audio — right inside Crew.</p>
+      <figure>
+        <div class="frame frame--tight"><img loading="lazy" src="assets/guide/assets.png" alt="The assets pane with a preview open" /></div>
+        <figcaption>Newest files first, with thumbnails. Selecting a non-image opens an in-app preview above the list.</figcaption>
+      </figure>
+      <ul class="feat">
+        <li><b>Preview inline</b> — click a page/PDF/video to preview it; click an image to open it in your OS previewer.</li>
+        <li><b>Insert path</b> (⤶) — drops the file’s path into the terminal, ready to reference in your next prompt.</li>
+        <li><b>Reveal in Finder</b> (📂) and <b>Open with default app</b> (↗).</li>
+        <li>Clicking a file path <b>in the terminal</b> previews it here automatically.</li>
+        <li>Collapse the whole pane to a slim rail when you want more terminal.</li>
+      </ul>
+    </section>
+
+    <!-- 12 SKILLS -->
+    <section class="doc" id="skills">
+      <div class="sec-eyebrow">12 · Reusable prompts</div>
+      <h2>Skills.</h2>
+      <p class="lead">The <b>⚡ Skills</b> chip above the terminal opens a gallery of reusable actions. Crew reads the skills your agent actually has installed (Copilot / Claude), and you can pin favorites or add your own.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/skills.jpg" alt="The skills gallery open" /></div>
+        <figcaption>The skills gallery: filter, favorite (★), and invoke.</figcaption>
+      </figure>
+      <ul class="feat">
+        <li><b>Filter</b> to find a skill fast; <b>favorites</b> pin to the front.</li>
+        <li>Click a skill to read its description; click again (or <b>Invoke</b>) to type <code>use &lt;skill&gt; to …</code> into the session for you.</li>
+        <li><b>＋ Add</b> your own custom skills (name, invoke token, description) — stored locally.</li>
+      </ul>
+    </section>
+
+    <!-- 13 BROADCAST -->
+    <section class="doc" id="broadcast">
+      <div class="sec-eyebrow">13 · One prompt, many agents</div>
+      <h2>Broadcast.</h2>
+      <p class="lead">Send the same message to several sessions at once — great for “run the tests” or a coordinated checkpoint.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/broadcast.jpg" alt="The broadcast modal" /></div>
+        <figcaption>Pick which sessions receive it, type your prompt, and send (<kbd>⌘↵</kbd>).</figcaption>
+      </figure>
+      <div class="note"><b>Save &amp; park</b> is a built-in preset: it tells every selected agent to commit its progress (no push), note where it left off, and go idle — a safe way to pause the whole crew before a reboot.</div>
+    </section>
+
+    <!-- 14 ANALYTICS -->
+    <section class="doc" id="analytics">
+      <div class="sec-eyebrow">14 · Where the time &amp; money went</div>
+      <h2>Activity &amp; spend.</h2>
+      <p class="lead">The analytics panel totals how long each session kept you waiting, what it spent, and any credits used — plus a timeline of recent state changes.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/analytics.jpg" alt="The activity and spend panel" /></div>
+        <figcaption>Per-session waiting time, spend and credits, with a running total and a recent-activity feed.</figcaption>
+      </figure>
+    </section>
+
+    <!-- 15 TRANSCRIPTS -->
+    <section class="doc" id="transcripts">
+      <div class="sec-eyebrow">15 · Search your history</div>
+      <h2>Transcripts.</h2>
+      <p class="lead">Turn on <b>Capture transcripts</b> in Settings and Crew saves each session’s output locally so you can search across everything and export a session later. It never leaves your machine.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/transcripts.jpg" alt="The transcripts search modal" /></div>
+        <figcaption>Search saved output across sessions, then export the selected one.</figcaption>
+      </figure>
+    </section>
+
+    <!-- 16 PALETTE -->
+    <section class="doc" id="palette">
+      <div class="sec-eyebrow">16 · Move fast</div>
+      <h2>Command palette &amp; shortcuts.</h2>
+      <p class="lead">Press <kbd>⌘K</kbd> for a fuzzy quick-switcher: jump to any session, run any action, or switch workspace without touching the mouse.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/palette.jpg" alt="The command palette" /></div>
+        <figcaption>The palette lists sessions and actions with their shortcuts.</figcaption>
+      </figure>
+      <div class="keys">
+        <div class="keys__row"><span>Command palette</span><kbd>⌘K</kbd></div>
+        <div class="keys__row"><span>New session</span><kbd>⌘N</kbd></div>
+        <div class="keys__row"><span>New window</span><kbd>⇧⌘N</kbd></div>
+        <div class="keys__row"><span>Jump to next waiting</span><kbd>⌘J</kbd></div>
+        <div class="keys__row"><span>Focus session 1–9</span><kbd>⌘1</kbd>–<kbd>⌘9</kbd></div>
+        <div class="keys__row"><span>Page across grid columns</span><kbd>←</kbd> <kbd>→</kbd></div>
+      </div>
+    </section>
+
+    <!-- 17 SETTINGS -->
+    <section class="doc" id="settings">
+      <div class="sec-eyebrow">17 · Dial it in</div>
+      <h2>Settings.</h2>
+      <p class="lead">Everything is off-by-default-sensible, but you can tune it all.</p>
+      <figure>
+        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/settings.jpg" alt="The settings panel" /></div>
+        <figcaption>Notifications, spend &amp; credits display, transcripts, launch-at-login, a spend budget and stale-session hiding.</figcaption>
+      </figure>
+      <ul class="feat">
+        <li><b>Notifications</b> — native alert (with optional sound) when a session starts waiting; optionally only when Crew isn’t focused.</li>
+        <li><b>Show spend / credits</b> — per-session and total in the sidebar.</li>
+        <li><b>Resume conversations on launch</b> — relaunch restored sessions with the agent’s <code>--continue</code>.</li>
+        <li><b>Capture transcripts</b> and <b>Launch at login</b>.</li>
+        <li><b>Spend budget</b> — warn once total spend crosses a number; <b>Hide stale sessions</b> after N hours in group sort.</li>
+      </ul>
+    </section>
+
+    <!-- 18 AUTOPILOT -->
+    <section class="doc" id="autopilot">
+      <div class="sec-eyebrow">18 · Hands-off runs</div>
+      <h2>Autopilot-aware.</h2>
+      <p class="lead">When an agent is running unattended — approving its own edits — its character puts on a <b>pilot costume</b> (goggles + an ✈ badge), and a little takeoff animation plays across the header. You can tell at a glance which agents are flying solo and which are working with you in the loop.</p>
+    </section>
+
+    <!-- 19 WINDOWS -->
+    <section class="doc" id="windows">
+      <div class="sec-eyebrow">19 · Beyond one window</div>
+      <h2>Windows &amp; the menu bar.</h2>
+      <ul class="feat">
+        <li><b>Multiple windows</b> — <kbd>⇧⌘N</kbd> opens another window onto the same crew, so you can put the grid on one display and a focused session on another.</li>
+        <li><b>Menu-bar badge</b> — a live count of how many sessions are waiting sits in your macOS menu bar; a native notification fires the moment one needs you.</li>
+        <li><b>100% local</b> — Crew owns the terminals on your machine. No account, no network, no telemetry.</li>
+      </ul>
+    </section>
+
+    <!-- 20 START -->
+    <section class="doc" id="start">
+      <div class="sec-eyebrow">20 · Your turn</div>
+      <h2>Getting started.</h2>
+      <p class="lead">That’s the whole tour. Download Crew, launch a couple of agents, and let the crew do the work — you’ll get pinged the moment one needs you.</p>
+      <p>
+        <a class="nav-cta" style="display:inline-block;border-radius:0" href="https://github.com/alexselig/crew/releases/latest/download/Crew-arm64.dmg">↓ Download for macOS</a>
+        &nbsp;&nbsp;<a href="./index.html">Back to the overview →</a>
+      </p>
+      <a class="backtop" href="#top">↑ Back to top</a>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <a class="brand" href="./index.html">Crew</a>
+  <div class="f-links">
+    <a href="./index.html">Home</a>
+    <a href="https://github.com/alexselig/crew">GitHub</a>
+    <a href="https://github.com/alexselig/crew/releases">Releases</a>
+    <a href="#top">Top</a>
+  </div>
+</footer>
+
+<div id="lb"><span class="lb-close">✕ Close</span><img id="lb-img" src="" alt="" /></div>
+
+<script>
+  // Icon color palette (from src/shared/palette.ts) rendered as live swatches.
+  var COLORS = ['#ff5a5a','#ff7a3c','#ff9f2e','#ffd23c','#c6e04a','#7ed957','#45c98a','#34d0c3','#37c0e6','#4aa8ff','#8a6dff','#b57cff','#d86fe0','#ff6fb5','#ff6f8f','#9aa4ad'];
+  var sw = document.getElementById('swatches');
+  if (sw) COLORS.forEach(function(c){ var s=document.createElement('span'); s.className='sw'; s.style.background=c; sw.appendChild(s); });
+
+  // Lightbox: click any framed screenshot to view it large.
+  var lb = document.getElementById('lb'), lbImg = document.getElementById('lb-img');
+  document.querySelectorAll('.frame img').forEach(function(img){
+    img.addEventListener('click', function(){ lbImg.src = img.currentSrc || img.src; lbImg.alt = img.alt; lb.classList.add('open'); });
+  });
+  lb.addEventListener('click', function(){ lb.classList.remove('open'); lbImg.src=''; });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && lb.classList.contains('open')){ lb.classList.remove('open'); lbImg.src=''; } });
+
+  // Scroll-spy: highlight the current section in the sticky table of contents.
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+  var byId = {};
+  links.forEach(function(a){ byId[a.getAttribute('href').slice(1)] = a; });
+  var spy = new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){
+        links.forEach(function(a){ a.classList.remove('is-active'); });
+        var a = byId[en.target.id]; if(a) a.classList.add('is-active');
+      }
+    });
+  }, { rootMargin:'-45% 0px -50% 0px', threshold:0 });
+  document.querySelectorAll('section.doc').forEach(function(s){ spy.observe(s); });
+
+  // Mobile: tap the TOC title to expand/collapse.
+  var toc = document.getElementById('toc');
+  var tocToggle = document.querySelector('.toc__toggle');
+  if(tocToggle){
+    tocToggle.addEventListener('click', function(){
+      if(window.matchMedia('(max-width:960px)').matches){
+        toc.dataset.collapsed = toc.dataset.collapsed === 'true' ? 'false' : 'true';
+      }
+    });
+    if(window.matchMedia('(max-width:960px)').matches) toc.dataset.collapsed = 'true';
+  }
+</script>
+</body>
+</html>
