@@ -68,44 +68,46 @@ export function AnalyticsModal({ roster, characters, onClose }: Props): JSX.Elem
       <div className="modal modal--wide" onMouseDown={(e) => e.stopPropagation()}>
         <h2 className="modal__title">Activity &amp; spend</h2>
 
-        <table className="analytics">
-          <thead>
-            <tr>
-              <th>Session</th>
-              <th>Waiting</th>
-              <th>Spend</th>
-              <th>Credits</th>
-            </tr>
-          </thead>
-          <tbody>
-            {roster.length === 0 ? (
+        <div className="analytics__scroll">
+          <table className="analytics">
+            <thead>
               <tr>
-                <td colSpan={4} className="muted">
-                  No sessions.
-                </td>
+                <th>Session</th>
+                <th>Waiting</th>
+                <th>Spend</th>
+                <th>Credits</th>
               </tr>
-            ) : (
-              roster.map((s) => (
-                <tr key={s.id}>
-                  <td>
-                    <span className="analytics__glyph">{glyph(s.characterId)}</span> {s.label}
+            </thead>
+            <tbody>
+              {roster.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    No sessions.
                   </td>
-                  <td>{fmtDur(waiting[s.id] || 0)}</td>
-                  <td>{formatUsd(s.costUsd)}</td>
-                  <td>{formatCredits(s.creditsUsed)}</td>
                 </tr>
-              ))
-            )}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td>Total</td>
-              <td>{fmtDur(totalWait)}</td>
-              <td>{formatUsd(totalSpend)}</td>
-              <td>{formatCredits(totalCredits)}</td>
-            </tr>
-          </tfoot>
-        </table>
+              ) : (
+                roster.map((s) => (
+                  <tr key={s.id}>
+                    <td>
+                      <span className="analytics__glyph">{glyph(s.characterId)}</span> {s.label}
+                    </td>
+                    <td>{fmtDur(waiting[s.id] || 0)}</td>
+                    <td>{formatUsd(s.costUsd)}</td>
+                    <td>{formatCredits(s.creditsUsed)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                <td>{fmtDur(totalWait)}</td>
+                <td>{formatUsd(totalSpend)}</td>
+                <td>{formatCredits(totalCredits)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
 
         <div className="analytics__timeline">
           <span className="field__label">Recent activity</span>

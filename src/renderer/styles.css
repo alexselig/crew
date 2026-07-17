@@ -1069,6 +1069,7 @@ button {
 .modal {
   width: 460px;
   max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -2687,6 +2688,16 @@ button {
   font-size: 12.5px;
 }
 
+/* Bound the per-session table so a long roster scrolls inside the modal instead
+   of pushing it off-screen. Flexes to share height with the timeline; stays
+   compact when there are only a few sessions. */
+.analytics__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+
 .analytics th {
   text-align: left;
   color: var(--text-dim);
@@ -2695,6 +2706,10 @@ button {
   letter-spacing: 0.4px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
 }
 
 .analytics td {
