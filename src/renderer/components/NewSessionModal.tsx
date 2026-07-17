@@ -240,16 +240,11 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
             value={presetId}
             onChange={(e) => setPresetId(e.target.value)}
           >
-            {presets.map((p) => {
-              const st = agents.find((a) => a.presetId === p.id)
-              const mark = st ? (st.available ? '✓ ' : '✗ ') : ''
-              return (
-                <option key={p.id} value={p.id}>
-                  {mark}
-                  {p.name}
-                </option>
-              )
-            })}
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
             <option value={CUSTOM}>Custom command…</option>
           </select>
           {!isCustom &&
@@ -258,7 +253,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
               if (!st) return null
               return st.available ? (
                 <span className="agent-status agent-status--ok" title={st.path ?? ''}>
-                  ✓ Installed{st.path ? ` · ${st.path}` : ''}
+                  ✓ Installed
                 </span>
               ) : (
                 <span className="agent-status agent-status--missing">

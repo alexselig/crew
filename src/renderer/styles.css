@@ -1170,6 +1170,27 @@ button {
   padding: 12px 14px;
 }
 
+/* Agent picker: replace the native <select> arrow with a custom chevron that's
+   inset from the right edge by the same amount it's inset from the top/bottom,
+   so the caret sits evenly within the field. width:100% keeps the control the
+   same width as the Label input above it. */
+.modal--session select.field__input {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f2f1ea' stroke-opacity='0.6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  background-size: 16px 16px;
+}
+
+/* Group/workspace chip galleries span the full field width so chips wrap at the
+   same right edge as the Label input. */
+.modal--session .ws-picker {
+  width: 100%;
+}
+
 .modal--session .modal__hint {
   font-size: 11.5px;
   line-height: 1.6;
