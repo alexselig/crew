@@ -2802,14 +2802,42 @@ button {
 }
 
 .ws-chip.is-on {
-  background: transparent;
-  border-color: var(--accent);
-  color: var(--ivory);
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
 }
 
-.ws-chip__mark {
-  font-size: 11px;
-  opacity: 0.9;
+.ws-chip.is-on:hover {
+  background: var(--accent-hover);
+  border-color: transparent;
+}
+
+/* Collapsed Workspaces view: the current (default) pick shown as a static chip
+   next to a "Change" link that reveals the full picker + new-workspace field. */
+.ws-chip--static {
+  cursor: default;
+}
+
+.ws-chip--static:hover {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.ws-change {
+  background: transparent;
+  border: none;
+  color: var(--accent-text);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 3px;
+  transition: color 0.12s;
+}
+
+.ws-change:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 .modal__hint--tight {

@@ -38,6 +38,9 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
   const [selectedSets, setSelectedSets] = useState<string[]>(() => normalizeSetNames(defaultSets))
   const [extraNames, setExtraNames] = useState<string[]>([])
   const [newWs, setNewWs] = useState('')
+  // The Workspaces section starts collapsed to the default (most-recently-used)
+  // pick with a "Change" button; expanding reveals the full picker + new field.
+  const [wsExpanded, setWsExpanded] = useState(false)
   const firstFieldRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -168,7 +171,6 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
                 aria-pressed={isGroup(name)}
                 onClick={() => setGroup(isGroup(name) ? '' : name)}
               >
-                <span className="ws-chip__mark">＋</span>
                 {name}
               </button>
             ))}
@@ -197,40 +199,58 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
           <p className="modal__hint modal__hint--tight">
             Add this session to one or more workspaces — switch between them from File › Change Workspace.
           </p>
-          <div className="ws-picker">
-            {availableSets.length === 0 && (
-              <span className="sets__empty">No workspaces yet — add one below.</span>
-            )}
-            {availableSets.map((name) => (
-              <button
-                type="button"
-                key={name}
-                className={`ws-chip ${isSelected(name) ? 'is-on' : ''}`}
-                aria-pressed={isSelected(name)}
-                onClick={() => toggleSet(name)}
-              >
-                <span className="ws-chip__mark">＋</span>
-                {name}
+          {!wsExpanded && availableSets.length > 0 ? (
+            <div className="ws-picker ws-picker--current">
+              {selectedSets.length > 0 ? (
+                selectedSets.map((name) => (
+                  <span key={name} className="ws-chip is-on ws-chip--static">
+                    {name}
+                  </span>
+                ))
+              ) : (
+                <span className="sets__empty">No workspace</span>
+              )}
+              <button type="button" className="ws-change" onClick={() => setWsExpanded(true)}>
+                Change
               </button>
-            ))}
-          </div>
-          <div className="sets__save">
-            <input
-              className="field__input"
-              placeholder="New workspace name…"
-              value={newWs}
-              onChange={(e) => setNewWs(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  addWorkspace()
-                }
-              }}
-            />
-            <button type="button" className="btn" disabled={!newWs.trim()} onClick={addWorkspace}>
-              ＋ Add
-            </button>
-          </div>
+            </div>
+          ) : (
+            <>
+              <div className="ws-picker">
+                {availableSets.length === 0 && (
+                  <span className="sets__empty">No workspaces yet — add one below.</span>
+                )}
+                {availableSets.map((name) => (
+                  <button
+                    type="button"
+                    key={name}
+                    className={`ws-chip ${isSelected(name) ? 'is-on' : ''}`}
+                    aria-pressed={isSelected(name)}
+                    onClick={() => toggleSet(name)}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+              <div className="sets__save">
+                <input
+                  className="field__input"
+                  placeholder="New workspace name…"
+                  value={newWs}
+                  onChange={(e) => setNewWs(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addWorkspace()
+                    }
+                  }}
+                />
+                <button type="button" className="btn" disabled={!newWs.trim()} onClick={addWorkspace}>
+                  ＋ Add
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         <label className="field">
