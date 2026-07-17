@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { groupSessions, partitionStale, _resetRecencyOrder } from '../src/renderer/grouping'
+import { groupSessions, partitionHidden, recencyOf, _resetRecencyOrder } from '../src/renderer/grouping'
 import type { SessionInfo } from '../src/shared/types'
 
 const MIN = 60_000
@@ -177,20 +177,32 @@ describe("groupSessions 'recent'", () => {
   })
 })
 
-describe('partitionStale', () => {
+describe('partitionHidden', () => {
   const now = Date.now()
   const cutoff = now - 12 * HOUR
+  const staleOrMinimized = (minimized: Set<string>) => (s: ReturnType<typeof sess>) =>
+    minimized.has(s.id) || recencyOf(s) < cutoff
 
-  it('splits a group into sessions used within the window and stale ones', () => {
+  it('splits a bucket into visible and hidden (stale) sessions', () => {
     const items = [
       sess({ id: 'fresh', lastPromptAt: now - 1 * HOUR }),
       sess({ id: 'stale', lastPromptAt: now - 20 * HOUR }),
       sess({ id: 'edge-in', lastPromptAt: cutoff }),
       sess({ id: 'edge-out', lastPromptAt: cutoff - 1 })
     ]
-    const { recent, stale } = partitionStale(items, cutoff)
-    expect(recent.map((s) => s.id)).toEqual(['fresh', 'edge-in'])
-    expect(stale.map((s) => s.id)).toEqual(['stale', 'edge-out'])
+    const { visible, hidden } = partitionHidden(items, staleOrMinimized(new Set()))
+    expect(visible.map((s) => s.id)).toEqual(['fresh', 'edge-in'])
+    expect(hidden.map((s) => s.id)).toEqual(['stale', 'edge-out'])
+  })
+
+  it('hides manually-minimized sessions regardless of recency', () => {
+    const items = [
+      sess({ id: 'fresh', lastPromptAt: now - 1 * HOUR }),
+      sess({ id: 'min', lastPromptAt: now - 1 * MIN })
+    ]
+    const { visible, hidden } = partitionHidden(items, staleOrMinimized(new Set(['min'])))
+    expect(visible.map((s) => s.id)).toEqual(['fresh'])
+    expect(hidden.map((s) => s.id)).toEqual(['min'])
   })
 
   it('uses createdAt when a session was never prompted', () => {
@@ -198,9 +210,9 @@ describe('partitionStale', () => {
       sess({ id: 'new', createdAt: now - 2 * HOUR, lastPromptAt: undefined }),
       sess({ id: 'old', createdAt: now - 30 * HOUR, lastPromptAt: undefined })
     ]
-    const { recent, stale } = partitionStale(items, cutoff)
-    expect(recent.map((s) => s.id)).toEqual(['new'])
-    expect(stale.map((s) => s.id)).toEqual(['old'])
+    const { visible, hidden } = partitionHidden(items, staleOrMinimized(new Set()))
+    expect(visible.map((s) => s.id)).toEqual(['new'])
+    expect(hidden.map((s) => s.id)).toEqual(['old'])
   })
 
   it('preserves input order within each partition', () => {
@@ -210,8 +222,8 @@ describe('partitionStale', () => {
       sess({ id: 'c', lastPromptAt: now - 2 * HOUR }),
       sess({ id: 'd', lastPromptAt: now - 50 * HOUR })
     ]
-    const { recent, stale } = partitionStale(items, cutoff)
-    expect(recent.map((s) => s.id)).toEqual(['a', 'c'])
-    expect(stale.map((s) => s.id)).toEqual(['b', 'd'])
+    const { visible, hidden } = partitionHidden(items, staleOrMinimized(new Set()))
+    expect(visible.map((s) => s.id)).toEqual(['a', 'c'])
+    expect(hidden.map((s) => s.id)).toEqual(['b', 'd'])
   })
 })

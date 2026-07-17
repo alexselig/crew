@@ -270,6 +270,8 @@ export function App(): JSX.Element {
         onSetGroupMode={c.setGroupMode}
         collapsedGroups={c.collapsedGroups}
         onToggleGroup={c.toggleGroup}
+        minimized={c.minimized}
+        onToggleMinimize={c.toggleMinimize}
         groupOrder={c.groupOrder}
         onReorderGroups={c.reorderGroups}
         onSelect={c.setSelectedId}
@@ -301,6 +303,8 @@ export function App(): JSX.Element {
           onSetGroupMode={c.setGroupMode}
           collapsedGroups={c.collapsedGroups}
           onToggleGroup={c.toggleGroup}
+          minimized={c.minimized}
+          onToggleMinimize={c.toggleMinimize}
           groupOrder={c.groupOrder}
           onReorderGroups={c.reorderGroups}
           onSelect={c.setSelectedId}
@@ -315,6 +319,7 @@ export function App(): JSX.Element {
           onAnalytics={() => setShowAnalytics(true)}
           showSpend={c.settings?.showSpend ?? true}
           showCredits={c.settings?.showCredits ?? false}
+          staleHideHours={c.settings?.staleHideHours ?? 12}
           onReorder={(ids) => void window.crew.reorder(ids)}
           onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
           allGroups={existingGroups(c.roster)}

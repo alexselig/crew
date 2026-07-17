@@ -47,6 +47,9 @@ export interface CrewState {
   setGroupMode: (m: GroupMode) => void
   collapsedGroups: Set<string>
   toggleGroup: (name: string) => void
+  /** Session ids the user has minimized (hidden behind a per-bucket "show more"). */
+  minimized: Set<string>
+  toggleMinimize: (id: string) => void
   groupOrder: string[]
   reorderGroups: (names: string[]) => void
   /** Active workspace filter (null = All Sessions). */
@@ -100,6 +103,15 @@ export function useCrew(): CrewState {
       return []
     }
   })
+  // Minimized sessions are stored unscoped (shared across windows) — minimizing
+  // is a property of the session, not of one window's layout.
+  const [minimized, setMinimized] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem('crew.minimized') || '[]'))
+    } catch {
+      return new Set<string>()
+    }
+  })
   const [settings, setSettings] = useState<Settings | null>(null)
   const [activeWorkspace, setActiveWorkspaceState] = useState<string | null>(
     () => readViewPref('activeWorkspace') || null
@@ -144,6 +156,15 @@ export function useCrew(): CrewState {
   const reorderGroups = (names: string[]): void => {
     setGroupOrderState(names)
     writeViewPref('groupOrder', JSON.stringify(names))
+  }
+  const toggleMinimize = (id: string): void => {
+    setMinimized((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      localStorage.setItem('crew.minimized', JSON.stringify([...n]))
+      return n
+    })
   }
   const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]): void => {
     void window.crew.updateSettings({ [key]: value } as Partial<Settings>).then(setSettings)
@@ -236,6 +257,8 @@ export function useCrew(): CrewState {
     setGroupMode,
     collapsedGroups,
     toggleGroup,
+    minimized,
+    toggleMinimize,
     groupOrder,
     reorderGroups,
     activeWorkspace,

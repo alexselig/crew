@@ -1,10 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { GridTile } from './GridTile'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { ResumeSets } from './ResumeSets'
-import { groupSessions, existingGroups, type GroupMode } from '../grouping'
+import { groupSessions, existingGroups, partitionHidden, recencyOf, type GroupMode } from '../grouping'
 import { useCardDnd } from '../useCardDnd'
 import { useNowTick } from '../hooks'
 import type { ViewMode, GridDensity } from '../hooks'
@@ -20,6 +20,11 @@ interface Props {
   onSetGroupMode: (m: GroupMode) => void
   collapsedGroups: Set<string>
   onToggleGroup: (name: string) => void
+  /** Minimized session ids (hidden behind a per-group "show more"). */
+  minimized: Set<string>
+  onToggleMinimize: (id: string) => void
+  /** Hours after which an unused session is hidden in group (tag) sort (0 = off). */
+  staleHideHours: number
   groupOrder: string[]
   onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
@@ -51,6 +56,9 @@ export function GridView({
   activeWorkspace,
   groupMode,
   onSetGroupMode,
+  minimized,
+  onToggleMinimize,
+  staleHideHours,
   groupOrder,
   onSelect,
   onExpand,
@@ -71,6 +79,19 @@ export function GridView({
   // Tiles hold static positions (roster order) the user can rearrange by dragging.
   const grouped = groupMode !== 'none'
   useNowTick(grouped && groupMode === 'recent')
+  // Per-bucket "show more" reveal state (bucket name, or '__all__' when ungrouped).
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+  const toggleExpand = (key: string): void =>
+    setExpandedGroups((prev) => {
+      const n = new Set(prev)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
+      return n
+    })
+  const staleCutoff = Date.now() - staleHideHours * 60 * 60 * 1000
+  const isHidden = (s: SessionInfo): boolean =>
+    minimized.has(s.id) ||
+    (groupMode === 'tag' && staleHideHours > 0 && recencyOf(s) < staleCutoff)
   // `density` sets the flat grid's density class on <main> + the grid. Grouped view
   // scrolls horizontally instead (each group is a column-major band via
   // `grid--g-${gridDensity}`), so it leaves <main> without the density class.
@@ -131,6 +152,8 @@ export function GridView({
         onSelect={() => onSelect(s.id)}
         onExpand={() => onExpand(s.id)}
         onClose={() => onClose(s.id)}
+        onMinimize={() => onToggleMinimize(s.id)}
+        minimized={minimized.has(s.id)}
         onSetCharacter={onSetCharacter}
         onSetColor={onSetColor}
         onSetTag={(t) => onSetTag(s.id, t)}
@@ -185,14 +208,53 @@ export function GridView({
       <div className="gridview__scroll">
         {grouped ? (
           <div className="grid-groups">
-            {groups.map((g) => (
-              <section className="grid-group" key={g.name}>
-                <div className={`grid grid--grouped grid--g-${gridDensity}`}>{g.items.map(renderTile)}</div>
-              </section>
-            ))}
+            {groups.map((g) => {
+              const { visible, hidden } = partitionHidden(g.items, isHidden)
+              const open = expandedGroups.has(g.name)
+              return (
+                <section className="grid-group" key={g.name}>
+                  <div className={`grid grid--grouped grid--g-${gridDensity}`}>
+                    {visible.map(renderTile)}
+                    {open && hidden.map(renderTile)}
+                    {hidden.length > 0 && (
+                      <button
+                        type="button"
+                        className="grid-showmore"
+                        onClick={() => toggleExpand(g.name)}
+                      >
+                        <span className="grid-showmore__name">{g.name}</span>
+                        <span className="grid-showmore__more">
+                          {open ? 'Show less' : `Show ${hidden.length} more`}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </section>
+              )
+            })}
           </div>
         ) : (
-          <div className={`grid ${density ? `grid--${density}` : ''}`}>{roster.map(renderTile)}</div>
+          (() => {
+            const { visible, hidden } = partitionHidden(roster, isHidden)
+            const open = expandedGroups.has('__all__')
+            return (
+              <div className={`grid ${density ? `grid--${density}` : ''}`}>
+                {visible.map(renderTile)}
+                {open && hidden.map(renderTile)}
+                {hidden.length > 0 && (
+                  <button
+                    type="button"
+                    className="grid-showmore"
+                    onClick={() => toggleExpand('__all__')}
+                  >
+                    <span className="grid-showmore__more">
+                      {open ? 'Show less' : `Show ${hidden.length} more`}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )
+          })()
         )}
       </div>
     </main>

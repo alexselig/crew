@@ -17,6 +17,9 @@ interface Props {
   onSelect: () => void
   onRestart: () => void
   onClose: () => void
+  /** Minimize (hide behind the bucket's "show more"). Omitted → no button. */
+  onMinimize?: () => void
+  minimized?: boolean
   isDragging?: boolean
   isDragOver?: boolean
   onDragStart?: (e: React.DragEvent) => void
@@ -37,6 +40,8 @@ export function SessionCard({
   onSelect,
   onRestart,
   onClose,
+  onMinimize,
+  minimized,
   isDragging,
   isDragOver,
   onDragStart,
@@ -123,6 +128,21 @@ export function SessionCard({
             }}
           >
             ↻
+          </button>
+        )}
+        {onMinimize && (
+          <button
+            type="button"
+            className="mini-btn mini-btn--icon"
+            title={minimized ? 'Restore session' : 'Minimize — hide until “Show more”'}
+            onClick={(e) => {
+              e.stopPropagation()
+              onMinimize()
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
           </button>
         )}
         <button

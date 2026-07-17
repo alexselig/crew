@@ -59,24 +59,22 @@ function recentBucket(ageMs: number): string {
 
 /** The timestamp a session is bucketed by in 'recent' mode: the user's last
  * prompt, falling back to creation time for sessions never prompted. */
-function recencyOf(s: SessionInfo): number {
+export function recencyOf(s: SessionInfo): number {
   return s.lastPromptAt ?? s.createdAt
 }
 
-/** Split a group's sessions (preserving order) into those used at or after
- * `staleBeforeMs` and the stale rest. Used for the per-group "show more" in
- * group (tag) sort, which hides sessions not used within a configured window. */
-export function partitionStale(
+/** Split a bucket's sessions (preserving order) into visible ones and hidden
+ * ones, per the `isHidden` predicate. Hidden sessions are tucked behind a
+ * per-bucket "show more" (they're stale in group sort, or manually minimized in
+ * any view). */
+export function partitionHidden(
   items: SessionInfo[],
-  staleBeforeMs: number
-): { recent: SessionInfo[]; stale: SessionInfo[] } {
-  const recent: SessionInfo[] = []
-  const stale: SessionInfo[] = []
-  for (const s of items) {
-    if (recencyOf(s) >= staleBeforeMs) recent.push(s)
-    else stale.push(s)
-  }
-  return { recent, stale }
+  isHidden: (s: SessionInfo) => boolean
+): { visible: SessionInfo[]; hidden: SessionInfo[] } {
+  const visible: SessionInfo[] = []
+  const hidden: SessionInfo[] = []
+  for (const s of items) (isHidden(s) ? hidden : visible).push(s)
+  return { visible, hidden }
 }
 
 /** Bucket sessions for grouped display. Roster order is preserved within each

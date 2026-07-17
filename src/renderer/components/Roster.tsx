@@ -6,7 +6,7 @@ import { SessionCard } from './SessionCard'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { ViewToggle } from './ViewToggle'
-import { groupSessions, partitionStale, type GroupMode } from '../grouping'
+import { groupSessions, partitionHidden, recencyOf, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
 import { useNowTick } from '../hooks'
@@ -30,6 +30,9 @@ interface Props {
   onSetGroupMode: (m: GroupMode) => void
   collapsedGroups: Set<string>
   onToggleGroup: (name: string) => void
+  /** Minimized session ids (hidden behind a per-bucket "show more"). */
+  minimized: Set<string>
+  onToggleMinimize: (id: string) => void
   groupOrder: string[]
   onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
@@ -72,6 +75,8 @@ export function Roster(props: Props): JSX.Element {
     onSetGroupMode,
     collapsedGroups,
     onToggleGroup,
+    minimized,
+    onToggleMinimize,
     groupOrder,
     onReorderGroups,
     onSelect,
@@ -191,6 +196,8 @@ export function Roster(props: Props): JSX.Element {
         onSelect={() => onSelect(s.id)}
         onRestart={() => onRestart(s.id)}
         onClose={() => onClose(s.id)}
+        onMinimize={() => onToggleMinimize(s.id)}
+        minimized={minimized.has(s.id)}
         onDragStart={h?.onDragStart}
         onDragOver={h?.onDragOver}
         onDrop={h?.onDrop}
@@ -205,21 +212,25 @@ export function Roster(props: Props): JSX.Element {
     onReorderGroups
   )
 
-  // Per-group stale hiding applies only to group (tag) sort in the expanded nav.
-  // A session is "stale" when it hasn't been prompted within staleHideHours.
-  const canHideStale = groupMode === 'tag' && !railed && staleHideHours > 0
+  // Hiding + per-bucket "show more" apply in the expanded nav (not the compact
+  // rail). A session is hidden when it's been manually minimized, or — in group
+  // (tag) sort — when it hasn't been prompted within staleHideHours.
+  const canHide = !railed
   const staleCutoff = Date.now() - staleHideHours * 60 * 60 * 1000
-  function renderGroupItems(items: SessionInfo[], name: string): React.ReactNode {
-    if (!canHideStale) return items.map(renderCard)
-    const { recent, stale } = partitionStale(items, staleCutoff)
-    const open = expandedStale.has(name)
+  const isHidden = (s: SessionInfo): boolean =>
+    minimized.has(s.id) ||
+    (groupMode === 'tag' && staleHideHours > 0 && recencyOf(s) < staleCutoff)
+  function renderBucket(items: SessionInfo[], key: string): React.ReactNode {
+    if (!canHide) return items.map(renderCard)
+    const { visible, hidden } = partitionHidden(items, isHidden)
+    const open = expandedStale.has(key)
     return (
       <>
-        {recent.map(renderCard)}
-        {open && stale.map(renderCard)}
-        {stale.length > 0 && (
-          <button type="button" className="group__showmore" onClick={() => toggleStale(name)}>
-            {open ? 'Show less' : `Show ${stale.length} more`}
+        {visible.map(renderCard)}
+        {open && hidden.map(renderCard)}
+        {hidden.length > 0 && (
+          <button type="button" className="group__showmore" onClick={() => toggleStale(key)}>
+            {open ? 'Show less' : `Show ${hidden.length} more`}
           </button>
         )}
       </>
@@ -330,11 +341,11 @@ export function Roster(props: Props): JSX.Element {
                   <Icon name={collapsedGroups.has(g.name) ? 'chevron-right' : 'chevron-down'} size={13} />
                 </span>
               </button>
-              {!collapsedGroups.has(g.name) && renderGroupItems(g.items, g.name)}
+              {!collapsedGroups.has(g.name) && renderBucket(g.items, g.name)}
             </div>
           ))
         ) : (
-          roster.map(renderCard)
+          renderBucket(roster, '__all__')
         )}
       </div>
 

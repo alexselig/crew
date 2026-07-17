@@ -20,6 +20,8 @@ interface Props {
   onSelect: () => void
   onExpand: () => void
   onClose: () => void
+  onMinimize: () => void
+  minimized: boolean
   onSetCharacter: (id: string, characterId: string) => void
   onSetColor: (id: string, color: string) => void
   onSetTag: (tag: string) => void
@@ -44,6 +46,8 @@ export function GridTile({
   onSelect,
   onExpand,
   onClose,
+  onMinimize,
+  minimized,
   onSetCharacter,
   onSetColor,
   onSetTag,
@@ -124,6 +128,19 @@ export function GridTile({
           >
             <polyline points="15 3 21 3 21 9" />
             <polyline points="9 21 3 21 3 15" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="mini-btn mini-btn--icon"
+          title={minimized ? 'Restore session' : 'Minimize — hide until “Show more”'}
+          onClick={(e) => {
+            e.stopPropagation()
+            onMinimize()
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
         </button>
         <button
