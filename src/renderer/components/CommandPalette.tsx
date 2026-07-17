@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 export interface PaletteItem {
   id: string
   label: string
   hint?: string
-  glyph?: string
+  /** Rendered leading icon (an <Icon> or character mark). */
+  icon?: ReactNode
   keywords?: string
   run: () => void
 }
@@ -80,7 +81,7 @@ export function CommandPalette({ items, onClose }: Props): JSX.Element {
                   onClose()
                 }}
               >
-                <span className="palette__glyph">{it.glyph ?? '⚡'}</span>
+                <span className="palette__glyph">{it.icon}</span>
                 <span className="palette__label">{it.label}</span>
                 {it.hint && <span className="palette__hint">{it.hint}</span>}
               </button>

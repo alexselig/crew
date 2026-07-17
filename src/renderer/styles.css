@@ -1782,9 +1782,12 @@ button {
 }
 
 .palette__glyph {
-  font-size: 16px;
-  width: 20px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  flex: none;
 }
 
 .palette__label {

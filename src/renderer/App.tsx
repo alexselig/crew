@@ -11,6 +11,8 @@ import { AnalyticsModal } from './components/AnalyticsModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { TitleSequence } from './components/TitleSequence'
+import { Icon } from './components/Icon'
+import { Character } from './components/Character'
 import { focusTerminal } from './terminal-pool'
 import { existingGroups } from './grouping'
 import { arrowNavIntent } from './gridNav'
@@ -184,48 +186,60 @@ export function App(): JSX.Element {
   }, [c.roster, c.selectedId])
 
   const paletteItems = useMemo<PaletteItem[]>(() => {
-    const sessionItems: PaletteItem[] = visibleRoster.map((s) => ({
-      id: 'sess-' + s.id,
-      label: s.label,
-      hint: STATE_META[s.state].label,
-      glyph: c.characters.find((ch) => ch.id === s.characterId)?.glyph ?? '●',
-      keywords: s.cwd,
-      run: () => focusSession(s.id)
-    }))
+    const sessionItems: PaletteItem[] = visibleRoster.map((s) => {
+      const ch = c.characters.find((x) => x.id === s.characterId)
+      return {
+        id: 'sess-' + s.id,
+        label: s.label,
+        hint: STATE_META[s.state].label,
+        icon: (
+          <Character
+            glyph={ch?.glyph ?? '●'}
+            id={s.characterId}
+            color={s.color}
+            state={s.state}
+            size={18}
+            dot={false}
+          />
+        ),
+        keywords: s.cwd,
+        run: () => focusSession(s.id)
+      }
+    })
     const actions: PaletteItem[] = [
-      { id: 'act-new', label: 'New Session', glyph: '＋', hint: '⌘N', run: () => c.setShowNew(true) },
+      { id: 'act-new', label: 'New Session', icon: <Icon name="plus" />, hint: '⌘N', run: () => c.setShowNew(true) },
       {
         id: 'act-window',
         label: 'New Window',
-        glyph: '⧉',
+        icon: <Icon name="windows" />,
         hint: '⇧⌘N',
         run: () => void window.crew.openWindow()
       },
       {
         id: 'act-view',
         label: c.viewMode === 'grid' ? 'Switch to focus view' : 'Switch to grid view',
-        glyph: c.viewMode === 'grid' ? '▤' : '▦',
+        icon: <Icon name={c.viewMode === 'grid' ? 'columns' : 'grid'} />,
         run: () => c.setViewMode(c.viewMode === 'grid' ? 'single' : 'grid')
       },
-      { id: 'act-next', label: 'Jump to next waiting', glyph: '🔴', hint: '⌘J', run: jumpNextWaiting },
-      { id: 'act-broadcast', label: 'Broadcast a prompt…', glyph: '📣', run: () => setShowBroadcast(true) },
-      { id: 'act-analytics', label: 'Activity & spend', glyph: '📊', run: () => setShowAnalytics(true) },
-      { id: 'act-transcripts', label: 'Search transcripts…', glyph: '🔎', run: () => setShowTranscripts(true) },
-      { id: 'act-settings', label: 'Open Settings', glyph: '⚙', run: () => setShowSettings(true) }
+      { id: 'act-next', label: 'Jump to next waiting', icon: <Icon name="bell" />, hint: '⌘J', run: jumpNextWaiting },
+      { id: 'act-broadcast', label: 'Broadcast a prompt…', icon: <Icon name="broadcast" />, run: () => setShowBroadcast(true) },
+      { id: 'act-analytics', label: 'Activity & spend', icon: <Icon name="chart" />, run: () => setShowAnalytics(true) },
+      { id: 'act-transcripts', label: 'Search transcripts…', icon: <Icon name="search" />, run: () => setShowTranscripts(true) },
+      { id: 'act-settings', label: 'Open Settings', icon: <Icon name="settings" />, run: () => setShowSettings(true) }
     ]
     // Workspace switching (mirrors the File → Change Workspace menu).
     const workspaceItems: PaletteItem[] = [
       {
         id: 'ws-all',
         label: 'Workspace: All Sessions',
-        glyph: '🗂',
+        icon: <Icon name="filter" />,
         keywords: 'workspace change filter set',
         run: () => c.setActiveWorkspace(null)
       },
       ...c.workspaces.map((name) => ({
         id: 'ws-' + name,
         label: `Workspace: ${name}`,
-        glyph: '🗂',
+        icon: <Icon name="filter" />,
         keywords: 'workspace change filter set',
         run: () => c.setActiveWorkspace(name)
       }))
