@@ -38,6 +38,40 @@
   #lightbox .lb-prev { left:-72px; }
   #lightbox .lb-next { right:-72px; }
   #lightbox .lb-close { position:absolute; top:-48px; right:0; color:#9a9aa0; font-size:13px; cursor:pointer; }
+
+  /* ---------- responsive ---------- */
+  /* The page was handed off as a fixed 1440px card; make it fluid without
+     changing the desktop design (identical at >=1440, shrinks below). */
+  #top { width:100% !important; max-width:1440px; }
+  @media (max-width:1024px){
+    #lightbox { padding:24px; }
+    #lightbox .lb-prev { left:8px; }
+    #lightbox .lb-next { right:8px; }
+  }
+  @media (max-width:900px){
+    .idx-nav { padding:18px 22px !important; }
+    .idx-nav__links { gap:18px !important; }
+    .idx-hero { padding:6px 22px 0 !important; }
+    .idx-hero h1 { font-size:40px !important; }
+    .idx-hero__meta { margin-bottom:40px !important; }
+    .idx-heroviz { padding:0 22px 40px !important; }
+    .idx-shot-bg { display:none !important; }
+    .idx-shot-fg { width:100% !important; }
+    .idx-features { padding:0 22px 64px !important; }
+    .idx-featgrid { grid-template-columns:repeat(2,1fr) !important; }
+    .idx-how { padding:0 26px 72px !important; }
+    .idx-cta { margin:0 22px 48px !important; padding:48px 26px !important; }
+    .idx-footer { padding:24px 22px !important; flex-direction:column; gap:14px; text-align:center; }
+  }
+  @media (max-width:600px){
+    .idx-nav__links a:not(.idx-nav__cta){ display:none; }
+    .idx-hero h1 { font-size:31px !important; }
+    .idx-hero__cta { flex-direction:column; align-items:center; }
+    .idx-hero__cta a { width:100%; max-width:340px; justify-content:center; text-align:center; }
+    .idx-featgrid { grid-template-columns:1fr !important; }
+    .idx-cta__btns { flex-direction:column; align-items:center; }
+    .idx-cta__btns a { width:100%; max-width:340px; text-align:center; }
+  }
 </style>
 </head>
 <body>
@@ -45,16 +79,16 @@
 <section id="top" style="width:1440px; margin:0 auto; background:#0a0a0b; border-radius:16px; overflow:hidden; box-shadow:0 50px 120px rgba(0,0,0,0.65); border:1px solid #1c1c1f; font-family:'JetBrains Mono',monospace;">
 
   <!-- NAV -->
-  <div style="display:flex; align-items:center; justify-content:space-between; padding:26px 56px;">
+  <div class="idx-nav" style="display:flex; align-items:center; justify-content:space-between; padding:26px 56px;">
     <span style="font-family:'Newsreader',serif; font-style:italic; font-size:26px; color:#f2f1ea; font-weight:500;">Crew</span>
-    <div style="display:flex; align-items:center; gap:36px; font-size:13px; color:#a6a6ac;">
+    <div class="idx-nav__links" style="display:flex; align-items:center; gap:36px; font-size:13px; color:#a6a6ac;">
       <a href="#features" style="color:#a6a6ac;">Features</a><a href="#how" style="color:#a6a6ac;">How it works</a><a href="./guide.html" style="color:#a6a6ac;">Guide</a><a href="https://github.com/alexselig/crew" style="color:#a6a6ac;">GitHub</a>
-      <a href="#download" style="background:#2b4cf2; color:#f2f1ea; font-size:13px; font-weight:600; padding:10px 20px; border-radius:0;">Download</a>
+      <a class="idx-nav__cta" href="#download" style="background:#2b4cf2; color:#f2f1ea; font-size:13px; font-weight:600; padding:10px 20px; border-radius:0;">Download</a>
     </div>
   </div>
 
   <!-- HERO: leading line + real icons below, no tiles -->
-  <div style="padding:20px 56px 0; text-align:center;">
+  <div class="idx-hero" style="padding:20px 56px 0; text-align:center;">
     <h1 style="font-family:'Newsreader',serif; font-style:italic; font-weight:500; font-size:60px; line-height:1.1; color:#f2f1ea; max-width:900px; margin:0 auto 28px; letter-spacing:-0.01em;">
       Mission control for your terminals, staffed by a <span style="color:#5f79ff;">crew</span>.
     </h1>
@@ -78,23 +112,23 @@
     <p style="font-size:16.5px; line-height:1.6; color:#a6a6ac; max-width:580px; margin:0 auto 36px;">
       Run Claude Code, Copilot CLI, and shells side by side. Crew owns every terminal, so it always knows which agent is working — and which one is waiting on you.
     </p>
-    <div style="display:flex; gap:14px; justify-content:center; margin-bottom:20px;">
+    <div class="idx-hero__cta" style="display:flex; gap:14px; justify-content:center; margin-bottom:20px;">
       <a href="https://github.com/alexselig/crew/releases/latest/download/Crew-arm64.dmg" style="background:#2b4cf2; color:#f2f1ea; font-size:15px; font-weight:600; padding:15px 28px; border-radius:0; box-shadow:0 8px 24px rgba(43,76,242,0.35);">↓ Download for macOS</a>
       <a href="https://github.com/alexselig/crew" style="border:1px solid #2a2a2e; color:#d4d4d8; font-size:15px; font-weight:500; padding:15px 28px; border-radius:0;">View source</a>
     </div>
-    <div style="font-size:12.5px; color:#6b6b70; margin-bottom:56px;">Apple Silicon &nbsp;·&nbsp; free &amp; open &nbsp;·&nbsp; 100% local, no telemetry</div>
+    <div class="idx-hero__meta" style="font-size:12.5px; color:#6b6b70; margin-bottom:56px;">Apple Silicon &nbsp;·&nbsp; free &amp; open &nbsp;·&nbsp; 100% local, no telemetry</div>
   </div>
 
   <!-- HERO VISUAL: layered screenshots (from 3A) -->
-  <div style="position:relative; padding:0 56px 140px; display:flex; justify-content:center;">
+  <div class="idx-heroviz" style="position:relative; padding:0 56px 140px; display:flex; justify-content:center;">
     <div style="position:relative; width:100%; max-width:1240px;">
-      <div onclick="lbOpen(1)" style="position:absolute; right:0; top:64px; width:56%; border-radius:12px; overflow:hidden; border:1px solid #1c1c1f; box-shadow:0 40px 90px rgba(0,0,0,0.55); opacity:0.9; z-index:1; cursor:pointer;">
+      <div class="idx-shot-bg" onclick="lbOpen(1)" style="position:absolute; right:0; top:64px; width:56%; border-radius:12px; overflow:hidden; border:1px solid #1c1c1f; box-shadow:0 40px 90px rgba(0,0,0,0.55); opacity:0.9; z-index:1; cursor:pointer;">
         <div style="display:flex; align-items:center; gap:6px; padding:9px 12px; background:#151517;">
           <span style="width:9px; height:9px; border-radius:50%; background:#33333a;"></span><span style="width:9px; height:9px; border-radius:50%; background:#33333a;"></span><span style="width:9px; height:9px; border-radius:50%; background:#33333a;"></span>
         </div>
         <img src="assets/screenshots/sidebar-collapsed.jpg" style="display:block; width:100%;" alt="Crew sidebar collapsed view">
       </div>
-      <div onclick="lbOpen(0)" style="position:relative; width:78%; border-radius:14px; overflow:hidden; border:1px solid #232326; box-shadow:0 50px 110px rgba(0,0,0,0.65); z-index:2; cursor:pointer;">
+      <div class="idx-shot-fg" onclick="lbOpen(0)" style="position:relative; width:78%; border-radius:14px; overflow:hidden; border:1px solid #232326; box-shadow:0 50px 110px rgba(0,0,0,0.65); z-index:2; cursor:pointer;">
         <div style="display:flex; align-items:center; gap:6px; padding:11px 16px; background:#151517;">
           <span style="width:11px; height:11px; border-radius:50%; background:#ff5f57;"></span><span style="width:11px; height:11px; border-radius:50%; background:#febc2e;"></span><span style="width:11px; height:11px; border-radius:50%; background:#28c840;"></span>
         </div>
@@ -104,12 +138,12 @@
   </div>
 
   <!-- WHY CREW (from 3A) -->
-  <div id="features" style="padding:0 56px 96px; max-width:1240px; margin:0 auto;">
+  <div id="features" class="idx-features" style="padding:0 56px 96px; max-width:1240px; margin:0 auto;">
     <div style="text-align:center; margin-bottom:48px;">
       <div style="color:#5f79ff; font-size:12px; letter-spacing:0.1em; margin-bottom:12px; font-weight:600;">WHY CREW</div>
       <h2 style="font-family:'Newsreader',serif; font-style:italic; font-weight:500; font-size:40px; color:#f2f1ea; margin:0;">Never lose track of who needs you.</h2>
     </div>
-    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:#1c1c1f; border:1px solid #1c1c1f; border-radius:14px; overflow:hidden;">
+    <div class="idx-featgrid" style="display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:#1c1c1f; border:1px solid #1c1c1f; border-radius:14px; overflow:hidden;">
 
       <div style="background:#0e0e10; padding:26px;">
         <div style="background:#000; border:1px solid #1c1c1f; border-radius:8px; padding:14px 16px; margin-bottom:20px; height:88px; position:relative;">
@@ -179,7 +213,7 @@
   </div>
 
   <!-- HOW IT WORKS: vertical timeline (from 4B) -->
-  <div id="how" style="padding:0 64px 100px; max-width:820px; margin:0 auto;">
+  <div id="how" class="idx-how" style="padding:0 64px 100px; max-width:820px; margin:0 auto;">
     <h2 style="font-family:'Newsreader',serif; font-style:italic; font-size:38px; color:#f2f1ea; margin:0 0 56px; text-align:center;">Launch. Walk away. Get pinged.</h2>
     <div style="position:relative; padding-left:52px;">
       <div style="position:absolute; left:36px; top:6px; bottom:6px; width:1px; background:#2a2a2e;"></div>
@@ -202,10 +236,10 @@
   </div>
 
   <!-- CTA -->
-  <div id="download" style="position:relative; margin:0 56px 64px; background:linear-gradient(180deg,#111114,#0e0e10); border:1px solid #1c1c1f; border-radius:16px; padding:64px 56px; text-align:center;">
+  <div id="download" class="idx-cta" style="position:relative; margin:0 56px 64px; background:linear-gradient(180deg,#111114,#0e0e10); border:1px solid #1c1c1f; border-radius:16px; padding:64px 56px; text-align:center;">
     <h2 style="font-family:'Newsreader',serif; font-style:italic; font-weight:500; font-size:38px; color:#f2f1ea; margin:0 0 16px;">Get the latest Crew.</h2>
     <p style="color:#a6a6ac; font-size:14.5px; margin:0 0 32px;">One download, drag to Applications, done. Free and open — 100% local, no account, no telemetry.</p>
-    <div style="display:flex; gap:14px; justify-content:center; margin-bottom:18px;">
+    <div class="idx-cta__btns" style="display:flex; gap:14px; justify-content:center; margin-bottom:18px;">
       <a href="https://github.com/alexselig/crew/releases/latest/download/Crew-arm64.dmg" style="background:#f2f1ea; color:#0a0a0b; font-size:15px; font-weight:600; padding:14px 28px; border-radius:0;">Download .dmg</a>
       <a href="https://github.com/alexselig/crew/releases" style="border:1px solid #2a2a2e; color:#d4d4d8; font-size:15px; font-weight:500; padding:14px 28px; border-radius:0;">All releases</a>
     </div>
@@ -214,7 +248,7 @@
   </div>
 
   <!-- FOOTER -->
-  <div style="display:flex; align-items:center; justify-content:space-between; padding:28px 56px; border-top:1px solid #17171a; font-size:12.5px; color:#6b6b70;">
+  <div class="idx-footer" style="display:flex; align-items:center; justify-content:space-between; padding:28px 56px; border-top:1px solid #17171a; font-size:12.5px; color:#6b6b70;">
     <span style="font-family:'Newsreader',serif; font-style:italic;">Crew — 100% local. No network, no telemetry.</span>
     <div style="display:flex; gap:24px;"><a href="./guide.html" style="color:#6b6b70;">Guide</a><a href="https://github.com/alexselig/crew" style="color:#6b6b70;">GitHub</a><a href="https://github.com/alexselig/crew/releases" style="color:#6b6b70;">Releases</a><a href="#top" style="color:#6b6b70;">Top</a></div>
   </div>
