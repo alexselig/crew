@@ -270,12 +270,8 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
           {!isCustom &&
             (() => {
               const st = agents.find((a) => a.presetId === presetId)
-              if (!st) return null
-              return st.available ? (
-                <span className="agent-status agent-status--ok" title={st.path ?? ''}>
-                  ✓ Installed
-                </span>
-              ) : (
+              if (!st || st.available) return null
+              return (
                 <span className="agent-status agent-status--missing">
                   ✗ <code>{st.command}</code> not found on PATH
                   {st.installHint ? ` — ${st.installHint}` : ''}

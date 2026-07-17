@@ -14,7 +14,7 @@ import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
 import { Character } from './components/Character'
 import { focusTerminal } from './terminal-pool'
-import { existingGroups } from './grouping'
+import { existingGroups, recencyOf } from './grouping'
 import { arrowNavIntent } from './gridNav'
 import { NEEDS_YOU } from '../shared/types'
 import { sessionInWorkspace } from '../shared/workspaces'
@@ -56,6 +56,19 @@ export function App(): JSX.Element {
     () => c.roster.filter((s) => sessionInWorkspace(s.sets, c.activeWorkspace)),
     [c.roster, c.activeWorkspace]
   )
+
+  // Default workspace for a new session, always non-empty when any workspace
+  // exists: the active workspace filter → else the most recently used one (the
+  // workspace of the most recently prompted session) → else the first known
+  // workspace. Empty only when no workspaces exist at all.
+  const defaultWorkspaces = useMemo<string[]>(() => {
+    if (c.activeWorkspace) return [c.activeWorkspace]
+    const mostRecent = [...c.roster]
+      .sort((a, b) => recencyOf(b) - recencyOf(a))
+      .flatMap((s) => s.sets ?? [])[0]
+    if (mostRecent) return [mostRecent]
+    return c.workspaces.length > 0 ? [c.workspaces[0]] : []
+  }, [c.activeWorkspace, c.roster, c.workspaces])
 
   async function create(req: CreateSessionRequest): Promise<void> {
     const info = await window.crew.createSession(req)
@@ -362,7 +375,7 @@ export function App(): JSX.Element {
           presets={c.presets}
           homeDir={c.homeDir}
           groups={existingGroups(c.roster)}
-          defaultSets={c.activeWorkspace ? [c.activeWorkspace] : []}
+          defaultSets={defaultWorkspaces}
           onCancel={() => c.setShowNew(false)}
           onCreate={create}
         />
