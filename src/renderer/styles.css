@@ -2532,6 +2532,31 @@ button {
   color: var(--text);
 }
 
+/* Collapsed-rail "show more": a compact centered chevron (rotates up when the
+   hidden sessions are revealed) instead of the full-width text button. */
+.group__showmore--rail {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 2px auto;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  transition: color 0.12s, background 0.12s, transform 0.12s;
+}
+
+.group__showmore--rail:hover {
+  color: var(--text);
+  background: rgba(242, 241, 234, 0.06);
+}
+
+.group__showmore--rail.is-open {
+  transform: rotate(180deg);
+}
+
 .tag-chip {
   display: inline-flex;
   align-items: center;

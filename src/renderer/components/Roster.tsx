@@ -212,27 +212,37 @@ export function Roster(props: Props): JSX.Element {
     onReorderGroups
   )
 
-  // Hiding + per-bucket "show more" apply in the expanded nav (not the compact
-  // rail). A session is hidden when it's been manually minimized, or — in group
-  // (tag) sort — when it hasn't been prompted within staleHideHours.
-  const canHide = !railed
+  // Hiding + per-bucket "show more" apply in both the expanded nav and the
+  // compact rail (kept in sync). A session is hidden when it's been manually
+  // minimized, or — in group (tag) sort — unused past staleHideHours. In the
+  // rail the "show more" collapses to a compact "+N" chip.
   const staleCutoff = Date.now() - staleHideHours * 60 * 60 * 1000
   const isHidden = (s: SessionInfo): boolean =>
     minimized.has(s.id) ||
     (groupMode === 'tag' && staleHideHours > 0 && recencyOf(s) < staleCutoff)
   function renderBucket(items: SessionInfo[], key: string): React.ReactNode {
-    if (!canHide) return items.map(renderCard)
     const { visible, hidden } = partitionHidden(items, isHidden)
     const open = expandedStale.has(key)
     return (
       <>
         {visible.map(renderCard)}
         {open && hidden.map(renderCard)}
-        {hidden.length > 0 && (
-          <button type="button" className="group__showmore" onClick={() => toggleStale(key)}>
-            {open ? 'Show less' : `Show ${hidden.length} more`}
-          </button>
-        )}
+        {hidden.length > 0 &&
+          (railed ? (
+            <button
+              type="button"
+              className={`group__showmore group__showmore--rail ${open ? 'is-open' : ''}`}
+              title={open ? 'Show fewer sessions' : `Show ${hidden.length} more`}
+              aria-label={open ? 'Show fewer sessions' : `Show ${hidden.length} more`}
+              onClick={() => toggleStale(key)}
+            >
+              <Icon name="chevron-down" size={16} />
+            </button>
+          ) : (
+            <button type="button" className="group__showmore" onClick={() => toggleStale(key)}>
+              {open ? 'Show less' : `Show ${hidden.length} more`}
+            </button>
+          ))}
       </>
     )
   }
