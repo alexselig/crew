@@ -281,6 +281,7 @@ export function App(): JSX.Element {
         showSpend={c.settings?.showSpend ?? true}
         showCredits={c.settings?.showCredits ?? false}
         budgetUsd={c.settings?.budgetUsd ?? 0}
+        staleHideHours={c.settings?.staleHideHours ?? 12}
         onRestart={restart}
         onClose={close}
         onReorder={(ids) => void window.crew.reorder(ids)}

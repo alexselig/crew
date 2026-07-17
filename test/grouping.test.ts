@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { groupSessions, _resetRecencyOrder } from '../src/renderer/grouping'
+import { groupSessions, partitionStale, _resetRecencyOrder } from '../src/renderer/grouping'
 import type { SessionInfo } from '../src/shared/types'
 
 const MIN = 60_000
@@ -174,5 +174,44 @@ describe("groupSessions 'recent'", () => {
     const g = groupSessions(roster, 'recent')
     const last30 = g.find((x) => x.name === 'Last 30 min')
     expect(last30?.items.map((s) => s.id)).toEqual(['B', 'C', 'A'])
+  })
+})
+
+describe('partitionStale', () => {
+  const now = Date.now()
+  const cutoff = now - 12 * HOUR
+
+  it('splits a group into sessions used within the window and stale ones', () => {
+    const items = [
+      sess({ id: 'fresh', lastPromptAt: now - 1 * HOUR }),
+      sess({ id: 'stale', lastPromptAt: now - 20 * HOUR }),
+      sess({ id: 'edge-in', lastPromptAt: cutoff }),
+      sess({ id: 'edge-out', lastPromptAt: cutoff - 1 })
+    ]
+    const { recent, stale } = partitionStale(items, cutoff)
+    expect(recent.map((s) => s.id)).toEqual(['fresh', 'edge-in'])
+    expect(stale.map((s) => s.id)).toEqual(['stale', 'edge-out'])
+  })
+
+  it('uses createdAt when a session was never prompted', () => {
+    const items = [
+      sess({ id: 'new', createdAt: now - 2 * HOUR, lastPromptAt: undefined }),
+      sess({ id: 'old', createdAt: now - 30 * HOUR, lastPromptAt: undefined })
+    ]
+    const { recent, stale } = partitionStale(items, cutoff)
+    expect(recent.map((s) => s.id)).toEqual(['new'])
+    expect(stale.map((s) => s.id)).toEqual(['old'])
+  })
+
+  it('preserves input order within each partition', () => {
+    const items = [
+      sess({ id: 'a', lastPromptAt: now - 1 * HOUR }),
+      sess({ id: 'b', lastPromptAt: now - 40 * HOUR }),
+      sess({ id: 'c', lastPromptAt: now - 2 * HOUR }),
+      sess({ id: 'd', lastPromptAt: now - 50 * HOUR })
+    ]
+    const { recent, stale } = partitionStale(items, cutoff)
+    expect(recent.map((s) => s.id)).toEqual(['a', 'c'])
+    expect(stale.map((s) => s.id)).toEqual(['b', 'd'])
   })
 })

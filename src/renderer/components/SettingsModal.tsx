@@ -83,6 +83,23 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
                 onChange={(e) => onToggle('budgetUsd', Math.max(0, Number(e.target.value) || 0))}
               />
             </div>
+            <div className="settings-row settings-row--static">
+              <span className="settings-row__text">
+                <span className="settings-row__label">Hide stale sessions after (hours)</span>
+                <span className="settings-row__desc">
+                  In group sort, tuck sessions not used within this many hours behind a per-group
+                  “show more”. 0 = never hide.
+                </span>
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                className="settings-num"
+                value={settings.staleHideHours}
+                onChange={(e) => onToggle('staleHideHours', Math.max(0, Number(e.target.value) || 0))}
+              />
+            </div>
           </div>
         )}
         <div className="modal__actions">

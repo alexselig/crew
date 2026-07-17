@@ -55,7 +55,8 @@ export const DEFAULT_SETTINGS: Settings = {
   showCredits: false,
   resumeConversations: true,
   budgetUsd: 0,
-  captureTranscripts: false
+  captureTranscripts: false,
+  staleHideHours: 12
 }
 
 interface StoreData {

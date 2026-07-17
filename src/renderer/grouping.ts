@@ -63,6 +63,22 @@ function recencyOf(s: SessionInfo): number {
   return s.lastPromptAt ?? s.createdAt
 }
 
+/** Split a group's sessions (preserving order) into those used at or after
+ * `staleBeforeMs` and the stale rest. Used for the per-group "show more" in
+ * group (tag) sort, which hides sessions not used within a configured window. */
+export function partitionStale(
+  items: SessionInfo[],
+  staleBeforeMs: number
+): { recent: SessionInfo[]; stale: SessionInfo[] } {
+  const recent: SessionInfo[] = []
+  const stale: SessionInfo[] = []
+  for (const s of items) {
+    if (recencyOf(s) >= staleBeforeMs) recent.push(s)
+    else stale.push(s)
+  }
+  return { recent, stale }
+}
+
 /** Bucket sessions for grouped display. Roster order is preserved within each
  * group. 'tag' groups by the session's group label ("Ungrouped" when unset);
  * 'needs' splits into "Needs you" and "Working"; 'recent' buckets by how long

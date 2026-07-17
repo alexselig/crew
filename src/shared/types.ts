@@ -80,6 +80,9 @@ export interface Settings {
   budgetUsd: number
   /** Opt-in: save each session's (ANSI-stripped) transcript locally for search/export. */
   captureTranscripts: boolean
+  /** In group (tag) sort, hide sessions in a group not used within this many
+   * hours behind a per-group "show more" toggle (0 = never hide). */
+  staleHideHours: number
 }
 
 export interface SessionInfo {

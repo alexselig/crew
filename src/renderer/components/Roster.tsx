@@ -6,7 +6,7 @@ import { SessionCard } from './SessionCard'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { ViewToggle } from './ViewToggle'
-import { groupSessions, type GroupMode } from '../grouping'
+import { groupSessions, partitionStale, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
 import { useNowTick } from '../hooks'
@@ -41,6 +41,9 @@ interface Props {
   showSpend: boolean
   showCredits: boolean
   budgetUsd: number
+  /** Hours after which an unused session is hidden behind a per-group "show
+   * more" in group (tag) sort. 0 = never hide. */
+  staleHideHours: number
   onRestart: (id: string) => void
   onClose: (id: string) => void
   onReorder: (orderedIds: string[]) => void
@@ -80,6 +83,7 @@ export function Roster(props: Props): JSX.Element {
     showSpend,
     showCredits,
     budgetUsd,
+    staleHideHours,
     onRestart,
     onClose,
     onReorder,
@@ -111,6 +115,16 @@ export function Roster(props: Props): JSX.Element {
   }
 
   const [navHover, setNavHover] = useState(false)
+  // Per-group "show more": group names whose stale (unused) sessions are revealed.
+  const [expandedStale, setExpandedStale] = useState<Set<string>>(() => new Set())
+  function toggleStale(name: string): void {
+    setExpandedStale((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>()
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>()
   // When the nav is manually collapsed (focus view), hovering the session list
@@ -190,6 +204,27 @@ export function Roster(props: Props): JSX.Element {
     groups.map((g) => g.name),
     onReorderGroups
   )
+
+  // Per-group stale hiding applies only to group (tag) sort in the expanded nav.
+  // A session is "stale" when it hasn't been prompted within staleHideHours.
+  const canHideStale = groupMode === 'tag' && !railed && staleHideHours > 0
+  const staleCutoff = Date.now() - staleHideHours * 60 * 60 * 1000
+  function renderGroupItems(items: SessionInfo[], name: string): React.ReactNode {
+    if (!canHideStale) return items.map(renderCard)
+    const { recent, stale } = partitionStale(items, staleCutoff)
+    const open = expandedStale.has(name)
+    return (
+      <>
+        {recent.map(renderCard)}
+        {open && stale.map(renderCard)}
+        {stale.length > 0 && (
+          <button type="button" className="group__showmore" onClick={() => toggleStale(name)}>
+            {open ? 'Show less' : `Show ${stale.length} more`}
+          </button>
+        )}
+      </>
+    )
+  }
 
   return (
     <aside
@@ -295,7 +330,7 @@ export function Roster(props: Props): JSX.Element {
                   <Icon name={collapsedGroups.has(g.name) ? 'chevron-right' : 'chevron-down'} size={13} />
                 </span>
               </button>
-              {!collapsedGroups.has(g.name) && g.items.map(renderCard)}
+              {!collapsedGroups.has(g.name) && renderGroupItems(g.items, g.name)}
             </div>
           ))
         ) : (
