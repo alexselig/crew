@@ -205,6 +205,18 @@ export function AssetsPanel({ sessionId }: { sessionId: string }): JSX.Element |
                   alt=""
                   loading="lazy"
                 />
+              ) : a.kind === 'html' ? (
+                <span className="asset__thumb asset__thumb--html" aria-hidden="true">
+                  <iframe
+                    className="asset__thumb-frame"
+                    src={assetUrl(a.path) + '?v=' + a.mtime}
+                    sandbox="allow-scripts"
+                    scrolling="no"
+                    tabIndex={-1}
+                    loading="lazy"
+                    title=""
+                  />
+                </span>
               ) : (
                 <span className="asset__glyph">{KIND_GLYPH[a.kind]}</span>
               )}

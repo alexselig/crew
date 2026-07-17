@@ -3168,6 +3168,32 @@ button {
   border: 1px solid var(--border-soft);
 }
 
+/* HTML thumbnail: a live mini-render of the page. The iframe is laid out at a
+   larger logical size and scaled down, clipped to the 40px thumbnail box, so a
+   page shows a real preview instead of a generic globe glyph. */
+.asset__thumb--html {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  border: 1px solid var(--border-soft);
+}
+
+.asset__thumb-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 160px;
+  height: 160px;
+  border: 0;
+  transform: scale(0.25);
+  transform-origin: top left;
+  pointer-events: none;
+}
+
 .asset__meta {
   flex: 1;
   min-width: 0;
