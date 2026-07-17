@@ -587,11 +587,12 @@ button {
    the near-white "waiting" ivory). Sizing is in em so it scales with the box. */
 .character__pilot {
   position: absolute;
-  /* Center the badge on the status dot's center: the dot is 12px at
-     right:19%/bottom:22%, so its center is 6px in from that anchor; offset by
-     half the badge (0.21em) to land the badge's center on the same point. */
-  right: calc(19% + 6px - 0.21em);
-  bottom: calc(22% + 6px - 0.21em);
+  /* Center the badge on the status dot's center (dot is 12px at
+     right:19%/bottom:22%, center 6px in from that anchor; offset by half the
+     badge, 0.21em), then nudge it 5px toward the lower-right corner so it
+     overlaps the mascot art less. */
+  right: calc(19% + 1px - 0.21em);
+  bottom: calc(22% + 1px - 0.21em);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -609,6 +610,9 @@ button {
   width: 66%;
   height: 66%;
   display: block;
+  /* The ✈ is bounding-box centered but its wing mass sits low, so it reads as
+     off-center; lift it slightly to visually center it in the badge. */
+  transform: translateY(-10%);
 }
 
 /* In autopilot the ✈ badge takes the status dot's place, so hide the dot. */
