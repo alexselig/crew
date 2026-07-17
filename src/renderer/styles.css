@@ -1216,6 +1216,20 @@ button {
   padding: 11px 18px;
 }
 
+/* Once a name is typed the Add button enables — make it a solid cobalt fill
+   (matching Launch) so it reads as the active affordance. */
+.modal--session .sets__save .btn:not(:disabled) {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 700;
+}
+
+.modal--session .sets__save .btn:not(:disabled):hover {
+  background: var(--accent-hover);
+  border-color: transparent;
+}
+
 /* ---------- Spend ---------- */
 .card__cost {
   color: var(--text-dim);
