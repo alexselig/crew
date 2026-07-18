@@ -202,6 +202,8 @@ export const IPC = {
   TRANSCRIPT_SEARCH: 'transcript:search',
   TRANSCRIPT_GET: 'transcript:get',
   TRANSCRIPT_EXPORT: 'transcript:export',
+  TRACKER_SCAN: 'tracker:scan',
+  OPEN_EXTERNAL: 'shell:openExternal',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',
   EVT_STATE: 'evt:state',

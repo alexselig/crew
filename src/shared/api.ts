@@ -12,6 +12,7 @@ import type {
   SessionSet
 } from './types'
 import type { AssetItem } from './assets'
+import type { TrackerData } from './tracker'
 
 export interface StateEvent {
   id: string
@@ -101,6 +102,10 @@ export interface CrewAPI {
   searchTranscripts(query: string): Promise<TranscriptMatch[]>
   getTranscript(id: string): Promise<string>
   exportTranscript(id: string, label: string): Promise<boolean>
+  /** Live Project Tracker data for the working dirs of the open sessions. */
+  scanTracker(): Promise<TrackerData>
+  /** Open an external http(s) URL in the default browser. */
+  openExternal(url: string): Promise<void>
   getSettings(): Promise<Settings>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
   getSets(): Promise<SessionSet[]>

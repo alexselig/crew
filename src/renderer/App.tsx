@@ -411,7 +411,7 @@ export function App(): JSX.Element {
           onClose={() => setShowTranscripts(false)}
         />
       )}
-      {showTracker && <ProjectTracker roster={c.roster} onClose={() => setShowTracker(false)} />}
+      {showTracker && <ProjectTracker onClose={() => setShowTracker(false)} />}
 
       {showIntro && <TitleSequence onDone={() => setShowIntro(false)} />}
     </div>

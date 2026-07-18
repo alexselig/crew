@@ -11,6 +11,7 @@ import { spawnSync } from 'node:child_process'
 import { IPC, NEEDS_YOU } from '../shared/types'
 import type { CreateSessionRequest, Settings } from '../shared/types'
 import type { AgentStatus } from '../shared/api'
+import type { TrackerSessionInput } from '../shared/tracker'
 import { SessionManager } from './session-manager'
 import { AssetWatchers } from './assets'
 import { assetMime } from '../shared/assets'
@@ -19,6 +20,7 @@ import { Store } from './store'
 import { TranscriptRecorder } from './transcripts'
 import { builtinPresets } from './presets'
 import { listInstalledSkills } from './skills'
+import { scanProjects } from './tracker'
 import { CHARACTERS } from './characters'
 
 let tray: CrewTray | null = null
@@ -609,6 +611,35 @@ function registerIpc(): void {
     } catch {
       return false
     }
+  })
+
+  ipcMain.handle(IPC.TRACKER_SCAN, () => {
+    // One project per working directory among the OPEN (active) sessions only.
+    const byCwd = new Map<string, TrackerSessionInput>()
+    for (const s of manager.roster()) {
+      if (s.status !== 'active') continue
+      const recency = s.lastPromptAt ?? s.createdAt
+      const cur = byCwd.get(s.cwd)
+      if (cur) {
+        cur.lastActive = Math.max(cur.lastActive, recency)
+        if (!cur.tag && s.tag && s.tag.trim()) cur.tag = s.tag.trim()
+        cur.sessions.push({ id: s.id, label: s.label, state: s.state })
+      } else {
+        byCwd.set(s.cwd, {
+          cwd: s.cwd,
+          tag: s.tag && s.tag.trim() ? s.tag.trim() : 'Other',
+          color: s.color,
+          label: s.label,
+          lastActive: recency,
+          sessions: [{ id: s.id, label: s.label, state: s.state }]
+        })
+      }
+    }
+    return scanProjects([...byCwd.values()])
+  })
+  // Open an external http(s) URL (GitHub / live demo) in the default browser.
+  ipcMain.handle(IPC.OPEN_EXTERNAL, (_e, url: string) => {
+    if (typeof url === 'string' && /^https?:\/\//.test(url)) void shell.openExternal(url)
   })
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
