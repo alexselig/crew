@@ -12,7 +12,7 @@ import type {
   SessionSet
 } from './types'
 import type { AssetItem } from './assets'
-import type { TrackerData } from './tracker'
+import type { TrackerData, CommitActivity } from './tracker'
 
 export interface StateEvent {
   id: string
@@ -106,6 +106,8 @@ export interface CrewAPI {
   scanTracker(): Promise<TrackerData>
   /** Open an external http(s) URL in the default browser. */
   openExternal(url: string): Promise<void>
+  /** Recent git commits across the open sessions' working dirs (newest first). */
+  getCommitActivity(): Promise<CommitActivity[]>
   getSettings(): Promise<Settings>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
   getSets(): Promise<SessionSet[]>

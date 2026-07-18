@@ -91,6 +91,17 @@ export interface TrackerData {
   groups: TrackerGroup[]
 }
 
+/** A git commit surfaced in the Activity feed (with an absolute timestamp). */
+export interface CommitActivity {
+  cwd: string
+  project: string
+  sha: string
+  subject: string
+  /** Commit date, ms epoch. */
+  ts: number
+  isRelease: boolean
+}
+
 /** Input passed from the renderer's roster into the main-process scan. */
 export interface TrackerSessionInput {
   cwd: string

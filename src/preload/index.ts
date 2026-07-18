@@ -39,6 +39,7 @@ const api: CrewAPI = {
   exportTranscript: (id, label) => ipcRenderer.invoke(IPC.TRANSCRIPT_EXPORT, { id, label }),
   scanTracker: () => ipcRenderer.invoke(IPC.TRACKER_SCAN),
   openExternal: (url) => ipcRenderer.invoke(IPC.OPEN_EXTERNAL, url),
+  getCommitActivity: () => ipcRenderer.invoke(IPC.ACTIVITY_COMMITS),
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
   updateSettings: (patch) => ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
   getSets: () => ipcRenderer.invoke(IPC.SETS_GET),

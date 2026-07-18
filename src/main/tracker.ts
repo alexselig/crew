@@ -19,7 +19,8 @@ import type {
   TrackerGroup,
   TrackerNextStep,
   TrackerProject,
-  TrackerSessionInput
+  TrackerSessionInput,
+  CommitActivity
 } from '../shared/tracker'
 
 const HOME = homedir()
@@ -123,18 +124,60 @@ function originOf(github: string | null): ProjectOrigin | null {
 
 const BUMP_RE = /(bump|release|v?\d+\.\d+\.\d+|changelog)/i
 
-async function getCommits(cwd: string, n = 12): Promise<TrackerCommit[]> {
-  const raw = await git(['log', `-n${n}`, '--no-merges', '--pretty=format:%H\u001f%s\u001f%cI'], cwd)
-  if (!raw) return []
-  return raw.split('\n').map((line) => {
-    const [sha, subject, iso] = line.split('\u001f')
-    return {
-      sha: (sha || '').slice(0, 7),
-      subject: subject || '',
-      when: relTime(iso ? Date.parse(iso) : 0),
-      isRelease: BUMP_RE.test(subject || '')
-    }
-  })
+// ── commit cache ─────────────────────────────────────────────────────────────
+// `git log` is the most repeated cost (tracker scan + Activity feed re-open on
+// it constantly). Cache parsed commits per repo, keyed by cwd. Within FRESH_MS
+// we reuse blindly; beyond that we run one cheap `git rev-parse HEAD` and reuse
+// the cached log unless HEAD moved (a new commit landed). Only absolute
+// timestamps are cached — relative "when" is recomputed on read so it never
+// goes stale. In-memory: the concern is repeat views within a session.
+
+interface RawCommit {
+  sha: string
+  subject: string
+  ts: number
+  isRelease: boolean
+}
+
+interface CommitCacheEntry {
+  head: string
+  at: number
+  commits: RawCommit[]
+}
+
+const COMMIT_CACHE_N = 12
+const FRESH_MS = 15_000
+const commitCache = new Map<string, CommitCacheEntry>()
+
+async function fetchRawCommits(cwd: string): Promise<RawCommit[]> {
+  const cached = commitCache.get(cwd)
+  if (cached && Date.now() - cached.at < FRESH_MS) return cached.commits
+
+  const head = await git(['rev-parse', 'HEAD'], cwd)
+  if (cached && head && cached.head === head) {
+    cached.at = Date.now()
+    return cached.commits
+  }
+
+  const raw = await git(['log', `-n${COMMIT_CACHE_N}`, '--no-merges', '--pretty=format:%H\u001f%s\u001f%cI'], cwd)
+  const commits: RawCommit[] = raw
+    ? raw.split('\n').map((line) => {
+        const [sha, subject, iso] = line.split('\u001f')
+        return {
+          sha: (sha || '').slice(0, 7),
+          subject: subject || '',
+          ts: iso ? Date.parse(iso) : 0,
+          isRelease: BUMP_RE.test(subject || '')
+        }
+      })
+    : []
+  commitCache.set(cwd, { head, at: Date.now(), commits })
+  return commits
+}
+
+async function getCommits(cwd: string): Promise<TrackerCommit[]> {
+  const raw = await fetchRawCommits(cwd)
+  return raw.map((c) => ({ sha: c.sha, subject: c.subject, when: relTime(c.ts), isRelease: c.isRelease }))
 }
 
 async function getChangelog(entries: string[], cwd: string): Promise<TrackerChangelog[]> {
@@ -441,4 +484,30 @@ export async function scanProjects(inputs: TrackerSessionInput[]): Promise<Track
     },
     groups
   }
+}
+
+/**
+ * Recent git commits across the given projects, merged and sorted newest-first,
+ * each with an absolute timestamp. Feeds the Activity tab of the analytics modal.
+ */
+export async function recentCommits(
+  projects: { cwd: string; name: string }[]
+): Promise<CommitActivity[]> {
+  const perProject = await Promise.all(
+    projects.map(async ({ cwd, name }) => {
+      const raw = await fetchRawCommits(cwd)
+      return raw.map((c) => ({
+        cwd,
+        project: name,
+        sha: c.sha,
+        subject: c.subject,
+        ts: c.ts,
+        isRelease: c.isRelease
+      }))
+    })
+  )
+  return perProject
+    .flat()
+    .filter((c) => c.ts > 0 && c.sha)
+    .sort((a, b) => b.ts - a.ts)
 }

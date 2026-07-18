@@ -20,7 +20,7 @@ import { Store } from './store'
 import { TranscriptRecorder } from './transcripts'
 import { builtinPresets } from './presets'
 import { listInstalledSkills } from './skills'
-import { scanProjects } from './tracker'
+import { scanProjects, recentCommits } from './tracker'
 import { CHARACTERS } from './characters'
 
 let tray: CrewTray | null = null
@@ -640,6 +640,15 @@ function registerIpc(): void {
   // Open an external http(s) URL (GitHub / live demo) in the default browser.
   ipcMain.handle(IPC.OPEN_EXTERNAL, (_e, url: string) => {
     if (typeof url === 'string' && /^https?:\/\//.test(url)) void shell.openExternal(url)
+  })
+  // Recent git commits across the open sessions' working dirs, for the Activity feed.
+  ipcMain.handle(IPC.ACTIVITY_COMMITS, () => {
+    const seen = new Map<string, string>()
+    for (const s of manager.roster()) {
+      if (s.status !== 'active' || seen.has(s.cwd)) continue
+      seen.set(s.cwd, s.cwd.split('/').filter(Boolean).pop() || s.cwd)
+    }
+    return recentCommits([...seen].map(([cwd, name]) => ({ cwd, name })))
   })
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
