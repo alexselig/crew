@@ -89,8 +89,9 @@ export function App(): JSX.Element {
   }
 
   // Bring a session into focus view (used by "Needs you" buttons + tile expand).
+  // Opening a session also restores it if it was minimized.
   function focusSession(id: string): void {
-    c.setSelectedId(id)
+    c.selectSession(id)
     c.setViewMode('single')
   }
 
@@ -338,7 +339,7 @@ export function App(): JSX.Element {
           onToggleMinimize={c.toggleMinimize}
           groupOrder={c.groupOrder}
           onReorderGroups={c.reorderGroups}
-          onSelect={c.setSelectedId}
+          onSelect={c.selectSession}
           onExpand={focusSession}
           onClose={close}
           onNew={() => c.setShowNew(true)}
