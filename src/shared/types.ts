@@ -205,6 +205,9 @@ export const IPC = {
   TRACKER_SCAN: 'tracker:scan',
   OPEN_EXTERNAL: 'shell:openExternal',
   ACTIVITY_COMMITS: 'activity:commits',
+  TRACKER_LAUNCH: 'tracker:launch',
+  TRACKER_STOP: 'tracker:stop',
+  TRACKER_STATUS: 'tracker:status',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',
   EVT_STATE: 'evt:state',

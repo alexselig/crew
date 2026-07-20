@@ -12,7 +12,7 @@ import type {
   SessionSet
 } from './types'
 import type { AssetItem } from './assets'
-import type { TrackerData, CommitActivity } from './tracker'
+import type { TrackerData, CommitActivity, RunningServer, LaunchResult } from './tracker'
 
 export interface StateEvent {
   id: string
@@ -108,6 +108,12 @@ export interface CrewAPI {
   openExternal(url: string): Promise<void>
   /** Recent git commits across the open sessions' working dirs (newest first). */
   getCommitActivity(): Promise<CommitActivity[]>
+  /** Start (or adopt) a project's local dev server; returns its URL when ready. */
+  launchProject(id: string): Promise<LaunchResult>
+  /** Stop a dev server the tracker started (or untrack an adopted one). */
+  stopProject(id: string): Promise<{ ok: boolean; external?: boolean; error?: string }>
+  /** Currently-running dev servers started/adopted by the tracker. */
+  getRunningServers(): Promise<RunningServer[]>
   getSettings(): Promise<Settings>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
   getSets(): Promise<SessionSet[]>

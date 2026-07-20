@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { SessionInfo, CharacterDef, SessionState } from '../../shared/types'
+import type { SessionInfo, CharacterDef } from '../../shared/types'
 import type { ActivityEvent } from '../../shared/api'
 import type { CommitActivity } from '../../shared/tracker'
 import { formatUsd, formatCredits } from '../state-meta'
-import { StatusTag } from './StatusTag'
 
 interface Props {
   roster: SessionInfo[]
@@ -43,11 +42,6 @@ function waitingBySession(events: ActivityEvent[], now: number): Record<string, 
   return out
 }
 
-/** A unified, time-sorted Activity feed entry: a state change or a git commit. */
-type FeedItem =
-  | { kind: 'state'; ts: number; id: string; to: SessionState }
-  | { kind: 'commit'; ts: number; project: string; sha: string; subject: string; isRelease: boolean }
-
 export function AnalyticsModal({ roster, characters, onClose }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('spend')
   const [events, setEvents] = useState<ActivityEvent[]>([])
@@ -68,26 +62,14 @@ export function AnalyticsModal({ roster, characters, onClose }: Props): JSX.Elem
 
   const waiting = useMemo(() => waitingBySession(events, Date.now()), [events])
   const glyph = (id: string): string => characters.find((c) => c.id === id)?.glyph ?? '●'
-  const labelOf = (id: string): string => roster.find((s) => s.id === id)?.label ?? id.slice(0, 6)
   const totalSpend = roster.reduce((a, s) => a + (s.costUsd || 0), 0)
   const totalCredits = roster.reduce((a, s) => a + (s.creditsUsed || 0), 0)
   const totalWait = roster.reduce((a, s) => a + (waiting[s.id] || 0), 0)
 
-  // Merge state transitions + commits into one newest-first feed.
-  const feed = useMemo<FeedItem[]>(() => {
-    const items: FeedItem[] = [
-      ...events.map((e): FeedItem => ({ kind: 'state', ts: e.ts, id: e.id, to: e.to })),
-      ...commits.map((c): FeedItem => ({
-        kind: 'commit',
-        ts: c.ts,
-        project: c.project,
-        sha: c.sha,
-        subject: c.subject,
-        isRelease: c.isRelease
-      }))
-    ]
-    return items.sort((a, b) => b.ts - a.ts).slice(0, 40)
-  }, [events, commits])
+  // The Activity tab is a commit feed (newest first) — the git history across the
+  // open sessions' repos. Session state churn (idle/working) is deliberately not
+  // shown here; it's low-signal and would crowd out the commit notes.
+  const feed = useMemo(() => [...commits].sort((a, b) => b.ts - a.ts).slice(0, 60), [commits])
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -159,28 +141,20 @@ export function AnalyticsModal({ roster, characters, onClose }: Props): JSX.Elem
         ) : (
           <div className="analytics__scroll analytics__feed">
             {feed.length === 0 ? (
-              <div className="muted">No activity yet.</div>
+              <div className="muted">No commits yet.</div>
             ) : (
-              feed.map((item, i) =>
-                item.kind === 'commit' ? (
-                  <div key={i} className="timeline-row timeline-row--commit">
-                    <span className="timeline-time">{new Date(item.ts).toLocaleTimeString()}</span>
-                    <span className="commit-chip">
-                      <span className="commit-chip__sha">{item.sha}</span>
-                      <span className="commit-chip__proj">{item.project}</span>
-                    </span>
-                    <span className={`commit-chip__msg ${item.isRelease ? 'is-rel' : ''}`} title={item.subject}>
-                      {item.subject}
-                    </span>
-                  </div>
-                ) : (
-                  <div key={i} className="timeline-row">
-                    <span className="timeline-time">{new Date(item.ts).toLocaleTimeString()}</span>
-                    <span className="timeline-label">{labelOf(item.id)}</span>
-                    <StatusTag state={item.to} />
-                  </div>
-                )
-              )
+              feed.map((item, i) => (
+                <div key={i} className="timeline-row timeline-row--commit">
+                  <span className="timeline-time">{new Date(item.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                  <span className="commit-chip">
+                    <span className="commit-chip__sha">{item.sha}</span>
+                    <span className="commit-chip__proj">{item.project}</span>
+                  </span>
+                  <span className={`commit-chip__msg ${item.isRelease ? 'is-rel' : ''}`} title={item.subject}>
+                    {item.subject}
+                  </span>
+                </div>
+              ))
             )}
           </div>
         )}

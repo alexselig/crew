@@ -20,7 +20,8 @@ import { Store } from './store'
 import { TranscriptRecorder } from './transcripts'
 import { builtinPresets } from './presets'
 import { listInstalledSkills } from './skills'
-import { scanProjects, recentCommits } from './tracker'
+import { scanProjects, recentCommits, resolveLaunch } from './tracker'
+import { launch as launchServer, stop as stopServer, status as serverStatus, stopAll as stopAllServers } from './launcher'
 import { CHARACTERS } from './characters'
 
 let tray: CrewTray | null = null
@@ -343,6 +344,7 @@ function teardown(): void {
   recorder?.dispose()
   manager?.disposeAll()
   assets?.disposeAll()
+  stopAllServers()
   tray?.destroy()
 }
 
@@ -614,28 +616,22 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC.TRACKER_SCAN, () => {
-    // One project per working directory among the OPEN (active) sessions only.
-    const byCwd = new Map<string, TrackerSessionInput>()
-    for (const s of manager.roster()) {
-      if (s.status !== 'active') continue
-      const recency = s.lastPromptAt ?? s.createdAt
-      const cur = byCwd.get(s.cwd)
-      if (cur) {
-        cur.lastActive = Math.max(cur.lastActive, recency)
-        if (!cur.tag && s.tag && s.tag.trim()) cur.tag = s.tag.trim()
-        cur.sessions.push({ id: s.id, label: s.label, state: s.state })
-      } else {
-        byCwd.set(s.cwd, {
-          cwd: s.cwd,
-          tag: s.tag && s.tag.trim() ? s.tag.trim() : 'Other',
-          color: s.color,
-          label: s.label,
-          lastActive: recency,
-          sessions: [{ id: s.id, label: s.label, state: s.state }]
-        })
-      }
-    }
-    return scanProjects([...byCwd.values()])
+    // One project per OPEN (active) session — matches the handoff's per-session
+    // model, scoped to currently-open sessions.
+    const inputs: TrackerSessionInput[] = manager
+      .roster()
+      .filter((s) => s.status === 'active')
+      .map((s) => ({
+        id: s.id,
+        label: s.label,
+        tag: s.tag && s.tag.trim() ? s.tag.trim() : 'Other',
+        color: s.color,
+        character: s.characterId ?? null,
+        createdAt: s.createdAt ?? null,
+        lastPromptAt: s.lastPromptAt ?? s.createdAt ?? null,
+        cwd: s.cwd
+      }))
+    return scanProjects(inputs)
   })
   // Open an external http(s) URL (GitHub / live demo) in the default browser.
   ipcMain.handle(IPC.OPEN_EXTERNAL, (_e, url: string) => {
@@ -650,6 +646,15 @@ function registerIpc(): void {
     }
     return recentCommits([...seen].map(([cwd, name]) => ({ cwd, name })))
   })
+  // Launch / stop / status a project's local dev server (Project Tracker).
+  ipcMain.handle(IPC.TRACKER_LAUNCH, async (_e, id: string) => {
+    const s = manager.roster().find((x) => x.id === id)
+    if (!s) return { ok: false, error: 'Unknown project id.' }
+    const meta = await resolveLaunch(s.cwd)
+    return launchServer(id, s.cwd, s.label, meta)
+  })
+  ipcMain.handle(IPC.TRACKER_STOP, (_e, id: string) => stopServer(id))
+  ipcMain.handle(IPC.TRACKER_STATUS, () => serverStatus())
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
     manager.input(p.id, p.data)

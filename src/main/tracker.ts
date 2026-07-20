@@ -1,32 +1,37 @@
 // tracker.ts — derives the live Project Tracker data model from disk for the
-// working directories of the currently open sessions. Everything is read fresh
-// on each scan (git, package.json, task files), so the tracker reflects reality
-// each time it opens. All git/fs work is async (execFile + fs/promises) so it
-// never blocks the main thread / live PTYs.
+// working directories of the currently OPEN sessions. Faithful port of
+// ~/project-tracker/lib/scan.mjs, adapted so the project source is Crew's open
+// sessions (one project per session) instead of crew-store.json + a $HOME walk.
 //
-// Ported from ~/project-tracker/lib/scan.mjs, scoped to open sessions only.
+// Everything is read fresh on each scan (git, package.json, task files), all via
+// async execFile + fs/promises so it never blocks the main thread / live PTYs.
 
 import { execFile } from 'node:child_process'
 import { readFile, readdir, access } from 'node:fs/promises'
 import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
 import type {
-  ProjectOrigin,
+  Commit,
+  ChangelogSection,
+  Framework,
+  Group,
+  Launch,
+  NextStep,
+  Origin,
+  Project,
   ProjectStatus,
-  TrackerChangelog,
-  TrackerCommit,
+  Stats,
   TrackerData,
-  TrackerGroup,
-  TrackerNextStep,
-  TrackerProject,
   TrackerSessionInput,
   CommitActivity
 } from '../shared/tracker'
 
 const HOME = homedir()
 
-// Group presentation, mirroring the standalone tracker's config. Known tags get
-// a canonical label + editorial blurb; unknown tags fall back to the raw tag.
+// Group presentation (mirrors the handoff's TAG_ORDER + TAG_META). Known tags get
+// a canonical label + editorial blurb; unknown tags append. Case-insensitive.
+// The synthetic "REPOS" group is intentionally omitted (open sessions only).
+const TAG_ORDER = ['work', 'tools', 'crew', 'game', 'games', 'other']
 const TAG_META: Record<string, { label: string; blurb: string }> = {
   work: { label: 'Work', blurb: 'Shipping for the PowerPoint Copilot motion' },
   tools: { label: 'Tools', blurb: 'Internal tools & creator utilities' },
@@ -35,9 +40,8 @@ const TAG_META: Record<string, { label: string; blurb: string }> = {
   games: { label: 'Games', blurb: 'Side games & interactive experiments' },
   other: { label: 'Other', blurb: 'Personal projects & everything else' }
 }
-const TAG_ORDER = ['work', 'tools', 'crew', 'game', 'games', 'other']
 
-// ── async helpers ────────────────────────────────────────────────────────────
+// ── async shell/fs helpers ───────────────────────────────────────────────────
 
 function git(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve) => {
@@ -46,6 +50,29 @@ function git(args: string[], cwd: string): Promise<string> {
       args,
       { cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 5000, killSignal: 'SIGKILL' },
       (err, stdout) => resolve(err ? '' : String(stdout).trim())
+    )
+  })
+}
+
+// grep with hard exclusions (learned the hard way: without --exclude-dir a single
+// big repo balloons the scan) + timeout/SIGKILL so one wedged repo can't hang it.
+const GREP_EXCLUDE_DIRS = ['.git', 'node_modules', 'dist', 'build', 'out', '.next', 'vendor', 'Pods', 'DerivedData', '.venv', 'venv', 'coverage', '.turbo', 'target']
+const GREP_INCLUDE_EXTS = ['js', 'jsx', 'ts', 'tsx', 'py', 'mjs', 'cjs', 'go', 'css', 'gd', 'rs', 'swift', 'rb', 'php', 'vue', 'svelte']
+
+function countMatches(cwd: string, pattern: string): Promise<number> {
+  return new Promise((resolve) => {
+    const args = ['-rIl']
+    for (const e of GREP_INCLUDE_EXTS) args.push(`--include=*.${e}`)
+    for (const d of GREP_EXCLUDE_DIRS) args.push(`--exclude-dir=${d}`)
+    args.push('-e', pattern, '.')
+    execFile(
+      'grep',
+      args,
+      { cwd, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 4000, killSignal: 'SIGKILL' },
+      (_err, stdout) => {
+        const out = String(stdout || '').trim()
+        resolve(out ? out.split('\n').length : 0)
+      }
     )
   })
 }
@@ -105,37 +132,19 @@ function relTime(ms: number): string | null {
   return `${Math.floor(days / 365)}y ago`
 }
 
-// ── per-project derivation ─────────────────────────────────────────────────
-
-function githubUrlFrom(raw: string): string | null {
-  if (!raw) return null
-  let u = raw.trim()
-  if (u.startsWith('git@')) u = u.replace(':', '/').replace('git@', 'https://')
-  u = u.replace(/\.git$/, '')
-  return u.startsWith('http') ? u : null
+function displayDir(cwd: string): string {
+  return cwd.startsWith(HOME + '/') ? cwd.slice(HOME.length + 1) : cwd === HOME ? '~' : cwd
 }
 
-function originOf(github: string | null): ProjectOrigin | null {
-  if (!github) return null
-  if (/github\.com\/alexselig[-_]microsoft\//i.test(github)) return 'work'
-  if (/github\.com\/alexselig\//i.test(github)) return 'personal'
-  return 'external'
-}
+// ── git-derived, cached per repo ─────────────────────────────────────────────
 
 const BUMP_RE = /(bump|release|v?\d+\.\d+\.\d+|changelog)/i
-
-// ── commit cache ─────────────────────────────────────────────────────────────
-// `git log` is the most repeated cost (tracker scan + Activity feed re-open on
-// it constantly). Cache parsed commits per repo, keyed by cwd. Within FRESH_MS
-// we reuse blindly; beyond that we run one cheap `git rev-parse HEAD` and reuse
-// the cached log unless HEAD moved (a new commit landed). Only absolute
-// timestamps are cached — relative "when" is recomputed on read so it never
-// goes stale. In-memory: the concern is repeat views within a session.
 
 interface RawCommit {
   sha: string
   subject: string
-  ts: number
+  iso: string | null
+  author: string | null
   isRelease: boolean
 }
 
@@ -149,6 +158,9 @@ const COMMIT_CACHE_N = 12
 const FRESH_MS = 15_000
 const commitCache = new Map<string, CommitCacheEntry>()
 
+// `git log` is the most repeated cost (tracker scan + Activity feed re-open on it
+// constantly). Cache parsed commits per repo; within FRESH_MS reuse blindly,
+// beyond that run a cheap `git rev-parse HEAD` and reuse unless HEAD moved.
 async function fetchRawCommits(cwd: string): Promise<RawCommit[]> {
   const cached = commitCache.get(cwd)
   if (cached && Date.now() - cached.at < FRESH_MS) return cached.commits
@@ -159,14 +171,15 @@ async function fetchRawCommits(cwd: string): Promise<RawCommit[]> {
     return cached.commits
   }
 
-  const raw = await git(['log', `-n${COMMIT_CACHE_N}`, '--no-merges', '--pretty=format:%H\u001f%s\u001f%cI'], cwd)
+  const raw = await git(['log', `-n${COMMIT_CACHE_N}`, '--no-merges', '--pretty=format:%H\u001f%s\u001f%cI\u001f%an'], cwd)
   const commits: RawCommit[] = raw
     ? raw.split('\n').map((line) => {
-        const [sha, subject, iso] = line.split('\u001f')
+        const [sha, subject, iso, author] = line.split('\u001f')
         return {
           sha: (sha || '').slice(0, 7),
           subject: subject || '',
-          ts: iso ? Date.parse(iso) : 0,
+          iso: iso || null,
+          author: author || null,
           isRelease: BUMP_RE.test(subject || '')
         }
       })
@@ -175,18 +188,44 @@ async function fetchRawCommits(cwd: string): Promise<RawCommit[]> {
   return commits
 }
 
-async function getCommits(cwd: string): Promise<TrackerCommit[]> {
+async function getCommits(cwd: string): Promise<Commit[]> {
   const raw = await fetchRawCommits(cwd)
-  return raw.map((c) => ({ sha: c.sha, subject: c.subject, when: relTime(c.ts), isRelease: c.isRelease }))
+  return raw.map((c) => ({
+    sha: c.sha,
+    subject: c.subject,
+    date: c.iso,
+    when: relTime(c.iso ? Date.parse(c.iso) : 0),
+    author: c.author,
+    isRelease: c.isRelease
+  }))
 }
 
-async function getChangelog(entries: string[], cwd: string): Promise<TrackerChangelog[]> {
+// ── version / changelog / next steps ─────────────────────────────────────────
+
+function githubUrlFrom(raw: string): string | null {
+  if (!raw) return null
+  let u = raw.trim()
+  if (u.startsWith('git@')) u = u.replace(':', '/').replace('git@', 'https://')
+  u = u.replace(/\.git$/, '')
+  return u.startsWith('http') ? u : null
+}
+
+// Hard-coded owner rule (see handoff 08-PORTING-CHECKLIST §2): alexselig-microsoft
+// = work, alexselig = personal, anything else = external.
+function originOf(github: string | null): Origin {
+  if (!github) return null
+  if (/github\.com\/alexselig[-_]microsoft\//i.test(github)) return 'work'
+  if (/github\.com\/alexselig\//i.test(github)) return 'personal'
+  return 'external'
+}
+
+async function getChangelog(entries: string[], cwd: string): Promise<ChangelogSection[]> {
   const p = findFile(entries, cwd, ['CHANGELOG.md', 'CHANGELOG', 'changelog.md'])
   if (!p) return []
   const text = await readText(p)
   if (!text) return []
-  const sections: TrackerChangelog[] = []
-  let cur: TrackerChangelog | null = null
+  const sections: ChangelogSection[] = []
+  let cur: ChangelogSection | null = null
   const head = /^#{1,3}\s*\[?v?(\d+\.\d+\.\d+[^\]\s]*)\]?/i
   for (const line of text.split('\n')) {
     const m = line.match(head)
@@ -207,8 +246,8 @@ async function getChangelog(entries: string[], cwd: string): Promise<TrackerChan
 const TASK_FILES = ['TODO.md', 'TODO', 'STATUS.md', '.crew-progress.md', 'ROADMAP.md', 'NEXT.md', 'TASKS.md', 'PLAN.md']
 const SECTION_RE = /^#{1,6}\s*(next steps?|to ?do|todo|roadmap|remaining|up next|what'?s next|open (tasks|items)|backlog)\b/i
 
-async function getNextSteps(entries: string[], cwd: string): Promise<TrackerNextStep[]> {
-  const steps: TrackerNextStep[] = []
+async function getNextSteps(entries: string[], cwd: string): Promise<NextStep[]> {
+  const steps: NextStep[] = []
   const pushItem = (text: string, source: string): void => {
     const t = text.trim().replace(/\*\*/g, '').replace(/`/g, '')
     if (/^(✅|✔️?|✓|☑️?|~~|\[x\])/i.test(t)) return
@@ -250,28 +289,20 @@ async function getNextSteps(entries: string[], cwd: string): Promise<TrackerNext
   return steps
 }
 
-interface Stats {
-  commitCount: number
-  lastCommitIso: string | null
-  lastCommitWhen: string | null
-  daysSinceCommit: number | null
-  uncommitted: number
-  ahead: number
-  isGit: boolean
-  hasTag: boolean
+// ── stats / launch / suggestions ─────────────────────────────────────────────
+
+// ── stats / launch / suggestions ─────────────────────────────────────────────
+
+interface FullStats extends Stats {
+  specOnly: boolean
   hasReadme: boolean
   hasChangelog: boolean
   hasLicense: boolean
-  hasTests: boolean
+  hasTag: boolean
   isNode: boolean
-  specOnly: boolean
 }
 
-async function projectStats(
-  entries: string[],
-  cwd: string,
-  pkg: Record<string, unknown> | null
-): Promise<Stats> {
+async function projectStats(entries: string[], cwd: string, pkg: Record<string, unknown> | null): Promise<FullStats> {
   const isGit = await exists(join(cwd, '.git'))
   const [lastCommitIso, commitCountRaw, porcelain, aheadRaw, tag] = isGit
     ? await Promise.all([
@@ -313,18 +344,19 @@ async function projectStats(
     daysSinceCommit: lastCommitIso ? Math.floor((Date.now() - lastMs) / 86400000) : null,
     uncommitted: porcelain ? porcelain.split('\n').filter(Boolean).length : 0,
     ahead: Number(aheadRaw) || 0,
+    hasTests,
     isGit,
-    hasTag: !!tag,
+    framework: detectFramework(pkg, entries),
+    specOnly: !codeish && mdCount > 0,
     hasReadme: !!findFile(entries, cwd, ['README.md', 'README', 'readme.md']),
     hasChangelog: !!findFile(entries, cwd, ['CHANGELOG.md', 'CHANGELOG']),
     hasLicense: !!findFile(entries, cwd, ['LICENSE', 'LICENSE.md', 'LICENSE.txt']),
-    hasTests,
-    isNode,
-    specOnly: !codeish && mdCount > 0
+    hasTag: !!tag,
+    isNode
   }
 }
 
-function detectFramework(pkg: Record<string, unknown> | null, entries: string[]): string | null {
+function detectFramework(pkg: Record<string, unknown> | null, entries: string[]): Framework {
   const scripts = (pkg?.scripts as Record<string, string>) || {}
   const deps = { ...(pkg?.dependencies as object), ...(pkg?.devDependencies as object) } as Record<string, string>
   if (deps.next) return 'next'
@@ -335,13 +367,26 @@ function detectFramework(pkg: Record<string, unknown> | null, entries: string[])
   return null
 }
 
-function getSuggestions(stats: Stats, project: TrackerProject): string[] {
+/** Framework → launch capability + preview command (matches handoff detectLaunch). */
+export function detectLaunch(framework: Framework, hasDevScript: boolean): Launch {
+  const launchable = !!framework
+  const opensUrl = framework != null && framework !== 'electron'
+  let cmdPreview: string | null = null
+  if (framework === 'next') cmdPreview = 'npm run dev -- -p <port>'
+  else if (framework === 'vite') cmdPreview = 'npm run dev -- --port <port>'
+  else if (framework === 'electron') cmdPreview = 'npm run dev'
+  else if (framework === 'node') cmdPreview = hasDevScript ? 'npm run dev' : 'npm start'
+  else if (framework === 'static') cmdPreview = 'python3 -m http.server <port>'
+  return { framework, launchable, opensUrl, cmdPreview }
+}
+
+async function getSuggestions(cwd: string, stats: FullStats, project: Project): Promise<string[]> {
   const s: { priority: number; text: string }[] = []
   const add = (priority: number, text: string): void => {
     s.push({ priority, text })
   }
-  const fw = project.framework
-  const deployable = fw != null && fw !== 'electron'
+  const fw = project.launch.framework
+  const deployable = project.launch.opensUrl
 
   if (stats.uncommitted > 0) add(1, `Commit or stash ${stats.uncommitted} uncommitted change${stats.uncommitted > 1 ? 's' : ''}`)
   if (!stats.isGit && !stats.specOnly) add(1, 'Put it under version control — git init & push to GitHub')
@@ -352,7 +397,12 @@ function getSuggestions(stats: Stats, project: TrackerProject): string[] {
   if (!project.live && deployable && stats.isGit) add(4, 'Deploy it so you have a shareable live link')
   if (!project.live && fw === 'static' && stats.isGit) add(4, 'Publish via GitHub Pages for a live link')
   if (!stats.hasReadme && !stats.specOnly) add(5, 'Write a README describing what it does & how to run it')
+
+  const todos = await countMatches(cwd, 'TODO\\|FIXME\\|HACK')
+  if (todos > 0) add(5, `Resolve ${todos} TODO/FIXME marker${todos > 1 ? 's' : ''} left in the code`)
+
   if (stats.isNode && stats.isGit && !stats.hasTag && stats.commitCount > 8) add(6, 'Tag a release (git tag) to snapshot this version')
+  if (project.live && fw === 'static') add(6, 'Keep it current — add your newest work / refresh screenshots')
   if (!stats.hasChangelog && stats.commitCount > 15 && stats.isNode) add(6, 'Start a CHANGELOG to track what ships each release')
   if (stats.daysSinceCommit != null && stats.daysSinceCommit > 14) add(7, `Revisit — no commits in ${stats.daysSinceCommit} days`)
   if (stats.isNode && !stats.hasLicense && project.github && /github\.com\/[^/]+\/[^/]+$/.test(project.github)) add(8, 'Add a LICENSE file')
@@ -363,17 +413,49 @@ function getSuggestions(stats: Stats, project: TrackerProject): string[] {
     .map((x) => x.text)
 }
 
-function displayDir(cwd: string): string {
-  return cwd.startsWith(HOME) ? `~${cwd.slice(HOME.length)}` : cwd
-}
+// ── assemble ─────────────────────────────────────────────────────────────────
 
-async function deriveProject(input: TrackerSessionInput): Promise<TrackerProject> {
+async function deriveProject(input: TrackerSessionInput): Promise<Project> {
   const cwd = input.cwd
+  const found = await exists(cwd)
+  const base: Project = {
+    id: input.id,
+    kind: 'session',
+    label: input.label,
+    tag: input.tag,
+    color: input.color,
+    character: input.character,
+    createdAt: input.createdAt,
+    lastActive: input.lastPromptAt,
+    lastActiveWhen: relTime(input.lastPromptAt ?? 0),
+    dir: displayDir(cwd),
+    note: null,
+    found,
+    origin: null,
+    github: null,
+    live: null,
+    version: '—',
+    versionSource: null,
+    pkgName: null,
+    branch: null,
+    commits: [],
+    changelog: [],
+    nextSteps: [],
+    suggestions: [],
+    stats: null,
+    launch: { framework: null, launchable: false, opensUrl: false, cmdPreview: null },
+    status: 'unknown'
+  }
+  if (!found) {
+    base.status = 'no-folder'
+    return base
+  }
+
   const entries = await listDir(cwd)
   const pkg = await readJSON(join(cwd, 'package.json'))
+  const stats = await projectStats(entries, cwd, pkg)
 
-  const [stats, commits, changelog, nextSteps, remoteRaw, branch, tag] = await Promise.all([
-    projectStats(entries, cwd, pkg),
+  const [commits, changelog, nextSteps, remoteRaw, branch, tag] = await Promise.all([
     getCommits(cwd),
     getChangelog(entries, cwd),
     getNextSteps(entries, cwd),
@@ -384,11 +466,24 @@ async function deriveProject(input: TrackerSessionInput): Promise<TrackerProject
 
   const github = githubUrlFrom(remoteRaw)
   const pkgVersion = pkg?.version ? `v${pkg.version as string}` : null
-  const version =
-    pkgVersion ||
-    (tag ? (tag.startsWith('v') ? tag : `v${tag}`) : null) ||
-    (stats.commitCount ? `${stats.commitCount} commits` : '—')
-  const framework = detectFramework(pkg, entries)
+  const shortSha = commits[0]?.sha || (await git(['rev-parse', '--short', 'HEAD'], cwd))
+  let version = '—'
+  let versionSource: Project['versionSource'] = null
+  if (pkgVersion) {
+    version = pkgVersion
+    versionSource = 'package.json'
+  } else if (tag) {
+    version = tag.startsWith('v') ? tag : `v${tag}`
+    versionSource = 'git tag'
+  } else if (stats.commitCount && shortSha) {
+    version = `${stats.commitCount} commits · ${shortSha}`
+    versionSource = 'git'
+  }
+
+  const scripts = (pkg?.scripts as Record<string, string>) || {}
+  const launch = detectLaunch(stats.framework, !!scripts.dev)
+  const pkgHome = typeof pkg?.homepage === 'string' ? (pkg.homepage as string) : null
+  const live = pkgHome && /^https?:\/\//.test(pkgHome) ? pkgHome : /\.github\.io$/i.test(basename(cwd)) ? `https://${basename(cwd)}/` : null
 
   let status: ProjectStatus
   if (stats.specOnly) status = 'spec'
@@ -397,54 +492,46 @@ async function deriveProject(input: TrackerSessionInput): Promise<TrackerProject
   else if (stats.daysSinceCommit <= 30) status = 'recent'
   else status = 'stale'
 
-  const pkgHome = typeof pkg?.homepage === 'string' ? (pkg.homepage as string) : null
-  const live = pkgHome && /^https?:\/\//.test(pkgHome) ? pkgHome : /\.github\.io$/i.test(basename(cwd)) ? `https://${basename(cwd)}/` : null
-
-  const project: TrackerProject = {
-    cwd,
-    dir: displayDir(cwd),
-    name: basename(cwd) || cwd,
-    tag: input.tag,
-    color: input.color,
-    origin: originOf(github),
-    github,
-    live,
-    version,
-    framework,
-    branch: branch || null,
-    status,
+  base.origin = originOf(github)
+  base.github = github
+  base.live = live
+  base.version = version
+  base.versionSource = versionSource
+  base.pkgName = (pkg?.name as string) || null
+  base.branch = branch || null
+  base.commits = commits
+  base.changelog = changelog
+  base.nextSteps = nextSteps
+  base.launch = launch
+  base.status = status
+  base.stats = {
     commitCount: stats.commitCount,
     lastCommitWhen: stats.lastCommitWhen,
+    lastCommitIso: stats.lastCommitIso,
+    daysSinceCommit: stats.daysSinceCommit,
     uncommitted: stats.uncommitted,
     ahead: stats.ahead,
-    lastActive: input.lastActive,
-    lastActiveWhen: relTime(input.lastActive),
-    openSessions: input.sessions.length,
-    sessions: input.sessions,
-    nextSteps,
-    suggestions: [],
-    commits,
-    changelog
+    hasTests: stats.hasTests,
+    isGit: stats.isGit,
+    framework: stats.framework
   }
-  project.suggestions = getSuggestions(stats, project)
-  return project
+  base.suggestions = await getSuggestions(cwd, stats, base)
+  return base
 }
 
 const canonicalTag = (tag: string): string => {
   const key = tag.trim().toLowerCase()
-  const idx = TAG_ORDER.indexOf(key)
-  return idx >= 0 ? key : tag.trim()
+  return TAG_ORDER.includes(key) ? key : tag.trim()
 }
 
 /**
- * Scan the given open-session projects (one per cwd) and assemble the grouped,
- * ordered Project Tracker data model.
+ * Scan the given open-session projects (one per session) and assemble the
+ * grouped, ordered Project Tracker data model per the handoff contract.
  */
 export async function scanProjects(inputs: TrackerSessionInput[]): Promise<TrackerData> {
   const projects = await Promise.all(inputs.map(deriveProject))
 
-  // Group by canonical tag; known tags in TAG_ORDER first, then the rest A→Z.
-  const byTag = new Map<string, TrackerProject[]>()
+  const byTag = new Map<string, Project[]>()
   for (const p of projects) {
     const key = canonicalTag(p.tag)
     const arr = byTag.get(key)
@@ -460,16 +547,14 @@ export async function scanProjects(inputs: TrackerSessionInput[]): Promise<Track
     return a.localeCompare(b)
   })
 
-  const groups: TrackerGroup[] = keys.map((key) => {
+  const recencyKey = (p: Project): number => p.lastActive || (p.stats?.lastCommitIso ? Date.parse(p.stats.lastCommitIso) : 0)
+  const groups: Group[] = keys.map((key) => {
     const meta = TAG_META[key.toLowerCase()]
     return {
       tag: key,
       label: meta?.label || (key ? key[0].toUpperCase() + key.slice(1) : key),
       blurb: meta?.blurb || '',
-      // Projects with open work first, then most-recently-active.
-      projects: byTag.get(key)!.sort(
-        (a, b) => Number(b.nextSteps.length > 0) - Number(a.nextSteps.length > 0) || b.lastActive - a.lastActive
-      )
+      projects: byTag.get(key)!.sort((a, b) => recencyKey(b) - recencyKey(a))
     }
   })
 
@@ -477,10 +562,11 @@ export async function scanProjects(inputs: TrackerSessionInput[]): Promise<Track
     generatedAt: new Date().toISOString(),
     totals: {
       projects: projects.length,
+      sessions: projects.filter((p) => p.kind === 'session').length,
+      repos: projects.filter((p) => p.stats?.isGit).length,
+      found: projects.filter((p) => p.found).length,
       groups: groups.length,
-      openTasks: projects.reduce((n, p) => n + p.nextSteps.length, 0),
-      repos: projects.filter((p) => p.commitCount > 0 || p.branch).length,
-      sessions: projects.reduce((n, p) => n + p.openSessions, 0)
+      openTasks: projects.reduce((n, p) => n + p.nextSteps.length, 0)
     },
     groups
   }
@@ -490,9 +576,7 @@ export async function scanProjects(inputs: TrackerSessionInput[]): Promise<Track
  * Recent git commits across the given projects, merged and sorted newest-first,
  * each with an absolute timestamp. Feeds the Activity tab of the analytics modal.
  */
-export async function recentCommits(
-  projects: { cwd: string; name: string }[]
-): Promise<CommitActivity[]> {
+export async function recentCommits(projects: { cwd: string; name: string }[]): Promise<CommitActivity[]> {
   const perProject = await Promise.all(
     projects.map(async ({ cwd, name }) => {
       const raw = await fetchRawCommits(cwd)
@@ -501,7 +585,7 @@ export async function recentCommits(
         project: name,
         sha: c.sha,
         subject: c.subject,
-        ts: c.ts,
+        ts: c.iso ? Date.parse(c.iso) : 0,
         isRelease: c.isRelease
       }))
     })
@@ -510,4 +594,13 @@ export async function recentCommits(
     .flat()
     .filter((c) => c.ts > 0 && c.sha)
     .sort((a, b) => b.ts - a.ts)
+}
+
+/** Resolve a session cwd's launch metadata (used by the launcher). */
+export async function resolveLaunch(cwd: string): Promise<Launch> {
+  if (!(await exists(cwd))) return { framework: null, launchable: false, opensUrl: false, cmdPreview: null }
+  const entries = await listDir(cwd)
+  const pkg = await readJSON(join(cwd, 'package.json'))
+  const scripts = (pkg?.scripts as Record<string, string>) || {}
+  return detectLaunch(detectFramework(pkg, entries), !!scripts.dev)
 }

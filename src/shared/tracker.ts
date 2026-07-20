@@ -1,113 +1,165 @@
-// Types for the Project Tracker: a live, editorial "Project Index" derived from
-// disk (git, package.json, task files) for the working directories of the
-// currently open sessions. Populated by src/main/tracker.ts, rendered by
-// src/renderer/components/ProjectTracker.tsx.
+// Project Tracker data model — matches the handoff contract exactly
+// (~/project-tracker/handoff/types.d.ts, tracker v0.1.0). Built by
+// src/main/tracker.ts, rendered by src/renderer/components/ProjectTracker.tsx.
+//
+// Scope note for the Crew integration: the tracker indexes the working
+// directories of the currently OPEN sessions only (one project per session).
+// The standalone tool's synthetic "Other repos" walk is intentionally omitted.
 
-import type { SessionState } from './types'
+export type ProjectStatus =
+  | 'active' // git commit within 7 days
+  | 'recent' // within 30 days
+  | 'stale' // older than 30 days
+  | 'spec' // docs/markdown only, no code detected
+  | 'unknown' // folder found but no git history
+  | 'no-folder' // session points at a folder that doesn't exist
 
-/** Recency/health of a project, driving its status dot color. */
-export type ProjectStatus = 'active' | 'recent' | 'stale' | 'spec' | 'unknown'
+export type Framework = 'next' | 'vite' | 'electron' | 'node' | 'static' | null
+export type Origin = 'work' | 'personal' | 'external' | null
+export type ProjectKind = 'session' | 'repo'
+export type VersionSource = 'package.json' | 'git tag' | 'git' | null
 
-/** Which GitHub account owns the repo (from the origin remote). */
-export type ProjectOrigin = 'work' | 'personal' | 'external'
-
-export interface TrackerNextStep {
-  text: string
-  /** File the step was parsed from (e.g. STATUS.md). */
-  source: string
-}
-
-export interface TrackerCommit {
+export interface Commit {
   sha: string
   subject: string
+  date: string | null
   when: string | null
-  /** Looks like a release/version/changelog commit → highlighted. */
+  author: string | null
   isRelease: boolean
 }
 
-export interface TrackerChangelog {
+export interface NextStep {
+  text: string
+  source: string
+}
+
+export interface ChangelogSection {
   version: string
   items: string[]
 }
 
-/** A currently-open Crew session contributing to a project. */
-export interface TrackerSessionRef {
-  id: string
-  label: string
-  state: SessionState
+export interface Stats {
+  commitCount: number
+  lastCommitWhen: string | null
+  lastCommitIso: string | null
+  daysSinceCommit: number | null
+  uncommitted: number
+  ahead: number
+  hasTests: boolean
+  isGit: boolean
+  framework: Framework
 }
 
-export interface TrackerProject {
-  /** Absolute working directory (the project's identity). */
-  cwd: string
-  /** Display path, e.g. `~/crew`. */
-  dir: string
-  name: string
+export interface Launch {
+  framework: Framework
+  launchable: boolean
+  opensUrl: boolean
+  cmdPreview: string | null
+}
+
+export interface Project {
+  id: string
+  kind: ProjectKind
+  label: string
   tag: string
-  /** Identity color from the session. */
   color: string
-  origin: ProjectOrigin | null
+  character: string | null
+  createdAt: number | null
+  lastActive: number | null
+  lastActiveWhen: string | null
+  dir: string | null
+  note: string | null
+  found: boolean
+  origin: Origin
   github: string | null
   live: string | null
   version: string
-  framework: string | null
+  versionSource: VersionSource
+  pkgName: string | null
   branch: string | null
-  status: ProjectStatus
-  commitCount: number
-  lastCommitWhen: string | null
-  uncommitted: number
-  ahead: number
-  /** Most recent session activity (max lastPromptAt/createdAt), ms epoch. */
-  lastActive: number
-  lastActiveWhen: string | null
-  /** Number of open (active) sessions in this project. */
-  openSessions: number
-  sessions: TrackerSessionRef[]
-  nextSteps: TrackerNextStep[]
+  commits: Commit[]
+  changelog: ChangelogSection[]
+  nextSteps: NextStep[]
   suggestions: string[]
-  commits: TrackerCommit[]
-  changelog: TrackerChangelog[]
+  stats: Stats | null
+  launch: Launch
+  status: ProjectStatus
 }
 
-export interface TrackerGroup {
+export interface Group {
   tag: string
   label: string
   blurb: string
-  projects: TrackerProject[]
+  projects: Project[]
+}
+
+export interface Totals {
+  projects: number
+  sessions: number
+  repos: number
+  found: number
+  groups: number
+  openTasks: number
 }
 
 export interface TrackerData {
   generatedAt: string
-  totals: {
-    projects: number
-    groups: number
-    /** Sum of open next-step items across projects. */
-    openTasks: number
-    /** Projects that are git repos. */
-    repos: number
-    /** Open sessions represented. */
-    sessions: number
-  }
-  groups: TrackerGroup[]
+  totals: Totals
+  groups: Group[]
 }
 
-/** A git commit surfaced in the Activity feed (with an absolute timestamp). */
+// ── Launcher runtime status (matches types.d.ts) ────────────────────────────
+
+export interface RunningServer {
+  id: string
+  label: string
+  port: number | null
+  url: string | null
+  framework: Framework
+  status: 'starting' | 'running' | 'exited'
+  startedAt: number
+  pid: number
+  external?: boolean
+}
+
+export interface LaunchResult {
+  ok: boolean
+  id?: string
+  label?: string
+  port?: number | null
+  url?: string | null
+  framework?: Framework
+  status?: string
+  pid?: number
+  external?: boolean
+  already?: boolean
+  slow?: boolean
+  note?: string
+  error?: string
+  log?: string
+}
+
+// ── Internal (not part of the /api/data contract) ───────────────────────────
+
+/** One open Crew session handed to the scan (the tracker's project source). */
+export interface TrackerSessionInput {
+  id: string
+  label: string
+  tag: string
+  color: string
+  character: string | null
+  createdAt: number | null
+  lastPromptAt: number | null
+  /** Absolute working directory of the session. */
+  cwd: string
+}
+
+/** A git commit surfaced in the analytics Activity feed. */
 export interface CommitActivity {
   cwd: string
   project: string
   sha: string
   subject: string
-  /** Commit date, ms epoch. */
   ts: number
   isRelease: boolean
-}
-
-/** Input passed from the renderer's roster into the main-process scan. */
-export interface TrackerSessionInput {
-  cwd: string
-  tag: string
-  color: string
-  label: string
-  lastActive: number
-  sessions: TrackerSessionRef[]
 }
