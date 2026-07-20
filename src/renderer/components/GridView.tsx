@@ -103,13 +103,21 @@ export function GridView({
   const dnd = useCardDnd(roster, groupMode, onReorder, onSetTag)
   const tagGroups = allGroups ?? existingGroups(roster)
 
-  // Clicking a session in the nav selects it — scroll its tile into view so the
-  // picked session is visible in the grid.
+  // The group/bucket the selected session currently lives in. When it changes —
+  // e.g. a re-tag or a recency re-bucket moves the selected session to a new
+  // group — we re-scroll its tile into view so the user never loses track of it.
+  const selectedGroupKey = !selectedId
+    ? null
+    : grouped
+      ? (groups.find((g) => g.items.some((s) => s.id === selectedId))?.name ?? null)
+      : '__all__'
+
+  // Keep the selected tile visible: on select, and whenever it moves group/bucket.
   useEffect(() => {
     if (!selectedId) return
     const el = document.querySelector(`.tile[data-session-id="${CSS.escape(selectedId)}"]`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
-  }, [selectedId])
+  }, [selectedId, selectedGroupKey])
 
   if (roster.length === 0) {
     return (

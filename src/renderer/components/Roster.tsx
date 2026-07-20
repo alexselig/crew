@@ -134,6 +134,7 @@ export function Roster(props: Props): JSX.Element {
   }
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>()
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>()
+  const asideRef = useRef<HTMLElement>(null)
   // When the nav is manually collapsed (focus view), hovering the session list
   // floats it open as an overlay; leaving collapses it. `railed` = compact rail.
   const canFloat = collapsed && (hoverExpand ?? false)
@@ -214,6 +215,20 @@ export function Roster(props: Props): JSX.Element {
     onReorderGroups
   )
 
+  // The group/bucket the selected session currently lives in. When it changes
+  // (re-tag or recency re-bucket), re-scroll the selected card into view in the
+  // nav so a moved session never gets abandoned off-screen.
+  const selectedGroupKey = !selectedId
+    ? null
+    : applyGrouping
+      ? (groups.find((g) => g.items.some((s) => s.id === selectedId))?.name ?? null)
+      : '__all__'
+  useEffect(() => {
+    if (!selectedId || dnd.draggingId) return
+    const el = asideRef.current?.querySelector(`[data-session-id="${CSS.escape(selectedId)}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [selectedId, selectedGroupKey, dnd.draggingId])
+
   // Hiding + per-bucket "show more" apply in both the expanded nav and the
   // compact rail (kept in sync). A session is hidden when it's been manually
   // minimized, or — in group (tag) sort — unused past staleHideHours. In the
@@ -251,6 +266,7 @@ export function Roster(props: Props): JSX.Element {
 
   return (
     <aside
+      ref={asideRef}
       className={`roster ${railed ? 'roster--collapsed' : ''} ${canFloat ? 'roster--float' : ''} ${
         canFloat && navHover ? 'is-expanded' : ''
       }`}

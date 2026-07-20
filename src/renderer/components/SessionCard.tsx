@@ -58,6 +58,7 @@ export function SessionCard({
         className={`card card--compact ${selected ? 'is-selected' : ''} ${
           inactive ? 'is-inactive' : ''
         } ${isDragging ? 'is-dragging' : ''} ${isDragOver ? 'is-drag-over' : ''}`}
+        data-session-id={session.id}
         role="button"
         tabIndex={0}
         draggable={draggable}
@@ -84,6 +85,7 @@ export function SessionCard({
       className={`card ${selected ? 'is-selected' : ''} ${inactive ? 'is-inactive' : ''} ${
         isDragging ? 'is-dragging' : ''
       } ${isDragOver ? 'is-drag-over' : ''}`}
+      data-session-id={session.id}
       role="button"
       tabIndex={0}
       draggable={draggable}
