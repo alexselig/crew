@@ -38,6 +38,7 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
   const [running, setRunning] = useState<Record<string, RunningServer>>({})
   const [launching, setLaunching] = useState<Set<string>>(new Set())
   const [launchNote, setLaunchNote] = useState<Record<string, string>>({})
+  const [auto, setAuto] = useState(true)
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -72,6 +73,14 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
     void refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Auto-refresh (re-scan) every 20s while enabled, mirroring the reference.
+  useEffect(() => {
+    if (!auto) return
+    const t = setInterval(() => void refresh(), 20000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto])
 
   const toggle = (id: string): void =>
     setExpanded((prev) => {
@@ -323,6 +332,9 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
           <div className="tracker__top">
             <span className="tracker__eyebrow">Project Index — Vol. 1</span>
             <div className="tracker__controls">
+              <label className="tracker__auto">
+                <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Auto
+              </label>
               <button type="button" className="tracker__ctl" onClick={() => void refresh()} title="Rescan now">
                 Refresh
               </button>

@@ -3906,6 +3906,25 @@ button.grid-topbar__wordmark:hover {
   align-items: center;
   gap: 16px;
 }
+.tracker__auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--pt-cream-faint);
+  transition: color 0.15s;
+}
+.tracker__auto:hover {
+  color: var(--pt-gold);
+}
+.tracker__auto input {
+  accent-color: var(--pt-gold);
+}
 .tracker__ctl {
   font-family: var(--pt-sans);
   font-size: 11.5px;
