@@ -6,6 +6,7 @@ import { StatusTag } from './StatusTag'
 import { Since } from './Since'
 import { TerminalView } from './TerminalView'
 import { TagChip } from './TagChip'
+import { SkillsBar } from './SkillsBar'
 import { useTakeoff, HeaderTakeoff } from './HeaderTakeoff'
 
 interface Props {
@@ -166,7 +167,12 @@ export function GridTile({
       </div>
       <div className="tile__body">
         {active ? (
-          <TerminalView id={session.id} focusOnMount={false} />
+          <>
+            <TerminalView id={session.id} focusOnMount={false} />
+            <span onClick={(e) => e.stopPropagation()}>
+              <SkillsBar sessionId={session.id} agent={session.command} />
+            </span>
+          </>
         ) : (
           <div className="tile__exited">
             {session.status === 'error' ? '⚠︎' : '✔︎'} session {session.status}

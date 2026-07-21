@@ -1704,6 +1704,20 @@ button {
   background: rgba(242, 241, 234, 0.02);
 }
 
+/* The tile clips its content (overflow: hidden), which would cut off the skills
+   picker panel. While the picker is open, stop clipping on the tile and its
+   scroll ancestors and lift the tile's stacking so the panel floats above
+   neighbouring tiles. */
+.tile:has(.skills-menu.is-open) {
+  overflow: visible;
+  z-index: 5;
+}
+.grid:has(.skills-menu.is-open),
+.grid-group:has(.skills-menu.is-open),
+.gridview__scroll:has(.skills-menu.is-open) {
+  overflow: visible;
+}
+
 /* Selected: a 2px cobalt underline on the title bar (tab-style), not a left edge. */
 .tile.is-selected .tile__header {
   box-shadow: inset 0 -2px 0 var(--accent);
