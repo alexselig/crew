@@ -629,7 +629,8 @@ function registerIpc(): void {
         character: s.characterId ?? null,
         createdAt: s.createdAt ?? null,
         lastPromptAt: s.lastPromptAt ?? s.createdAt ?? null,
-        cwd: s.cwd
+        cwd: s.cwd,
+        agentSessionId: s.agentSessionId ?? null
       }))
     return scanProjects(inputs)
   })

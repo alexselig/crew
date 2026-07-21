@@ -27,6 +27,10 @@ import type {
 } from '../shared/tracker'
 
 const HOME = homedir()
+// Copilot CLI stores each session's state (including its live `todos` table) at
+// ~/.copilot/session-state/<agentSessionId>/session.db — the tracker's primary,
+// live source of a project's real open tasks.
+const SESSION_STATE_DIR = join(HOME, '.copilot', 'session-state')
 
 // Group presentation (mirrors the handoff's TAG_ORDER + TAG_META). Known tags get
 // a canonical label + editorial blurb; unknown tags append. Case-insensitive.
@@ -75,6 +79,60 @@ function countMatches(cwd: string, pattern: string): Promise<number> {
       }
     )
   })
+}
+
+// Read-only JSON query against a SQLite db via the system sqlite3 CLI (macOS ships
+// it at /usr/bin/sqlite3). `mode=ro` reads a live db safely without taking a write
+// lock. Timeout + SIGKILL so a wedged db can't hang the scan; any failure → [].
+function sqlite3Json(dbPath: string, query: string): Promise<Array<Record<string, unknown>>> {
+  return new Promise((resolve) => {
+    const uri = `file:${dbPath}?mode=ro`
+    const attempt = (bin: string, fallback: (() => void) | null): void => {
+      execFile(
+        bin,
+        ['-json', uri, query],
+        { encoding: 'utf8', timeout: 4000, maxBuffer: 2 * 1024 * 1024, killSignal: 'SIGKILL' },
+        (err, stdout) => {
+          if (err) {
+            if (fallback) fallback()
+            else resolve([])
+            return
+          }
+          try {
+            const j = JSON.parse(String(stdout || '[]'))
+            resolve(Array.isArray(j) ? (j as Array<Record<string, unknown>>) : [])
+          } catch {
+            resolve([])
+          }
+        }
+      )
+    }
+    attempt('/usr/bin/sqlite3', () => attempt('sqlite3', null))
+  })
+}
+
+/**
+ * The agent's live open tasks for a session, read from its Copilot CLI todo list
+ * (~/.copilot/session-state/<agentSessionId>/session.db). Non-done items only,
+ * ordered in-progress → pending → blocked, most-recently-updated first. This is
+ * the real, per-project "what's next" — not a heuristic. Empty for non-Copilot
+ * sessions (Claude/shell) or when the agent has no open todos.
+ */
+async function getAgentTodos(agentSessionId: string | null): Promise<NextStep[]> {
+  if (!agentSessionId) return []
+  const db = join(SESSION_STATE_DIR, agentSessionId, 'session.db')
+  if (!(await exists(db))) return []
+  const rows = await sqlite3Json(
+    db,
+    "SELECT title FROM todos WHERE status != 'done' " +
+      "ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, updated_at DESC LIMIT 8"
+  )
+  const out: NextStep[] = []
+  for (const r of rows) {
+    const title = typeof r.title === 'string' ? r.title.trim().replace(/\s+/g, ' ') : ''
+    if (title.length > 2 && !out.some((s) => s.text === title)) out.push({ text: title, source: 'session tasks' })
+  }
+  return out
 }
 
 async function readJSON<T = Record<string, unknown>>(p: string): Promise<T | null> {
@@ -244,7 +302,7 @@ async function getChangelog(entries: string[], cwd: string): Promise<ChangelogSe
 }
 
 const TASK_FILES = ['TODO.md', 'TODO', 'STATUS.md', '.crew-progress.md', 'ROADMAP.md', 'NEXT.md', 'TASKS.md', 'PLAN.md']
-const SECTION_RE = /^#{1,6}\s*(next steps?|to ?do|todo|roadmap|remaining|up next|what'?s next|open (tasks|items)|backlog)\b/i
+const SECTION_RE = /^#{1,6}\s*(next steps?|to ?do|todo|roadmap|remaining|up next|what'?s (next|left)|open (tasks|items)|backlog|phases?|milestones?|in[-\s]?progress|upcoming)\b/i
 
 async function getNextSteps(entries: string[], cwd: string): Promise<NextStep[]> {
   const steps: NextStep[] = []
@@ -455,14 +513,23 @@ async function deriveProject(input: TrackerSessionInput): Promise<Project> {
   const pkg = await readJSON(join(cwd, 'package.json'))
   const stats = await projectStats(entries, cwd, pkg)
 
-  const [commits, changelog, nextSteps, remoteRaw, branch, tag] = await Promise.all([
+  const [commits, changelog, fileSteps, agentSteps, remoteRaw, branch, tag] = await Promise.all([
     getCommits(cwd),
     getChangelog(entries, cwd),
     getNextSteps(entries, cwd),
+    getAgentTodos(input.agentSessionId),
     git(['remote', 'get-url', 'origin'], cwd),
     git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd),
     git(['describe', '--tags', '--abbrev=0'], cwd)
   ])
+
+  // Next steps = the agent's live session todos first (the real, current work),
+  // then the human-maintained task-file roadmap; deduped, capped at 8.
+  const nextSteps: NextStep[] = []
+  for (const s of [...agentSteps, ...fileSteps]) {
+    if (nextSteps.length >= 8) break
+    if (!nextSteps.some((x) => x.text === s.text)) nextSteps.push(s)
+  }
 
   const github = githubUrlFrom(remoteRaw)
   const pkgVersion = pkg?.version ? `v${pkg.version as string}` : null

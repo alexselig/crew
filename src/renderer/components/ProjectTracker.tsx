@@ -267,7 +267,7 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
               p.found && (
                 <div className="tracker-sec">
                   <div className="tracker-sec__h">Next steps</div>
-                  <div className="tracker-empty">No open tasks tracked — add a TODO.md or a “Next steps” section.</div>
+                  <div className="tracker-empty">No open tasks — the agent&rsquo;s todo list is clear and there&rsquo;s no TODO/STATUS/ROADMAP task file.</div>
                 </div>
               )
             )}

@@ -152,6 +152,8 @@ export interface TrackerSessionInput {
   lastPromptAt: number | null
   /** Absolute working directory of the session. */
   cwd: string
+  /** The agent's own session UUID — locates its live todo list on disk. */
+  agentSessionId: string | null
 }
 
 /** A git commit surfaced in the analytics Activity feed. */
