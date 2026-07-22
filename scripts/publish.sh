@@ -28,6 +28,8 @@ VERSION="$(node -p "require('./package.json').version")"
 TAG="${1:-v$VERSION}"
 ZIP="dist/Crew-${VERSION}-arm64-mac.zip"
 DMG="dist/Crew-${VERSION}-arm64.dmg"
+# Version-independent alias the marketing site's Download button links to.
+STABLE_DMG="dist/Crew-arm64.dmg"
 
 # 1. Sign + notarize + package (produces the notarized ZIP + DMG)
 if [ "${CREW_SKIP_SIGN:-0}" = "1" ]; then
@@ -49,11 +51,17 @@ else
   gh release create "$TAG" --repo "$REPO" --title "Crew $TAG" \
     --notes "Crew $TAG — signed & notarized by Apple. Install: \`curl -fsSL https://github.com/$REPO/releases/latest/download/install.sh | bash\`"
 fi
-gh release upload "$TAG" "$ZIP" "$DMG" install.sh --repo "$REPO" --clobber
+# The marketing site links to a version-independent Crew-arm64.dmg, so ship a
+# stable-named copy of the notarized DMG next to the versioned assets. Without it
+# releases/latest/download/Crew-arm64.dmg 404s and the website Download button breaks.
+cp -f "$DMG" "$STABLE_DMG"
+gh release upload "$TAG" "$ZIP" "$DMG" "$STABLE_DMG" install.sh --repo "$REPO" --clobber
 
 # 3. Verify the published assets + the stable installer URL.
 echo "==> Published assets:"
 gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name' | sed 's/^/    /'
 curl -fsSL -o /dev/null -w "    install.sh (latest) -> http %{http_code}\n" \
   "https://github.com/$REPO/releases/latest/download/install.sh" || true
+curl -fsSL -o /dev/null -w "    Crew-arm64.dmg (latest) -> http %{http_code}\n" \
+  "https://github.com/$REPO/releases/latest/download/Crew-arm64.dmg" || true
 echo "==> Done: https://github.com/$REPO/releases/tag/$TAG"
