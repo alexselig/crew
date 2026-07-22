@@ -2216,6 +2216,53 @@ button {
   font-size: 12.5px;
 }
 
+/* Popularity heat dot (relative scale — see shared/skill-popularity). */
+.skills-heat {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: 0 2px;
+}
+
+.skills-panel__footer-name .skills-heat {
+  vertical-align: middle;
+  margin-left: 7px;
+}
+
+/* Popularity legend: hottest → coldest key for the heat dots. */
+.skills-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 4px 2px 2px;
+  padding: 9px 8px 3px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.skills-legend__title {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.skills-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.skills-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
 .skills-addlink {
   display: block;
   width: 100%;

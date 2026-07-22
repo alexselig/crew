@@ -11,6 +11,7 @@ import {
   SKILL_CATEGORY_ORDER,
   type Skill
 } from '../skills'
+import { popularityScale, HEAT_TIERS, type SkillHeat } from '../../shared/skill-popularity'
 import { focusTerminal } from '../terminal-pool'
 import { Icon } from './Icon'
 
@@ -27,6 +28,20 @@ function Swatch({ skill }: { skill: Skill }): JSX.Element {
     <span className="skills-swatch" style={{ background: categoryColor(categoryOf(skill)) }} aria-hidden="true">
       {initial}
     </span>
+  )
+}
+
+/** A small heat dot signalling how widely used a skill is, relative to the
+ * installed set (see shared/skill-popularity). Hotter = more popular. */
+function HeatDot({ heat }: { heat?: SkillHeat }): JSX.Element | null {
+  if (!heat) return null
+  return (
+    <span
+      className="skills-heat"
+      style={{ background: heat.color, boxShadow: `0 0 5px ${heat.color}` }}
+      title={`${heat.label} — popularity ${heat.score}/100 (relative)`}
+      aria-label={`Popularity: ${heat.label}`}
+    />
   )
 }
 
@@ -93,6 +108,9 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
     () => [...(installed.length ? installed : SKILLS), ...custom],
     [installed, custom]
   )
+
+  // Relative popularity heat across whatever's installed (see skill-popularity).
+  const heat = useMemo(() => popularityScale(allSkills), [allSkills])
 
   const q = query.trim().toLowerCase()
   const matches = (s: Skill): boolean =>
@@ -207,6 +225,7 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
                     >
                       <Swatch skill={sk} />
                       {sk.name}
+                      <HeatDot heat={heat.get(sk.id)} />
                     </button>
                   ))}
                 </div>
@@ -227,6 +246,7 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
                     >
                       <Swatch skill={sk} />
                       <span className="skills-row__name">{sk.name}</span>
+                      <HeatDot heat={heat.get(sk.id)} />
                       <span
                         className={`skills-row__star ${favSet.has(sk.id) ? 'is-fav' : ''}`}
                         role="button"
@@ -246,6 +266,18 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
             ))}
 
             {noResults && <div className="skills-empty">No skills match “{query}”</div>}
+
+            {!q && allSkills.length > 0 && (
+              <div className="skills-legend" aria-label="Popularity scale">
+                <span className="skills-legend__title">Popularity</span>
+                {HEAT_TIERS.map((t) => (
+                  <span className="skills-legend__item" key={t.tier} title={t.label}>
+                    <span className="skills-legend__dot" style={{ background: t.color }} />
+                    {t.label}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {adding ? (
               <div className="skill-add">
@@ -287,7 +319,10 @@ export function SkillsBar({ sessionId, agent }: Props): JSX.Element {
             <div className="skills-panel__footer">
               <Swatch skill={selected} />
               <div className="skills-panel__footer-text">
-                <div className="skills-panel__footer-name">{selected.name}</div>
+                <div className="skills-panel__footer-name">
+                  {selected.name}
+                  <HeatDot heat={heat.get(selected.id)} />
+                </div>
                 <div className="skills-panel__footer-desc">{selected.description}</div>
               </div>
               {selected.custom && (
