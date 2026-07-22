@@ -3,12 +3,10 @@
 #
 #   curl -fsSL https://github.com/alexselig/crew/releases/latest/download/install.sh | bash
 #
-# Why this exists: Crew is not yet notarized by Apple, so a copy downloaded in a
-# *browser* is stamped with the `com.apple.quarantine` flag and macOS Gatekeeper
-# blocks it with "Crew.app was not opened because it contains malware."
-# This script downloads the app with `curl` (which does NOT set that flag) and
-# also strips quarantine defensively, so Crew installs and launches cleanly with
-# no Gatekeeper prompt. Nothing about the app changes — only how it arrives.
+# Why this exists: Crew is signed + notarized by Apple, so it opens with no
+# Gatekeeper warnings. This installer just automates the download: it fetches the
+# latest release with `curl`, drops Crew into /Applications, and launches it.
+# (It also strips the download quarantine flag defensively — harmless either way.)
 #
 # Tip: run this from Terminal.app / iTerm — not from a shell *inside* Crew, since
 # it quits any running Crew to replace it (sessions resume on relaunch).

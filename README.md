@@ -13,23 +13,19 @@ surfaces a menu-bar badge with a count and a native notification.
 
 ## Install
 
+Crew is **signed & notarized by Apple**, so it opens with no security warnings on
+macOS (Apple Silicon, arm64).
+
 ```bash
 curl -fsSL https://github.com/alexselig/crew/releases/latest/download/install.sh | bash
 ```
 
-Apple Silicon (arm64) macOS. This downloads the latest release and installs Crew
-into `/Applications`. Crew isn't notarized yet, so a **browser** download is
-quarantined by macOS and blocked with *"Crew.app was not opened because it
-contains malware"* — the installer avoids that because `curl` sets no quarantine
-flag. If you grabbed the `.dmg` in a browser instead, clear it once after
-dragging Crew into Applications:
+Or download **`Crew-<version>-arm64.dmg`** from the
+[latest release](https://github.com/alexselig/crew/releases/latest) and drag Crew
+into Applications.
 
-```bash
-xattr -cr /Applications/Crew.app
-```
-
-See [`MACOS-SIGNING.md`](./MACOS-SIGNING.md) for the full explanation and how to
-ship a notarized build that opens with no warning at all.
+Maintainers: see [`MACOS-SIGNING.md`](./MACOS-SIGNING.md) for how releases are
+signed + notarized (`scripts/sign-notarize.sh`).
 
 ## Features (v0.1)
 

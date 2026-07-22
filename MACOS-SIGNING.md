@@ -1,12 +1,39 @@
-# Shipping Crew without the "malware" warning
+# Signing & notarizing Crew
+
+**✅ Current status: Crew is signed + notarized.** Releases are signed with
+**Developer ID Application: Aaron Selig (42KAR3VVM7)**, notarized by Apple, and
+stapled — so downloads open with no Gatekeeper warning and are not removed by
+Microsoft Defender on managed Macs.
+
+## Re-releasing (the working process)
+
+After producing a build (`dist/mac-arm64/Crew.app`), run:
+
+```bash
+bash scripts/sign-notarize.sh
+```
+
+It signs the prebuilt app (Developer ID + hardened runtime + Chromium per-helper
+entitlements, incl. the native `node-pty` binaries), notarizes + staples it, and
+produces a notarized `dist/Crew-<ver>-arm64-mac.zip` and `dist/Crew-<ver>-arm64.dmg`.
+Then upload them to the release with `gh release upload <tag> ... --clobber`.
+
+> **Why not `electron-builder`'s built-in notarize?** On this MDM-managed Mac the
+> corporate npm proxy serves an *unsigned* Electron and Microsoft Defender deletes
+> it, so a from-scratch `electron-builder --mac` package is unreliable here. The
+> script signs a **prebuilt** app in place, needing no Electron re-download.
+
+One-time prereqs and the manual steps behind the script are below.
+
+---
+
+## Background: why the "malware" warning happened
 
 macOS Gatekeeper shows **"Crew.app was not opened because it contains malware"**
-when a **downloaded** (browser-quarantined) copy of the app is **not notarized by
-Apple**. Crew is currently built **ad-hoc signed** (`identity: null`), which is
-fine to run locally but trips that wall on download.
-
-There are two ways to ship a clean app. Pick based on whether you have an Apple
-Developer account.
+when a **downloaded** (browser-quarantined) copy of an app is **not notarized by
+Apple**. Before notarization Crew was **ad-hoc signed** (`identity: null`), which
+runs locally but trips that wall on download. Two ways to ship a clean app follow;
+**Option B (notarization) is what Crew now uses.**
 
 ---
 
@@ -42,17 +69,16 @@ an **un-notarized** app can be quarantined automatically: Defender may move
 dialog. `mdatp threat list` can still say *"No threats"* because this is
 policy-driven app control / tamper protection, not a named malware detection.
 
-The reliable fix is **Option B (Developer ID + notarization)** below — a notarized
-app from a known Developer ID is trusted and is not hit by the unsigned-app
-heuristic. If your org also enforces strict app allow-listing, ask IT to allow the
-bundle id `com.alexselig.crew`.
+The reliable fix — now in place — is **Option B (Developer ID + notarization)**: a
+notarized app from a known Developer ID is trusted and is not hit by the
+unsigned-app heuristic. If your org also enforces strict app allow-listing, ask IT
+to allow the bundle id `com.alexselig.crew`.
 
-Until the app is notarized, run Crew from source rather than the packaged bundle
-(dev mode is not remediated):
-
-```bash
-npm install && npm run dev
-```
+> ⚠️ On this machine, running from source did **not** help: the corporate npm proxy
+> (`packagefeedproxy.microsoft.io`) serves an **unsigned** Electron whose broken
+> ad-hoc signature makes AMFI `SIGKILL` it, and Defender deletes it outright — so
+> `npm run dev` and any ad-hoc packaged build are both blocked. Notarization is the
+> only path that works here. `mdatp` folder exclusions did not override the policy.
 
 ---
 

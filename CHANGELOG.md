@@ -8,12 +8,13 @@ running and supervising multiple AI CLI agent sessions at a glance.
 **The mission-control dashboard.** This milestone turns Crew from a session
 switcher into a live command center for everything you're building.
 
-### Installing (no Gatekeeper "malware" warning)
-- New one-command installer: `curl -fsSL https://github.com/alexselig/crew/releases/latest/download/install.sh | bash`.
-  It downloads with `curl` (which sets no `com.apple.quarantine` flag) and strips
-  quarantine, so the un-notarized app installs and launches cleanly instead of
-  being blocked as "malware". See `MACOS-SIGNING.md` for the details and the path
-  to a fully notarized build.
+### Installing — signed & notarized
+- Releases are now **signed with Developer ID and notarized by Apple** (and
+  stapled), so downloads open with **no Gatekeeper warning** and are not removed by
+  Microsoft Defender on managed Macs.
+- One-command installer: `curl -fsSL https://github.com/alexselig/crew/releases/latest/download/install.sh | bash`.
+- Signing/notarization is reproducible via `scripts/sign-notarize.sh`; see
+  `MACOS-SIGNING.md`.
 
 ### Project Tracker
 - A full-screen **Project Index** that indexes the working directories of your
