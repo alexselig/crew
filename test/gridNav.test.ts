@@ -22,8 +22,8 @@ describe('isEditableTarget', () => {
     expect(isEditableTarget(active({ tag: 'DIV', isContentEditable: true }))).toBe(true)
   })
 
-  it('is false for a focused terminal textarea (arrows should page the grid)', () => {
-    expect(isEditableTarget(TERMINAL)).toBe(false)
+  it('is true for a focused terminal textarea (arrows must reach the prompt)', () => {
+    expect(isEditableTarget(TERMINAL)).toBe(true)
   })
 
   it('is false for non-editable chrome', () => {
@@ -37,10 +37,11 @@ describe('arrowNavIntent', () => {
     expect(arrowNavIntent('ArrowLeft', NO_MODS, null, true)).toBe('left')
   })
 
-  // The regression: a focused tile terminal used to swallow the arrow.
-  it('still pages the grid when a tile terminal holds focus', () => {
-    expect(arrowNavIntent('ArrowRight', NO_MODS, TERMINAL, true)).toBe('right')
-    expect(arrowNavIntent('ArrowLeft', NO_MODS, TERMINAL, true)).toBe('left')
+  // When a session terminal is focused the user is typing a prompt, so plain
+  // Left/Right must move the caret across their text, not page between panes.
+  it('yields to a focused tile terminal so arrows edit the prompt', () => {
+    expect(arrowNavIntent('ArrowRight', NO_MODS, TERMINAL, true)).toBeNull()
+    expect(arrowNavIntent('ArrowLeft', NO_MODS, TERMINAL, true)).toBeNull()
   })
 
   it('yields to real text fields so their caret keys work', () => {

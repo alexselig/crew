@@ -123,12 +123,11 @@ export function App(): JSX.Element {
 
   // Grid column navigation with Left/Right arrows. Registered in the CAPTURE
   // phase (third arg `true`) on purpose: xterm attaches its own capture-phase
-  // keydown listener to each terminal's hidden textarea and, for arrow keys,
-  // calls preventDefault + stopPropagation. So once a tile's terminal held
-  // focus the arrow never bubbled up to a normal window listener — the grid
-  // stopped scrolling and the keystroke was "grabbed" by the session. Handling
-  // it here, before xterm, lets the grid page left/right regardless of which
-  // tile's terminal is focused, while genuine text fields keep their caret keys.
+  // keydown listener to each terminal's hidden textarea. Handling arrows here,
+  // before xterm, lets the grid page left/right while the user is scanning the
+  // dashboard. But when a session terminal is focused (the user is typing a
+  // prompt), we leave the arrow alone so it edits the prompt line instead of
+  // moving between panes — see arrowNavIntent / isEditableTarget.
   useEffect(() => {
     function onArrowCapture(e: KeyboardEvent): void {
       const el = document.activeElement as HTMLElement | null

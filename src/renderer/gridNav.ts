@@ -11,9 +11,9 @@ export interface ActiveElementInfo {
   isContentEditable: boolean
   /**
    * True when focus sits on xterm's hidden input (a
-   * `<textarea class="xterm-helper-textarea">`). In grid view its arrows should
-   * scroll the dashboard, NOT be typed into the PTY — so it is deliberately not
-   * treated as an editable text field here.
+   * `<textarea class="xterm-helper-textarea">`). A focused terminal is treated
+   * as an editable target so Left/Right reach the session's prompt (caret /
+   * shell line editing) instead of paging the dashboard.
    */
   isTerminal: boolean
 }
@@ -28,14 +28,16 @@ export interface KeyMods {
 }
 
 /**
- * A genuine text control where Left/Right must move the caret, so the grid must
- * NOT hijack the arrow. The xterm terminal textarea is intentionally excluded:
- * in grid view we want its arrows to page the dashboard instead.
+ * A control where Left/Right must move the caret, so the grid must NOT hijack the
+ * arrow. This includes real text fields AND a focused xterm terminal: when the
+ * user is typing into a session's prompt, arrows edit the line rather than paging
+ * the dashboard. (Grid column nav still works when focus is not in a terminal or
+ * text field — e.g. while scanning the grid without having clicked into a tile.)
  */
 export function isEditableTarget(active: ActiveElementInfo | null): boolean {
   if (!active) return false
-  if (active.isTerminal) return false
   return (
+    active.isTerminal ||
     active.tag === 'INPUT' ||
     active.tag === 'TEXTAREA' ||
     active.tag === 'SELECT' ||
@@ -48,8 +50,9 @@ export function isEditableTarget(active: ActiveElementInfo | null): boolean {
  * should leave the event alone.
  *
  * Grid column nav only fires for a plain (unmodified) Left/Right arrow while the
- * grid is on screen and focus is not in a real text field. Up/Down and modified
- * arrows return null so they keep flowing to the terminal or browser.
+ * grid is on screen and focus is not in a text field or a session terminal.
+ * Up/Down and modified arrows return null so they keep flowing to the terminal or
+ * browser.
  */
 export function arrowNavIntent(
   key: string,
