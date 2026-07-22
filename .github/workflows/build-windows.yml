@@ -1,0 +1,75 @@
+# Builds the Windows installer + portable zip on a real Windows runner, because
+# node-pty is a native module that must be compiled on Windows (it can't be
+# cross-compiled from the maintainer's Mac). The build is unsigned for now, so
+# Windows SmartScreen will warn until the download earns reputation.
+name: Build Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the build to (e.g. v0.3.0). Blank = artifact only."
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules (node-pty) for Electron
+        run: npm run rebuild:native
+
+      - name: Build + package Windows installer & portable zip
+        run: npm run dist:win
+
+      - name: Stage a stable-named installer alias
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist -Filter 'Crew-Setup-*.exe' | Select-Object -First 1
+          if ($exe) { Copy-Item $exe.FullName 'dist/Crew-Setup.exe' -Force }
+
+      - name: Upload workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crew-windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+
+      - name: Attach build to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $env:GITHUB_REF -replace 'refs/tags/', ''
+          } else {
+            '${{ inputs.tag }}'
+          }
+          $repo = '${{ github.repository }}'
+          Write-Host "Attaching Windows assets to release $tag"
+          gh release view $tag --repo $repo 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo $repo --title "Crew $tag" --notes "Windows build for $tag."
+          }
+          $assets = Get-ChildItem dist -Recurse -Include *.exe, *.zip | ForEach-Object { $_.FullName }
+          gh release upload $tag $assets --repo $repo --clobber
