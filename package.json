@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:e2e": "npm run build && node test/e2e/crew.e2e.mjs",
     "dist": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
     "rebuild:native": "electron-rebuild -f -w node-pty"
   },
   "dependencies": {

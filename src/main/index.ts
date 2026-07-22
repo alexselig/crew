@@ -3,7 +3,7 @@
 
 import { app, BrowserWindow, ipcMain, dialog, protocol, shell, screen, Menu } from 'electron'
 import type { Rectangle, Display, MessageBoxOptions, MenuItemConstructorOptions } from 'electron'
-import { isAbsolute, join, resolve } from 'node:path'
+import { isAbsolute, join, resolve, basename } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { accessSync, constants, writeFileSync, appendFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -16,6 +16,7 @@ import { SessionManager } from './session-manager'
 import { AssetWatchers } from './assets'
 import { assetMime } from '../shared/assets'
 import { CrewTray } from './tray'
+import { isMac } from './platform'
 import { Store } from './store'
 import { TranscriptRecorder } from './transcripts'
 import { builtinPresets } from './presets'
@@ -167,8 +168,13 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
     title: 'Crew',
     backgroundColor: '#0A0A0B',
     show: false,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 18 },
+    // macOS hides the titlebar and insets the traffic lights so the renderer
+    // draws its own chrome. Windows/Linux keep a native frame so the standard
+    // min/max/close controls work — the renderer's own right-side titlebar
+    // controls would collide with a Windows title-bar overlay.
+    ...(isMac
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 18 } }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -643,7 +649,7 @@ function registerIpc(): void {
     const seen = new Map<string, string>()
     for (const s of manager.roster()) {
       if (s.status !== 'active' || seen.has(s.cwd)) continue
-      seen.set(s.cwd, s.cwd.split('/').filter(Boolean).pop() || s.cwd)
+      seen.set(s.cwd, basename(s.cwd) || s.cwd)
     }
     return recentCommits([...seen].map(([cwd, name]) => ({ cwd, name })))
   })

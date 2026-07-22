@@ -3,15 +3,12 @@
 // even when a precise prompt regex hasn't been calibrated yet (SPEC §6, §16).
 
 import type { Preset } from '../shared/types'
+import { defaultShell } from './platform'
 
 // Matches the common "are you sure / allow this?" family across CLI agents.
 const APPROVAL =
   '(\\(y/n\\)|\\[y/N\\]|\\by/n\\b|\\bY/n\\b|Do you want|Would you like to proceed|' +
   'Allow\\b|permission to|Proceed\\?|Continue\\?|Approve\\b|Yes/No)'
-
-function defaultShell(): string {
-  return process.env.SHELL || '/bin/zsh'
-}
 
 export function builtinPresets(): Preset[] {
   return [

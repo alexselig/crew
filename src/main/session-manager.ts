@@ -5,6 +5,8 @@
 import * as pty from 'node-pty'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import { homedir } from 'node:os'
+import { basename } from 'node:path'
 import {
   StateDetector,
   DEFAULT_DETECTION,
@@ -16,6 +18,7 @@ import { CostParser, DEFAULT_COST_REGEX_SRC, DEFAULT_CREDITS_REGEX_SRC } from '.
 import type { SessionInfo, CreateSessionRequest, SessionState } from '../shared/types'
 import type { ActivityEvent } from '../shared/api'
 import { getPreset } from './presets'
+import { defaultShell } from './platform'
 import { pickCharacter, isCharacterId } from './characters'
 import { normalizeSetNames, addToSets, removeFromSets } from '../shared/workspaces'
 import { randomCharacterColor, fallbackCharacterColor } from '../shared/palette'
@@ -97,9 +100,9 @@ export class SessionManager extends EventEmitter {
     restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; createdAt?: number; lastPromptAt?: number }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
-    const command = req.command || preset?.command || process.env.SHELL || '/bin/zsh'
+    const command = req.command || preset?.command || defaultShell()
     const args = req.args && req.args.length ? req.args : preset?.args ?? []
-    const cwd = req.cwd || process.env.HOME || process.cwd()
+    const cwd = req.cwd || homedir() || process.cwd()
     const id = restore?.id ?? randomUUID()
     // The agent's own session UUID: reused when resuming (so we reattach the same
     // conversation), freshly minted otherwise. Passed via the preset's
@@ -128,7 +131,7 @@ export class SessionManager extends EventEmitter {
     const sets = normalizeSetNames(restore?.sets ?? req.sets ?? [])
     if (sets.length) this.store.ensureSets(sets)
 
-    const base = cwd.split('/').filter(Boolean).pop() || 'session'
+    const base = basename(cwd) || 'session'
     const label =
       req.label?.trim() ||
       saved?.lastLabel ||

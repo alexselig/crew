@@ -27,3 +27,19 @@ mac:
     - zip
 dmg:
   title: ${productName}
+win:
+  icon: build/icon.ico
+  # Unsigned on Windows (no Authenticode cert yet): SmartScreen shows a
+  # "Windows protected your PC" prompt on first run until the download earns
+  # reputation. Built on a Windows runner — see .github/workflows/build-windows.yml.
+  target:
+    - nsis
+    - zip
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+

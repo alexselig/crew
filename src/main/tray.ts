@@ -6,11 +6,31 @@ import { Tray, Menu, nativeImage, Notification, type MenuItemConstructorOptions 
 import type { SessionInfo } from '../shared/types'
 import { NEEDS_YOU } from '../shared/types'
 import { getCharacter } from './characters'
+import { isMac } from './platform'
 
 // 22×22 template PNG (a ring + center dot). Embedded so no resource-copy step
 // is needed at build time.
 const ICON_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAABYAAAAWCAYAAADEtGw7AAAAdklEQVR4nMWVSw7AIAhEPTa3b/dmPqVMLQkbxTeiImv9aEV8DLyItwUc8JWAgj6Zk2C0oLYYJELBDNrJDsaXgaoxClbKaPE+T3ftwOiy2mAHdXHnwZ8dRfTyUDqR58aUIwWi4KOSZruIfEIOfuRfjnWSWGsa2Q2gcsWV6PXr7AAAAABJRU5ErkJggg=='
+
+// macOS renders template images (black + alpha) tinted to the menu-bar. On
+// Windows/Linux a black icon is invisible on a dark taskbar, so recolor the
+// ring/dot to white (keeping the alpha shape) and use it non-templated.
+function buildTrayIcon(): Electron.NativeImage {
+  const img = nativeImage.createFromDataURL('data:image/png;base64,' + ICON_B64)
+  if (isMac) {
+    img.setTemplateImage(true)
+    return img
+  }
+  const { width, height } = img.getSize()
+  const bmp = img.toBitmap() // BGRA, one byte per channel
+  for (let i = 0; i < bmp.length; i += 4) {
+    bmp[i] = 255 // B
+    bmp[i + 1] = 255 // G
+    bmp[i + 2] = 255 // R — leave alpha (i+3) so only the shape shows
+  }
+  return nativeImage.createFromBitmap(bmp, { width, height })
+}
 
 export interface TrayCallbacks {
   onShow: () => void
@@ -35,9 +55,7 @@ export class CrewTray {
   private destroyed = false
 
   constructor(private readonly cb: TrayCallbacks) {
-    const img = nativeImage.createFromDataURL('data:image/png;base64,' + ICON_B64)
-    img.setTemplateImage(true)
-    this.tray = new Tray(img)
+    this.tray = new Tray(buildTrayIcon())
     this.tray.setToolTip('Crew')
     this.tray.on('click', () => this.cb.onShow())
     this.update([])
@@ -61,6 +79,15 @@ export class CrewTray {
     } else {
       this.tray.setTitle('')
     }
+
+    // setTitle is macOS-only; the tooltip carries the same glance on Windows/Linux.
+    this.tray.setToolTip(
+      waiting.length > 0
+        ? `Crew — ${waiting.length} need${waiting.length > 1 ? '' : 's'} you`
+        : working.length > 0
+          ? `Crew — ${working.length} working`
+          : 'Crew'
+    )
 
     this.tray.setContextMenu(this.buildMenu(active, waiting))
   }
