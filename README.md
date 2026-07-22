@@ -24,8 +24,9 @@ Or download **`Crew-<version>-arm64.dmg`** from the
 [latest release](https://github.com/alexselig/crew/releases/latest) and drag Crew
 into Applications.
 
-Maintainers: see [`MACOS-SIGNING.md`](./MACOS-SIGNING.md) for how releases are
-signed + notarized (`scripts/sign-notarize.sh`).
+Maintainers: see [`RELEASING.md`](./RELEASING.md) for the full release flow
+(`scripts/publish.sh`) and [`MACOS-SIGNING.md`](./MACOS-SIGNING.md) for how
+releases are signed + notarized.
 
 ## Features (v0.1)
 
