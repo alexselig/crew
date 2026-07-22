@@ -80,7 +80,6 @@ export interface Project {
   commits: Commit[]
   changelog: ChangelogSection[]
   nextSteps: NextStep[]
-  suggestions: string[]
   stats: Stats | null
   launch: Launch
   status: ProjectStatus

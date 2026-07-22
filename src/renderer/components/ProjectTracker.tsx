@@ -26,7 +26,7 @@ function metaBits(p: Project): { text: string; strong?: boolean; warn?: boolean;
  * Full-screen "Project Index" — a faithful in-app port of ~/project-tracker,
  * scoped to the working directories of the currently open sessions. Each project
  * is derived live from disk (git, package.json, task files): status, version,
- * next steps, suggestions, commit/feature history, and open/launch actions.
+ * next steps, commit/feature history, and open/launch actions.
  */
 export function ProjectTracker({ onClose }: Props): JSX.Element {
   const [data, setData] = useState<TrackerData | null>(null)
@@ -270,22 +270,6 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
                   <div className="tracker-empty">No open tasks — the agent&rsquo;s todo list is clear and there&rsquo;s no TODO/STATUS/ROADMAP task file.</div>
                 </div>
               )
-            )}
-
-            {p.suggestions.length > 0 && (
-              <div className="tracker-sec">
-                <div className="tracker-sec__h">
-                  Suggestions <span className="tracker-sec__n">{p.suggestions.length}</span>
-                </div>
-                <ul className="tracker-tasks tracker-tasks--sugg">
-                  {p.suggestions.map((t, i) => (
-                    <li key={i}>
-                      <span className="tracker-tasks__mk">✦</span>
-                      <span>{t}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
             )}
 
             {(p.commits.length > 0 || p.changelog.length > 0) && (

@@ -58,29 +58,6 @@ function git(args: string[], cwd: string): Promise<string> {
   })
 }
 
-// grep with hard exclusions (learned the hard way: without --exclude-dir a single
-// big repo balloons the scan) + timeout/SIGKILL so one wedged repo can't hang it.
-const GREP_EXCLUDE_DIRS = ['.git', 'node_modules', 'dist', 'build', 'out', '.next', 'vendor', 'Pods', 'DerivedData', '.venv', 'venv', 'coverage', '.turbo', 'target']
-const GREP_INCLUDE_EXTS = ['js', 'jsx', 'ts', 'tsx', 'py', 'mjs', 'cjs', 'go', 'css', 'gd', 'rs', 'swift', 'rb', 'php', 'vue', 'svelte']
-
-function countMatches(cwd: string, pattern: string): Promise<number> {
-  return new Promise((resolve) => {
-    const args = ['-rIl']
-    for (const e of GREP_INCLUDE_EXTS) args.push(`--include=*.${e}`)
-    for (const d of GREP_EXCLUDE_DIRS) args.push(`--exclude-dir=${d}`)
-    args.push('-e', pattern, '.')
-    execFile(
-      'grep',
-      args,
-      { cwd, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 4000, killSignal: 'SIGKILL' },
-      (_err, stdout) => {
-        const out = String(stdout || '').trim()
-        resolve(out ? out.split('\n').length : 0)
-      }
-    )
-  })
-}
-
 // Read-only JSON query against a SQLite db via the system sqlite3 CLI (macOS ships
 // it at /usr/bin/sqlite3). `mode=ro` reads a live db safely without taking a write
 // lock. Timeout + SIGKILL so a wedged db can't hang the scan; any failure → [].
@@ -347,9 +324,7 @@ async function getNextSteps(entries: string[], cwd: string): Promise<NextStep[]>
   return steps
 }
 
-// ── stats / launch / suggestions ─────────────────────────────────────────────
-
-// ── stats / launch / suggestions ─────────────────────────────────────────────
+// ── stats / launch ───────────────────────────────────────────────────────────
 
 interface FullStats extends Stats {
   specOnly: boolean
@@ -438,39 +413,6 @@ export function detectLaunch(framework: Framework, hasDevScript: boolean): Launc
   return { framework, launchable, opensUrl, cmdPreview }
 }
 
-async function getSuggestions(cwd: string, stats: FullStats, project: Project): Promise<string[]> {
-  const s: { priority: number; text: string }[] = []
-  const add = (priority: number, text: string): void => {
-    s.push({ priority, text })
-  }
-  const fw = project.launch.framework
-  const deployable = project.launch.opensUrl
-
-  if (stats.uncommitted > 0) add(1, `Commit or stash ${stats.uncommitted} uncommitted change${stats.uncommitted > 1 ? 's' : ''}`)
-  if (!stats.isGit && !stats.specOnly) add(1, 'Put it under version control — git init & push to GitHub')
-  if (stats.ahead > 0) add(2, `Push ${stats.ahead} unpushed commit${stats.ahead > 1 ? 's' : ''} to GitHub`)
-  if (stats.specOnly) add(2, 'Start implementation — this is spec/plan-only so far')
-  if (!project.github && stats.isGit && !stats.specOnly) add(3, 'Add a GitHub remote so the code is backed up')
-  if (!stats.hasTests && stats.isNode) add(4, 'Add automated tests (no test setup detected)')
-  if (!project.live && deployable && stats.isGit) add(4, 'Deploy it so you have a shareable live link')
-  if (!project.live && fw === 'static' && stats.isGit) add(4, 'Publish via GitHub Pages for a live link')
-  if (!stats.hasReadme && !stats.specOnly) add(5, 'Write a README describing what it does & how to run it')
-
-  const todos = await countMatches(cwd, 'TODO\\|FIXME\\|HACK')
-  if (todos > 0) add(5, `Resolve ${todos} TODO/FIXME marker${todos > 1 ? 's' : ''} left in the code`)
-
-  if (stats.isNode && stats.isGit && !stats.hasTag && stats.commitCount > 8) add(6, 'Tag a release (git tag) to snapshot this version')
-  if (project.live && fw === 'static') add(6, 'Keep it current — add your newest work / refresh screenshots')
-  if (!stats.hasChangelog && stats.commitCount > 15 && stats.isNode) add(6, 'Start a CHANGELOG to track what ships each release')
-  if (stats.daysSinceCommit != null && stats.daysSinceCommit > 14) add(7, `Revisit — no commits in ${stats.daysSinceCommit} days`)
-  if (stats.isNode && !stats.hasLicense && project.github && /github\.com\/[^/]+\/[^/]+$/.test(project.github)) add(8, 'Add a LICENSE file')
-
-  return s
-    .sort((a, b) => a.priority - b.priority)
-    .slice(0, 5)
-    .map((x) => x.text)
-}
-
 // ── assemble ─────────────────────────────────────────────────────────────────
 
 async function deriveProject(input: TrackerSessionInput): Promise<Project> {
@@ -499,7 +441,6 @@ async function deriveProject(input: TrackerSessionInput): Promise<Project> {
     commits: [],
     changelog: [],
     nextSteps: [],
-    suggestions: [],
     stats: null,
     launch: { framework: null, launchable: false, opensUrl: false, cmdPreview: null },
     status: 'unknown'
@@ -582,7 +523,6 @@ async function deriveProject(input: TrackerSessionInput): Promise<Project> {
     isGit: stats.isGit,
     framework: stats.framework
   }
-  base.suggestions = await getSuggestions(cwd, stats, base)
   return base
 }
 
