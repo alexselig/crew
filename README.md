@@ -11,6 +11,26 @@ surfaces a menu-bar badge with a count and a native notification.
 
 100% local. No network, no telemetry, no session content leaves your machine.
 
+## Install
+
+```bash
+curl -fsSL https://github.com/alexselig/crew/releases/latest/download/install.sh | bash
+```
+
+Apple Silicon (arm64) macOS. This downloads the latest release and installs Crew
+into `/Applications`. Crew isn't notarized yet, so a **browser** download is
+quarantined by macOS and blocked with *"Crew.app was not opened because it
+contains malware"* — the installer avoids that because `curl` sets no quarantine
+flag. If you grabbed the `.dmg` in a browser instead, clear it once after
+dragging Crew into Applications:
+
+```bash
+xattr -cr /Applications/Crew.app
+```
+
+See [`MACOS-SIGNING.md`](./MACOS-SIGNING.md) for the full explanation and how to
+ship a notarized build that opens with no warning at all.
+
 ## Features (v0.1)
 
 - Launch owned sessions: **Claude Code**, **Copilot CLI**, **Shell**, or any
