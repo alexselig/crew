@@ -142,7 +142,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --repo $repo --title "Crew $tag" --notes "Windows build for $tag."
           }
-          $assets = Get-ChildItem dist -Recurse -Include *.exe, *.zip | ForEach-Object { $_.FullName }
+          # Only the top-level installers/zip — NOT -Recurse, which would also grab
+          # node-pty's bundled OpenConsole.exe/winpty-agent.exe from win-unpacked
+          # (and their duplicate names break the upload).
+          $assets = @()
+          $assets += Get-ChildItem dist -Filter 'Crew-Setup-*.exe' | ForEach-Object { $_.FullName }
+          if (Test-Path 'dist/Crew-Setup.exe') { $assets += (Resolve-Path 'dist/Crew-Setup.exe').Path }
+          $assets += Get-ChildItem dist -Filter 'Crew-*-win.zip' | ForEach-Object { $_.FullName }
           gh release upload $tag $assets --repo $repo --clobber
 ```
 
