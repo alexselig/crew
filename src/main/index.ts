@@ -187,6 +187,26 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
     w.focus()
   })
 
+  // Links opened from inside the app — terminal OSC 8 hyperlinks, any
+  // window.open, or a stray external navigation — go to the user's default
+  // browser instead of spawning an in-app Electron window ("webview dialog").
+  w.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  w.webContents.on('will-navigate', (e, url) => {
+    let external = true
+    try {
+      external = new URL(url).origin !== new URL(w.webContents.getURL()).origin
+    } catch {
+      external = true
+    }
+    if (external) {
+      e.preventDefault()
+      if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+    }
+  })
+
   // This window's per-window state namespace; released when it's really closed.
   const slot = allocWindowSlot()
   w.on('closed', () => usedWindowSlots.delete(slot))

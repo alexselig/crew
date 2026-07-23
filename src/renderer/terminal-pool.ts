@@ -60,7 +60,14 @@ export function getPooled(id: string): Pooled {
       // Reserve a gutter so prompt landmarks (see markPrompt) show as ticks in
       // the scrollbar, letting you scan a whole session for your own prompts.
       overviewRulerWidth: 14,
-      theme: THEME
+      theme: THEME,
+      // OSC 8 hyperlinks (emitted by many CLI agents) open in the user's default
+      // browser rather than letting the default handler spawn an in-app window.
+      linkHandler: {
+        activate: (_e: MouseEvent, uri: string) => {
+          void window.crew.openExternal(uri)
+        }
+      }
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
