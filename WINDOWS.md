@@ -88,7 +88,10 @@ permissions:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # Pinned to windows-2022 (Visual Studio 2022 / v17). windows-latest now ships
+    # Visual Studio 18, which the bundled @electron/node-gyp doesn't recognize
+    # ("unsupported version: 18"), so node-pty fails to compile there.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
