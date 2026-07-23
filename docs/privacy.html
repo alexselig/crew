@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Statement — Crew</title>
+<meta name="description" content="Crew runs entirely on your device. No servers, no accounts, no telemetry, no analytics — it never sends your data anywhere." />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="Privacy Statement — Crew" />
+<meta property="og:description" content="Crew runs entirely on your device. No servers, no accounts, no telemetry, no analytics." />
+<meta property="og:image" content="./icon.png" />
+<meta name="theme-color" content="#050506" />
+<link rel="icon" type="image/png" href="./icon.png" />
+<link rel="apple-touch-icon" href="./icon.png" />
+<style>
+  @font-face { font-family:'Newsreader'; font-style:italic; font-weight:500; src:url('assets/fonts/newsreader-500-italic-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'Newsreader'; font-style:normal; font-weight:500; src:url('assets/fonts/newsreader-500-normal-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:400; src:url('assets/fonts/jetbrainsmono-400-normal-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:600; src:url('assets/fonts/jetbrainsmono-600-normal-latin.woff2') format('woff2'); font-display:swap; }
+
+  :root {
+    --bg:#050506; --cell:#0e0e10; --line:#1c1c1f; --footer-line:#17171a;
+    --ink:#f2f1ea; --body:#a6a6ac; --faint:#6b6b70; --nav:#9a9aa0;
+    --blue:#2b4cf2; --blue-2:#5f79ff;
+    --serif:'Newsreader', Georgia, serif;
+    --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono); font-size:15px; line-height:1.7; -webkit-font-smoothing:antialiased; }
+  ::selection { background:var(--blue); color:var(--ink); }
+  a { color:var(--blue-2); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+
+  nav { position:sticky; top:0; z-index:50; height:60px; display:flex; align-items:center; justify-content:space-between; padding:0 32px; background:rgba(5,5,6,0.82); backdrop-filter:saturate(140%) blur(10px); border-bottom:1px solid var(--line); }
+  .brand { display:inline-flex; align-items:center; gap:10px; font-family:var(--serif); font-style:italic; font-size:23px; color:var(--ink); }
+  .nav-links { display:flex; align-items:center; gap:28px; font-size:13px; }
+  .nav-links a { color:var(--nav); }
+  .nav-links a:hover { color:var(--ink); text-decoration:none; }
+  .nav-cta { background:var(--blue); color:var(--ink) !important; padding:9px 18px; font-weight:600; }
+  .nav-cta:hover { background:#2743d6; }
+  @media (max-width:640px){ .nav-links a.hide-sm { display:none; } }
+
+  header.hero { position:relative; padding:72px 32px 28px; text-align:center; overflow:hidden; }
+  .hero .glow { position:absolute; inset:-40% -10% auto -10%; height:420px; z-index:0; background:radial-gradient(50% 60% at 50% 10%, rgba(43,76,242,0.14), transparent 70%); pointer-events:none; }
+  .hero__in { position:relative; z-index:1; max-width:760px; margin:0 auto; }
+  .eyebrow { font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--blue-2); margin-bottom:18px; }
+  h1 { font-family:var(--serif); font-style:italic; font-weight:500; font-size:clamp(34px,5vw,52px); line-height:1.05; margin:0 0 14px; letter-spacing:-0.01em; }
+  .updated { font-size:12.5px; color:var(--faint); }
+
+  main { max-width:760px; margin:0 auto; padding:8px 32px 40px; }
+  .tldr { background:var(--cell); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin:0 0 36px; color:var(--body); }
+  .tldr b { color:var(--ink); }
+  section.doc { scroll-margin-top:80px; padding-bottom:26px; margin-bottom:26px; border-bottom:1px solid var(--line); }
+  section.doc:last-of-type { border-bottom:0; }
+  h2 { font-family:var(--serif); font-style:italic; font-weight:500; font-size:25px; color:var(--ink); margin:0 0 12px; }
+  p { color:var(--body); margin:0 0 14px; }
+  ul { color:var(--body); margin:0 0 14px; padding-left:22px; }
+  li { margin:0 0 8px; }
+  b, strong { color:var(--ink); font-weight:600; }
+
+  footer { border-top:1px solid var(--footer-line); margin-top:24px; padding:28px 32px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; font-size:12.5px; color:var(--faint); }
+  footer .brand { font-size:16px; }
+  footer .f-links { display:flex; gap:22px; flex-wrap:wrap; }
+  footer .f-links a { color:var(--faint); }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="brand" href="./index.html">Crew</a>
+  <div class="nav-links">
+    <a class="hide-sm" href="./index.html">Home</a>
+    <a class="hide-sm" href="./terms.html">Terms</a>
+    <a href="https://github.com/alexselig/crew">GitHub</a>
+    <a class="nav-cta" href="./index.html#download">Download</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="glow"></div>
+  <div class="hero__in">
+    <div class="eyebrow">Privacy</div>
+    <h1>Privacy, by design.</h1>
+    <div class="updated">Last updated: July 23, 2026</div>
+  </div>
+</header>
+
+<main>
+  <div class="tldr">
+    <b>The short version:</b> Crew runs entirely on your computer. It has no servers, no accounts, no telemetry, and no analytics — it never sends your data to us or anyone else. Everything below just explains that in detail.
+  </div>
+
+  <section class="doc">
+    <h2>What we collect</h2>
+    <p><b>Nothing.</b> Crew does not collect, transmit, store, or sell any personal information. There is no sign-up or account, no usage tracking, no analytics, and no crash reporting. Crew has no backend server of its own — there is nowhere for your data to go.</p>
+  </section>
+
+  <section class="doc">
+    <h2>Where your data lives</h2>
+    <p>Everything Crew works with stays on your device:</p>
+    <ul>
+      <li>Your sessions and their terminal input and output</li>
+      <li>Transcripts you choose to save</li>
+      <li>Settings, workspaces, and character/color assignments</li>
+      <li>Any API keys or credentials used by the command-line tools you launch</li>
+    </ul>
+    <p>This data is stored locally — in your home folder and the app's support directory — and is never uploaded by Crew.</p>
+  </section>
+
+  <section class="doc">
+    <h2>No telemetry, no phone-home</h2>
+    <p>Crew contains no analytics or telemetry code, and does not automatically update or contact us to check for new versions. The <b>Activity &amp; spend</b> view inside Crew is computed locally from your own sessions — it is not sent anywhere.</p>
+  </section>
+
+  <section class="doc">
+    <h2>The AI tools you run through Crew</h2>
+    <p>Crew is a launcher: it opens third-party command-line agents — such as Claude Code (Anthropic) and GitHub Copilot CLI — inside terminals it manages. When you use those tools, <b>they</b> connect to their providers' services and handle your prompts and code according to their own policies. Crew does not control, intercept, or receive that traffic.</p>
+    <p>Please review each tool's own policy, for example the <a href="https://www.anthropic.com/legal/privacy" rel="noopener">Anthropic Privacy Policy</a> and the <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener">GitHub Privacy Statement</a>.</p>
+  </section>
+
+  <section class="doc">
+    <h2>This website</h2>
+    <p><b>crewcli.dev</b> is a static site hosted on GitHub Pages. It sets no cookies and runs no analytics or trackers. As with any website, the host (GitHub) may process basic technical information such as your IP address and request logs in order to serve the page and downloads; that processing is covered by the <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener">GitHub Privacy Statement</a>. Application downloads are served from GitHub Releases.</p>
+  </section>
+
+  <section class="doc">
+    <h2>Changes to this statement</h2>
+    <p>If this statement ever changes, the updated version will be posted on this page with a new date above.</p>
+  </section>
+
+  <section class="doc">
+    <h2>Contact</h2>
+    <p>Questions about privacy? Open an issue at <a href="https://github.com/alexselig/crew/issues" rel="noopener">github.com/alexselig/crew/issues</a>.</p>
+  </section>
+</main>
+
+<footer>
+  <a class="brand" href="./index.html">Crew</a>
+  <div class="f-links">
+    <a href="./index.html">Home</a>
+    <a href="./guide.html">Guide</a>
+    <a href="./terms.html">Terms</a>
+    <a href="https://github.com/alexselig/crew">GitHub</a>
+    <a href="#top">Top</a>
+  </div>
+</footer>
+
+</body>
+</html>

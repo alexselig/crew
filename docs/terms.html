@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Terms of Use — Crew</title>
+<meta name="description" content="Crew is free, open software provided as-is, with no warranty. You are responsible for how you use it and the third-party tools you run through it." />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="Terms of Use — Crew" />
+<meta property="og:description" content="Crew is free, open software provided as-is, with no warranty." />
+<meta property="og:image" content="./icon.png" />
+<meta name="theme-color" content="#050506" />
+<link rel="icon" type="image/png" href="./icon.png" />
+<link rel="apple-touch-icon" href="./icon.png" />
+<style>
+  @font-face { font-family:'Newsreader'; font-style:italic; font-weight:500; src:url('assets/fonts/newsreader-500-italic-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'Newsreader'; font-style:normal; font-weight:500; src:url('assets/fonts/newsreader-500-normal-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:400; src:url('assets/fonts/jetbrainsmono-400-normal-latin.woff2') format('woff2'); font-display:swap; }
+  @font-face { font-family:'JetBrains Mono'; font-style:normal; font-weight:600; src:url('assets/fonts/jetbrainsmono-600-normal-latin.woff2') format('woff2'); font-display:swap; }
+
+  :root {
+    --bg:#050506; --cell:#0e0e10; --line:#1c1c1f; --footer-line:#17171a;
+    --ink:#f2f1ea; --body:#a6a6ac; --faint:#6b6b70; --nav:#9a9aa0;
+    --blue:#2b4cf2; --blue-2:#5f79ff;
+    --serif:'Newsreader', Georgia, serif;
+    --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono); font-size:15px; line-height:1.7; -webkit-font-smoothing:antialiased; }
+  ::selection { background:var(--blue); color:var(--ink); }
+  a { color:var(--blue-2); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+
+  nav { position:sticky; top:0; z-index:50; height:60px; display:flex; align-items:center; justify-content:space-between; padding:0 32px; background:rgba(5,5,6,0.82); backdrop-filter:saturate(140%) blur(10px); border-bottom:1px solid var(--line); }
+  .brand { display:inline-flex; align-items:center; gap:10px; font-family:var(--serif); font-style:italic; font-size:23px; color:var(--ink); }
+  .nav-links { display:flex; align-items:center; gap:28px; font-size:13px; }
+  .nav-links a { color:var(--nav); }
+  .nav-links a:hover { color:var(--ink); text-decoration:none; }
+  .nav-cta { background:var(--blue); color:var(--ink) !important; padding:9px 18px; font-weight:600; }
+  .nav-cta:hover { background:#2743d6; }
+  @media (max-width:640px){ .nav-links a.hide-sm { display:none; } }
+
+  header.hero { position:relative; padding:72px 32px 28px; text-align:center; overflow:hidden; }
+  .hero .glow { position:absolute; inset:-40% -10% auto -10%; height:420px; z-index:0; background:radial-gradient(50% 60% at 50% 10%, rgba(43,76,242,0.14), transparent 70%); pointer-events:none; }
+  .hero__in { position:relative; z-index:1; max-width:760px; margin:0 auto; }
+  .eyebrow { font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--blue-2); margin-bottom:18px; }
+  h1 { font-family:var(--serif); font-style:italic; font-weight:500; font-size:clamp(34px,5vw,52px); line-height:1.05; margin:0 0 14px; letter-spacing:-0.01em; }
+  .updated { font-size:12.5px; color:var(--faint); }
+
+  main { max-width:760px; margin:0 auto; padding:8px 32px 40px; }
+  .tldr { background:var(--cell); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin:0 0 36px; color:var(--body); }
+  .tldr b { color:var(--ink); }
+  section.doc { scroll-margin-top:80px; padding-bottom:26px; margin-bottom:26px; border-bottom:1px solid var(--line); }
+  section.doc:last-of-type { border-bottom:0; }
+  h2 { font-family:var(--serif); font-style:italic; font-weight:500; font-size:25px; color:var(--ink); margin:0 0 12px; }
+  p { color:var(--body); margin:0 0 14px; }
+  ul { color:var(--body); margin:0 0 14px; padding-left:22px; }
+  li { margin:0 0 8px; }
+  b, strong { color:var(--ink); font-weight:600; }
+
+  footer { border-top:1px solid var(--footer-line); margin-top:24px; padding:28px 32px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; font-size:12.5px; color:var(--faint); }
+  footer .brand { font-size:16px; }
+  footer .f-links { display:flex; gap:22px; flex-wrap:wrap; }
+  footer .f-links a { color:var(--faint); }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="brand" href="./index.html">Crew</a>
+  <div class="nav-links">
+    <a class="hide-sm" href="./index.html">Home</a>
+    <a class="hide-sm" href="./privacy.html">Privacy</a>
+    <a href="https://github.com/alexselig/crew">GitHub</a>
+    <a class="nav-cta" href="./index.html#download">Download</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="glow"></div>
+  <div class="hero__in">
+    <div class="eyebrow">Terms</div>
+    <h1>Terms of use.</h1>
+    <div class="updated">Last updated: July 23, 2026</div>
+  </div>
+</header>
+
+<main>
+  <div class="tldr">
+    <b>The short version:</b> Crew is free, open software provided as-is, with no warranty. You're responsible for how you use it — and for the third-party tools and services you run through it.
+  </div>
+
+  <section class="doc">
+    <h2>Acceptance</h2>
+    <p>By downloading, installing, or using Crew (the "Software") or this website, you agree to these terms. If you don't agree, please don't use them.</p>
+  </section>
+
+  <section class="doc">
+    <h2>Free and open</h2>
+    <p>Crew is distributed free of charge, and its source code is publicly available at <a href="https://github.com/alexselig/crew" rel="noopener">github.com/alexselig/crew</a>. Nothing in these terms limits any rights granted to you under the license accompanying that source code; where the two conflict, that license governs the Software itself.</p>
+  </section>
+
+  <section class="doc">
+    <h2>No warranty</h2>
+    <p>The Software and this website are provided <b>"as is"</b> and <b>"as available"</b>, without warranties of any kind, whether express or implied — including, without limitation, the implied warranties of merchantability, fitness for a particular purpose, and non-infringement. You use them at your own risk.</p>
+  </section>
+
+  <section class="doc">
+    <h2>Limitation of liability</h2>
+    <p>To the maximum extent permitted by law, the maintainer of Crew shall not be liable for any indirect, incidental, special, or consequential damages, or for any loss of data, profits, or systems, arising out of or related to your use of — or inability to use — the Software or website.</p>
+  </section>
+
+  <section class="doc">
+    <h2>Your responsibilities</h2>
+    <p>Crew runs real terminals and executes the commands and AI agents you launch on your own machine. You are responsible for:</p>
+    <ul>
+      <li>The commands, prompts, and code you run through Crew, and their effects on your systems and data;</li>
+      <li>Complying with the terms, policies, and any usage costs of the third-party tools and services you use with Crew (for example, Anthropic and GitHub);</li>
+      <li>Complying with all applicable laws.</li>
+    </ul>
+  </section>
+
+  <section class="doc">
+    <h2>Third-party tools</h2>
+    <p>Crew launches third-party command-line tools and services that are not owned or controlled by Crew. Your use of them is governed by their own terms and privacy policies, and Crew is not responsible for those tools or their behavior.</p>
+  </section>
+
+  <section class="doc">
+    <h2>No guaranteed support</h2>
+    <p>Crew is an independent, open-source project maintained on a best-effort basis. There is no guarantee of support, availability, or continued development.</p>
+  </section>
+
+  <section class="doc">
+    <h2>Changes to these terms</h2>
+    <p>These terms may be updated from time to time. The current version will always be posted on this page with the date shown above; continued use after a change means you accept the updated terms.</p>
+  </section>
+
+  <section class="doc">
+    <h2>Contact</h2>
+    <p>Questions about these terms? Open an issue at <a href="https://github.com/alexselig/crew/issues" rel="noopener">github.com/alexselig/crew/issues</a>.</p>
+  </section>
+</main>
+
+<footer>
+  <a class="brand" href="./index.html">Crew</a>
+  <div class="f-links">
+    <a href="./index.html">Home</a>
+    <a href="./guide.html">Guide</a>
+    <a href="./privacy.html">Privacy</a>
+    <a href="https://github.com/alexselig/crew">GitHub</a>
+    <a href="#top">Top</a>
+  </div>
+</footer>
+
+</body>
+</html>
