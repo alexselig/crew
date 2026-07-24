@@ -3,6 +3,37 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.3.1 — 2026-07-24
+
+**Windows support, plus tracker and terminal refinements.**
+
+### Windows
+- Crew now runs on **Windows** (x64). Sessions spawn PowerShell, the tray shows a
+  visible icon with a status tooltip, the window uses a native frame, and paths
+  resolve from your user profile. Shipped as an **NSIS installer + portable zip**,
+  built in CI on a Windows runner. Windows builds are **unsigned for now**, so
+  SmartScreen shows a "More info → Run anyway" prompt until code signing lands.
+
+### Project Tracker
+- Pulls each project's **live tasks from its agent session's todo list**, in
+  addition to TODO/STATUS/ROADMAP files.
+- **Removed the canned "Suggestions."** The tracker now shows only tasks it
+  actually finds — with a clear empty state when there are none — instead of
+  repeating generic advice across every project.
+
+### Sessions
+- **Links in the terminal open in your default browser** instead of a new in-app
+  window.
+- **Left/Right arrows edit the prompt** when a terminal is focused (rather than
+  paging the grid).
+- The **Skills** floaty is back on grid-view session tiles, and the skills picker
+  **color-codes skills by how often you use them** (heat dots + legend).
+- Nav cards use an on-brand focus ring instead of the native macOS one.
+
+### Notes
+- macOS builds remain **signed with Developer ID and notarized by Apple**.
+- Windows code signing (Azure Trusted Signing) is planned for a future release.
+
 ## 0.3.0 — 2026-07-21
 
 **The mission-control dashboard.** This milestone turns Crew from a session
