@@ -42,8 +42,22 @@ echo "    identity: $IDENTITY"
 # the Electron frameworks/helpers and applies Chromium's per-helper entitlements.
 NP=()
 while IFS= read -r f; do NP+=("$f"); done < <(find "$APP/Contents/Resources/app.asar.unpacked/node_modules/node-pty" \( -name "*.node" -o -name "spawn-helper" \) ! -path "*win32*" 2>/dev/null || true)
-node_modules/.bin/electron-osx-sign "$APP" "${NP[@]}" \
-  --identity="$IDENTITY" --platform=darwin --type=distribution
+# Apple's timestamp server (timestamp.apple.com) intermittently drops individual
+# requests, and signing an Electron app makes hundreds of them — a single blip
+# ("A timestamp was expected but was not found") fails the whole pass. codesign
+# --force is idempotent, so retry the whole sign a few times until every file gets
+# a timestamp.
+signed=0
+for attempt in 1 2 3 4 5; do
+  if node_modules/.bin/electron-osx-sign "$APP" "${NP[@]}" \
+      --identity="$IDENTITY" --platform=darwin --type=distribution; then
+    signed=1
+    break
+  fi
+  echo "    sign attempt $attempt failed (likely a transient timestamp.apple.com blip) — retrying in 15s…" >&2
+  sleep 15
+done
+[ "$signed" = "1" ] || { echo "ERROR: signing failed after 5 attempts." >&2; exit 1; }
 codesign --verify --deep --strict "$APP"
 
 echo "==> Notarizing app (Apple, ~1-5 min)"
@@ -62,7 +76,11 @@ ditto "$APP" "$STAGE/Crew.app"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "Crew" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"
-codesign --force --sign "$IDENTITY" --timestamp "$DMG"
+for attempt in 1 2 3 4 5; do
+  codesign --force --sign "$IDENTITY" --timestamp "$DMG" && break
+  echo "    dmg sign attempt $attempt failed (transient timestamp blip) — retrying in 15s…" >&2
+  sleep 15
+done
 xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
 xcrun stapler staple "$DMG"
 spctl -a -vvv -t open --context context:primary-signature "$DMG"
