@@ -5,7 +5,13 @@ running and supervising multiple AI CLI agent sessions at a glance.
 
 ## 0.3.1 — 2026-07-24
 
-**Windows support, plus tracker and terminal refinements.**
+**Windows support, Intel Mac support, plus tracker and terminal refinements.**
+
+### macOS — now Intel too
+- In addition to Apple Silicon, Crew now ships a **native Intel (x86_64)** build
+  for Intel Macs (e.g. 2018–2020 models). Both are Developer ID **signed +
+  notarized**. Download `Crew-AppleSilicon.zip` or `Crew-Intel.zip` (the site
+  links both) — unzip and drag Crew to Applications.
 
 ### Windows
 - Crew now runs on **Windows** (x64). Sessions spawn PowerShell, the tray shows a

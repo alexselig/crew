@@ -35,6 +35,26 @@ path doesn't work here: [`MACOS-SIGNING.md`](./MACOS-SIGNING.md).
    creates/updates the GitHub release and uploads the zip, dmg, and `install.sh`.
    - Just sign locally (no publish): `bash scripts/sign-notarize.sh`
    - Re-upload existing notarized artifacts: `CREW_SKIP_SIGN=1 bash scripts/publish.sh`
+
+   **Intel (x86_64) build** — ship alongside Apple Silicon so Intel Macs
+   (e.g. 2018–2020) can run Crew natively. On the same Apple Silicon machine:
+   ```bash
+   npx electron-builder --mac --x64 --dir      # -> dist/mac/Crew.app (x86_64)
+   lipo -archs dist/mac/Crew.app/Contents/MacOS/Crew   # sanity: should say x86_64
+   CREW_ARCH=x64 bash scripts/sign-notarize.sh  # -> Crew-<ver>-x64-mac.zip (signed+notarized)
+   ```
+   Then upload the zip and refresh the site's stable aliases:
+   ```bash
+   export GH_TOKEN=$(gh auth token --user alexselig)
+   cp dist/Crew-<ver>-arm64-mac.zip dist/Crew-AppleSilicon.zip   # stable macOS aliases the
+   cp dist/Crew-<ver>-x64-mac.zip    dist/Crew-Intel.zip         # site links to
+   gh release upload v<version> dist/Crew-<ver>-x64-mac.zip dist/Crew-AppleSilicon.zip dist/Crew-Intel.zip --repo alexselig/crew --clobber
+   ```
+   > Note: `electron-builder --mac --x64` cross-compiles node-pty to x86_64. Avoid
+   > `--universal` — merging the two arches trips over node-pty's per-arch native
+   > binaries; two separate arch builds is the reliable path. Restore the arm64
+   > node-pty for local dev afterward with `npm run rebuild:native`.
+
 4. **Commit + push** the version/CHANGELOG/code changes (personal token):
    ```bash
    export TK=$(gh auth token --user alexselig)

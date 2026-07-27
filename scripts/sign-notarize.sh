@@ -21,6 +21,11 @@
 #
 # Override the identity/profile via env if needed:
 #   CREW_SIGN_IDENTITY="Developer ID Application: NAME (TEAMID)" CREW_NOTARY_PROFILE=crew-notary bash scripts/sign-notarize.sh
+#
+# Architecture: defaults to arm64 (Apple Silicon). For an Intel build, produce the
+# app with `npx electron-builder --mac --x64 --dir` (emits dist/mac/Crew.app) then:
+#   CREW_ARCH=x64 bash scripts/sign-notarize.sh
+# This signs + notarizes dist/mac/Crew.app into Crew-<ver>-x64-mac.zip / -x64.dmg.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,10 +33,19 @@ cd "$REPO_DIR"
 
 IDENTITY="${CREW_SIGN_IDENTITY:-Developer ID Application: Aaron Selig (42KAR3VVM7)}"
 PROFILE="${CREW_NOTARY_PROFILE:-crew-notary}"
-APP="dist/mac-arm64/Crew.app"
 VERSION="$(node -p "require('./package.json').version")"
-ZIP="dist/Crew-${VERSION}-arm64-mac.zip"
-DMG="dist/Crew-${VERSION}-arm64.dmg"
+# Which macOS architecture to sign/package. electron-builder --dir emits arm64 to
+# dist/mac-arm64/ and x64 to dist/mac/. Override the app path with CREW_APP if needed.
+ARCH="${CREW_ARCH:-arm64}"
+if [ "$ARCH" = "x64" ] || [ "$ARCH" = "intel" ]; then
+  APP="${CREW_APP:-dist/mac/Crew.app}"
+  ZIP="dist/Crew-${VERSION}-x64-mac.zip"
+  DMG="dist/Crew-${VERSION}-x64.dmg"
+else
+  APP="${CREW_APP:-dist/mac-arm64/Crew.app}"
+  ZIP="dist/Crew-${VERSION}-arm64-mac.zip"
+  DMG="dist/Crew-${VERSION}-arm64.dmg"
+fi
 
 [ -d "$APP" ] || { echo "ERROR: $APP not found — run 'npm run build && npx electron-builder --mac --dir' first." >&2; exit 1; }
 
