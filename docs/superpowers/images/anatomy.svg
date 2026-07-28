@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440" font-family="'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace">
+  <style>
+    .txt{fill:#F2F1EA;font-size:13px}
+    .dim{fill:#8a8980;font-size:13px}
+    .green{fill:#43b581;font-size:13px}
+    .red{fill:#e5484d;font-size:13px}
+    .cap{fill:#0A0A0B;font-size:13px}
+    .note{fill:#F2F1EA;font-size:12.5px}
+    .noteh{fill:#E8A317;font-size:12.5px;font-weight:700}
+    .noteln{stroke:#E8A317;stroke-width:1.4;fill:none}
+  </style>
+  <rect width="1000" height="440" fill="#141416" rx="10"/>
+  <rect x="20" y="18" width="560" height="372" rx="9" fill="#0A0A0B" stroke="#26262a"/>
+  <rect x="20" y="18" width="560" height="30" rx="9" fill="#1b1b1e"/>
+  <rect x="20" y="38" width="560" height="10" fill="#1b1b1e"/>
+  <circle cx="40" cy="33" r="5" fill="#e5484d"/>
+  <circle cx="58" cy="33" r="5" fill="#faa61a"/>
+  <circle cx="76" cy="33" r="5" fill="#43b581"/>
+  <text x="300" y="37" text-anchor="middle" class="dim" font-size="12">Shell · ~/crew</text>
+
+  <rect x="28" y="62" width="538" height="20" fill="#FFF9C4"/>
+  <rect x="28" y="62" width="3" height="20" fill="#E8A317"/>
+  <text x="40" y="76" class="cap">~/crew $ npm run build</text>
+  <text x="40" y="98" class="dim">vite v5.4 building for production…</text>
+  <text x="40" y="118" class="dim">✓ 96 modules transformed.</text>
+  <text x="40" y="138" class="green">✓ built in 957ms</text>
+
+  <rect x="28" y="150" width="538" height="20" fill="#FFF9C4"/>
+  <rect x="28" y="150" width="3" height="20" fill="#E8A317"/>
+  <text x="40" y="164" class="cap">~/crew $ open dist/report.png</text>
+  <text x="40" y="186" class="txt">wrote <tspan fill="#5F79FF" text-decoration="underline">dist/report.png</tspan></text>
+
+  <rect x="28" y="198" width="538" height="20" fill="#FFF9C4"/>
+  <rect x="28" y="198" width="3" height="20" fill="#E8A317"/>
+  <text x="40" y="212" class="cap">~/crew $ npm test -- --broken</text>
+  <text x="40" y="234" class="red">error: unknown option --broken</text>
+
+  <rect x="28" y="246" width="538" height="20" fill="#FFF9C4"/>
+  <rect x="28" y="246" width="3" height="20" fill="#E8A317"/>
+  <text x="40" y="260" class="cap">~/crew $ <tspan fill="#2B4CF2">▋</tspan></text>
+  <text x="40" y="300" class="dim" font-size="12">GPU-rendered · Unicode 11 widths · inline images</text>
+
+  <rect x="566" y="52" width="12" height="330" fill="#0f0f11"/>
+  <rect x="566" y="70" width="12" height="4" fill="#FFCC00"/>
+  <rect x="566" y="132" width="12" height="4" fill="#43b581"/>
+  <rect x="566" y="158" width="12" height="4" fill="#FFCC00"/>
+  <rect x="566" y="206" width="12" height="4" fill="#e5484d"/>
+  <rect x="566" y="254" width="12" height="4" fill="#FFCC00"/>
+
+  <path class="noteln" d="M578 72 H636"/>
+  <text x="644" y="66" class="noteh">Overview ruler</text>
+  <text x="644" y="83" class="note">a map of the session:</text>
+  <text x="644" y="99" class="note">yellow = your prompts,</text>
+  <text x="644" y="115" class="note">green / red = exit code</text>
+
+  <path class="noteln" d="M566 160 H636"/>
+  <text x="644" y="156" class="noteh">Your input rows are highlighted</text>
+  <text x="644" y="173" class="note">light-yellow row + amber left bar,</text>
+  <text x="644" y="189" class="note">on every command you run</text>
+
+  <path class="noteln" d="M300 186 C 430 186, 560 214, 636 214"/>
+  <text x="644" y="218" class="noteh">Clickable paths &amp; links</text>
+  <text x="644" y="235" class="note">underlined; open in Assets / browser</text>
+
+  <path class="noteln" d="M566 256 H636"/>
+  <text x="644" y="262" class="noteh">⌘↑ / ⌘↓ jump between prompts</text>
+
+  <text x="644" y="300" class="note" font-size="12" fill="#8a8980">Shown for a Shell session with shell</text>
+  <text x="644" y="316" class="note" font-size="12" fill="#8a8980">integration on (crew-hook). Mock-up —</text>
+  <text x="644" y="332" class="note" font-size="12" fill="#8a8980">real spacing depends on window + font.</text>
+
+  <text x="30" y="420" class="dim" font-size="12">Enable: Settings ▸ “Beta: Enhanced Terminal Interface”.</text>
+</svg>

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500" font-family="'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace">
+  <style>
+    .t{fill:#F2F1EA;font-size:12px}
+    .d{fill:#8a8980;font-size:12px}
+    .cap{fill:#0A0A0B;font-size:12px}
+    .h{font-size:14px;font-weight:700}
+    .sub{font-size:12px;fill:#8a8980}
+    .bad{fill:#e5484d;font-size:12px;font-weight:600}
+    .good{fill:#43b581;font-size:12px;font-weight:600}
+  </style>
+  <rect width="1000" height="500" fill="#141416" rx="10"/>
+
+  <!-- ===== BEFORE ===== -->
+  <text x="30" y="34" class="h" fill="#e5484d">Before — what you saw</text>
+  <rect x="30" y="46" width="440" height="300" rx="8" fill="#0A0A0B" stroke="#3a2326"/>
+  <rect x="30" y="46" width="440" height="24" rx="8" fill="#1b1b1e"/>
+  <rect x="30" y="60" width="440" height="10" fill="#1b1b1e"/>
+  <circle cx="46" cy="58" r="4" fill="#e5484d"/><circle cx="60" cy="58" r="4" fill="#faa61a"/><circle cx="74" cy="58" r="4" fill="#43b581"/>
+  <text x="250" y="62" text-anchor="middle" class="d">Copilot CLI · agent</text>
+
+  <text x="42" y="90" class="d">◐ Working… reading the codebase</text>
+  <!-- stray highlight on an OUTPUT row (wrong) -->
+  <rect x="36" y="98" width="428" height="18" fill="#FFF9C4"/><rect x="36" y="98" width="3" height="18" fill="#E8A317"/>
+  <text x="42" y="111" class="cap">  • src/renderer/app.ts</text>
+  <text x="42" y="132" class="t">Edited 3 files, running tests…</text>
+  <!-- stray highlight mid-output (wrong) -->
+  <rect x="36" y="140" width="428" height="18" fill="#FFF9C4"/><rect x="36" y="140" width="3" height="18" fill="#E8A317"/>
+  <text x="42" y="153" class="cap">PASS  test/osc.test.ts</text>
+  <text x="42" y="174" class="t">See <tspan fill="#5F79FF" text-decoration="underline">dist/report.png</tspan> for details</text>
+  <!-- stray highlight again -->
+  <rect x="36" y="182" width="428" height="18" fill="#FFF9C4"/><rect x="36" y="182" width="3" height="18" fill="#E8A317"/>
+  <text x="42" y="195" class="cap">› type your next message…</text>
+
+  <text x="42" y="238" class="bad">✗ yellow lands on random output rows</text>
+  <text x="42" y="256" class="bad">✗ can't click links on those rows</text>
+  <text x="42" y="274" class="bad">✗ mouse-wheel won't scroll over them</text>
+  <text x="42" y="300" class="d" font-size="11">Cause: highlighted rows captured the mouse, and</text>
+  <text x="42" y="315" class="d" font-size="11">every Enter tinted the cursor row — which an agent</text>
+  <text x="42" y="330" class="d" font-size="11">TUI then repaints with unrelated content.</text>
+
+  <!-- ===== AFTER ===== -->
+  <text x="530" y="34" class="h" fill="#43b581">After — fixed</text>
+  <rect x="530" y="46" width="440" height="300" rx="8" fill="#0A0A0B" stroke="#22382c"/>
+  <rect x="530" y="46" width="440" height="24" rx="8" fill="#1b1b1e"/>
+  <rect x="530" y="60" width="440" height="10" fill="#1b1b1e"/>
+  <circle cx="546" cy="58" r="4" fill="#e5484d"/><circle cx="560" cy="58" r="4" fill="#faa61a"/><circle cx="574" cy="58" r="4" fill="#43b581"/>
+  <text x="750" y="62" text-anchor="middle" class="d">Copilot CLI · agent</text>
+
+  <text x="542" y="90" class="d">◐ Working… reading the codebase</text>
+  <text x="542" y="111" class="t">  • src/renderer/app.ts</text>
+  <text x="542" y="132" class="t">Edited 3 files, running tests…</text>
+  <text x="542" y="153" class="t" fill="#43b581">PASS  test/osc.test.ts</text>
+  <text x="542" y="174" class="t">See <tspan fill="#5F79FF" text-decoration="underline">dist/report.png</tspan> for details</text>
+  <text x="542" y="195" class="t">› type your next message…</text>
+
+  <text x="542" y="238" class="good">✓ output stays clean — no stray highlights</text>
+  <text x="542" y="256" class="good">✓ links click, text selects, wheel scrolls</text>
+  <text x="542" y="274" class="good">✓ your prompts highlight in Shell sessions</text>
+  <text x="542" y="300" class="d" font-size="11">Highlights are now purely visual (never eat clicks)</text>
+  <text x="542" y="315" class="d" font-size="11">and are anchored to real prompt marks (shell</text>
+  <text x="542" y="330" class="d" font-size="11">integration), not to every Enter key.</text>
+
+  <text x="30" y="384" class="sub">In a Shell session you still get the yellow input-row highlight on every command (see the anatomy image);</text>
+  <text x="30" y="404" class="sub">full-screen agent TUIs manage their own input area, so Crew no longer paints over their output.</text>
+  <text x="30" y="440" class="sub" fill="#6b6a64">Mock-up illustrating behavior before vs after the fix in build v0.3.1 (Enhanced Terminal beta).</text>
+</svg>
