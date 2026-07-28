@@ -101,21 +101,28 @@ and keep focus.
 
 ## Security summary
 
-Reviewed by a dedicated security pass over the untrusted-output and
-shell-integration surface. Key properties:
+A dedicated security pass reviewed the untrusted-output and shell-integration
+surface and found **no high-confidence, newly-introduced vulnerabilities**. Key
+properties (with the evidence that was verified):
 
 - **OSC parsing** (`osc.ts`) never eval’s or executes parsed data; the streaming
   buffer is hard-capped (`MAX = 4096`) so hostile/unterminated sequences cannot
-  exhaust memory, and the regex is linear (no ReDoS — see `osc-perf.test.ts`).
-- **Links**: OSC-8 hyperlinks and asset tokens are handled exactly as the legacy
-  terminal already does (`openExternal` / `previewToken`) — no new capability.
+  exhaust memory, and the regex has no nested quantifiers — **not ReDoS-prone**
+  (2 M-char adversarial inputs parsed in <4 ms). Parsed `command`/`cwd`/`exitCode`
+  live only in `BlockTracker` memory; `apply()` switches on a fixed `kind` union,
+  so no prototype pollution.
+- **Links**: OSC-8 `openExternal` is gated to `^https?://` in the main process
+  (`src/main/index.ts`), rejecting `file:` / `javascript:` / custom schemes;
+  asset-token preview is byte-identical to the legacy terminal. No new capability.
 - **crew-hook** only adds `printf`-based OSC 133 marks, always sources the user’s
-  own rc first, and restores `ZDOTDIR`; it never runs untrusted content and
-  cannot escalate privileges (runs as the user’s own shell).
-- **Drag-drop** paths go through `quotePaths` (`shell-quote.ts`) before entering
-  the PTY — same path as today.
-
-(See the security-review findings appended to the design spec for specifics.)
+  own rc first via the real `CREW_ZDOTDIR`, and restores/unsets `ZDOTDIR`; the
+  injected env/`--rcfile` point only at the fixed `<userData>/crew-hook` dir and
+  contain no attacker-controlled values. Correctly gated to the Shell preset.
+- **Drag-drop** paths (real FS paths from `webUtils.getPathForFile`) go through
+  `quotePaths` (correct POSIX single-quote escaping) and are inserted with a
+  trailing space, not a newline — nothing auto-executes. Pre-existing behaviour.
+- **No XSS/SSRF**: xterm renders to canvas/DOM cells (no `dangerouslySetInnerHTML`);
+  the image addon decodes Sixel/iTerm2 raster data inline with no URL fetch.
 
 ## Performance
 
