@@ -196,20 +196,29 @@ large **shell-integration/OSC-633 layer of their own** on top.
 ### 6.1 New file layout (renderer)
 
 ```
+src/shared/
+  osc.ts             # dependency-free OSC 133/633/9/7 streaming parser (unit-tested)
+  blocks.ts          # dependency-free command-block assembly from OSC events (unit-tested)
 src/renderer/terminal/
   engine.ts          # TerminalEngine interface + shared types (the SEAM, Crew-owned)
   xterm-engine.ts    # XtermEngine: adapter backing the interface with xterm.js + addons
+                     #   (also hosts prompt-landmark decorations + asset/OSC-8 link providers)
   pool.ts            # EnginePool keyed by session id (replaces terminal-pool.ts)
-  blocks.ts          # semantic command-block model built from OSC marks
-  decorations.ts     # prompt landmarks, exit-code gutter marks, overview-ruler ticks
-  links.ts           # asset-path + OSC-8 link providers (moved off xterm-specific code)
 src/renderer/components/
   CrewTerminal.tsx   # React view (replaces TerminalView.tsx): mount, fit, focus, drag-drop, block nav
-src/shared/
-  osc.ts             # dependency-free OSC 133/633/9 parser (+ unit tests), sibling to detection.ts
 src/main/crew-hook/
   crew-hook.sh       # optional shell shim emitting OSC 133/9 marks (SPEC §5); injected via env
+test/
+  osc.test.ts        # pure unit tests for shared/osc.ts (node env, like detection.test.ts)
+  blocks.test.ts     # pure unit tests for shared/blocks.ts
 ```
+
+Rationale for `osc.ts`/`blocks.ts` in `src/shared/`: the repo's vitest config
+only collects `test/**/*.test.ts` in a **node** environment, and both tsconfigs
+compile `src/shared` with **no DOM lib**. Pure, DOM-free logic therefore lives in
+`src/shared` (exactly like `detection.ts`/`cost.ts`) so it is type-checked by
+both configs and unit-testable without a browser. DOM/xterm-specific code
+(decorations, link providers, fit) stays in the renderer adapter.
 
 Only `CrewTerminal.tsx` and `pool.ts` are imported by the rest of the app
 (`SessionView`, `App`, `AssetsPanel`, `SkillsBar` call `focusTerminal`/mount).
@@ -270,7 +279,7 @@ All current visuals (theme, prompt landmark colors, overview-ruler ticks,
 asset-path + OSC-8 links) are re-expressed through the adapter. The tombstone /
 create-on-demand / buffer-when-hidden semantics move into `pool.ts` unchanged.
 
-### 6.4 Semantic command blocks (`shared/osc.ts` + `blocks.ts`)
+### 6.4 Semantic command blocks (`shared/osc.ts` + `shared/blocks.ts`)
 
 `shared/osc.ts` is a **pure, dependency-free** parser (mirroring
 `detection.ts`'s design and testability) that scans the byte stream for:
