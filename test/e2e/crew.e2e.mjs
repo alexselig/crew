@@ -154,6 +154,11 @@ async function main() {
   ok('enhanced terminal round-trip works (Crew engine)')
   await shot(page, 'enhanced-terminal')
 
+  // User-input row highlight: submitting input drops a decoration on that row.
+  if ((await page.locator('.xterm-decoration').count()) > 0)
+    ok('user-input row is highlighted (decoration present)')
+  else bad('no input-row highlight decoration found')
+
   // Jump-to-prompt keys must be handled without leaking to the shell or throwing.
   await page.keyboard.press('Meta+ArrowUp')
   await page.keyboard.press('Meta+ArrowDown')

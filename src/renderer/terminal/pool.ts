@@ -36,12 +36,15 @@ const tombstones = new Set<string>()
 // their row leaves scrollback, so this only bounds the array itself.
 const MAX_MARKS = 500
 
-// Prompt-landmark colors: each time you submit input, markPrompt() tints that
-// row light-yellow with black text (a decoration overlay — it never injects
-// bytes into the PTY stream) and drops a yellow tick in the overview ruler.
+// User-input row highlight: each time you submit input, markPrompt() clearly
+// marks that row — light-yellow background, black text, a solid amber left
+// accent bar, and a yellow overview-ruler tick — so your own prompts stand out
+// from agent/shell output. It's a decoration overlay (never injects bytes into
+// the PTY stream), so the agent's own TUI rendering is untouched.
 const PROMPT_BG = '#FFF9C4'
 const PROMPT_FG = '#000000'
 const PROMPT_RULER = '#FFCC00'
+const PROMPT_ACCENT = '#E8A317'
 // Exit-code ruler ticks for completed command blocks (needs OSC 133;D marks).
 const OK_RULER = '#43b581'
 const ERR_RULER = '#e5484d'
@@ -107,18 +110,23 @@ export function getBlocks(id: string): Block[] {
 }
 
 /**
- * Highlight the row where the user just submitted input, as a scannable
- * landmark, and record it as a jump target. Called on every submit (see
- * CrewTerminal's onInput). Recolors the cursor row (light-yellow bg + black
- * text) and adds an overview-ruler tick, without writing anything to the PTY —
- * so the agent's own TUI is untouched.
+ * Clearly highlight the row where the user just submitted input, as a scannable
+ * landmark and jump target. Called on every submit (see CrewTerminal's onInput).
+ * Full-row light-yellow background + black text + a solid left accent bar +
+ * overview-ruler tick, without writing anything to the PTY — so the agent's own
+ * TUI is untouched.
  */
 export function markPrompt(id: string): void {
   const p = pool.get(id)
   if (!p || !p.engine.mounted) return
   const m = p.engine.addMarker()
   if (!m) return
-  p.engine.decorate(m, { background: PROMPT_BG, foreground: PROMPT_FG, ruler: PROMPT_RULER })
+  p.engine.decorate(m, {
+    background: PROMPT_BG,
+    foreground: PROMPT_FG,
+    ruler: PROMPT_RULER,
+    accent: PROMPT_ACCENT
+  })
   pushMark(p, m)
 }
 

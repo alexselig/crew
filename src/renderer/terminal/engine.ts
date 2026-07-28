@@ -20,6 +20,9 @@ export interface RowMark {
   foreground?: string
   /** Overview-ruler tick color (#RRGGBB), shown in the scrollbar gutter. */
   ruler?: string
+  /** Solid left-edge accent bar color (#RRGGBB). Rendered as an inset box-shadow
+   *  (no layout shift) so a highlighted row reads unmistakably as user input. */
+  accent?: string
 }
 
 /** A clickable span within one rendered line. Columns are 0-based; `end` is

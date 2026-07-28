@@ -212,6 +212,14 @@ export class XtermEngine implements TerminalEngine {
       layer: 'bottom',
       overviewRulerOptions: mark.ruler ? { color: mark.ruler, position: 'full' } : undefined
     })
+    if (dec && mark.accent) {
+      const accent = mark.accent
+      // A crisp left accent bar via inset box-shadow — reapplied on each render
+      // (xterm re-renders decorations on scroll) and adds no layout shift.
+      dec.onRender((el) => {
+        el.style.boxShadow = `inset 3px 0 0 0 ${accent}`
+      })
+    }
     return { dispose: () => dec?.dispose() }
   }
 
