@@ -13,6 +13,7 @@ import type { CreateSessionRequest, Settings } from '../shared/types'
 import type { AgentStatus } from '../shared/api'
 import type { TrackerSessionInput } from '../shared/tracker'
 import { SessionManager } from './session-manager'
+import { ensureCrewHookDir } from './crew-hook'
 import { AssetWatchers } from './assets'
 import { assetMime } from '../shared/assets'
 import { CrewTray } from './tray'
@@ -22,6 +23,7 @@ import { TranscriptRecorder } from './transcripts'
 import { builtinPresets } from './presets'
 import { listInstalledSkills } from './skills'
 import { scanProjects, recentCommits, resolveLaunch } from './tracker'
+import { buildPastWeek } from './week-review'
 import { launch as launchServer, stop as stopServer, status as serverStatus, stopAll as stopAllServers } from './launcher'
 import { CHARACTERS } from './characters'
 
@@ -660,6 +662,8 @@ function registerIpc(): void {
       }))
     return scanProjects(inputs)
   })
+  // Read-only "past week" review derived from the Copilot CLI session history.
+  ipcMain.handle(IPC.TRACKER_PAST_WEEK, () => buildPastWeek())
   // Open an external http(s) URL (GitHub / live demo) in the default browser.
   ipcMain.handle(IPC.OPEN_EXTERNAL, (_e, url: string) => {
     if (typeof url === 'string' && /^https?:\/\//.test(url)) void shell.openExternal(url)
@@ -707,7 +711,7 @@ if (!app.requestSingleInstanceLock()) {
   hydrateShellPath()
   store = new Store(join(app.getPath('userData'), 'crew-store.json'))
   recorder = new TranscriptRecorder(join(app.getPath('userData'), 'transcripts'))
-  manager = new SessionManager(store, recorder)
+  manager = new SessionManager(store, recorder, ensureCrewHookDir(app.getPath('userData')))
   assets = new AssetWatchers((id, list) => broadcast(IPC.EVT_ASSETS, { id, assets: list }))
   applyLoginItem(store.settings.launchAtLogin)
 

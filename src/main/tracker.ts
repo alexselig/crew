@@ -281,7 +281,7 @@ async function getChangelog(entries: string[], cwd: string): Promise<ChangelogSe
 const TASK_FILES = ['TODO.md', 'TODO', 'STATUS.md', '.crew-progress.md', 'ROADMAP.md', 'NEXT.md', 'TASKS.md', 'PLAN.md']
 const SECTION_RE = /^#{1,6}\s*(next steps?|to ?do|todo|roadmap|remaining|up next|what'?s (next|left)|open (tasks|items)|backlog|phases?|milestones?|in[-\s]?progress|upcoming)\b/i
 
-async function getNextSteps(entries: string[], cwd: string): Promise<NextStep[]> {
+async function getOpenTasks(entries: string[], cwd: string): Promise<NextStep[]> {
   const steps: NextStep[] = []
   const pushItem = (text: string, source: string): void => {
     const t = text.trim().replace(/\*\*/g, '').replace(/`/g, '')
@@ -291,37 +291,88 @@ async function getNextSteps(entries: string[], cwd: string): Promise<NextStep[]>
     }
   }
 
-  // 1) explicit task files: unchecked checkboxes anywhere in the file.
+  // Real open tasks come ONLY from dedicated task files (never arbitrary README/
+  // SPEC prose, which read as fake "next steps"). Within a task file we take both
+  // unchecked `[ ]` checkboxes (anywhere) and plain bullets under a Next-steps /
+  // TODO / Roadmap heading.
   for (const fname of TASK_FILES) {
     const p = findFile(entries, cwd, [fname])
     if (!p) continue
     const src = basename(p)
+    let inSec = false
     for (const line of (await readText(p)).split('\n')) {
-      const m = line.match(/^\s*[-*]\s*\[ \]\s+(.*\S)/)
-      if (m) pushItem(m[1], src)
+      const cb = line.match(/^\s*[-*]\s*\[ \]\s+(.*\S)/)
+      if (cb) {
+        pushItem(cb[1], src)
+      } else if (/^#{1,6}\s/.test(line)) {
+        inSec = SECTION_RE.test(line)
+      } else if (inSec) {
+        const m = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*\S)/)
+        if (m && !/^\[[ x]\]/i.test(m[1])) pushItem(m[1], src)
+      }
       if (steps.length >= 8) break
     }
     if (steps.length >= 8) break
   }
-
-  // 2) bullets under a "Next steps"/"TODO"/"Roadmap" heading in any root markdown.
-  if (steps.length < 8) {
-    const mds = entries.filter((f) => /\.md$/i.test(f)).slice(0, 12)
-    for (const f of mds) {
-      const lines = (await readText(join(cwd, f))).split('\n')
-      let inSec = false
-      for (const line of lines) {
-        if (/^#{1,6}\s/.test(line)) inSec = SECTION_RE.test(line)
-        else if (inSec) {
-          const m = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*\S)/)
-          if (m && !/^\[x\]/i.test(m[1])) pushItem(m[1].replace(/^\[ \]\s*/, ''), f)
-        }
-        if (steps.length >= 8) break
-      }
-      if (steps.length >= 8) break
-    }
-  }
   return steps
+}
+
+// TODO/FIXME/HACK markers left in tracked code — a cheap "proposed step" signal.
+// git grep only searches tracked files, so gitignored deps are skipped for free.
+async function countCodeMarkers(cwd: string, isGit: boolean): Promise<number> {
+  if (!isGit) return 0
+  const out = await git(['grep', '-I', '-c', '-E', 'TODO|FIXME|HACK'], cwd)
+  if (!out) return 0
+  let n = 0
+  for (const line of out.split('\n')) {
+    const m = line.match(/:(\d+)$/)
+    if (m) n += Number(m[1])
+  }
+  return n
+}
+
+interface ProposeCtx {
+  github: string | null
+  live: string | null
+  launch: Launch
+}
+
+/**
+ * A few derived, clearly-labelled suggestions from repo signals — the modern,
+ * per-project replacement for the old canned "Suggestions". These are proposals,
+ * never real tasks: shown secondary to (and separate from) actual open tasks.
+ * Priority-ranked, capped at 3.
+ */
+async function getProposedSteps(cwd: string, stats: FullStats, ctx: ProposeCtx): Promise<NextStep[]> {
+  const s: { priority: number; text: string }[] = []
+  const add = (priority: number, text: string): void => {
+    s.push({ priority, text })
+  }
+  const fw = ctx.launch.framework
+  const deployable = ctx.launch.opensUrl
+
+  if (stats.uncommitted > 0) add(1, `Commit or stash ${stats.uncommitted} uncommitted change${stats.uncommitted > 1 ? 's' : ''}`)
+  if (!stats.isGit && !stats.specOnly) add(1, 'Put it under version control — git init & push to GitHub')
+  if (stats.ahead > 0) add(2, `Push ${stats.ahead} unpushed commit${stats.ahead > 1 ? 's' : ''} to GitHub`)
+  if (stats.specOnly) add(2, 'Start implementation — this is spec/plan-only so far')
+  if (!ctx.github && stats.isGit && !stats.specOnly) add(3, 'Add a GitHub remote so the code is backed up')
+  if (!stats.hasTests && stats.isNode) add(4, 'Add automated tests (no test setup detected)')
+  if (!ctx.live && deployable && stats.isGit) add(4, 'Deploy it so you have a shareable live link')
+  if (!ctx.live && fw === 'static' && stats.isGit) add(4, 'Publish via GitHub Pages for a live link')
+  if (!stats.hasReadme && !stats.specOnly) add(5, 'Write a README describing what it does & how to run it')
+
+  const markers = await countCodeMarkers(cwd, stats.isGit)
+  if (markers > 0) add(5, `Resolve ${markers} TODO/FIXME marker${markers > 1 ? 's' : ''} left in the code`)
+
+  if (stats.isNode && stats.isGit && !stats.hasTag && stats.commitCount > 8) add(6, 'Tag a release (git tag) to snapshot this version')
+  if (!stats.hasChangelog && stats.commitCount > 15 && stats.isNode) add(6, 'Start a CHANGELOG to track what ships each release')
+  if (stats.daysSinceCommit != null && stats.daysSinceCommit > 14) add(7, `Revisit — no commits in ${stats.daysSinceCommit} days`)
+  if (stats.isNode && !stats.hasLicense && ctx.github && /github\.com\/[^/]+\/[^/]+$/.test(ctx.github)) add(8, 'Add a LICENSE file')
+
+  return s
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, 3)
+    .map((x) => ({ text: x.text, source: 'suggested' }))
 }
 
 // ── stats / launch ───────────────────────────────────────────────────────────
@@ -337,15 +388,16 @@ interface FullStats extends Stats {
 
 async function projectStats(entries: string[], cwd: string, pkg: Record<string, unknown> | null): Promise<FullStats> {
   const isGit = await exists(join(cwd, '.git'))
-  const [lastCommitIso, commitCountRaw, porcelain, aheadRaw, tag] = isGit
+  const [lastCommitIso, commitCountRaw, weekRaw, porcelain, aheadRaw, tag] = isGit
     ? await Promise.all([
         git(['log', '-1', '--pretty=format:%cI'], cwd),
         git(['rev-list', '--count', 'HEAD'], cwd),
+        git(['rev-list', '--count', '--since=7 days ago', 'HEAD'], cwd),
         git(['status', '--porcelain'], cwd),
         git(['rev-list', '--count', '@{u}..HEAD'], cwd),
         git(['describe', '--tags', '--abbrev=0'], cwd)
       ])
-    : ['', '', '', '', '']
+    : ['', '', '', '', '', '']
 
   const scripts = (pkg?.scripts as Record<string, string>) || {}
   const deps = { ...(pkg?.dependencies as object), ...(pkg?.devDependencies as object) } as Record<string, string>
@@ -372,6 +424,7 @@ async function projectStats(entries: string[], cwd: string, pkg: Record<string, 
 
   return {
     commitCount,
+    commitsLastWeek: Number(weekRaw) || 0,
     lastCommitIso: lastCommitIso || null,
     lastCommitWhen: relTime(lastMs),
     daysSinceCommit: lastCommitIso ? Math.floor((Date.now() - lastMs) / 86400000) : null,
@@ -441,6 +494,7 @@ async function deriveProject(input: TrackerSessionInput): Promise<Project> {
     commits: [],
     changelog: [],
     nextSteps: [],
+    proposedNextSteps: [],
     stats: null,
     launch: { framework: null, launchable: false, opensUrl: false, cmdPreview: null },
     status: 'unknown'
@@ -457,7 +511,7 @@ async function deriveProject(input: TrackerSessionInput): Promise<Project> {
   const [commits, changelog, fileSteps, agentSteps, remoteRaw, branch, tag] = await Promise.all([
     getCommits(cwd),
     getChangelog(entries, cwd),
-    getNextSteps(entries, cwd),
+    getOpenTasks(entries, cwd),
     getAgentTodos(input.agentSessionId),
     git(['remote', 'get-url', 'origin'], cwd),
     git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd),
@@ -493,6 +547,11 @@ async function deriveProject(input: TrackerSessionInput): Promise<Project> {
   const pkgHome = typeof pkg?.homepage === 'string' ? (pkg.homepage as string) : null
   const live = pkgHome && /^https?:\/\//.test(pkgHome) ? pkgHome : /\.github\.io$/i.test(basename(cwd)) ? `https://${basename(cwd)}/` : null
 
+  // Proposed next steps = derived suggestions from repo signals (uncommitted work,
+  // unpushed commits, missing tests/README/remote, staleness…). Kept separate from
+  // real open tasks and dropped when they'd duplicate one.
+  const proposed = (await getProposedSteps(cwd, stats, { github, live, launch })).filter((s) => !nextSteps.some((x) => x.text === s.text))
+
   let status: ProjectStatus
   if (stats.specOnly) status = 'spec'
   else if (stats.daysSinceCommit == null) status = 'unknown'
@@ -510,10 +569,12 @@ async function deriveProject(input: TrackerSessionInput): Promise<Project> {
   base.commits = commits
   base.changelog = changelog
   base.nextSteps = nextSteps
+  base.proposedNextSteps = proposed
   base.launch = launch
   base.status = status
   base.stats = {
     commitCount: stats.commitCount,
+    commitsLastWeek: stats.commitsLastWeek,
     lastCommitWhen: stats.lastCommitWhen,
     lastCommitIso: stats.lastCommitIso,
     daysSinceCommit: stats.daysSinceCommit,
@@ -573,7 +634,8 @@ export async function scanProjects(inputs: TrackerSessionInput[]): Promise<Track
       repos: projects.filter((p) => p.stats?.isGit).length,
       found: projects.filter((p) => p.found).length,
       groups: groups.length,
-      openTasks: projects.reduce((n, p) => n + p.nextSteps.length, 0)
+      openTasks: projects.reduce((n, p) => n + p.nextSteps.length, 0),
+      shippedWeek: projects.reduce((n, p) => n + (p.stats?.commitsLastWeek ?? 0), 0)
     },
     groups
   }

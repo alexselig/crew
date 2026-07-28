@@ -3,6 +3,26 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## Unreleased
+
+### Project Tracker
+- **Rebuilt each project card around three clearer bands.** A promoted
+  **Recently shipped** band (a one-line "what's been checked in" summary — commits
+  this week, unpushed/uncommitted, clean-tree state — plus the latest commits
+  inline) now answers "what did I ship" at a glance, instead of hiding history
+  behind a collapse.
+- **"Open tasks" are now only real, verifiable work** — the agent's live session
+  todos plus items from dedicated task files (TODO/STATUS/ROADMAP…). The old
+  scrape of bullets from *any* README/SPEC prose is gone, so tasks no longer look
+  fake. The section (and the "N open" pill / Open-tasks stat) only appears when
+  tasks actually exist — no empty-state filler.
+- **New "Proposed next steps"** — a few clearly-labelled, repo-signal-derived
+  suggestions (commit/push, add tests, add a remote, deploy, tag a release,
+  resolve TODO/FIXME markers, revisit if stale…), shown secondary to and separate
+  from real tasks so they never masquerade as one.
+- Masthead swaps the low-signal **Groups** count for **Shipped · 7d**; the row
+  pill surfaces uncommitted work when a project has no open tasks.
+
 ## 0.3.1 — 2026-07-24
 
 **Windows support, Intel Mac support, plus tracker and terminal refinements.**

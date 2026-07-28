@@ -8,7 +8,8 @@ interface Props {
 const FRAMEWORK_LABEL: Record<string, string> = { next: 'Next.js', vite: 'Vite', electron: 'Electron', node: 'Node', static: 'Static' }
 const ORIGIN_LABEL: Record<string, string> = { work: 'Work', personal: 'Personal', external: 'External' }
 
-/** Build the metadata line for an expanded project (matches reference metaLine). */
+/** Build the metadata line for an expanded project (identity + location bits;
+ * recency/tree-state now live in the Shipped band). */
 function metaBits(p: Project): { text: string; strong?: boolean; warn?: boolean; mono?: boolean }[] {
   const bits: { text: string; strong?: boolean; warn?: boolean; mono?: boolean }[] = []
   if (p.dir) bits.push({ text: `📁 ~/${p.dir}`, mono: true })
@@ -16,10 +17,20 @@ function metaBits(p: Project): { text: string; strong?: boolean; warn?: boolean;
   if (p.origin) bits.push({ text: ORIGIN_LABEL[p.origin] || p.origin })
   if (p.stats?.framework) bits.push({ text: FRAMEWORK_LABEL[p.stats.framework] || p.stats.framework })
   if (p.stats?.commitCount) bits.push({ text: `${p.stats.commitCount} commits` })
-  if (p.stats?.lastCommitWhen) bits.push({ text: `last commit ${p.stats.lastCommitWhen}` })
   if (p.branch && p.branch !== 'main' && p.branch !== 'master') bits.push({ text: p.branch })
-  if (p.stats?.uncommitted) bits.push({ text: `${p.stats.uncommitted} uncommitted`, warn: true })
   return bits
+}
+
+/** One-line "what's been checked in" summary for the Shipped band. */
+function shipSummary(p: Project): string {
+  const s = p.stats
+  if (!s) return ''
+  const bits: string[] = []
+  if (s.commitsLastWeek > 0) bits.push(`${s.commitsLastWeek} commit${s.commitsLastWeek > 1 ? 's' : ''} this week`)
+  else if (s.lastCommitWhen) bits.push(`last commit ${s.lastCommitWhen}`)
+  if (s.ahead > 0) bits.push(`${s.ahead} to push`)
+  bits.push(s.uncommitted > 0 ? `${s.uncommitted} uncommitted` : 'clean tree')
+  return bits.join('  ·  ')
 }
 
 /**
@@ -220,6 +231,8 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
           </span>
           {n > 0 ? (
             <span className="tracker-row__open">{n} open</span>
+          ) : (p.stats?.uncommitted ?? 0) > 0 ? (
+            <span className="tracker-row__open tracker-row__open--warn">{p.stats!.uncommitted} uncommitted</span>
           ) : (
             <span className="tracker-row__open tracker-row__open--idle">idle</span>
           )}
@@ -248,10 +261,30 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
 
             {note && <div className="tracker-launchbox">{note}</div>}
 
-            {p.nextSteps.length > 0 ? (
+            {p.found && (p.commits.length > 0 || (p.stats?.uncommitted ?? 0) > 0) && (
+              <div className="tracker-sec tracker-sec--ship">
+                <div className="tracker-sec__h">Recently shipped</div>
+                {shipSummary(p) && <div className="tracker-ship__summary">{shipSummary(p)}</div>}
+                {p.commits.length > 0 && (
+                  <div className="tracker-commits tracker-commits--inline">
+                    {p.commits.slice(0, 3).map((c, i) => (
+                      <div className="tracker-commit" key={`s-${i}`}>
+                        <span className="tracker-commit__sha">{c.sha}</span>
+                        <span className={`tracker-commit__msg ${c.isRelease ? 'is-rel' : ''}`} title={c.subject}>
+                          {c.subject}
+                        </span>
+                        <span className="tracker-commit__when">{c.when || ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {p.nextSteps.length > 0 && (
               <div className="tracker-sec">
                 <div className="tracker-sec__h">
-                  Next steps <span className="tracker-sec__n">{p.nextSteps.length}</span>
+                  Open tasks <span className="tracker-sec__n">{p.nextSteps.length}</span>
                 </div>
                 <ul className="tracker-tasks tracker-tasks--steps">
                   {p.nextSteps.map((t, i) => (
@@ -263,20 +296,29 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
                   ))}
                 </ul>
               </div>
-            ) : (
-              p.found && (
-                <div className="tracker-sec">
-                  <div className="tracker-sec__h">Next steps</div>
-                  <div className="tracker-empty">No open tasks — the agent&rsquo;s todo list is clear and there&rsquo;s no TODO/STATUS/ROADMAP task file.</div>
-                </div>
-              )
             )}
 
-            {(p.commits.length > 0 || p.changelog.length > 0) && (
+            {p.proposedNextSteps.length > 0 && (
+              <div className="tracker-sec tracker-sec--proposed">
+                <div className="tracker-sec__h">
+                  Proposed next steps <span className="tracker-sec__hint">suggested</span>
+                </div>
+                <ul className="tracker-tasks tracker-tasks--sugg">
+                  {p.proposedNextSteps.map((t, i) => (
+                    <li key={i}>
+                      <span className="tracker-tasks__mk">✦</span>
+                      <span>{t.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {(p.commits.length > 3 || p.changelog.length > 0) && (
               <div className="tracker-hist">
                 <button type="button" className={`tracker-hist__toggle ${histOpen ? 'is-open' : ''}`} onClick={() => toggleHistory(p.id)}>
                   <span className="tracker-hist__caret">▸</span>{' '}
-                  {p.changelog.length ? 'Feature history — changelog + commits' : 'What’s been added — commit history'}
+                  {p.changelog.length ? 'Full history — changelog + earlier commits' : 'Earlier commits'}
                 </button>
                 {histOpen && (
                   <div className="tracker-commits">
@@ -290,7 +332,7 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
                         </ul>
                       </div>
                     ))}
-                    {p.commits.map((c, i) => (
+                    {p.commits.slice(3).map((c, i) => (
                       <div className="tracker-commit" key={`c-${i}`}>
                         <span className="tracker-commit__sha">{c.sha}</span>
                         <span className={`tracker-commit__msg ${c.isRelease ? 'is-rel' : ''}`} title={c.subject}>
@@ -339,8 +381,8 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
               <span className="tracker-stat__label">Projects</span>
             </div>
             <div className="tracker-stat">
-              <span className="tracker-stat__num">{data ? data.totals.groups : '–'}</span>
-              <span className="tracker-stat__label">Groups</span>
+              <span className="tracker-stat__num">{data ? data.totals.shippedWeek : '–'}</span>
+              <span className="tracker-stat__label">Shipped · 7d</span>
             </div>
             <div className="tracker-stat">
               <span className="tracker-stat__num tracker-stat__num--accent">{data ? data.totals.openTasks : '–'}</span>

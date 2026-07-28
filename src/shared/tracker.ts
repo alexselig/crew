@@ -40,6 +40,7 @@ export interface ChangelogSection {
 
 export interface Stats {
   commitCount: number
+  commitsLastWeek: number
   lastCommitWhen: string | null
   lastCommitIso: string | null
   daysSinceCommit: number | null
@@ -79,7 +80,10 @@ export interface Project {
   branch: string | null
   commits: Commit[]
   changelog: ChangelogSection[]
+  /** Real, verifiable open work: the agent's live todos + explicit task-file items. */
   nextSteps: NextStep[]
+  /** Derived, clearly-labelled suggestions from repo signals (never real tasks). */
+  proposedNextSteps: NextStep[]
   stats: Stats | null
   launch: Launch
   status: ProjectStatus
@@ -99,6 +103,7 @@ export interface Totals {
   found: number
   groups: number
   openTasks: number
+  shippedWeek: number
 }
 
 export interface TrackerData {

@@ -25,6 +25,7 @@ import { randomCharacterColor, fallbackCharacterColor } from '../shared/palette'
 import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
 import { AutopilotWatcher, CopilotAutopilotWatcher, isClaudeSession, isCopilotSession } from './autopilot'
+import { crewHookFor } from './crew-hook'
 
 const TICK_MS = 250
 const DEFAULT_COLS = 100
@@ -86,7 +87,9 @@ export class SessionManager extends EventEmitter {
 
   constructor(
     private readonly store: Store,
-    private readonly recorder?: TranscriptRecorder
+    private readonly recorder?: TranscriptRecorder,
+    /** Dir holding the materialized crew-hook shell-integration scripts. */
+    private readonly crewHookDir?: string
   ) {
     super()
   }
@@ -190,13 +193,21 @@ export class SessionManager extends EventEmitter {
         idArgs = [preset.sessionIdFlag + agentSessionId]
         resumeExtra = []
       }
-      const spawnArgs = [...args, ...idArgs, ...resumeExtra]
+      // Enhanced Terminal: install OSC 133 shell integration for the Shell
+      // preset so command blocks / jump-to-prompt / exit-code marks work. Opt-in
+      // (the setting is off by default) and only for a real zsh/bash shell;
+      // agents, custom commands, and other shells are left completely untouched.
+      const hook =
+        this.store.settings.enhancedTerminal && req.presetId === 'shell' && this.crewHookDir
+          ? crewHookFor(command, this.crewHookDir)
+          : null
+      const spawnArgs = [...args, ...idArgs, ...resumeExtra, ...(hook?.extraArgs ?? [])]
       proc = pty.spawn(command, spawnArgs, {
         name: 'xterm-256color',
         cols: DEFAULT_COLS,
         rows: DEFAULT_ROWS,
         cwd,
-        env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>
+        env: { ...process.env, TERM: 'xterm-256color', ...(hook?.env ?? {}) } as Record<string, string>
       })
     } catch (err) {
       // Command not found / not executable: surface as an ERROR card rather

@@ -4366,6 +4366,11 @@ button.grid-topbar__wordmark:hover {
   background: transparent;
   border-color: var(--pt-line);
 }
+.tracker-row__open--warn {
+  color: var(--pt-gold-bright);
+  background: rgba(245, 165, 36, 0.12);
+  border-color: rgba(245, 165, 36, 0.28);
+}
 .tracker-row__when {
   justify-self: end;
   font-size: 12.5px;
@@ -4548,6 +4553,41 @@ button.grid-topbar__wordmark:hover {
   color: var(--pt-cream-faint);
   font-style: italic;
   font-family: var(--pt-serif);
+}
+
+/* ── shipped band + proposed next steps ───────────────────── */
+.tracker-sec--ship .tracker-sec__h {
+  color: var(--pt-green);
+}
+.tracker-ship__summary {
+  font-family: var(--pt-serif);
+  font-size: 14.5px;
+  color: var(--pt-cream-dim);
+  margin: -4px 0 10px;
+}
+.tracker-commits--inline {
+  margin-top: 0;
+}
+.tracker-sec--proposed {
+  opacity: 0.85;
+}
+.tracker-sec--proposed .tracker-sec__h {
+  color: var(--pt-cream-faint);
+}
+.tracker-sec__hint {
+  font-family: var(--pt-sans);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--pt-gold);
+  border: 1px solid rgba(201, 154, 91, 0.3);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+.tracker-tasks--sugg li {
+  color: var(--pt-cream-dim);
+  font-size: 13.5px;
 }
 
 /* ── commit / feature history ─────────────────────────────── */
