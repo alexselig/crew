@@ -70,6 +70,8 @@ export interface TerminalEngine {
   fit(contentHeightPx: number): FitResult
   focus(): void
   onFocus(cb: () => void): Disposable
+  /** Intercept keydown before the terminal handles it; return false to consume it. */
+  attachKeyHandler(handler: (e: KeyboardEvent) => boolean): void
 
   // landmarks / navigation (block UX)
   /** Register a marker at the current cursor row, or null if not ready. */

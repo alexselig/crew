@@ -12,6 +12,7 @@ import { createXtermEngine } from './xterm-engine'
 import type { Disposable, EngineMarker, LinkProvider } from './engine'
 import { OscParser, type OscEvent } from '../../shared/osc'
 import { BlockTracker, type Block } from '../../shared/blocks'
+import { pickJumpTarget } from '../../shared/nav'
 import { findAssetPaths } from '../../shared/assets'
 import { previewToken } from '../preview-bus'
 
@@ -130,10 +131,7 @@ export function jumpToPrompt(id: string, dir: 'prev' | 'next'): boolean {
     .filter((m) => !m.disposed && m.line >= 0)
     .map((m) => m.line)
     .sort((a, b) => a - b)
-  if (lines.length === 0) return false
-  const top = p.engine.viewportTop
-  const target =
-    dir === 'next' ? lines.find((l) => l > top) : [...lines].reverse().find((l) => l < top)
+  const target = pickJumpTarget(lines, p.engine.viewportTop, dir)
   if (target == null) return false
   p.engine.scrollToLine(target)
   return true

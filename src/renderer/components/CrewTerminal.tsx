@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { getPooled, focusTerminal, markPrompt } from '../terminal/pool'
+import { getPooled, focusTerminal, markPrompt, jumpToPrompt } from '../terminal/pool'
 import { quotePaths } from '../../shared/shell-quote'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
@@ -82,6 +82,22 @@ export function CrewTerminal({
     const inputSub = p.engine.onInput((d) => {
       window.crew.sendInput(id, d)
       if (d.includes('\r') || d.includes('\n')) markPrompt(id)
+    })
+
+    // Jump-to-prompt: ⌘↑ / ⌘↓ (Ctrl on Windows/Linux) scrolls between prompt
+    // landmarks. Returning false consumes the key so the shell never sees it.
+    p.engine.attachKeyHandler((e) => {
+      if (
+        e.type === 'keydown' &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+      ) {
+        jumpToPrompt(id, e.key === 'ArrowUp' ? 'prev' : 'next')
+        return false
+      }
+      return true
     })
 
     return () => {

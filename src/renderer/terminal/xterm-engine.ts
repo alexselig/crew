@@ -181,6 +181,10 @@ export class XtermEngine implements TerminalEngine {
     this.term.focus()
   }
 
+  attachKeyHandler(handler: (e: KeyboardEvent) => boolean): void {
+    this.term.attachCustomKeyEventHandler(handler)
+  }
+
   addMarker(): EngineMarker | null {
     if (!this.opened) return null
     const raw = this.term.registerMarker(0)
