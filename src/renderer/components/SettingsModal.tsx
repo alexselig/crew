@@ -31,6 +31,11 @@ const TOGGLES: { key: keyof Settings; label: string; desc: string }[] = [
     label: 'Capture transcripts',
     desc: 'Save each session’s output locally so you can search and export it. Stays on your machine.'
   },
+  {
+    key: 'minimizedAsList',
+    label: 'Show minimized in grid as list',
+    desc: 'Collect minimized sessions into one list card at the end of the grid, instead of a “show more” inside each group.'
+  },
   { key: 'launchAtLogin', label: 'Launch at login', desc: 'Start Crew automatically when you log in.' }
 ]
 

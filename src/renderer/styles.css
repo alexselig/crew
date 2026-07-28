@@ -1689,6 +1689,121 @@ button {
   opacity: 0.8;
 }
 
+/* Minimized-as-list card: one full-height column at the end of the grid holding a
+   scrollable list of every minimized session (Settings ▸ "Show minimized in grid
+   as list"). Replaces the per-bucket "show more" reveal so minimized sessions
+   don't fragment the grid. Sits in the grid like a tile (spans all rows via an
+   inline grid-row: 1 / -1). */
+.minlist {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.minlist__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.minlist__title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.minlist__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.minlist__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.minlist__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.minlist__row:hover {
+  background: var(--bg-elev);
+}
+
+.minlist__row.is-selected {
+  background: var(--bg-elev);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.minlist__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.minlist__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.minlist__restore {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.minlist__row:hover .minlist__restore {
+  opacity: 1;
+}
+
+.minlist__restore:hover {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
 .tile {
   position: relative;
   display: flex;

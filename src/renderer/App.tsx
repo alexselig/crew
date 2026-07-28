@@ -352,6 +352,7 @@ export function App(): JSX.Element {
           showSpend={c.settings?.showSpend ?? true}
           showCredits={c.settings?.showCredits ?? false}
           staleHideHours={c.settings?.staleHideHours ?? 12}
+          minimizedAsList={c.settings?.minimizedAsList ?? true}
           onReorder={(ids) => void window.crew.reorder(ids)}
           onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
           allGroups={existingGroups(c.roster)}

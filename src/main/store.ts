@@ -56,7 +56,8 @@ export const DEFAULT_SETTINGS: Settings = {
   resumeConversations: true,
   budgetUsd: 0,
   captureTranscripts: false,
-  staleHideHours: 12
+  staleHideHours: 12,
+  minimizedAsList: true
 }
 
 interface StoreData {

@@ -83,6 +83,10 @@ export interface Settings {
   /** In group (tag) sort, hide sessions in a group not used within this many
    * hours behind a per-group "show more" toggle (0 = never hide). */
   staleHideHours: number
+  /** Collect minimized sessions into a single list card at the end of the grid,
+   * instead of tucking them behind each bucket's "show more" (which fragments
+   * the grid). Default on. */
+  minimizedAsList: boolean
 }
 
 export interface SessionInfo {

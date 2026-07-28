@@ -26,6 +26,9 @@ interface Props {
   onToggleMinimize: (id: string) => void
   /** Hours after which an unused session is hidden in group (tag) sort (0 = off). */
   staleHideHours: number
+  /** Collect minimized sessions into one list card at the end instead of a
+   * per-bucket "show more". */
+  minimizedAsList: boolean
   groupOrder: string[]
   onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
@@ -61,6 +64,7 @@ export function GridView({
   minimized,
   onToggleMinimize,
   staleHideHours,
+  minimizedAsList,
   groupOrder,
   onSelect,
   onExpand,
@@ -92,6 +96,12 @@ export function GridView({
       return n
     })
   const staleCutoff = Date.now() - staleHideHours * 60 * 60 * 1000
+  // When "show minimized as list" is on, minimized sessions are pulled out of the
+  // grid entirely and collected into one list card at the end — so the grid (and
+  // its per-bucket "show more") only deals with the remaining sessions. When off,
+  // they stay tucked behind each bucket's "show more" alongside stale ones.
+  const minimizedList = minimizedAsList ? roster.filter((s) => minimized.has(s.id)) : []
+  const gridRoster = minimizedAsList ? roster.filter((s) => !minimized.has(s.id)) : roster
   const isHidden = (s: SessionInfo): boolean =>
     minimized.has(s.id) ||
     (groupMode === 'tag' && staleHideHours > 0 && recencyOf(s) < staleCutoff)
@@ -99,7 +109,7 @@ export function GridView({
   // scrolls horizontally instead (each group is a column-major band via
   // `grid--g-${gridDensity}`), so it leaves <main> without the density class.
   const density = grouped ? null : gridDensity
-  const groups = grouped ? groupSessions(roster, groupMode, groupOrder) : []
+  const groups = grouped ? groupSessions(gridRoster, groupMode, groupOrder) : []
   const dnd = useCardDnd(roster, groupMode, onReorder, onSetTag)
   const tagGroups = allGroups ?? existingGroups(roster)
 
@@ -209,6 +219,63 @@ export function GridView({
     )
   }
 
+  // A single full-height card at the end of the grid listing every minimized
+  // session (used when the "show minimized as list" setting is on). Spans all grid
+  // rows so it reads as one column. A row click restores + selects the session
+  // (same as picking it in the nav); the ⤢ button restores it without selecting.
+  function renderMinimizedList(): JSX.Element {
+    return (
+      <div className="minlist" style={{ gridRow: '1 / -1' }} data-minlist>
+        <div className="minlist__head">
+          <span className="minlist__title">Minimized</span>
+          <span className="minlist__count">{minimizedList.length}</span>
+        </div>
+        <div className="minlist__scroll">
+          {minimizedList.map((s) => (
+            <div
+              key={s.id}
+              className={`minlist__row ${s.id === selectedId ? 'is-selected' : ''}`}
+              role="button"
+              tabIndex={0}
+              title="Restore to the grid"
+              onClick={() => onSelect(s.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSelect(s.id)
+                }
+              }}
+            >
+              <span className="minlist__glyph">
+                <Character
+                  glyph={charById(s.characterId)?.glyph ?? '●'}
+                  id={s.characterId}
+                  color={s.color}
+                  state={s.state}
+                  size={22}
+                  dot
+                  badge={false}
+                />
+              </span>
+              <span className="minlist__label">{s.label}</span>
+              <button
+                type="button"
+                className="minlist__restore"
+                title="Restore to the grid"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onToggleMinimize(s.id)
+                }}
+              >
+                ⤢
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <main className={`gridview ${density ? `gridview--${density}` : ''}`}>
       <div className="grid-topbar">
@@ -268,16 +335,24 @@ export function GridView({
                 </section>
               )
             })}
+            {minimizedList.length > 0 && (
+              <section className="grid-group grid-group--minlist" key="__minimized__">
+                <div className={`grid grid--grouped grid--g-${gridDensity}`}>
+                  {renderMinimizedList()}
+                </div>
+              </section>
+            )}
           </div>
         ) : (
           (() => {
-            const { visible, hidden } = partitionHidden(roster, isHidden)
+            const { visible, hidden } = partitionHidden(gridRoster, isHidden)
             const open = expandedGroups.has('__all__')
             return (
               <div className={`grid ${density ? `grid--${density}` : ''}`}>
                 {visible.map(renderTile)}
                 {open && hidden.map(renderTile)}
                 {hidden.length > 0 && renderShowMore('__all__', null, hidden)}
+                {minimizedList.length > 0 && renderMinimizedList()}
               </div>
             )
           })()
