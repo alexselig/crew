@@ -10,6 +10,7 @@ import { Terminal, type IDisposable, type IMarker } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { ImageAddon } from '@xterm/addon-image'
 import '@xterm/xterm/css/xterm.css'
 import type {
   Disposable,
@@ -119,6 +120,15 @@ export class XtermEngine implements TerminalEngine {
         this.capabilities.webgl = true
       } catch {
         this.capabilities.webgl = false
+      }
+      // Inline images (Sixel + iTerm2 OSC 1337): lets agents render plots, diffs,
+      // and screenshots directly in the terminal. Pure-JS decode; gated so any
+      // failure never blocks the terminal.
+      try {
+        this.term.loadAddon(new ImageAddon())
+        this.capabilities.images = true
+      } catch {
+        this.capabilities.images = false
       }
     } else if (this.term.element) {
       host.appendChild(this.term.element)
