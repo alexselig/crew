@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { LaunchResult, Project, RunningServer, TrackerData } from '../../shared/tracker'
+import type { LaunchResult, PastWeek, Project, RunningServer, TrackerData } from '../../shared/tracker'
 
 interface Props {
   onClose: () => void
@@ -7,6 +7,14 @@ interface Props {
 
 const FRAMEWORK_LABEL: Record<string, string> = { next: 'Next.js', vite: 'Vite', electron: 'Electron', node: 'Node', static: 'Static' }
 const ORIGIN_LABEL: Record<string, string> = { work: 'Work', personal: 'Personal', external: 'External' }
+
+/** Compact token count, e.g. 1_650_000 → "1.6M", 22_555 → "23k". */
+function fmtTokens(n: number): string {
+  if (!n) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`
+  return String(n)
+}
 
 /** Build the metadata line for an expanded project (identity + location bits;
  * recency/tree-state now live in the Shipped band). */
@@ -45,7 +53,9 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [openHistory, setOpenHistory] = useState<Set<string>>(new Set())
-  const [filter, setFilter] = useState<string>('all')
+  const [filter, setFilter] = useState<string>('past')
+  const [pastWeek, setPastWeek] = useState<PastWeek | null>(null)
+  const [pastLoading, setPastLoading] = useState(true)
   const [running, setRunning] = useState<Record<string, RunningServer>>({})
   const [launching, setLaunching] = useState<Set<string>>(new Set())
   const [launchNote, setLaunchNote] = useState<Record<string, string>>({})
@@ -80,8 +90,23 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
     }
   }
 
+  // The Past Week review reads the Copilot CLI history DB (a heavier, read-only
+  // scan), so it loads once on mount and on explicit Refresh — never in the 20s
+  // auto-loop that re-scans the live project tree.
+  async function loadPastWeek(): Promise<void> {
+    try {
+      const pw = await window.crew.getPastWeek()
+      setPastWeek(pw)
+    } catch {
+      setPastWeek(null)
+    } finally {
+      setPastLoading(false)
+    }
+  }
+
   useEffect(() => {
     void refresh()
+    void loadPastWeek()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -351,6 +376,96 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
     )
   }
 
+  function renderPastWeek(): JSX.Element {
+    if (pastLoading && !pastWeek) return <div className="tracker-empty">Reading your Copilot history…</div>
+    if (!pastWeek || !pastWeek.available)
+      return <div className="tracker-empty">No Copilot CLI history found for the past week.</div>
+    const { stats, projects, days, followups, rangeLabel } = pastWeek
+    return (
+      <div className="pastweek">
+        <p className="pastweek__range">
+          {rangeLabel}
+          {stats.messages > 0 ? ` · ${stats.messages.toLocaleString()} messages` : ''}
+          {stats.topModel ? ` · mostly ${stats.topModel}` : ''}
+        </p>
+
+        {projects.length > 0 && (
+          <section className="pastweek__section">
+            <div className="tracker-group__head">
+              <span className="tracker-group__label">Projects</span>
+              <span className="tracker-group__line" />
+              <span className="tracker-group__count">{projects.length}</span>
+            </div>
+            <div className="pastweek__projects">
+              {projects.map((pr) => (
+                <div className="pw-proj" key={pr.name}>
+                  <span className="pw-proj__name">{pr.name}</span>
+                  <span className="pw-proj__meta">
+                    {pr.sessions} session{pr.sessions === 1 ? '' : 's'}
+                    {pr.files > 0 ? ` · ${pr.files} file${pr.files === 1 ? '' : 's'}` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="pastweek__section">
+          <div className="tracker-group__head">
+            <span className="tracker-group__label">Timeline</span>
+            <span className="tracker-group__line" />
+          </div>
+          {days.length === 0 ? (
+            <div className="tracker-empty">No sessions recorded this week.</div>
+          ) : (
+            days.map((day) => (
+              <div className="pw-day" key={day.date}>
+                <div className="pw-day__head">
+                  <span className="pw-day__label">{day.label}</span>
+                  <span className="pw-day__count">
+                    {day.sessions.length} session{day.sessions.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <div className="pw-day__sessions">
+                  {day.sessions.map((s) => (
+                    <div className="pw-sess" key={s.id}>
+                      <span className="pw-sess__time">{s.time}</span>
+                      <span className="pw-sess__title">{s.title}</span>
+                      {s.turns > 0 && (
+                        <span className="pw-sess__turns">
+                          {s.turns} msg{s.turns === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      {s.projects.length > 0 && <span className="pw-sess__proj">{s.projects.join(' · ')}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </section>
+
+        {followups.length > 0 && (
+          <section className="pastweek__section">
+            <div className="tracker-group__head">
+              <span className="tracker-group__label">Follow-ups</span>
+              <span className="tracker-group__line" />
+              <span className="tracker-group__count">{followups.length}</span>
+            </div>
+            <ul className="pw-followups">
+              {followups.map((f) => (
+                <li className="pw-follow" key={f.id}>
+                  <span className="pw-follow__text">{f.text}</span>
+                  <span className="pw-follow__src">{f.sessionTitle}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="tracker">
       <div className="tracker__inner">
@@ -361,7 +476,15 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
               <label className="tracker__auto">
                 <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Auto
               </label>
-              <button type="button" className="tracker__ctl" onClick={() => void refresh()} title="Rescan now">
+              <button
+                type="button"
+                className="tracker__ctl"
+                onClick={() => {
+                  void refresh()
+                  void loadPastWeek()
+                }}
+                title="Rescan now"
+              >
                 Refresh
               </button>
               <button type="button" className="tracker__close" title="Close (Esc)" onClick={onClose}>
@@ -375,37 +498,65 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
           </h1>
           <div className="tracker__rule" />
 
-          <div className="tracker__stats">
-            <div className="tracker-stat">
-              <span className="tracker-stat__num">{data ? data.totals.projects : '–'}</span>
-              <span className="tracker-stat__label">Projects</span>
+          {filter === 'past' ? (
+            <div className="tracker__stats">
+              <div className="tracker-stat">
+                <span className="tracker-stat__num">{pastWeek?.available ? pastWeek.stats.sessions : '–'}</span>
+                <span className="tracker-stat__label">Sessions</span>
+              </div>
+              <div className="tracker-stat">
+                <span className="tracker-stat__num">{pastWeek?.available ? pastWeek.stats.activeDays : '–'}</span>
+                <span className="tracker-stat__label">Active days</span>
+              </div>
+              <div className="tracker-stat">
+                <span className="tracker-stat__num">{pastWeek?.available ? pastWeek.stats.projects : '–'}</span>
+                <span className="tracker-stat__label">Projects</span>
+              </div>
+              <div className="tracker-stat">
+                <span className="tracker-stat__num tracker-stat__num--accent">
+                  {pastWeek?.available ? fmtTokens(pastWeek.stats.tokens) : '–'}
+                </span>
+                <span className="tracker-stat__label">Tokens</span>
+              </div>
             </div>
-            <div className="tracker-stat">
-              <span className="tracker-stat__num">{data ? data.totals.shippedWeek : '–'}</span>
-              <span className="tracker-stat__label">Shipped · 7d</span>
+          ) : (
+            <div className="tracker__stats">
+              <div className="tracker-stat">
+                <span className="tracker-stat__num">{data ? data.totals.projects : '–'}</span>
+                <span className="tracker-stat__label">Projects</span>
+              </div>
+              <div className="tracker-stat">
+                <span className="tracker-stat__num">{data ? data.totals.shippedWeek : '–'}</span>
+                <span className="tracker-stat__label">Shipped · 7d</span>
+              </div>
+              <div className="tracker-stat">
+                <span className="tracker-stat__num tracker-stat__num--accent">{data ? data.totals.openTasks : '–'}</span>
+                <span className="tracker-stat__label">Open tasks</span>
+              </div>
             </div>
-            <div className="tracker-stat">
-              <span className="tracker-stat__num tracker-stat__num--accent">{data ? data.totals.openTasks : '–'}</span>
-              <span className="tracker-stat__label">Open tasks</span>
-            </div>
-          </div>
+          )}
 
-          {data && data.groups.length > 1 && (
-            <nav className="tracker-filters">
-              <button type="button" className={`tracker-filter ${filter === 'all' ? 'is-on' : ''}`} onClick={() => setFilter('all')}>
-                All
-              </button>
-              {data.groups.map((g) => (
+          <nav className="tracker-filters">
+            <button type="button" className={`tracker-filter ${filter === 'past' ? 'is-on' : ''}`} onClick={() => setFilter('past')}>
+              Past Week
+            </button>
+            <button type="button" className={`tracker-filter ${filter === 'all' ? 'is-on' : ''}`} onClick={() => setFilter('all')}>
+              All
+            </button>
+            {data &&
+              data.groups.length > 1 &&
+              data.groups.map((g) => (
                 <button type="button" key={g.tag} className={`tracker-filter ${filter === g.tag ? 'is-on' : ''}`} onClick={() => setFilter(g.tag)}>
                   {g.label} · {g.projects.length}
                 </button>
               ))}
-            </nav>
-          )}
+          </nav>
         </header>
 
         <main className="tracker__main">
-          {loading ? (
+          {filter === 'past' ? (
+            renderPastWeek()
+          ) : loading ? (
             <div className="tracker-empty">Scanning repositories…</div>
           ) : error ? (
             <div className="tracker-empty">Couldn’t scan projects — {error}</div>
@@ -426,14 +577,24 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
           )}
         </main>
 
-        {data && (
+        {filter === 'past' ? (
+          pastWeek?.available && (
+            <footer className="tracker__colophon">
+              <span>
+                {pastWeek.stats.sessions} sessions · {pastWeek.stats.activeDays} active days
+                {pastWeek.stats.topModel ? ` · mostly ${pastWeek.stats.topModel}` : ''}
+              </span>
+              <span>Read-only, from your Copilot CLI history</span>
+            </footer>
+          )
+        ) : data ? (
           <footer className="tracker__colophon">
             <span>
               {data.totals.repos} git repos · {data.totals.sessions} open sessions
             </span>
             <span>Grouped by your Crew session tags · click a title to expand</span>
           </footer>
-        )}
+        ) : null}
       </div>
     </div>
   )

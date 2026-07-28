@@ -169,3 +169,61 @@ export interface CommitActivity {
   ts: number
   isRelease: boolean
 }
+
+// ── Past Week (weekly review) ───────────────────────────────────────────────
+// A read-only "what did I do this week" summary derived from the aggregate
+// Copilot CLI history (~/.copilot/session-store.db). Mirrors the core of the
+// standalone week-in-review dashboard, scoped to the parts that fit the tracker
+// (activity, projects, follow-up suggestions) — no meetings/people/plan store.
+
+/** One Copilot session on a given day of the week. */
+export interface PastWeekSession {
+  id: string
+  time: string
+  title: string
+  projects: string[]
+  turns: number
+}
+
+/** A day with its sessions. */
+export interface PastWeekDay {
+  date: string
+  label: string
+  sessions: PastWeekSession[]
+}
+
+/** A project touched during the week. */
+export interface PastWeekProject {
+  name: string
+  sessions: number
+  files: number
+}
+
+/** A follow-up suggestion extracted from checkpoint next-steps. */
+export interface PastWeekFollowup {
+  id: string
+  text: string
+  sessionTitle: string
+}
+
+export interface PastWeekStats {
+  sessions: number
+  activeDays: number
+  projects: number
+  messages: number
+  tokens: number
+  topModel: string | null
+}
+
+export interface PastWeek {
+  /** True when the Copilot history DB was found and read. */
+  available: boolean
+  /** Monday YYYY-MM-DD identifying the week. */
+  weekStart: string
+  /** Human range label, e.g. "Jul 21 – 27, 2026". */
+  rangeLabel: string
+  stats: PastWeekStats
+  days: PastWeekDay[]
+  projects: PastWeekProject[]
+  followups: PastWeekFollowup[]
+}

@@ -12,7 +12,7 @@ import type {
   SessionSet
 } from './types'
 import type { AssetItem } from './assets'
-import type { TrackerData, CommitActivity, RunningServer, LaunchResult } from './tracker'
+import type { TrackerData, CommitActivity, RunningServer, LaunchResult, PastWeek } from './tracker'
 
 export interface StateEvent {
   id: string
@@ -104,6 +104,8 @@ export interface CrewAPI {
   exportTranscript(id: string, label: string): Promise<boolean>
   /** Live Project Tracker data for the working dirs of the open sessions. */
   scanTracker(): Promise<TrackerData>
+  /** A read-only "past week" review derived from the Copilot CLI history. */
+  getPastWeek(): Promise<PastWeek>
   /** Open an external http(s) URL in the default browser. */
   openExternal(url: string): Promise<void>
   /** Recent git commits across the open sessions' working dirs (newest first). */
