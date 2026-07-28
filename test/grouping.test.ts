@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { groupSessions, partitionHidden, recencyOf, _resetRecencyOrder } from '../src/renderer/grouping'
+import { groupSessions, partitionHidden, splitMinimized, recencyOf, _resetRecencyOrder } from '../src/renderer/grouping'
 import type { SessionInfo } from '../src/shared/types'
 
 const MIN = 60_000
@@ -225,5 +225,47 @@ describe('partitionHidden', () => {
     const { visible, hidden } = partitionHidden(items, staleOrMinimized(new Set()))
     expect(visible.map((s) => s.id)).toEqual(['a', 'c'])
     expect(hidden.map((s) => s.id)).toEqual(['b', 'd'])
+  })
+})
+
+describe('splitMinimized', () => {
+  it('pulls minimized sessions out into the list, keeping the rest as grid tiles', () => {
+    const roster = [
+      sess({ id: 'a' }),
+      sess({ id: 'b' }),
+      sess({ id: 'c' }),
+      sess({ id: 'd' })
+    ]
+    const { gridRoster, minimizedList } = splitMinimized(roster, new Set(['b', 'd']), true)
+    expect(gridRoster.map((s) => s.id)).toEqual(['a', 'c'])
+    expect(minimizedList.map((s) => s.id)).toEqual(['b', 'd'])
+  })
+
+  it('preserves roster order within both partitions', () => {
+    const roster = [sess({ id: '1' }), sess({ id: '2' }), sess({ id: '3' }), sess({ id: '4' })]
+    const { gridRoster, minimizedList } = splitMinimized(roster, new Set(['1', '3']), true)
+    expect(gridRoster.map((s) => s.id)).toEqual(['2', '4'])
+    expect(minimizedList.map((s) => s.id)).toEqual(['1', '3'])
+  })
+
+  it('when the toggle is off, nothing is pulled out (grid keeps every session)', () => {
+    const roster = [sess({ id: 'a' }), sess({ id: 'b' })]
+    const { gridRoster, minimizedList } = splitMinimized(roster, new Set(['a']), false)
+    expect(gridRoster).toBe(roster)
+    expect(minimizedList).toEqual([])
+  })
+
+  it('handles all sessions minimized (empty grid, full list)', () => {
+    const roster = [sess({ id: 'a' }), sess({ id: 'b' })]
+    const { gridRoster, minimizedList } = splitMinimized(roster, new Set(['a', 'b']), true)
+    expect(gridRoster).toEqual([])
+    expect(minimizedList.map((s) => s.id)).toEqual(['a', 'b'])
+  })
+
+  it('handles none minimized (full grid, empty list)', () => {
+    const roster = [sess({ id: 'a' }), sess({ id: 'b' })]
+    const { gridRoster, minimizedList } = splitMinimized(roster, new Set(), true)
+    expect(gridRoster.map((s) => s.id)).toEqual(['a', 'b'])
+    expect(minimizedList).toEqual([])
   })
 })

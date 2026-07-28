@@ -5,7 +5,7 @@ import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { Character } from './Character'
 import { ResumeSets } from './ResumeSets'
-import { groupSessions, existingGroups, partitionHidden, recencyOf, type GroupMode } from '../grouping'
+import { groupSessions, existingGroups, partitionHidden, splitMinimized, recencyOf, type GroupMode } from '../grouping'
 import { useCardDnd } from '../useCardDnd'
 import { useNowTick } from '../hooks'
 import type { ViewMode, GridDensity } from '../hooks'
@@ -100,8 +100,7 @@ export function GridView({
   // grid entirely and collected into one list card at the end — so the grid (and
   // its per-bucket "show more") only deals with the remaining sessions. When off,
   // they stay tucked behind each bucket's "show more" alongside stale ones.
-  const minimizedList = minimizedAsList ? roster.filter((s) => minimized.has(s.id)) : []
-  const gridRoster = minimizedAsList ? roster.filter((s) => !minimized.has(s.id)) : roster
+  const { gridRoster, minimizedList } = splitMinimized(roster, minimized, minimizedAsList)
   const isHidden = (s: SessionInfo): boolean =>
     minimized.has(s.id) ||
     (groupMode === 'tag' && staleHideHours > 0 && recencyOf(s) < staleCutoff)

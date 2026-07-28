@@ -77,6 +77,22 @@ export function partitionHidden(
   return { visible, hidden }
 }
 
+/** Split a roster into the sessions rendered as grid tiles and the minimized ones
+ * collected into a single end-of-grid list card. When `asList` is false nothing
+ * is pulled out — minimized sessions stay in the grid, tucked behind each
+ * bucket's "show more" (the pre-toggle behavior). Order is preserved in both. */
+export function splitMinimized(
+  roster: SessionInfo[],
+  minimized: Set<string>,
+  asList: boolean
+): { gridRoster: SessionInfo[]; minimizedList: SessionInfo[] } {
+  if (!asList) return { gridRoster: roster, minimizedList: [] }
+  const gridRoster: SessionInfo[] = []
+  const minimizedList: SessionInfo[] = []
+  for (const s of roster) (minimized.has(s.id) ? minimizedList : gridRoster).push(s)
+  return { gridRoster, minimizedList }
+}
+
 /** Bucket sessions for grouped display. Roster order is preserved within each
  * group. 'tag' groups by the session's group label ("Ungrouped" when unset);
  * 'needs' splits into "Needs you" and "Working"; 'recent' buckets by how long
