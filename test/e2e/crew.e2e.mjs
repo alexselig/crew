@@ -128,6 +128,50 @@ async function main() {
   ok('terminal round-trip works (input → PTY → output)')
   await shot(page, 'terminal-output')
 
+  // ================= Enhanced Terminal (Beta) toggle =================
+  // Enable the app-wide Crew engine via Settings and prove a full round-trip,
+  // then toggle back so the remaining checks run in the default (legacy) engine.
+  log('Enhanced Terminal: enable via Settings and round-trip')
+  await page.locator('.icon-btn[title="Settings"]').click()
+  await page.waitForSelector('.settings__list', { timeout: 5000 })
+  await page.locator('.settings-row:has-text("Enhanced Terminal Interface")').click()
+  await page.waitForSelector('.settings-row:has-text("Enhanced Terminal Interface") .switch.is-on', {
+    timeout: 5000
+  })
+  ok('enhanced terminal toggle switched on')
+  await page.locator('.modal button:has-text("Done")').click()
+  await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 })
+
+  // The session's terminal remounts under the Crew engine (still an .xterm).
+  await page.waitForSelector('.xterm', { timeout: 8000 })
+  await page.locator('.xterm').click()
+  await page.keyboard.type('echo enhanced-crew-e2e')
+  await page.keyboard.press('Enter')
+  await waitUntil(
+    async () => (await page.locator('.xterm-rows').textContent())?.includes('enhanced-crew-e2e'),
+    'enhanced terminal shows echoed output'
+  )
+  ok('enhanced terminal round-trip works (Crew engine)')
+  await shot(page, 'enhanced-terminal')
+
+  // Jump-to-prompt keys must be handled without leaking to the shell or throwing.
+  await page.keyboard.press('Meta+ArrowUp')
+  await page.keyboard.press('Meta+ArrowDown')
+  ok('jump-to-prompt keys handled (no crash)')
+
+  // Toggle back OFF to restore the legacy engine for the remaining assertions.
+  await page.locator('.icon-btn[title="Settings"]').click()
+  await page.waitForSelector('.settings__list', { timeout: 5000 })
+  await page.locator('.settings-row:has-text("Enhanced Terminal Interface")').click()
+  await page.waitForSelector(
+    '.settings-row:has-text("Enhanced Terminal Interface") .switch:not(.is-on)',
+    { timeout: 5000 }
+  )
+  await page.locator('.modal button:has-text("Done")').click()
+  await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 })
+  await page.waitForSelector('.xterm', { timeout: 8000 })
+  ok('toggled back to legacy engine cleanly')
+
   // ---- Rename via editable label ----
   log('Rename (editable label)')
   await page.locator('.session-header__label').click()
