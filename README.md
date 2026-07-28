@@ -34,6 +34,12 @@ releases are signed + notarized.
   custom command + working directory (+ optional initial prompt).
 - Embedded **xterm.js** terminal per session — full interaction in-app,
   scrollback preserved across tab switches.
+- **Beta: Enhanced Terminal Interface** (Settings, off by default) — an
+  app-wide, Crew-owned terminal engine with GPU (WebGL) rendering, Unicode 11
+  widths, inline images (Sixel/iTerm2), OSC 133 command blocks with **exit-code
+  ruler marks** and **jump-to-prompt** (⌘↑/⌘↓), and an opt-in zsh/bash
+  `crew-hook` for exact per-command marks. Design + test map under
+  [`docs/superpowers/`](./docs/superpowers/).
 - **State detection** (`WORKING` / `WAITING_INPUT` / `WAITING_APPROVAL` / …) via
   output quiescence, prompt/approval regexes, and a debounced silence fallback,
   guarded against false red dots during post-input think-time.

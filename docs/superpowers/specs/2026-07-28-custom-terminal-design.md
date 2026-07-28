@@ -11,6 +11,17 @@
 > approach while documenting the alternatives that were considered so the author
 > can redirect on review.
 
+> **Implementation status (updated):** Built and merged behind an app-wide,
+> **off-by-default** Setting — "Beta: Enhanced Terminal Interface" — across
+> milestones M1–M7: the pure OSC/block core, the `TerminalEngine` seam +
+> `XtermEngine` adapter (WebGL + Unicode 11 + inline images), jump-to-prompt
+> (⌘↑/⌘↓), exit-code ruler marks, and validated zsh/bash `crew-hook` shell
+> integration. **Per the author's later direction the gate is a single app-wide
+> toggle, not per-session** (§6/§8 describe the seam; the toggle lives in
+> Settings and routes every session's engine via `terminal/facade.ts`). See
+> [`../enhanced-terminal-test-map.md`](../enhanced-terminal-test-map.md) for
+> automated coverage, the human test plan, and security/performance results.
+
 ---
 
 ## 1. Motivation
