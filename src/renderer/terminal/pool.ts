@@ -13,6 +13,7 @@ import type { Disposable, EngineMarker, LinkProvider } from './engine'
 import { OscParser, type OscEvent } from '../../shared/osc'
 import { BlockTracker, type Block } from '../../shared/blocks'
 import { pickJumpTarget } from '../../shared/nav'
+import { shouldHighlightInputOnEnter } from '../../shared/highlight'
 import { findAssetPaths } from '../../shared/assets'
 import { previewToken } from '../preview-bus'
 
@@ -23,6 +24,10 @@ export interface Pooled {
   linkSub: Disposable
   /** Landmark rows for jump-to-prompt: OSC 133 prompt starts + Enter submits. */
   marks: EngineMarker[]
+  /** True once the session emits any OSC 133 mark (shell integration active),
+   *  which switches input highlighting from the coarse Enter fallback to the
+   *  accurate, semantic prompt marks. */
+  hasSemanticMarks: boolean
 }
 
 const pool = new Map<string, Pooled>()
@@ -62,7 +67,14 @@ export function getPooled(id: string): Pooled {
       activate: (text) => void previewToken(id, text)
     }
     const linkSub = engine.registerLinkProvider(provider)
-    p = { engine, parser: new OscParser(), blocks: new BlockTracker(), linkSub, marks: [] }
+    p = {
+      engine,
+      parser: new OscParser(),
+      blocks: new BlockTracker(),
+      linkSub,
+      marks: [],
+      hasSemanticMarks: false
+    }
     pool.set(id, p)
   }
   return p
@@ -81,17 +93,37 @@ export function writeTo(id: string, data: string): void {
   }
 }
 
-/** Record navigation landmarks + exit-code ruler ticks from semantic marks.
- *  Only meaningful once the engine is mounted (markers need an open terminal). */
+/** React to semantic marks: highlight the prompt/input row accurately, keep
+ *  navigation landmarks, and paint exit-code ruler ticks. Any mark also flips
+ *  hasSemanticMarks so the coarse Enter fallback stands down for this session. */
 function onBoundary(p: Pooled, ev: OscEvent): void {
+  if (ev.kind === 'prompt-start' || ev.kind === 'output-start' || ev.kind === 'command-end') {
+    p.hasSemanticMarks = true
+  }
   if (!p.engine.mounted) return
   if (ev.kind === 'prompt-start') {
-    const m = p.engine.addMarker()
-    if (m) pushMark(p, m)
+    // The prompt line: highlight it (this is where the user's command is typed)
+    // and record it as a jump target.
+    highlightInputRow(p)
   } else if (ev.kind === 'command-end') {
     const m = p.engine.addMarker()
     if (m) p.engine.decorate(m, { ruler: ev.exitCode ? ERR_RULER : OK_RULER })
   }
+}
+
+/** Apply the user-input row highlight (bg + accent bar + ruler tick) at the
+ *  current cursor row and record it as a jump target. */
+function highlightInputRow(p: Pooled): void {
+  if (!p.engine.mounted) return
+  const m = p.engine.addMarker()
+  if (!m) return
+  p.engine.decorate(m, {
+    background: PROMPT_BG,
+    foreground: PROMPT_FG,
+    ruler: PROMPT_RULER,
+    accent: PROMPT_ACCENT
+  })
+  pushMark(p, m)
 }
 
 function pushMark(p: Pooled, m: EngineMarker): void {
@@ -110,24 +142,24 @@ export function getBlocks(id: string): Block[] {
 }
 
 /**
- * Clearly highlight the row where the user just submitted input, as a scannable
- * landmark and jump target. Called on every submit (see CrewTerminal's onInput).
- * Full-row light-yellow background + black text + a solid left accent bar +
- * overview-ruler tick, without writing anything to the PTY — so the agent's own
- * TUI is untouched.
+ * Coarse Enter-based fallback for the user-input row highlight, used ONLY for
+ * sessions without OSC 133 shell integration (e.g. a plain REPL). Sessions with
+ * shell integration get an accurate highlight from onBoundary's prompt marks, so
+ * this stands down for them; it also stands down inside full-screen/redraw TUIs
+ * (alternate buffer, or cursor not on the bottom input line) where "cursor row
+ * at Enter" is not a stable prompt line and would land highlights on unrelated
+ * repainted content. Purely a decoration overlay — never writes to the PTY.
  */
 export function markPrompt(id: string): void {
   const p = pool.get(id)
   if (!p || !p.engine.mounted) return
-  const m = p.engine.addMarker()
-  if (!m) return
-  p.engine.decorate(m, {
-    background: PROMPT_BG,
-    foreground: PROMPT_FG,
-    ruler: PROMPT_RULER,
-    accent: PROMPT_ACCENT
+  const allowed = shouldHighlightInputOnEnter({
+    hasSemanticMarks: p.hasSemanticMarks,
+    altActive: p.engine.altActive,
+    cursorAtBottom: p.engine.cursorAtBottom
   })
-  pushMark(p, m)
+  if (!allowed) return
+  highlightInputRow(p)
 }
 
 /** Scroll to the previous/next landmark relative to the current viewport.

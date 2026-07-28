@@ -195,6 +195,14 @@ export class XtermEngine implements TerminalEngine {
     this.term.attachCustomKeyEventHandler(handler)
   }
 
+  get altActive(): boolean {
+    return this.term.buffer.active.type === 'alternate'
+  }
+
+  get cursorAtBottom(): boolean {
+    return this.term.buffer.active.cursorY >= this.term.rows - 1
+  }
+
   addMarker(): EngineMarker | null {
     if (!this.opened) return null
     const raw = this.term.registerMarker(0)
@@ -212,12 +220,17 @@ export class XtermEngine implements TerminalEngine {
       layer: 'bottom',
       overviewRulerOptions: mark.ruler ? { color: mark.ruler, position: 'full' } : undefined
     })
-    if (dec && mark.accent) {
+    if (dec) {
       const accent = mark.accent
-      // A crisp left accent bar via inset box-shadow — reapplied on each render
-      // (xterm re-renders decorations on scroll) and adds no layout shift.
       dec.onRender((el) => {
-        el.style.boxShadow = `inset 3px 0 0 0 ${accent}`
+        // Decorations are purely visual — they must NEVER intercept clicks, text
+        // selection, or wheel-scroll. xterm gives decoration rows pointer-events:
+        // auto at a z-index above the text and as a sibling of the scroll
+        // viewport, so without this a highlighted row becomes unclickable AND
+        // eats wheel-scroll over it. Reapplied on every render (xterm re-renders
+        // decorations on scroll); the left accent bar adds no layout shift.
+        el.style.pointerEvents = 'none'
+        if (accent) el.style.boxShadow = `inset 3px 0 0 0 ${accent}`
       })
     }
     return { dispose: () => dec?.dispose() }

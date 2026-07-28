@@ -75,6 +75,10 @@ export interface TerminalEngine {
   onFocus(cb: () => void): Disposable
   /** Intercept keydown before the terminal handles it; return false to consume it. */
   attachKeyHandler(handler: (e: KeyboardEvent) => boolean): void
+  /** True when the alternate screen buffer is active (a full-screen TUI). */
+  readonly altActive: boolean
+  /** True when the cursor is on the bottom-most viewport row (a likely prompt). */
+  readonly cursorAtBottom: boolean
 
   // landmarks / navigation (block UX)
   /** Register a marker at the current cursor row, or null if not ready. */
