@@ -29,6 +29,8 @@ interface Props {
   /** Collect minimized sessions into one list card at the end instead of a
    * per-bucket "show more". */
   minimizedAsList: boolean
+  /** App-wide Beta Enhanced Terminal Interface toggle. */
+  enhancedTerminal: boolean
   groupOrder: string[]
   onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
@@ -65,6 +67,7 @@ export function GridView({
   onToggleMinimize,
   staleHideHours,
   minimizedAsList,
+  enhancedTerminal,
   groupOrder,
   onSelect,
   onExpand,
@@ -174,6 +177,7 @@ export function GridView({
         onClose={() => onClose(s.id)}
         onMinimize={() => onToggleMinimize(s.id)}
         minimized={minimized.has(s.id)}
+        enhanced={enhancedTerminal}
         onSetCharacter={onSetCharacter}
         onSetColor={onSetColor}
         onSetTag={(t) => onSetTag(s.id, t)}

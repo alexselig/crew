@@ -14,7 +14,7 @@ import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
 import { Character } from './components/Character'
-import { focusTerminal } from './terminal-pool'
+import { focusTerminal } from './terminal/facade'
 import { existingGroups, recencyOf } from './grouping'
 import { arrowNavIntent } from './gridNav'
 import { NEEDS_YOU } from '../shared/types'
@@ -314,6 +314,8 @@ export function App(): JSX.Element {
         showSpend={c.settings?.showSpend ?? true}
         showCredits={c.settings?.showCredits ?? false}
         budgetUsd={c.settings?.budgetUsd ?? 0}
+        costMode={c.settings?.costMode ?? 'auto'}
+        aicPerUsd={c.settings?.aicPerUsd ?? 100}
         staleHideHours={c.settings?.staleHideHours ?? 12}
         onRestart={restart}
         onClose={close}
@@ -326,6 +328,7 @@ export function App(): JSX.Element {
       {c.viewMode === 'grid' ? (
         <GridView
           roster={visibleRoster}
+          enhancedTerminal={c.settings?.enhancedTerminal ?? false}
           characters={c.characters}
           selectedId={c.selectedId}
           gridDensity={c.gridDensity}
@@ -362,6 +365,7 @@ export function App(): JSX.Element {
       ) : (
         <SessionView
           session={selected}
+          enhancedTerminal={c.settings?.enhancedTerminal ?? false}
           characters={c.characters}
           presets={c.presets}
           usedCharacterIds={usedCharacterIds}
@@ -402,6 +406,7 @@ export function App(): JSX.Element {
         <AnalyticsModal
           roster={c.roster}
           characters={c.characters}
+          settings={c.settings}
           onClose={() => setShowAnalytics(false)}
         />
       )}

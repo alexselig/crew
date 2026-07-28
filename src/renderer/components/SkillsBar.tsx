@@ -12,7 +12,7 @@ import {
   type Skill
 } from '../skills'
 import { popularityScale, HEAT_TIERS, type SkillHeat } from '../../shared/skill-popularity'
-import { focusTerminal } from '../terminal-pool'
+import { focusTerminal } from '../terminal/facade'
 import { Icon } from './Icon'
 
 interface Props {

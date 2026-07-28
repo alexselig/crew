@@ -53,11 +53,14 @@ export const DEFAULT_SETTINGS: Settings = {
   launchAtLogin: false,
   showSpend: true,
   showCredits: false,
+  costMode: 'auto',
+  aicPerUsd: 100,
   resumeConversations: true,
   budgetUsd: 0,
   captureTranscripts: false,
   staleHideHours: 12,
-  minimizedAsList: true
+  minimizedAsList: true,
+  enhancedTerminal: false
 }
 
 interface StoreData {

@@ -36,7 +36,12 @@ const TOGGLES: { key: keyof Settings; label: string; desc: string }[] = [
     label: 'Show minimized in grid as list',
     desc: 'Collect minimized sessions into one list card at the end of the grid, instead of a “show more” inside each group.'
   },
-  { key: 'launchAtLogin', label: 'Launch at login', desc: 'Start Crew automatically when you log in.' }
+  { key: 'launchAtLogin', label: 'Launch at login', desc: 'Start Crew automatically when you log in.' },
+  {
+    key: 'enhancedTerminal',
+    label: 'Beta: Enhanced Terminal Interface',
+    desc: 'Use Crew’s own terminal engine for every session — command blocks, jump-to-prompt (⌘↑/⌘↓), exit-code marks and GPU rendering. Experimental; toggling reloads open terminals.'
+  }
 ]
 
 export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Element {
@@ -105,6 +110,51 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
                 onChange={(e) => onToggle('staleHideHours', Math.max(0, Number(e.target.value) || 0))}
               />
             </div>
+            <div className="settings-row settings-row--static">
+              <span className="settings-row__text">
+                <span className="settings-row__label">Cost tracking</span>
+                <span className="settings-row__desc">
+                  Auto uses the dollar figure the agent prints. Manual estimates spend from the
+                  credits (AIC) it reports.
+                </span>
+              </span>
+              <div className="settings-seg" role="group" aria-label="Cost tracking mode">
+                <button
+                  type="button"
+                  className={`settings-seg__opt ${settings.costMode !== 'manual' ? 'is-on' : ''}`}
+                  aria-pressed={settings.costMode !== 'manual'}
+                  onClick={() => onToggle('costMode', 'auto')}
+                >
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  className={`settings-seg__opt ${settings.costMode === 'manual' ? 'is-on' : ''}`}
+                  aria-pressed={settings.costMode === 'manual'}
+                  onClick={() => onToggle('costMode', 'manual')}
+                >
+                  Manual
+                </button>
+              </div>
+            </div>
+            {settings.costMode === 'manual' && (
+              <div className="settings-row settings-row--static settings-row--sub">
+                <span className="settings-row__text">
+                  <span className="settings-row__label">Credits per USD</span>
+                  <span className="settings-row__desc">
+                    How many credits (AIC) equal $1. Default 100 (100 AIC = $1).
+                  </span>
+                </span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="settings-num"
+                  value={settings.aicPerUsd}
+                  onChange={(e) => onToggle('aicPerUsd', Math.max(1, Number(e.target.value) || 100))}
+                />
+              </div>
+            )}
           </div>
         )}
         <div className="modal__actions">

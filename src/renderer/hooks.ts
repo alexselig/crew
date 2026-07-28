@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionInfo, Preset, CharacterDef, Settings } from '../shared/types'
 import type { GroupMode } from './grouping'
-import { writeTo, disposePooled } from './terminal-pool'
+import { writeTo, disposePooled, setEngineMode } from './terminal/facade'
 import { windowSlot, readViewPref, writeViewPref } from './window-scope'
 import { workspaceNames } from '../shared/workspaces'
 
@@ -234,6 +234,12 @@ export function useCrew(): CrewState {
       setSelectedId(roster[0].id)
     }
   }, [roster, selectedId])
+
+  // Point the terminal facade at the engine chosen in Settings (app-wide). Set
+  // eagerly so output routes to the right pool as soon as settings load / change.
+  useEffect(() => {
+    setEngineMode(settings?.enhancedTerminal ? 'crew' : 'legacy')
+  }, [settings?.enhancedTerminal])
 
   // Dispose pooled terminals for sessions that have left the roster (closed or
   // replaced by a restart), freeing their memory.

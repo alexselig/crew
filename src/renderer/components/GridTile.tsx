@@ -4,7 +4,7 @@ import { NEEDS_YOU } from '../../shared/types'
 import { CharacterPicker } from './CharacterPicker'
 import { StatusTag } from './StatusTag'
 import { Since } from './Since'
-import { TerminalView } from './TerminalView'
+import { TerminalHost } from './TerminalHost'
 import { TagChip } from './TagChip'
 import { SkillsBar } from './SkillsBar'
 import { useTakeoff, HeaderTakeoff } from './HeaderTakeoff'
@@ -23,6 +23,8 @@ interface Props {
   onClose: () => void
   onMinimize: () => void
   minimized: boolean
+  /** App-wide Beta Enhanced Terminal Interface toggle. */
+  enhanced: boolean
   onSetCharacter: (id: string, characterId: string) => void
   onSetColor: (id: string, color: string) => void
   onSetTag: (tag: string) => void
@@ -49,6 +51,7 @@ export function GridTile({
   onClose,
   onMinimize,
   minimized,
+  enhanced,
   onSetCharacter,
   onSetColor,
   onSetTag,
@@ -168,7 +171,7 @@ export function GridTile({
       <div className="tile__body">
         {active ? (
           <>
-            <TerminalView id={session.id} focusOnMount={false} />
+            <TerminalHost id={session.id} enhanced={enhanced} focusOnMount={false} />
             <span onClick={(e) => e.stopPropagation()}>
               <SkillsBar sessionId={session.id} agent={session.command} />
             </span>

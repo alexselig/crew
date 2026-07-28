@@ -75,6 +75,13 @@ export interface Settings {
   launchAtLogin: boolean
   showSpend: boolean
   showCredits: boolean
+  /** How the per-session spend figure is derived. 'auto' uses the dollar amount
+   * the agent prints (e.g. Claude Code's "Total cost: $0.42"); 'manual' estimates
+   * spend from the credits/AIC the agent reports, at the aicPerUsd rate below. */
+  costMode: 'auto' | 'manual'
+  /** Manual conversion rate: how many credits (AIC) equal 1 USD (default 100,
+   * i.e. 100 AIC = $1). Only used when costMode is 'manual'. */
+  aicPerUsd: number
   resumeConversations: boolean
   /** Warn when total spend reaches this many USD (0 = off). */
   budgetUsd: number
@@ -87,6 +94,10 @@ export interface Settings {
    * instead of tucking them behind each bucket's "show more" (which fragments
    * the grid). Default on. */
   minimizedAsList: boolean
+  /** Beta: render every session with Crew's own terminal engine (command blocks,
+   * jump-to-prompt, exit-code marks, GPU rendering) instead of the legacy xterm
+   * view. Off by default; app-wide. */
+  enhancedTerminal: boolean
 }
 
 export interface SessionInfo {
@@ -207,6 +218,7 @@ export const IPC = {
   TRANSCRIPT_GET: 'transcript:get',
   TRANSCRIPT_EXPORT: 'transcript:export',
   TRACKER_SCAN: 'tracker:scan',
+  TRACKER_PAST_WEEK: 'tracker:pastWeek',
   OPEN_EXTERNAL: 'shell:openExternal',
   ACTIVITY_COMMITS: 'activity:commits',
   TRACKER_LAUNCH: 'tracker:launch',

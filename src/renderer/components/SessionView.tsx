@@ -5,7 +5,7 @@ import { EditableLabel } from './EditableLabel'
 import { CharacterPicker } from './CharacterPicker'
 import { Icon } from './Icon'
 import { Since } from './Since'
-import { TerminalView } from './TerminalView'
+import { TerminalHost } from './TerminalHost'
 import { AssetsPanel } from './AssetsPanel'
 import { SkillsBar } from './SkillsBar'
 import { TagChip } from './TagChip'
@@ -28,6 +28,8 @@ interface Props {
   onRestart: (id: string) => void
   onClose: (id: string) => void
   onNew: () => void
+  /** App-wide Beta Enhanced Terminal Interface toggle. */
+  enhancedTerminal: boolean
 }
 
 export function SessionView({
@@ -42,7 +44,8 @@ export function SessionView({
   onSetTag,
   onRestart,
   onClose,
-  onNew
+  onNew,
+  enhancedTerminal
 }: Props): JSX.Element {
   const [metaOpen, setMetaOpen] = useState(false)
   const { flight, end } = useTakeoff(session?.id ?? '', session?.autopilot ?? false, session?.characterId ?? '')
@@ -190,7 +193,7 @@ export function SessionView({
         {active ? (
           <>
             <div className="term-wrap">
-              <TerminalView id={session.id} key={session.id} />
+              <TerminalHost id={session.id} enhanced={enhancedTerminal} key={session.id} />
               <SkillsBar sessionId={session.id} agent={session.command} />
             </div>
             <AssetsPanel sessionId={session.id} />
