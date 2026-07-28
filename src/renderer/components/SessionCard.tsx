@@ -1,6 +1,6 @@
 import type React from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
-import { STATE_META, formatUsd, formatCredits } from '../state-meta'
+import { STATE_META, formatUsd, formatCredits, sessionUsd } from '../state-meta'
 import { Character } from './Character'
 import { StatusTag } from './StatusTag'
 import { Since } from './Since'
@@ -13,6 +13,10 @@ interface Props {
   compact?: boolean
   showSpend?: boolean
   showCredits?: boolean
+  /** Cost mode from settings ('auto' = agent-reported $, 'manual' = from credits). */
+  costMode?: 'auto' | 'manual'
+  /** Manual credits-per-USD rate (used when costMode is 'manual'). */
+  aicPerUsd?: number
   draggable?: boolean
   onSelect: () => void
   onRestart: () => void
@@ -36,6 +40,8 @@ export function SessionCard({
   compact,
   showSpend,
   showCredits,
+  costMode = 'auto',
+  aicPerUsd = 100,
   draggable = true,
   onSelect,
   onRestart,
@@ -109,7 +115,7 @@ export function SessionCard({
         </span>
         <span className="card__meta" title={`${session.cwd} · ${presetName}`}>
           <Since from={session.stateChangedAt} />
-          {showSpend && <> · {formatUsd(session.costUsd)}</>}
+          {showSpend && <> · {formatUsd(sessionUsd(session, costMode, aicPerUsd))}</>}
           {showCredits && <> · {formatCredits(session.creditsUsed)} cr</>}
         </span>
       </div>

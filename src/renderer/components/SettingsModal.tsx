@@ -114,8 +114,8 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
               <span className="settings-row__text">
                 <span className="settings-row__label">Cost tracking</span>
                 <span className="settings-row__desc">
-                  Auto uses the dollar figure the agent prints. Manual estimates spend from the
-                  credits (AIC) it reports.
+                  Either / or. Auto shows the cost the agent reports itself; Manual ignores that and
+                  calculates spend from the usage it reports (tokens / AIC credits) at the price below.
                 </span>
               </span>
               <div className="settings-seg" role="group" aria-label="Cost tracking mode">
@@ -140,9 +140,9 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
             {settings.costMode === 'manual' && (
               <div className="settings-row settings-row--static settings-row--sub">
                 <span className="settings-row__text">
-                  <span className="settings-row__label">Credits per USD</span>
+                  <span className="settings-row__label">Units per USD</span>
                   <span className="settings-row__desc">
-                    How many credits (AIC) equal $1. Default 100 (100 AIC = $1).
+                    How many reported units (tokens / AIC credits) equal $1. Default 100 (100 AIC = $1).
                   </span>
                 </span>
                 <input

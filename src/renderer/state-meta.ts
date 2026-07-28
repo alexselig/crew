@@ -1,4 +1,5 @@
 import type { SessionState } from '../shared/types'
+import { creditsToUsd } from '../shared/cost'
 
 export interface StateMeta {
   /** Human phrase used in tooltips and the command palette. */
@@ -61,4 +62,17 @@ export function formatUsd(n: number): string {
 export function formatCredits(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0'
   return Number.isInteger(n) ? n.toLocaleString() : n.toFixed(1)
+}
+
+/**
+ * The USD spend to display for a session, honouring the cost mode:
+ * 'auto' shows the dollar figure the agent reported; 'manual' estimates spend
+ * from the credits/AIC it reported at the given rate (credits per $1).
+ */
+export function sessionUsd(
+  s: { costUsd: number; creditsUsed: number },
+  costMode: 'auto' | 'manual' = 'auto',
+  aicPerUsd = 100
+): number {
+  return costMode === 'manual' ? creditsToUsd(s.creditsUsed || 0, aicPerUsd) : s.costUsd || 0
 }

@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
-import { formatUsd, formatCredits } from '../state-meta'
+import { formatUsd, formatCredits, sessionUsd } from '../state-meta'
 import { SessionCard } from './SessionCard'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
@@ -45,6 +45,11 @@ interface Props {
   showSpend: boolean
   showCredits: boolean
   budgetUsd: number
+  /** Cost mode from settings: 'auto' shows agent-reported dollars, 'manual'
+   * estimates from credits at aicPerUsd. */
+  costMode?: 'auto' | 'manual'
+  /** Manual credits-per-USD rate (used when costMode is 'manual'). */
+  aicPerUsd?: number
   /** Hours after which an unused session is hidden behind a per-group "show
    * more" in group (tag) sort. 0 = never hide. */
   staleHideHours: number
@@ -90,6 +95,8 @@ export function Roster(props: Props): JSX.Element {
     showSpend,
     showCredits,
     budgetUsd,
+    costMode = 'auto',
+    aicPerUsd = 100,
     staleHideHours,
     onRestart,
     onClose,
@@ -99,7 +106,7 @@ export function Roster(props: Props): JSX.Element {
     onClearWorkspace
   } = props
 
-  const totalUsd = roster.reduce((sum, s) => sum + (s.costUsd || 0), 0)
+  const totalUsd = roster.reduce((sum, s) => sum + sessionUsd(s, costMode, aicPerUsd), 0)
   const totalCredits = roster.reduce((sum, s) => sum + (s.creditsUsed || 0), 0)
   const overBudget = budgetUsd > 0 && totalUsd >= budgetUsd
   const charById = (id: string): CharacterDef | undefined => characters.find((c) => c.id === id)
@@ -193,6 +200,8 @@ export function Roster(props: Props): JSX.Element {
         compact={railed}
         showSpend={showSpend}
         showCredits={showCredits}
+        costMode={costMode}
+        aicPerUsd={aicPerUsd}
         draggable={h != null}
         isDragging={dnd.draggingId === s.id}
         isDragOver={dnd.overId === s.id && dnd.draggingId !== s.id}

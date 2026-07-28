@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { SessionInfo, CharacterDef } from '../../shared/types'
+import type { SessionInfo, CharacterDef, Settings } from '../../shared/types'
 import type { ActivityEvent } from '../../shared/api'
 import type { CommitActivity } from '../../shared/tracker'
-import { formatUsd, formatCredits } from '../state-meta'
+import { formatUsd, formatCredits, sessionUsd } from '../state-meta'
 
 interface Props {
   roster: SessionInfo[]
   characters: CharacterDef[]
+  settings: Settings | null
   onClose: () => void
 }
 
@@ -42,7 +43,7 @@ function waitingBySession(events: ActivityEvent[], now: number): Record<string, 
   return out
 }
 
-export function AnalyticsModal({ roster, characters, onClose }: Props): JSX.Element {
+export function AnalyticsModal({ roster, characters, settings, onClose }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('spend')
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [commits, setCommits] = useState<CommitActivity[]>([])
@@ -62,7 +63,10 @@ export function AnalyticsModal({ roster, characters, onClose }: Props): JSX.Elem
 
   const waiting = useMemo(() => waitingBySession(events, Date.now()), [events])
   const glyph = (id: string): string => characters.find((c) => c.id === id)?.glyph ?? '●'
-  const totalSpend = roster.reduce((a, s) => a + (s.costUsd || 0), 0)
+  const costMode = settings?.costMode ?? 'auto'
+  const aicPerUsd = settings?.aicPerUsd ?? 100
+  const spendOf = (s: SessionInfo): number => sessionUsd(s, costMode, aicPerUsd)
+  const totalSpend = roster.reduce((a, s) => a + spendOf(s), 0)
   const totalCredits = roster.reduce((a, s) => a + (s.creditsUsed || 0), 0)
   const totalWait = roster.reduce((a, s) => a + (waiting[s.id] || 0), 0)
 
@@ -99,6 +103,11 @@ export function AnalyticsModal({ roster, characters, onClose }: Props): JSX.Elem
 
         {tab === 'spend' ? (
           <div className="analytics__scroll">
+            {costMode === 'manual' && (
+              <p className="analytics__note">
+                Manual — spend calculated from reported usage at {formatCredits(aicPerUsd)} units = $1.
+              </p>
+            )}
             <table className="analytics">
               <thead>
                 <tr>
@@ -122,7 +131,7 @@ export function AnalyticsModal({ roster, characters, onClose }: Props): JSX.Elem
                         <span className="analytics__glyph">{glyph(s.characterId)}</span> {s.label}
                       </td>
                       <td>{fmtDur(waiting[s.id] || 0)}</td>
-                      <td>{formatUsd(s.costUsd)}</td>
+                      <td>{formatUsd(spendOf(s))}</td>
                       <td>{formatCredits(s.creditsUsed)}</td>
                     </tr>
                   ))

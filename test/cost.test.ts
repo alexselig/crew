@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CostParser, DEFAULT_COST_REGEX_SRC } from '../src/shared/cost'
+import { CostParser, DEFAULT_COST_REGEX_SRC, creditsToUsd } from '../src/shared/cost'
 
 function make(src: string = DEFAULT_COST_REGEX_SRC): CostParser {
   return new CostParser({ costRegex: new RegExp(src) })
@@ -48,5 +48,30 @@ describe('CostParser', () => {
     const c = new CostParser({ costRegex: null })
     expect(c.push('Total cost: $1.00')).toBe(false)
     expect(c.usd).toBe(0)
+  })
+})
+
+describe('creditsToUsd', () => {
+  it('converts at the default 100 AIC = $1 rate', () => {
+    expect(creditsToUsd(100, 100)).toBeCloseTo(1)
+    expect(creditsToUsd(7, 100)).toBeCloseTo(0.07)
+    expect(creditsToUsd(250, 100)).toBeCloseTo(2.5)
+  })
+
+  it('honours a custom rate', () => {
+    expect(creditsToUsd(50, 50)).toBeCloseTo(1)
+    expect(creditsToUsd(300, 200)).toBeCloseTo(1.5)
+  })
+
+  it('returns 0 for zero, negative, or non-finite input', () => {
+    expect(creditsToUsd(0, 100)).toBe(0)
+    expect(creditsToUsd(-5, 100)).toBe(0)
+    expect(creditsToUsd(NaN, 100)).toBe(0)
+  })
+
+  it('returns 0 for a non-positive or non-finite rate (never NaN/Infinity)', () => {
+    expect(creditsToUsd(100, 0)).toBe(0)
+    expect(creditsToUsd(100, -10)).toBe(0)
+    expect(creditsToUsd(100, NaN)).toBe(0)
   })
 })

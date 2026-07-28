@@ -57,3 +57,16 @@ export class CostParser {
     return this._usd
   }
 }
+
+/**
+ * Convert a credit/AIC count to USD at a manual rate.
+ *
+ * `aicPerUsd` is how many credits equal one dollar (default 100 ⇒ 100 AIC = $1),
+ * so the dollar value is simply `credits / aicPerUsd`. Non-positive or
+ * non-finite inputs yield 0 so callers never surface NaN or negative spend.
+ */
+export function creditsToUsd(credits: number, aicPerUsd: number): number {
+  if (!Number.isFinite(credits) || credits <= 0) return 0
+  if (!Number.isFinite(aicPerUsd) || aicPerUsd <= 0) return 0
+  return credits / aicPerUsd
+}

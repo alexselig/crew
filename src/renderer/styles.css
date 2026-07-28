@@ -2905,6 +2905,12 @@ button {
   border-bottom-color: var(--accent);
 }
 
+.analytics__note {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 /* Merged Activity feed (state transitions + commits). */
 .analytics__feed {
   display: flex;
@@ -3062,6 +3068,47 @@ button {
 
 .settings-num:focus {
   border-color: var(--accent);
+}
+
+/* Auto / Manual segmented toggle (cost tracking). */
+.settings-seg {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.settings-seg__opt {
+  background: none;
+  border: none;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.settings-seg__opt + .settings-seg__opt {
+  border-left: 1px solid var(--border);
+}
+
+.settings-seg__opt:hover {
+  color: var(--text);
+}
+
+.settings-seg__opt.is-on {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Indented sub-setting revealed by a parent choice (e.g. manual rate). */
+.settings-row--sub {
+  margin-left: 12px;
+  padding-top: 4px;
 }
 
 /* ---------- Broadcast + sets ---------- */
