@@ -1934,6 +1934,33 @@ button {
   margin-left: auto;
 }
 
+/* Compact Terminal/Transcript segmented toggle in the tile header. Sits with the
+   action icons; the active pane reads as a blue accent (matching the focus
+   view's toggle, scaled down). Not a drag target (stops header drag). */
+.tile__pane-toggle {
+  display: inline-flex;
+  gap: 1px;
+  -webkit-app-region: no-drag;
+}
+
+.tile__header .tile__pane-toggle .mini-btn.is-active {
+  color: var(--accent-text);
+  background: rgba(43, 76, 242, 0.14);
+}
+
+.tile__header .tile__pane-toggle .mini-btn.is-active:hover {
+  color: var(--accent-text);
+  background: rgba(43, 76, 242, 0.2);
+}
+
+/* Transcript fills the tile body (the terminal fills via its own mount). */
+.tile__transcript {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-height: 0;
+}
+
 .tile__since {
   color: var(--text-faint);
   font-size: 9.5px;

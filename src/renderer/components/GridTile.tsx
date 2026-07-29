@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type React from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { NEEDS_YOU } from '../../shared/types'
@@ -5,6 +6,7 @@ import { CharacterPicker } from './CharacterPicker'
 import { StatusTag } from './StatusTag'
 import { Since } from './Since'
 import { TerminalHost } from './TerminalHost'
+import { TranscriptPane } from './TranscriptPane'
 import { TagChip } from './TagChip'
 import { SkillsBar } from './SkillsBar'
 import { useTakeoff, HeaderTakeoff } from './HeaderTakeoff'
@@ -62,6 +64,9 @@ export function GridTile({
 }: Props): JSX.Element {
   const needsYou = session.status === 'active' && NEEDS_YOU.includes(session.state)
   const active = session.status === 'active'
+  // Which representation this tile shows: the raw terminal (default) or the
+  // typed Transcript. Per-tile so grid views can mix. Gated by the beta flag.
+  const [pane, setPane] = useState<'terminal' | 'transcript'>('terminal')
   const { flight, end } = useTakeoff(session.id, session.autopilot, session.characterId)
 
   return (
@@ -110,6 +115,45 @@ export function GridTile({
             <Since from={session.stateChangedAt} />
           </span>
         </span>
+        {active && enhanced && (
+          <span
+            className="tile__pane-toggle"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className={`mini-btn mini-btn--icon ${pane === 'terminal' ? 'is-active' : ''}`}
+              title="Terminal"
+              aria-pressed={pane === 'terminal'}
+              onClick={(e) => {
+                e.stopPropagation()
+                setPane('terminal')
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="4 7 9 12 4 17" />
+                <line x1="12" y1="17" x2="20" y2="17" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className={`mini-btn mini-btn--icon ${pane === 'transcript' ? 'is-active' : ''}`}
+              title="Transcript"
+              aria-pressed={pane === 'transcript'}
+              onClick={(e) => {
+                e.stopPropagation()
+                setPane('transcript')
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="4" y1="6" x2="20" y2="6" />
+                <line x1="4" y1="12" x2="20" y2="12" />
+                <line x1="4" y1="18" x2="14" y2="18" />
+              </svg>
+            </button>
+          </span>
+        )}
         <button
           type="button"
           className="mini-btn mini-btn--icon"
@@ -170,12 +214,23 @@ export function GridTile({
       </div>
       <div className="tile__body">
         {active ? (
-          <>
-            <TerminalHost id={session.id} enhanced={enhanced} focusOnMount={false} />
-            <span onClick={(e) => e.stopPropagation()}>
-              <SkillsBar sessionId={session.id} agent={session.command} />
+          enhanced && pane === 'transcript' ? (
+            <span onClick={(e) => e.stopPropagation()} className="tile__transcript">
+              <TranscriptPane
+                sessionId={session.id}
+                enhanced={enhanced}
+                agentSessionId={session.agentSessionId}
+                character={character}
+              />
             </span>
-          </>
+          ) : (
+            <>
+              <TerminalHost id={session.id} enhanced={enhanced} focusOnMount={false} />
+              <span onClick={(e) => e.stopPropagation()}>
+                <SkillsBar sessionId={session.id} agent={session.command} />
+              </span>
+            </>
+          )
         ) : (
           <div className="tile__exited">
             {session.status === 'error' ? '⚠︎' : '✔︎'} session {session.status}
