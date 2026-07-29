@@ -400,9 +400,14 @@ async function main() {
     await wait(200)
   })
 
-  // Project Tracker — the full-screen dashboard.
+  // Project Tracker — the full-screen dashboard. It now opens on the "Past Week"
+  // tab (Copilot-history review, empty in the harness), so switch to "All" to
+  // show the live project cards.
   await shot('tracker.png', async () => {
     await page.locator('[title="Project tracker"]').first().click()
+    await waitUntil(async () => (await page.locator('.tracker-filter').count()) >= 1, 'tracker open', 20000)
+    const allTab = page.locator('.tracker-filter', { hasText: /^All$/ })
+    if (await allTab.count()) await allTab.first().click()
     await waitUntil(async () => (await page.locator('.tracker-proj').count()) >= 1, 'tracker projects', 20000)
     await wait(900)
     await full('tracker.png')
@@ -494,6 +499,103 @@ async function main() {
     await page.mouse.move(1100, 700)
     await wait(600)
     await full('compact.png')
+  })
+
+  // ===== ENHANCED TERMINAL (Beta) + TRANSCRIPT =====
+  // Turn on the Crew engine + the transcript demo flag, then reload once so the
+  // renderer re-reads settings (raw updateSettings persists but doesn't update
+  // React state) and picks the 'crew' engine mode. A session that emits OSC 133
+  // command marks then renders authentic command blocks + a green/red exit-code
+  // overview ruler (no real shell — a controlled node script prints a fake shell
+  // session with the OSC 133 lifecycle sequences).
+  await shot('enhanced-terminal.png', async () => {
+    const expand = page.locator('.icon-btn[title="Expand sidebar"]')
+    if (await expand.count()) await expand.click()
+    await page.evaluate(() => {
+      window.crew.updateSettings({ enhancedTerminal: true })
+      localStorage.setItem('crew.transcriptDemo', '1')
+    })
+    await wait(300)
+    await page.reload()
+    await page.waitForSelector('.app', { timeout: 10000 })
+    // Reload re-shows the "click to start" intro (webdriver is spoofed off).
+    try {
+      await page.waitForSelector('.intro', { timeout: 3000 })
+      await page.locator('.intro').click()
+      await waitUntil(async () => (await page.locator('.intro').count()) === 0, 'intro dismissed', 8000)
+    } catch {}
+    // Wait for the roster to rehydrate (the 4 staged sessions persist across the
+    // reload in the main process), and force focus view + an expanded sidebar so
+    // the card list is present and clickable.
+    await waitUntil(async () => (await page.locator('.roster__list .card').count()) >= 4, 'roster rehydrated', 12000).catch(() => {})
+    const vt = page.locator('.view-toggle__btn').first()
+    if (await vt.count()) await vt.click().catch(() => {})
+    const exp = page.locator('.icon-btn[title="Expand sidebar"]')
+    if (await exp.count()) await exp.click().catch(() => {})
+    await wait(500)
+    // A node script that prints a shell-like session wrapped in OSC 133 marks.
+    const P = "'\\x1b]133;'"
+    const BEL = "'\\x07'"
+    const term =
+      'const P=' + P + ',B=' + BEL + ';' +
+      'function blk(cmd,out,code){' +
+      "process.stdout.write(P+'A'+B);" +
+      "process.stdout.write('~/atlas-web $ ');" +
+      "process.stdout.write(P+'B'+B);" +
+      "process.stdout.write(cmd+'\\r\\n');" +
+      "process.stdout.write(P+'C'+B);" +
+      "if(out)process.stdout.write(out+'\\r\\n');" +
+      "process.stdout.write(P+'D;'+code+B);}" +
+      "setTimeout(()=>blk('npm run build','\\x1b[2mvite v5.4 building for production\\u2026\\x1b[0m\\r\\n\\x1b[2m\\u2713 96 modules transformed.\\x1b[0m\\r\\n\\x1b[32m\\u2713 built in 957ms\\x1b[0m',0),100);" +
+      "setTimeout(()=>blk('npm test -- --broken','\\x1b[31merror: unknown option --broken\\x1b[0m',1),300);" +
+      "setTimeout(()=>blk('open dist/report.png','wrote dist/report.png',0),500);" +
+      "setTimeout(()=>process.stdout.write(P+'A'+B+'~/atlas-web $ '+P+'B'+B),700);" +
+      'setInterval(()=>{},1000)'
+    await page.evaluate(
+      async ({ term, node, cwd }) => {
+        await window.crew.createSession({
+          presetId: null,
+          command: node,
+          args: ['-e', term],
+          cwd,
+          label: 'shell-demo',
+          tag: 'product'
+        })
+      },
+      { term, node: NODE_BIN, cwd: AP_CWD }
+    )
+    await waitUntil(async () => (await page.locator('.roster__list .card:has-text("shell-demo")').count()) === 1, 'shell-demo card', 8000)
+    await page.locator('.roster__list .card:has-text("shell-demo")').click()
+    await waitUntil(async () => (await page.locator('.session-header__label').textContent()).then((t) => (t || '').includes('shell-demo')).catch(() => false), 'shell-demo focused', 6000).catch(() => {})
+    await page.mouse.move(1100, 700)
+    await wait(1800)
+    await full('enhanced-terminal.png')
+  })
+
+  // ===== TRANSCRIPT VIEW =====
+  // Demo flag was set + reloaded above, so the typed Transcript renders rich demo
+  // blocks. Just flip the header toggle on an active session.
+  await shot('transcript.png', async () => {
+    // Self-sufficient: ensure focus view + a selectable card regardless of the
+    // enhanced-terminal shot's end state.
+    const vt = page.locator('.view-toggle__btn').first()
+    if (await vt.count()) await vt.click().catch(() => {})
+    await waitUntil(async () => (await page.locator('.roster__list .card').count()) >= 1, 'a card', 8000)
+    const atlas = page.locator('.roster__list .card:has-text("atlas-web")')
+    if (await atlas.count()) await atlas.first().click()
+    else await page.locator('.roster__list .card').first().click()
+    await wait(300)
+    const tBtn = page.locator('.pane-toggle button', { hasText: 'Transcript' })
+    await tBtn.click()
+    await wait(700)
+    // Scroll the transcript to the top so it reads from the first message.
+    await page.evaluate(() => {
+      const el = document.querySelector('.transcript, .transcript__scroll, .term-wrap')
+      if (el) el.scrollTop = 0
+    })
+    await wait(400)
+    await full('transcript.png')
+    await page.evaluate(() => localStorage.removeItem('crew.transcriptDemo'))
   })
 
   await app.close()

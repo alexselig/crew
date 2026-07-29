@@ -205,7 +205,7 @@
   <div class="nav-links">
     <a class="hide-sm" href="./index.html">Home</a>
     <a class="hide-sm" href="https://github.com/alexselig/crew">GitHub</a>
-    <a class="nav-cta" href="https://github.com/alexselig/crew/releases/latest/download/Crew-arm64.dmg">Download</a>
+    <a class="nav-cta" href="https://github.com/alexselig/crew/releases/latest">Download</a>
   </div>
 </nav>
 
@@ -215,7 +215,7 @@
     <div class="eyebrow">The Field Guide</div>
     <h1>Crew, <span class="accent">explained</span>.</h1>
     <p class="hero__lede">Crew runs a whole crew of AI coding agents side by side and tells you the moment one needs you. This is the complete tour — every view, every button, every panel — with a screenshot for each.</p>
-    <div class="hero__meta"><span><b>21</b> features indexed</span><span>·</span><span>Real screenshots</span><span>·</span><span>macOS · 100% local</span></div>
+    <div class="hero__meta"><span><b>23</b> features indexed</span><span>·</span><span>Real screenshots</span><span>·</span><span>macOS + Windows · 100% local</span></div>
   </div>
 </header>
 
@@ -233,15 +233,17 @@
     <a class="qi" href="#sorting"><span class="qi__n">10</span><b class="qi__t">Sorting &amp; grouping</b></a>
     <a class="qi" href="#assets"><span class="qi__n">11</span><b class="qi__t">The assets pane</b></a>
     <a class="qi" href="#skills"><span class="qi__n">12</span><b class="qi__t">Skills</b></a>
-    <a class="qi" href="#broadcast"><span class="qi__n">13</span><b class="qi__t">Broadcast</b></a>
-    <a class="qi" href="#analytics"><span class="qi__n">14</span><b class="qi__t">Activity &amp; spend</b></a>
-    <a class="qi" href="#tracker"><span class="qi__n">15</span><b class="qi__t">Project Tracker</b></a>
-    <a class="qi" href="#transcripts"><span class="qi__n">16</span><b class="qi__t">Transcripts</b></a>
-    <a class="qi" href="#palette"><span class="qi__n">17</span><b class="qi__t">Palette &amp; shortcuts</b></a>
-    <a class="qi" href="#settings"><span class="qi__n">18</span><b class="qi__t">Settings</b></a>
-    <a class="qi" href="#autopilot"><span class="qi__n">19</span><b class="qi__t">Autopilot</b></a>
-    <a class="qi" href="#windows"><span class="qi__n">20</span><b class="qi__t">Windows &amp; menu bar</b></a>
-    <a class="qi" href="#start"><span class="qi__n">21</span><b class="qi__t">Getting started</b></a>
+    <a class="qi" href="#terminal"><span class="qi__n">13</span><b class="qi__t">Enhanced Terminal</b></a>
+    <a class="qi" href="#transcript"><span class="qi__n">14</span><b class="qi__t">Transcript view</b></a>
+    <a class="qi" href="#broadcast"><span class="qi__n">15</span><b class="qi__t">Broadcast</b></a>
+    <a class="qi" href="#analytics"><span class="qi__n">16</span><b class="qi__t">Activity &amp; spend</b></a>
+    <a class="qi" href="#tracker"><span class="qi__n">17</span><b class="qi__t">Project Tracker</b></a>
+    <a class="qi" href="#transcripts"><span class="qi__n">18</span><b class="qi__t">Search transcripts</b></a>
+    <a class="qi" href="#palette"><span class="qi__n">19</span><b class="qi__t">Palette &amp; shortcuts</b></a>
+    <a class="qi" href="#settings"><span class="qi__n">20</span><b class="qi__t">Settings</b></a>
+    <a class="qi" href="#autopilot"><span class="qi__n">21</span><b class="qi__t">Autopilot</b></a>
+    <a class="qi" href="#windows"><span class="qi__n">22</span><b class="qi__t">Windows, menu bar &amp; platforms</b></a>
+    <a class="qi" href="#start"><span class="qi__n">23</span><b class="qi__t">Getting started</b></a>
   </div>
 </div>
 
@@ -261,14 +263,16 @@
       <li><a href="#sorting">Sorting &amp; grouping</a></li>
       <li><a href="#assets">The assets pane</a></li>
       <li><a href="#skills">Skills</a></li>
+      <li><a href="#terminal">Enhanced Terminal</a></li>
+      <li><a href="#transcript">Transcript view</a></li>
       <li><a href="#broadcast">Broadcast</a></li>
       <li><a href="#analytics">Activity &amp; spend</a></li>
       <li><a href="#tracker">Project Tracker</a></li>
-      <li><a href="#transcripts">Transcripts</a></li>
+      <li><a href="#transcripts">Search transcripts</a></li>
       <li><a href="#palette">Palette &amp; shortcuts</a></li>
       <li><a href="#settings">Settings</a></li>
       <li><a href="#autopilot">Autopilot</a></li>
-      <li><a href="#windows">Windows &amp; menu bar</a></li>
+      <li><a href="#windows">Windows, menu bar &amp; platforms</a></li>
       <li><a href="#start">Getting started</a></li>
     </ol>
   </aside>
@@ -559,18 +563,54 @@
       <p class="lead">The <b>⚡ Skills</b> chip above the terminal opens a gallery of reusable actions, grouped into categories. Crew reads the skills your agent actually has installed (Copilot / Claude), and you can pin favorites or add your own.</p>
       <figure>
         <div class="frame frame--mid"><img loading="lazy" src="assets/guide/skills.jpg" alt="The categorized skills gallery open" /></div>
-        <figcaption>The skills gallery: filter, categorized sections with colored swatches, favorite (★), and invoke.</figcaption>
+        <figcaption>The skills gallery: filter, categorized sections with colored swatches, a popularity <b>heat dot</b>, favorite (★), and invoke.</figcaption>
       </figure>
       <ul class="feat">
         <li><b>Filter</b> to find a skill fast; <b>favorites</b> pin to the front.</li>
+        <li>Each skill carries a small <b>heat dot</b> — hotter means more widely used across your installed set — so popular skills are easy to spot.</li>
         <li>Click a skill to read its description; click again (or <b>Invoke</b>) to type <code>use &lt;skill&gt; to …</code> into the session for you.</li>
         <li><b>＋ Add</b> your own custom skills (name, invoke token, description) — stored locally.</li>
       </ul>
     </section>
 
-    <!-- 13 BROADCAST -->
+    <!-- 13 ENHANCED TERMINAL -->
+    <section class="doc" id="terminal">
+      <div class="sec-eyebrow">13 · Beta</div>
+      <h2>The Enhanced Terminal.</h2>
+      <p class="lead">Flip on <b>Beta: Enhanced Terminal Interface</b> in <a href="#settings">Settings</a> and every session renders with Crew’s own GPU-accelerated terminal engine — the same stream, but now it understands the <em>shape</em> of your session.</p>
+      <figure>
+        <div class="frame"><img loading="lazy" src="assets/guide/enhanced-terminal.jpg" alt="The enhanced terminal with highlighted input rows and an exit-code overview ruler" /></div>
+        <figcaption>Command blocks, highlighted input rows, and the exit-code overview ruler on the right.</figcaption>
+      </figure>
+      <ul class="feat">
+        <li><b>Your input rows are highlighted</b> — every command you run gets a light row + amber bar, so the conversation is easy to scan.</li>
+        <li><b>Overview ruler</b> (right edge) — a map of the whole session: your prompts, plus <span style="color:#3fb950">green</span> / <span style="color:#e5484d">red</span> ticks for each command’s exit code.</li>
+        <li><b>Jump between prompts</b> with <kbd>⌘↑</kbd> / <kbd>⌘↓</kbd> (Ctrl on Windows).</li>
+        <li><b>Clickable paths &amp; links</b> — underlined, and open in Assets or your browser.</li>
+        <li><b>Inline images</b> (Sixel / iTerm2) so agents can render plots and diffs right in the stream, and opt-in <b>shell integration</b> (OSC 133) sharpens the command marks.</li>
+      </ul>
+      <div class="note">It’s <b>beta</b> and opt-in — toggling it reloads open terminals. The classic terminal remains the default.</div>
+    </section>
+
+    <!-- 14 TRANSCRIPT VIEW -->
+    <section class="doc" id="transcript">
+      <div class="sec-eyebrow">14 · Read your session like a story</div>
+      <h2>The Transcript view.</h2>
+      <p class="lead">With the enhanced terminal on, each session gains a <b>Terminal / Transcript</b> toggle in its header. The Transcript is a typed read-layer over the raw stream: your prompts, the agent’s replies, the commands it ran (with exit codes), and — crucially — the moments it’s <em>blocked on you</em>, all as clean blocks.</p>
+      <figure>
+        <div class="frame"><img loading="lazy" src="assets/guide/transcript.jpg" alt="The typed Transcript view with decision and approval blocks" /></div>
+        <figcaption>Decisions, approvals and ran-commands as structured blocks — answer a question or approve a command right from the transcript.</figcaption>
+      </figure>
+      <ul class="feat">
+        <li><b>Decisions</b> — numbered choices you can click (or press the number) to answer.</li>
+        <li><b>Approvals</b> — “Fox wants to run …” with <b>Deny / Once / Always allow</b>, wired back to the session.</li>
+        <li><b>Ran commands</b> — each with its status and exit code; the raw terminal stays the source of truth.</li>
+      </ul>
+    </section>
+
+    <!-- 15 BROADCAST -->
     <section class="doc" id="broadcast">
-      <div class="sec-eyebrow">13 · One prompt, many agents</div>
+      <div class="sec-eyebrow">15 · One prompt, many agents</div>
       <h2>Broadcast.</h2>
       <p class="lead">Send the same message to several sessions at once — great for “run the tests” or a coordinated checkpoint.</p>
       <figure>
@@ -582,7 +622,7 @@
 
     <!-- 14 ANALYTICS -->
     <section class="doc" id="analytics">
-      <div class="sec-eyebrow">14 · Where the time &amp; money went</div>
+      <div class="sec-eyebrow">16 · Where the time &amp; money went</div>
       <h2>Activity &amp; spend.</h2>
       <p class="lead">Two tabs. <b>Spend</b> totals how long each session kept you waiting, what it cost, and any credits used. <b>Activity</b> is a commit feed — the git history across your open sessions' repos, newest first, with release commits highlighted.</p>
       <figure>
@@ -595,38 +635,39 @@
       </figure>
     </section>
 
-    <!-- 15 PROJECT TRACKER -->
+    <!-- 17 PROJECT TRACKER -->
     <section class="doc" id="tracker">
-      <div class="sec-eyebrow">15 · Mission control for your repos</div>
+      <div class="sec-eyebrow">17 · Mission control for your repos</div>
       <h2>The Project Tracker.</h2>
-      <p class="lead">The clipboard button opens a full-screen <b>Project Index</b> — a live dashboard built from the working directories of your open sessions. Each session becomes a project card, derived straight from disk: git status, version, next steps, suggestions, and commit history.</p>
+      <p class="lead">The clipboard button opens a full-screen <b>Project Index</b> — a live dashboard built from the working directories of your open sessions. Each session becomes a project card, derived straight from disk: git status, version, what shipped recently, open tasks, and commit history.</p>
       <figure>
         <div class="frame"><img loading="lazy" src="assets/guide/tracker.jpg" alt="The full-screen Project Tracker dashboard" /></div>
-        <figcaption>The Project Tracker: totals up top, tag filters, then a card per project.</figcaption>
+        <figcaption>The Project Tracker: totals (Projects · Shipped 7d · Open tasks), tab filters, then a card per project.</figcaption>
       </figure>
       <ul class="feat">
         <li><b>Status at a glance</b> — a colored dot (active / recent / stale) and an “N open” task count per project.</li>
-        <li><b>Next steps</b> — pulled from each repo's <code>TODO.md</code>, <code>ROADMAP.md</code> or a “Next steps” heading; <b>Suggestions</b> are auto-derived (a missing README, stray TODO/FIXME markers…).</li>
-        <li><b>Feature history</b> — expand a project to read its changelog + commit history.</li>
-        <li><b>▶ Launch local</b> — start a project's dev server right from the tracker (Vite / Next / Node), then stop it again.</li>
+        <li><b>Recently shipped</b> — the week’s commits per project; <b>Open tasks</b> come from the session’s live agent to-do list and each repo’s <code>TODO.md</code> / “Next steps”.</li>
+        <li><b>Proposed next steps</b> — gentle auto-suggestions (add a README, wire up tests, push a remote…).</li>
+        <li><b>▶ Launch local</b> — start a project’s dev server right from the tracker (Vite / Next / Node), then stop it again.</li>
+        <li><b>Past Week</b> tab — a review of your Copilot CLI history: sessions, active days, projects and tokens for the last 7 days.</li>
         <li><b>Grouped by your session tags</b>, filterable, with an <b>Auto</b> re-scan every 20s.</li>
       </ul>
     </section>
 
-    <!-- 16 TRANSCRIPTS -->
+    <!-- 18 SEARCH TRANSCRIPTS -->
     <section class="doc" id="transcripts">
-      <div class="sec-eyebrow">16 · Search your history</div>
-      <h2>Transcripts.</h2>
-      <p class="lead">Turn on <b>Capture transcripts</b> in Settings and Crew saves each session’s output locally so you can search across everything and export a session later. It never leaves your machine.</p>
+      <div class="sec-eyebrow">18 · Search your history</div>
+      <h2>Search transcripts.</h2>
+      <p class="lead">Different from the live <a href="#transcript">Transcript view</a>: turn on <b>Capture transcripts</b> in Settings and Crew saves each session’s output locally so you can search across <em>everything</em> and export a session later. It never leaves your machine.</p>
       <figure>
         <div class="frame frame--mid"><img loading="lazy" src="assets/guide/transcripts.jpg" alt="The transcripts search modal" /></div>
         <figcaption>Search saved output across sessions, then export the selected one.</figcaption>
       </figure>
     </section>
 
-    <!-- 16 PALETTE -->
+    <!-- 19 PALETTE -->
     <section class="doc" id="palette">
-      <div class="sec-eyebrow">17 · Move fast</div>
+      <div class="sec-eyebrow">19 · Move fast</div>
       <h2>Command palette &amp; shortcuts.</h2>
       <p class="lead">Press <kbd>⌘K</kbd> for a fuzzy quick-switcher: jump to any session, run any action, or switch workspace without touching the mouse.</p>
       <figure>
@@ -645,49 +686,54 @@
 
     <!-- 17 SETTINGS -->
     <section class="doc" id="settings">
-      <div class="sec-eyebrow">18 · Dial it in</div>
+      <div class="sec-eyebrow">20 · Dial it in</div>
       <h2>Settings.</h2>
       <p class="lead">Everything is off-by-default-sensible, but you can tune it all.</p>
       <figure>
         <div class="frame frame--mid"><img loading="lazy" src="assets/guide/settings.jpg" alt="The settings panel" /></div>
-        <figcaption>Notifications, spend &amp; credits display, transcripts, launch-at-login, a spend budget and stale-session hiding.</figcaption>
+        <figcaption>Notifications, spend &amp; credits, transcripts, minimized-as-list, the Beta Enhanced Terminal, launch-at-login, a spend budget and stale-session hiding.</figcaption>
       </figure>
       <ul class="feat">
         <li><b>Notifications</b> — native alert (with optional sound) when a session starts waiting; optionally only when Crew isn’t focused.</li>
         <li><b>Show spend / credits</b> — per-session and total in the sidebar.</li>
         <li><b>Resume conversations on launch</b> — relaunch restored sessions with the agent’s <code>--continue</code>.</li>
         <li><b>Capture transcripts</b> and <b>Launch at login</b>.</li>
+        <li><b>Show minimized in grid as list</b> — collect minimized sessions into one list card at the end of the grid, instead of a “show more” inside each group.</li>
+        <li><b>Cost mode</b> — <b>Auto</b> shows agent-reported dollars; switch to <b>Manual</b> to compute spend from a credits-per-USD rate you set.</li>
+        <li><b>Beta: Enhanced Terminal Interface</b> — opt into Crew’s own terminal engine (<a href="#terminal">command blocks, jump-to-prompt, exit-code ruler</a>).</li>
         <li><b>Spend budget</b> — warn once total spend crosses a number; <b>Hide stale sessions</b> after N hours in group sort.</li>
       </ul>
     </section>
 
-    <!-- 18 AUTOPILOT -->
+    <!-- 21 AUTOPILOT -->
     <section class="doc" id="autopilot">
-      <div class="sec-eyebrow">19 · Hands-off runs</div>
+      <div class="sec-eyebrow">21 · Hands-off runs</div>
       <h2>Autopilot-aware.</h2>
       <p class="lead">When an agent is running unattended — approving its own edits — its character puts on a <b>pilot costume</b> (goggles + an ✈ badge), and a little takeoff animation plays across the header. You can tell at a glance which agents are flying solo and which are working with you in the loop.</p>
     </section>
 
-    <!-- 19 WINDOWS -->
+    <!-- 22 WINDOWS / PLATFORMS -->
     <section class="doc" id="windows">
-      <div class="sec-eyebrow">20 · Beyond one window</div>
-      <h2>Windows &amp; the menu bar.</h2>
+      <div class="sec-eyebrow">22 · Beyond one window</div>
+      <h2>Windows, the menu bar &amp; platforms.</h2>
       <ul class="feat">
+        <li><b>macOS &amp; Windows</b> — Crew ships as a native app for both (Apple Silicon, Intel, and a Windows installer).</li>
         <li><b>Multiple windows</b> — <kbd>⇧⌘N</kbd> opens another window onto the same crew, so you can put the grid on one display and a focused session on another.</li>
-        <li><b>Menu-bar badge</b> — a live count of how many sessions are waiting sits in your macOS menu bar; a native notification fires the moment one needs you.</li>
+        <li><b>Menu-bar / tray badge</b> — a live count of how many sessions are waiting sits in your menu bar (macOS) or system tray (Windows); a native notification fires the moment one needs you.</li>
         <li><b>100% local</b> — Crew owns the terminals on your machine. No account, no network, no telemetry.</li>
       </ul>
     </section>
 
-    <!-- 20 START -->
+    <!-- 23 START -->
     <section class="doc" id="start">
-      <div class="sec-eyebrow">21 · Your turn</div>
+      <div class="sec-eyebrow">23 · Your turn</div>
       <h2>Getting started.</h2>
       <p class="lead">That’s the whole tour. Download Crew, launch a couple of agents, and let the crew do the work — you’ll get pinged the moment one needs you.</p>
       <p>
-        <a class="nav-cta" style="display:inline-block;border-radius:0" href="https://github.com/alexselig/crew/releases/latest/download/Crew-arm64.dmg">↓ Download for macOS</a>
-        &nbsp;&nbsp;<a href="./index.html">Back to the overview →</a>
+        <a class="nav-cta" style="display:inline-block;border-radius:0" href="https://github.com/alexselig/crew/releases/latest/download/Crew-AppleSilicon.zip">↓ Download for macOS</a>
+        &nbsp;<a class="nav-cta" style="display:inline-block;border-radius:0;background:#f2f1ea;color:#0a0a0b" href="https://github.com/alexselig/crew/releases/latest/download/Crew-Setup.exe">↓ Download for Windows</a>
       </p>
+      <p style="font-size:13px;color:var(--faint)">macOS Intel? <a href="https://github.com/alexselig/crew/releases/latest/download/Crew-Intel.zip">Grab the Intel build</a> · <a href="./index.html">Back to the overview →</a></p>
       <a class="backtop" href="#top">↑ Back to top</a>
     </section>
   </main>
