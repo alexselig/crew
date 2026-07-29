@@ -217,6 +217,7 @@ export const IPC = {
   TRANSCRIPT_SEARCH: 'transcript:search',
   TRANSCRIPT_GET: 'transcript:get',
   TRANSCRIPT_EXPORT: 'transcript:export',
+  AGENT_TRANSCRIPT_GET: 'agentTranscript:get',
   TRACKER_SCAN: 'tracker:scan',
   TRACKER_PAST_WEEK: 'tracker:pastWeek',
   OPEN_EXTERNAL: 'shell:openExternal',

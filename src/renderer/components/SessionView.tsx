@@ -224,6 +224,7 @@ export function SessionView({
                 <TranscriptPane
                   sessionId={session.id}
                   enhanced={enhancedTerminal}
+                  agentSessionId={session.agentSessionId}
                   character={character}
                   agentLabel={presetName}
                 />

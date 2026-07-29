@@ -13,6 +13,7 @@ import type {
 } from './types'
 import type { AssetItem } from './assets'
 import type { TrackerData, CommitActivity, RunningServer, LaunchResult, PastWeek } from './tracker'
+import type { AgentBlock } from './agent-events'
 
 export interface StateEvent {
   id: string
@@ -102,6 +103,12 @@ export interface CrewAPI {
   searchTranscripts(query: string): Promise<TranscriptMatch[]>
   getTranscript(id: string): Promise<string>
   exportTranscript(id: string, label: string): Promise<boolean>
+  /** Typed Transcript blocks parsed from a Copilot CLI session's own event log
+   *  (~/.copilot/session-state/<agentSessionId>/events.jsonl): prompts, prose,
+   *  reasoning, tool runs, permission prompts, and inline images. Empty for
+   *  non-Copilot sessions or when no log exists — callers fall back to the
+   *  terminal-derived transcript. */
+  getAgentTranscript(agentSessionId: string): Promise<AgentBlock[]>
   /** Live Project Tracker data for the working dirs of the open sessions. */
   scanTracker(): Promise<TrackerData>
   /** A read-only "past week" review derived from the Copilot CLI history. */

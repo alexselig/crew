@@ -23,6 +23,7 @@ import { TranscriptRecorder } from './transcripts'
 import { builtinPresets } from './presets'
 import { listInstalledSkills } from './skills'
 import { scanProjects, recentCommits, resolveLaunch } from './tracker'
+import { readAgentTranscript } from './agent-transcript'
 import { buildPastWeek } from './week-review'
 import { launch as launchServer, stop as stopServer, status as serverStatus, stopAll as stopAllServers } from './launcher'
 import { CHARACTERS } from './characters'
@@ -627,6 +628,9 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.TRANSCRIPT_SEARCH, (_e, query: string) => recorder.search(query))
   ipcMain.handle(IPC.TRANSCRIPT_GET, (_e, id: string) => recorder.read(id))
+  ipcMain.handle(IPC.AGENT_TRANSCRIPT_GET, (_e, agentSessionId: string) =>
+    readAgentTranscript(agentSessionId)
+  )
   ipcMain.handle(IPC.TRANSCRIPT_EXPORT, async (_e, p: { id: string; label: string }) => {
     const text = recorder.read(p.id)
     const safe = p.label.replace(/[^\w.-]+/g, '_').slice(0, 40) || 'session'
