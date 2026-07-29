@@ -2960,8 +2960,10 @@ button {
 }
 
 .analytics__note {
-  margin: -4px 0 12px;
+  margin: 0 0 12px;
+  padding-top: 2px;
   font-size: 12px;
+  line-height: 1.5;
   color: var(--text-dim);
 }
 
@@ -4335,7 +4337,7 @@ button.grid-topbar__wordmark:hover {
   z-index: 5;
   background: var(--bg);
   padding: 14px 0 12px;
-  margin-top: -14px;
+  margin: -14px 0 6px;
 }
 .tracker__top::after {
   /* Hairline that reads as a header rule once the row is pinned over content. */

@@ -473,30 +473,30 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
   return (
     <div className="tracker">
       <div className="tracker__inner">
-        <header className="tracker__masthead">
-          <div className="tracker__top">
-            <span className="tracker__eyebrow">Project Index — Vol. 1</span>
-            <div className="tracker__controls">
-              <label className="tracker__auto">
-                <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Auto
-              </label>
-              <button
-                type="button"
-                className="tracker__ctl"
-                onClick={() => {
-                  void refresh()
-                  void loadPastWeek()
-                }}
-                title="Rescan now"
-              >
-                Refresh
-              </button>
-              <button type="button" className="tracker__close" title="Close (Esc)" onClick={onClose}>
-                ✕
-              </button>
-            </div>
+        <div className="tracker__top">
+          <span className="tracker__eyebrow">Project Index — Vol. 1</span>
+          <div className="tracker__controls">
+            <label className="tracker__auto">
+              <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> Auto
+            </label>
+            <button
+              type="button"
+              className="tracker__ctl"
+              onClick={() => {
+                void refresh()
+                void loadPastWeek()
+              }}
+              title="Rescan now"
+            >
+              Refresh
+            </button>
+            <button type="button" className="tracker__close" title="Close (Esc)" onClick={onClose}>
+              ✕
+            </button>
           </div>
+        </div>
 
+        <header className="tracker__masthead">
           <h1 className="tracker__title">
             Project <em>Tracker</em>
           </h1>
