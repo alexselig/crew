@@ -3,6 +3,24 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.4.2 — 2026-07-29
+
+**Transcript view upgrades, plus two UI fixes.**
+
+### Transcript (Beta Enhanced Terminal)
+- A **prompt composer** — message the agent directly from the Transcript pane.
+- **Thinking blocks** now render with a brain icon and a 2-line clamp with
+  show more / less.
+- Fixed the inline-image **lightbox** (it never opened — z-index was too low).
+- Quieter under the hood: version-token polling replaces idle IPC chatter.
+
+### Fixes
+- **Project Tracker:** the masthead controls (Auto / Refresh / ✕) now stay
+  pinned for the *entire* scroll — previously the close button could scroll out
+  of reach near the bottom of a long list.
+- **Activity ▸ Spend:** the "Manual — spend calculated from…" description no
+  longer clips the tops of letters.
+
 ## 0.4.1 — 2026-07-29
 
 **Token analytics, a two-column Settings, and Project Tracker polish.**
