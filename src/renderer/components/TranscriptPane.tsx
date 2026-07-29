@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent } from 'react'
 import type { CharacterDef } from '../../shared/types'
 import { Transcript } from '../transcript'
 import type { TranscriptBlock, PermissionResolution } from '../transcript'
@@ -11,6 +12,67 @@ import './TranscriptPane.css'
 // renderer's TranscriptBlock, so every AgentBlock must remain assignable to one.
 function assertBlockShape<_T extends TranscriptBlock>(): void {}
 assertBlockShape<AgentBlock>()
+
+/**
+ * Prompt composer for the Transcript view: an alternate input surface to the raw
+ * terminal. Submitting writes the text + Enter straight to the session PTY (the
+ * same bytes typing in the terminal would send), so the agent handles it
+ * identically; the human's prompt then appears as a `user` block on the next
+ * poll. Enter sends, Shift+Enter inserts a newline.
+ */
+function Composer({ sessionId }: { sessionId: string }): JSX.Element {
+  const [draft, setDraft] = useState('')
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  const send = (): void => {
+    const text = draft.replace(/\s+$/, '')
+    if (!text) return
+    window.crew.sendInput(sessionId, `${text}\r`)
+    setDraft('')
+    // Reset the auto-grown height after clearing.
+    const ta = taRef.current
+    if (ta) ta.style.height = 'auto'
+  }
+
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send()
+    }
+  }
+
+  // Auto-grow the textarea up to a few lines, then scroll.
+  const onInput = (): void => {
+    const ta = taRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`
+  }
+
+  return (
+    <div className="transcript-composer">
+      <textarea
+        ref={taRef}
+        className="transcript-composer__input"
+        placeholder="Send a prompt to the agent…  (Enter to send · Shift+Enter for newline)"
+        value={draft}
+        rows={1}
+        onChange={(e) => setDraft(e.target.value)}
+        onInput={onInput}
+        onKeyDown={onKeyDown}
+      />
+      <button
+        type="button"
+        className="transcript-composer__send"
+        onClick={send}
+        disabled={draft.trim().length === 0}
+        title="Send (Enter)"
+      >
+        Send
+      </button>
+    </div>
+  )
+}
 
 /** Dev flag: render every block kind from fixtures so the design can be
  *  inspected without a live session. Set `localStorage['crew.transcriptDemo']='1'`. */
@@ -129,8 +191,11 @@ export function TranscriptPane({
   }
   if (!DEMO && blocks.length === 0) {
     return (
-      <div className="transcript-pane transcript-pane--empty">
-        Run a command — your session appears here as typed blocks.
+      <div className="transcript-pane">
+        <div className="transcript-pane__empty-body">
+          Send a prompt below — your session appears here as typed blocks.
+        </div>
+        <Composer sessionId={sessionId} />
       </div>
     )
   }
@@ -144,6 +209,7 @@ export function TranscriptPane({
         handlers={handlers}
         className="transcript-fill"
       />
+      <Composer sessionId={sessionId} />
     </div>
   )
 }
