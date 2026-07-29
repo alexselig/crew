@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { CharacterDef } from '../../shared/types'
 import { CharacterArt, hasCharacterArt } from '../character-art'
@@ -80,18 +80,63 @@ export function AgentText({
   )
 }
 
-/** Collapsed by default; the reasoning is there when you want it, quiet when you don't. */
+/** Two-hemisphere brain glyph for the thinking tick. Stroke-only, inherits
+ *  currentColor so it tints with the tick like the other line-art marks. */
+function BrainIcon({ size = 15 }: { size?: number }): JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5.5a2.5 2.5 0 0 0-4.9-.7A2.4 2.4 0 0 0 4.3 7 2.4 2.4 0 0 0 3.5 11a2.4 2.4 0 0 0 .8 3.6A2.5 2.5 0 0 0 7 18a2.5 2.5 0 0 0 5 .3Z" />
+      <path d="M12 5.5a2.5 2.5 0 0 1 4.9-.7A2.4 2.4 0 0 1 19.7 7a2.4 2.4 0 0 1 .8 4 2.4 2.4 0 0 1-.8 3.6A2.5 2.5 0 0 1 17 18a2.5 2.5 0 0 1-5 .3Z" />
+    </svg>
+  )
+}
+
+/** The agent's reasoning as a compact 2-line card: the brain tick, a "Thought
+ *  for Ns" label, and the reasoning clamped to two lines with an inline "Show
+ *  more" toggle that appears only when the text actually overflows. */
 export function Thinking({ block }: { block: ThinkingBlock }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  const textRef = useRef<HTMLDivElement>(null)
   const secs = block.durationMs != null ? Math.max(1, Math.round(block.durationMs / 1000)) : null
+
+  // Whether the reasoning exceeds two lines (so the toggle is worth showing).
+  // Measured only while clamped (open === false); the default is collapsed, so
+  // this runs on mount and whenever the body grows during streaming.
+  useLayoutEffect(() => {
+    const el = textRef.current
+    if (!el || open) return
+    setOverflows(el.scrollHeight - el.clientHeight > 1)
+  }, [block.body, open])
+
   return (
-    <BlockFrame variant="thinking" tick="·">
-      <div className={open ? 'tr-think--open' : ''}>
-        <button className="tr-think__bar" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-          <span className="tr-think__chev">▸</span>
-          {secs != null ? `Thought for ${secs}s` : 'Thinking'}
-        </button>
-        {open && <div className="tr-think__body">{block.body}</div>}
+    <BlockFrame variant="thinking" tick={<BrainIcon />}>
+      <div className="tr-think">
+        <div className="tr-think__label">{secs != null ? `Thought for ${secs}s` : 'Thinking'}</div>
+        <div className={`tr-think__card ${open ? 'is-open' : 'is-clamped'}`}>
+          <div ref={textRef} className="tr-think__text">
+            {block.body}
+          </div>
+          {(overflows || open) && (
+            <button
+              className="tr-think__toggle"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+            >
+              {open ? 'Show less' : 'Show more'}
+            </button>
+          )}
+        </div>
       </div>
     </BlockFrame>
   )
