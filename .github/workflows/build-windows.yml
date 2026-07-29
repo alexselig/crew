@@ -71,5 +71,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --repo $repo --title "Crew $tag" --notes "Windows build for $tag."
           }
-          $assets = Get-ChildItem dist -Recurse -Include *.exe, *.zip | ForEach-Object { $_.FullName }
+          # Only the top-level installer + portable zip — NOT nested files such as
+          # win-unpacked/**/winpty-agent.exe. Recursing here previously uploaded a
+          # duplicate-named nested .exe, which 404'd and aborted the whole upload
+          # before Crew-Setup.exe was attached.
+          $assets = Get-ChildItem -Path dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object { $_.FullName }
+          Write-Host "Uploading assets:`n$($assets -join "`n")"
           gh release upload $tag $assets --repo $repo --clobber
