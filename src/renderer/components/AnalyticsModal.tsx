@@ -3,6 +3,7 @@ import type { SessionInfo, CharacterDef, Settings } from '../../shared/types'
 import type { ActivityEvent } from '../../shared/api'
 import type { CommitActivity } from '../../shared/tracker'
 import { formatUsd, formatCredits, sessionUsd } from '../state-meta'
+import { CharacterArt, hasCharacterArt } from '../character-art'
 
 interface Props {
   roster: SessionInfo[]
@@ -128,7 +129,14 @@ export function AnalyticsModal({ roster, characters, settings, onClose }: Props)
                   roster.map((s) => (
                     <tr key={s.id}>
                       <td>
-                        <span className="analytics__glyph">{glyph(s.characterId)}</span> {s.label}
+                        <span className="analytics__glyph" style={{ color: s.color }}>
+                          {hasCharacterArt(s.characterId) ? (
+                            <CharacterArt id={s.characterId} size={18} />
+                          ) : (
+                            glyph(s.characterId)
+                          )}
+                        </span>{' '}
+                        {s.label}
                       </td>
                       <td>{fmtDur(waiting[s.id] || 0)}</td>
                       <td>{formatUsd(spendOf(s))}</td>

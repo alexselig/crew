@@ -3021,6 +3021,9 @@ button {
 }
 
 .analytics__glyph {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
   font-size: 14px;
 }
 
