@@ -3,6 +3,36 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.4.1 — 2026-07-29
+
+**Token analytics, a two-column Settings, and Project Tracker polish.**
+
+### Activity view — token usage over time
+- The Activity tab now charts **token use over time** with a **1h / 24h / 7d /
+  30d / 1y** toggle and appropriately-sized buckets (5-minute, hourly, daily,
+  daily, monthly).
+- A **project-intensity** ranking shows where those tokens went — by git repo,
+  falling back to the session — with a headline total, credits (AIU), and the
+  peak bucket for the selected range.
+- All read-only from your local Copilot CLI history; nothing leaves your machine.
+
+### Project Tracker
+- The **Past Week** tab now shows **total tokens** (input + output) per project
+  and per session, and ranks the projects strip by token intensity.
+- The masthead controls (Auto / Refresh / ✕) are now **pinned while you scroll**,
+  so the close button is always reachable.
+
+### Settings
+- The settings list now flows into **two columns** in a wider modal (with a
+  single-column + scroll fallback on narrow or short windows) so nothing runs
+  off the bottom of the screen.
+
+### Refinements
+- Clicking a session in the nav now **reveals and selects** it; the stale-hide
+  default was raised to 72h.
+- Transcript view polish: centered pane toggle, amber user cards, and
+  click-to-zoom images.
+
 ## 0.4.0 — 2026-07-28
 
 **Beta Enhanced Terminal engine, a typed Transcript view, plus Project Tracker refinements.**
