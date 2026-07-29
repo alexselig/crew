@@ -5,7 +5,7 @@ import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { Character } from './Character'
 import { ResumeSets } from './ResumeSets'
-import { groupSessions, existingGroups, partitionHidden, splitMinimized, recencyOf, type GroupMode } from '../grouping'
+import { groupSessions, existingGroups, partitionHidden, splitMinimized, isSessionHidden, type GroupMode } from '../grouping'
 import { useCardDnd } from '../useCardDnd'
 import { useNowTick } from '../hooks'
 import type { ViewMode, GridDensity } from '../hooks'
@@ -24,6 +24,9 @@ interface Props {
   /** Minimized session ids (hidden behind a per-group "show more"). */
   minimized: Set<string>
   onToggleMinimize: (id: string) => void
+  /** Session ids explicitly revealed by the user; overrides stale-hiding so a
+   * clicked session stays visible without needing "show more". */
+  revealed: Set<string>
   /** Hours after which an unused session is hidden in group (tag) sort (0 = off). */
   staleHideHours: number
   /** Collect minimized sessions into one list card at the end instead of a
@@ -65,6 +68,7 @@ export function GridView({
   onSetGroupMode,
   minimized,
   onToggleMinimize,
+  revealed,
   staleHideHours,
   minimizedAsList,
   enhancedTerminal,
@@ -105,8 +109,7 @@ export function GridView({
   // they stay tucked behind each bucket's "show more" alongside stale ones.
   const { gridRoster, minimizedList } = splitMinimized(roster, minimized, minimizedAsList)
   const isHidden = (s: SessionInfo): boolean =>
-    minimized.has(s.id) ||
-    (groupMode === 'tag' && staleHideHours > 0 && recencyOf(s) < staleCutoff)
+    isSessionHidden(s, { minimized, revealed, groupMode, staleHideHours, staleCutoff })
   // `density` sets the flat grid's density class on <main> + the grid. Grouped view
   // scrolls horizontally instead (each group is a column-major band via
   // `grid--g-${gridDensity}`), so it leaves <main> without the density class.

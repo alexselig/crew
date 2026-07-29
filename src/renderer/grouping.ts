@@ -77,6 +77,27 @@ export function partitionHidden(
   return { visible, hidden }
 }
 
+/** Whether a session should be tucked behind a bucket's "show more" in the nav
+ * and grid. A session is hidden when the user has manually minimized it, or —
+ * in group (tag) sort — when it has gone unused past the stale cutoff. An
+ * explicit user reveal (clicking/selecting the session, or restoring it)
+ * overrides stale-hiding so a clicked session always resurfaces into the visible
+ * list; a manual minimize still wins over a reveal. */
+export function isSessionHidden(
+  s: SessionInfo,
+  opts: {
+    minimized: Set<string>
+    revealed: Set<string>
+    groupMode: GroupMode
+    staleHideHours: number
+    staleCutoff: number
+  }
+): boolean {
+  if (opts.minimized.has(s.id)) return true
+  if (opts.revealed.has(s.id)) return false
+  return opts.groupMode === 'tag' && opts.staleHideHours > 0 && recencyOf(s) < opts.staleCutoff
+}
+
 /** Split a roster into the sessions rendered as grid tiles and the minimized ones
  * collected into a single end-of-grid list card. When `asList` is false nothing
  * is pulled out — minimized sessions stay in the grid, tucked behind each

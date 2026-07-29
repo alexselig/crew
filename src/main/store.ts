@@ -58,7 +58,7 @@ export const DEFAULT_SETTINGS: Settings = {
   resumeConversations: true,
   budgetUsd: 0,
   captureTranscripts: false,
-  staleHideHours: 12,
+  staleHideHours: 72,
   minimizedAsList: true,
   enhancedTerminal: false
 }
@@ -70,6 +70,9 @@ interface StoreData {
   sessions: PersistedSession[]
   sets: SessionSet[]
   windowBounds?: WindowBounds
+  /** Ids of the one-time data migrations already applied to this store (see
+   * MIGRATIONS), so each runs at most once. */
+  migrations?: string[]
 }
 
 const EMPTY: StoreData = {
@@ -78,6 +81,36 @@ const EMPTY: StoreData = {
   recentDirs: [],
   sessions: [],
   sets: []
+}
+
+/** One-time, ordered data migrations. Each is recorded by id in
+ * `data.migrations` after it runs, so it applies at most once per store and
+ * never re-fires against a value the user has since chosen. */
+const MIGRATIONS: Array<{ id: string; apply: (d: StoreData) => void }> = [
+  {
+    // Bump the previous 12h stale-hide default to 72h so a session last prompted
+    // on Friday still shows on Monday. Only nudges stores still sitting on the
+    // old default; any other value the user picked is left untouched.
+    id: '2026-07-stale-hide-72h',
+    apply: (d) => {
+      if (d.settings.staleHideHours === 12) d.settings.staleHideHours = 72
+    }
+  }
+]
+
+/** Apply any not-yet-recorded MIGRATIONS to `data` in place, recording each by
+ * id. Returns true when at least one migration ran, so the caller re-persists. */
+function runMigrations(data: StoreData): boolean {
+  const applied = new Set(data.migrations ?? [])
+  let changed = false
+  for (const m of MIGRATIONS) {
+    if (applied.has(m.id)) continue
+    m.apply(data)
+    applied.add(m.id)
+    changed = true
+  }
+  data.migrations = [...applied]
+  return changed
 }
 
 /** Build the stable identity key used to re-assign a character/label to the
@@ -90,22 +123,44 @@ export class Store {
   private data: StoreData
 
   constructor(private readonly path: string) {
-    this.data = this.load()
+    const { data, migrated } = this.load()
+    this.data = data
+    // A migration that changed persisted data must be written back immediately,
+    // so it records as applied and never re-runs on the next launch.
+    if (migrated) this.persist()
   }
 
-  private load(): StoreData {
+  private load(): { data: StoreData; migrated: boolean } {
     try {
       const raw = JSON.parse(readFileSync(this.path, 'utf8')) as Partial<StoreData>
-      return {
+      const data: StoreData = {
         characters: raw.characters ?? {},
         settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
         recentDirs: raw.recentDirs ?? [],
         sessions: raw.sessions ?? [],
         sets: raw.sets ?? [],
-        windowBounds: raw.windowBounds
+        windowBounds: raw.windowBounds,
+        migrations: [...(raw.migrations ?? [])]
       }
+      const migrated = runMigrations(data)
+      return { data, migrated }
     } catch {
-      return { ...EMPTY, characters: {}, recentDirs: [], sessions: [], sets: [] }
+      // Fresh (or unreadable) store: start at the latest schema and mark every
+      // migration as already applied — there's nothing to upgrade on a clean
+      // slate, and this avoids nudging a value the user later sets themselves.
+      // Not persisted here, staying non-destructive if the file was merely
+      // unreadable; the baseline is written on the first real save.
+      return {
+        data: {
+          ...EMPTY,
+          characters: {},
+          recentDirs: [],
+          sessions: [],
+          sets: [],
+          migrations: MIGRATIONS.map((m) => m.id)
+        },
+        migrated: false
+      }
     }
   }
 

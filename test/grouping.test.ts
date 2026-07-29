@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { groupSessions, partitionHidden, splitMinimized, recencyOf, _resetRecencyOrder } from '../src/renderer/grouping'
+import { groupSessions, partitionHidden, splitMinimized, isSessionHidden, recencyOf, _resetRecencyOrder } from '../src/renderer/grouping'
 import type { SessionInfo } from '../src/shared/types'
 
 const MIN = 60_000
@@ -225,6 +225,57 @@ describe('partitionHidden', () => {
     const { visible, hidden } = partitionHidden(items, staleOrMinimized(new Set()))
     expect(visible.map((s) => s.id)).toEqual(['a', 'c'])
     expect(hidden.map((s) => s.id)).toEqual(['b', 'd'])
+  })
+})
+
+describe('isSessionHidden', () => {
+  const now = Date.now()
+  const staleHideHours = 12
+  const staleCutoff = now - staleHideHours * HOUR
+  const base = {
+    minimized: new Set<string>(),
+    revealed: new Set<string>(),
+    groupMode: 'tag' as const,
+    staleHideHours,
+    staleCutoff
+  }
+
+  it('hides a stale session in tag sort', () => {
+    const s = sess({ id: 'stale', lastPromptAt: now - 20 * HOUR })
+    expect(isSessionHidden(s, base)).toBe(true)
+  })
+
+  it('keeps a fresh session visible in tag sort', () => {
+    const s = sess({ id: 'fresh', lastPromptAt: now - 1 * HOUR })
+    expect(isSessionHidden(s, base)).toBe(false)
+  })
+
+  it('hides a manually-minimized session regardless of recency', () => {
+    const s = sess({ id: 'min', lastPromptAt: now - 1 * MIN })
+    expect(isSessionHidden(s, { ...base, minimized: new Set(['min']) })).toBe(true)
+  })
+
+  it('reveals a stale session when the user has explicitly revealed it', () => {
+    const s = sess({ id: 'stale', lastPromptAt: now - 20 * HOUR })
+    expect(isSessionHidden(s, { ...base, revealed: new Set(['stale']) })).toBe(false)
+  })
+
+  it('lets a manual minimize win over a reveal', () => {
+    const s = sess({ id: 'x', lastPromptAt: now - 1 * MIN })
+    expect(
+      isSessionHidden(s, { ...base, minimized: new Set(['x']), revealed: new Set(['x']) })
+    ).toBe(true)
+  })
+
+  it('never stale-hides outside tag sort, even for old sessions', () => {
+    const s = sess({ id: 'old', lastPromptAt: now - 100 * HOUR })
+    expect(isSessionHidden(s, { ...base, groupMode: 'recent' })).toBe(false)
+    expect(isSessionHidden(s, { ...base, groupMode: 'none' })).toBe(false)
+  })
+
+  it('never stale-hides when staleHideHours is 0 (feature off)', () => {
+    const s = sess({ id: 'old', lastPromptAt: now - 100 * HOUR })
+    expect(isSessionHidden(s, { ...base, staleHideHours: 0 })).toBe(false)
   })
 })
 

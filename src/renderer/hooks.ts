@@ -52,6 +52,10 @@ export interface CrewState {
   /** Session ids the user has minimized (hidden behind a per-bucket "show more"). */
   minimized: Set<string>
   toggleMinimize: (id: string) => void
+  /** Session ids the user has explicitly revealed (by clicking/selecting or
+   * restoring them). Overrides stale-hiding so a clicked session stays in the
+   * visible nav list without needing "show more". */
+  revealed: Set<string>
   groupOrder: string[]
   reorderGroups: (names: string[]) => void
   /** Active workspace filter (null = All Sessions). */
@@ -114,6 +118,17 @@ export function useCrew(): CrewState {
       return new Set<string>()
     }
   })
+  // Sessions the user has explicitly revealed (clicked/selected or restored).
+  // Stored unscoped alongside `minimized`; overrides stale-hiding so a revealed
+  // session stays in the visible nav list rather than falling back behind a
+  // group's "show more" once it ages past the stale cutoff.
+  const [revealed, setRevealed] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem('crew.revealed') || '[]'))
+    } catch {
+      return new Set<string>()
+    }
+  })
   const [settings, setSettings] = useState<Settings | null>(null)
   const [activeWorkspace, setActiveWorkspaceState] = useState<string | null>(
     () => readViewPref('activeWorkspace') || null
@@ -160,23 +175,42 @@ export function useCrew(): CrewState {
     writeViewPref('groupOrder', JSON.stringify(names))
   }
   const toggleMinimize = (id: string): void => {
+    const restoring = minimized.has(id)
     setMinimized((prev) => {
       const n = new Set(prev)
-      if (n.has(id)) n.delete(id)
+      if (restoring) n.delete(id)
       else n.add(id)
       localStorage.setItem('crew.minimized', JSON.stringify([...n]))
+      return n
+    })
+    // Keep the stale-hide override in sync: restoring reveals the session so it
+    // resurfaces even when stale; minimizing clears any prior reveal.
+    setRevealed((prev) => {
+      const n = new Set(prev)
+      if (restoring) n.add(id)
+      else n.delete(id)
+      localStorage.setItem('crew.revealed', JSON.stringify([...n]))
       return n
     })
   }
   // Selecting a session from the nav restores it: a minimized session should
   // reappear (its pane opens in the grid) the moment the user clicks it, rather
-  // than staying hidden behind "show more".
+  // than staying hidden behind "show more". Selecting also reveals it so
+  // stale-hiding (group sort) can't keep it tucked away — a clicked session is
+  // always shown in the visible nav list.
   const selectSession = (id: string): void => {
     setMinimized((prev) => {
       if (!prev.has(id)) return prev
       const n = new Set(prev)
       n.delete(id)
       localStorage.setItem('crew.minimized', JSON.stringify([...n]))
+      return n
+    })
+    setRevealed((prev) => {
+      if (prev.has(id)) return prev
+      const n = new Set(prev)
+      n.add(id)
+      localStorage.setItem('crew.revealed', JSON.stringify([...n]))
       return n
     })
     setSelectedId(id)
@@ -281,6 +315,7 @@ export function useCrew(): CrewState {
     toggleGroup,
     minimized,
     toggleMinimize,
+    revealed,
     groupOrder,
     reorderGroups,
     activeWorkspace,

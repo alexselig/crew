@@ -6,7 +6,7 @@ import { SessionCard } from './SessionCard'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { ViewToggle } from './ViewToggle'
-import { groupSessions, partitionHidden, recencyOf, type GroupMode } from '../grouping'
+import { groupSessions, partitionHidden, isSessionHidden, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
 import { useNowTick } from '../hooks'
@@ -33,6 +33,9 @@ interface Props {
   /** Minimized session ids (hidden behind a per-bucket "show more"). */
   minimized: Set<string>
   onToggleMinimize: (id: string) => void
+  /** Session ids explicitly revealed by the user; overrides stale-hiding so a
+   * clicked session stays visible without needing "show more". */
+  revealed: Set<string>
   groupOrder: string[]
   onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
@@ -83,6 +86,7 @@ export function Roster(props: Props): JSX.Element {
     onToggleGroup,
     minimized,
     onToggleMinimize,
+    revealed,
     groupOrder,
     onReorderGroups,
     onSelect,
@@ -240,12 +244,12 @@ export function Roster(props: Props): JSX.Element {
 
   // Hiding + per-bucket "show more" apply in both the expanded nav and the
   // compact rail (kept in sync). A session is hidden when it's been manually
-  // minimized, or — in group (tag) sort — unused past staleHideHours. In the
-  // rail the "show more" collapses to a compact "+N" chip.
+  // minimized, or — in group (tag) sort — unused past staleHideHours, unless the
+  // user has explicitly revealed it (clicking/restoring), which keeps it in the
+  // visible list. In the rail the "show more" collapses to a compact "+N" chip.
   const staleCutoff = Date.now() - staleHideHours * 60 * 60 * 1000
   const isHidden = (s: SessionInfo): boolean =>
-    minimized.has(s.id) ||
-    (groupMode === 'tag' && staleHideHours > 0 && recencyOf(s) < staleCutoff)
+    isSessionHidden(s, { minimized, revealed, groupMode, staleHideHours, staleCutoff })
   function renderBucket(items: SessionInfo[], key: string): React.ReactNode {
     const { visible, hidden } = partitionHidden(items, isHidden)
     const open = expandedStale.has(key)

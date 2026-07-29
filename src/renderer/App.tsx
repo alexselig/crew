@@ -302,6 +302,7 @@ export function App(): JSX.Element {
         onToggleGroup={c.toggleGroup}
         minimized={c.minimized}
         onToggleMinimize={c.toggleMinimize}
+        revealed={c.revealed}
         groupOrder={c.groupOrder}
         onReorderGroups={c.reorderGroups}
         onSelect={c.selectSession}
@@ -316,7 +317,7 @@ export function App(): JSX.Element {
         budgetUsd={c.settings?.budgetUsd ?? 0}
         costMode={c.settings?.costMode ?? 'auto'}
         aicPerUsd={c.settings?.aicPerUsd ?? 100}
-        staleHideHours={c.settings?.staleHideHours ?? 12}
+        staleHideHours={c.settings?.staleHideHours ?? 72}
         onRestart={restart}
         onClose={close}
         onReorder={(ids) => void window.crew.reorder(ids)}
@@ -339,6 +340,7 @@ export function App(): JSX.Element {
           onToggleGroup={c.toggleGroup}
           minimized={c.minimized}
           onToggleMinimize={c.toggleMinimize}
+          revealed={c.revealed}
           groupOrder={c.groupOrder}
           onReorderGroups={c.reorderGroups}
           onSelect={c.selectSession}
@@ -354,7 +356,7 @@ export function App(): JSX.Element {
           onOpenTracker={() => setShowTracker(true)}
           showSpend={c.settings?.showSpend ?? true}
           showCredits={c.settings?.showCredits ?? false}
-          staleHideHours={c.settings?.staleHideHours ?? 12}
+          staleHideHours={c.settings?.staleHideHours ?? 72}
           minimizedAsList={c.settings?.minimizedAsList ?? true}
           onReorder={(ids) => void window.crew.reorder(ids)}
           onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
