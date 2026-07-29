@@ -52,22 +52,13 @@ export function TranscriptPane({
     if (DEMO) return
     let alive = true
     let sig = ''
-    const tick = async (): Promise<void> => {
-      // Prefer the agent's own event log (clean prose + tools + reasoning +
-      // images); fall back to the terminal-derived transcript when there is no
-      // log (shell/Claude sessions, or before the first event is written).
-      let next: TranscriptBlock[] = []
-      if (agentSessionId) {
-        try {
-          next = await window.crew.getAgentTranscript(agentSessionId)
-        } catch {
-          next = []
-        }
-      }
-      if (next.length === 0) next = getTranscript(sessionId)
-      if (!alive) return
-      // Cheap change signature so we don't re-render (and re-decode images) when
-      // nothing meaningful changed between polls.
+    let version = ''
+    let usingAgent = false
+
+    // Apply a candidate block list only when it meaningfully changed (a cheap
+    // signature keeps us from re-rendering — and re-decoding images — on every
+    // poll where nothing moved).
+    const commit = (next: TranscriptBlock[]): void => {
       const last = next[next.length - 1]
       const nextSig = `${next.length}|${last?.id ?? ''}|${
         last && 'exitCode' in last ? last.exitCode : ''
@@ -77,8 +68,35 @@ export function TranscriptPane({
         setBlocks(next)
       }
     }
+
+    const tick = async (): Promise<void> => {
+      // Prefer the agent's own event log (clean prose + tools + reasoning +
+      // images). The version token means an unchanged log returns blocks:null,
+      // so an idle poll transfers ~30 bytes instead of the full image-heavy list.
+      if (agentSessionId) {
+        try {
+          const res = await window.crew.getAgentTranscript(agentSessionId, version)
+          version = res.version
+          if (!alive) return
+          if (res.blocks && res.blocks.length > 0) {
+            usingAgent = true
+            commit(res.blocks)
+            return
+          }
+          // Unchanged AND we're already showing the agent transcript: nothing to do.
+          if (res.blocks === null && usingAgent) return
+          usingAgent = false
+        } catch {
+          usingAgent = false
+        }
+      }
+      // Fall back to the terminal-derived transcript (shell/Claude sessions, or
+      // before the agent writes its first event); refreshed each poll.
+      if (alive) commit(getTranscript(sessionId))
+    }
+
     void tick()
-    const t = setInterval(() => void tick(), 900)
+    const t = setInterval(() => void tick(), 500)
     return () => {
       alive = false
       clearInterval(t)

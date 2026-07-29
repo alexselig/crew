@@ -629,8 +629,8 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.TRANSCRIPT_SEARCH, (_e, query: string) => recorder.search(query))
   ipcMain.handle(IPC.TRANSCRIPT_GET, (_e, id: string) => recorder.read(id))
-  ipcMain.handle(IPC.AGENT_TRANSCRIPT_GET, (_e, agentSessionId: string) =>
-    readAgentTranscript(agentSessionId)
+  ipcMain.handle(IPC.AGENT_TRANSCRIPT_GET, (_e, p: { agentSessionId: string; knownVersion?: string }) =>
+    readAgentTranscript(p.agentSessionId, p.knownVersion)
   )
   ipcMain.handle(IPC.TRANSCRIPT_EXPORT, async (_e, p: { id: string; label: string }) => {
     const text = recorder.read(p.id)

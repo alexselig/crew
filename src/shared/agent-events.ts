@@ -66,6 +66,16 @@ export type AgentBlock =
   | AgentImageBlock
   | AgentPermissionBlock
 
+/** Result of a versioned transcript read. `blocks` is null when the caller's
+ *  `knownVersion` still matches (nothing changed), so an idle poll transfers
+ *  only the small version token instead of the full (image-heavy) block list. */
+export interface AgentTranscriptResult {
+  /** Opaque version token (source file mtime+size). */
+  version: string
+  /** Parsed blocks, or null when unchanged since the caller's knownVersion. */
+  blocks: AgentBlock[] | null
+}
+
 export interface ParseOptions {
   /** Keep only the most recent N blocks (default 600). */
   maxBlocks?: number

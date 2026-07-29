@@ -36,7 +36,8 @@ const api: CrewAPI = {
   resolveAsset: (id, token) => ipcRenderer.invoke(IPC.ASSET_RESOLVE, { id, token }),
   searchTranscripts: (query) => ipcRenderer.invoke(IPC.TRANSCRIPT_SEARCH, query),
   getTranscript: (id) => ipcRenderer.invoke(IPC.TRANSCRIPT_GET, id),
-  getAgentTranscript: (agentSessionId) => ipcRenderer.invoke(IPC.AGENT_TRANSCRIPT_GET, agentSessionId),
+  getAgentTranscript: (agentSessionId, knownVersion) =>
+    ipcRenderer.invoke(IPC.AGENT_TRANSCRIPT_GET, { agentSessionId, knownVersion }),
   exportTranscript: (id, label) => ipcRenderer.invoke(IPC.TRANSCRIPT_EXPORT, { id, label }),
   scanTracker: () => ipcRenderer.invoke(IPC.TRACKER_SCAN),
   getPastWeek: () => ipcRenderer.invoke(IPC.TRACKER_PAST_WEEK),

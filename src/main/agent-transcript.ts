@@ -17,7 +17,7 @@
 import { readFile, stat, open } from 'node:fs/promises'
 import { join, extname } from 'node:path'
 import { homedir } from 'node:os'
-import { parseCopilotEvents, type AgentBlock } from '../shared/agent-events'
+import { parseCopilotEvents, type AgentBlock, type AgentTranscriptResult } from '../shared/agent-events'
 
 const SESSION_STATE_DIR = join(homedir(), '.copilot', 'session-state')
 // Cap the bytes we ingest per read; beyond this we read only the tail (dropping
@@ -42,8 +42,7 @@ const MIME: Record<string, string> = {
 }
 
 interface CacheEntry {
-  mtimeMs: number
-  size: number
+  version: string
   blocks: AgentBlock[]
 }
 
@@ -101,19 +100,29 @@ async function resolveImages(blocks: AgentBlock[]): Promise<AgentBlock[]> {
 }
 
 /**
- * Parsed transcript blocks for a Copilot CLI session, newest-last. Returns []
- * for a missing agent id, a session with no event log (shell/Claude sessions),
- * or any read/parse error — the caller falls back to the terminal-derived
- * transcript in that case.
+ * Versioned transcript read for a Copilot CLI session. When `knownVersion`
+ * matches the current source (mtime+size), returns `{ version, blocks: null }`
+ * so an idle poll transfers only the token — not the full (image-heavy) list.
+ * Otherwise parses and returns the blocks, newest-last. Returns an empty
+ * `blocks: []` for a missing agent id, a session with no event log
+ * (shell/Claude sessions), or any read/parse error — the caller then falls back
+ * to the terminal-derived transcript.
  */
-export async function readAgentTranscript(agentSessionId: string | null | undefined): Promise<AgentBlock[]> {
+export async function readAgentTranscript(
+  agentSessionId: string | null | undefined,
+  knownVersion?: string
+): Promise<AgentTranscriptResult> {
   // Guard the path segment (ids are UUIDs) against traversal.
-  if (!agentSessionId || !/^[A-Za-z0-9._-]+$/.test(agentSessionId)) return []
+  if (!agentSessionId || !/^[A-Za-z0-9._-]+$/.test(agentSessionId)) return { version: '', blocks: [] }
   const file = join(SESSION_STATE_DIR, agentSessionId, 'events.jsonl')
   try {
     const st = await stat(file)
+    const version = `${st.mtimeMs}:${st.size}`
+    // Caller is already up to date — send nothing but the token.
+    if (knownVersion && knownVersion === version) return { version, blocks: null }
+
     const cached = cache.get(agentSessionId)
-    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.blocks
+    if (cached && cached.version === version) return { version, blocks: cached.blocks }
 
     const text = st.size > MAX_BYTES ? await readTail(file, st.size) : await readFile(file, 'utf8')
     const blocks = await resolveImages(
@@ -124,9 +133,9 @@ export async function readAgentTranscript(agentSessionId: string | null | undefi
       const oldest = cache.keys().next().value
       if (oldest !== undefined) cache.delete(oldest)
     }
-    cache.set(agentSessionId, { mtimeMs: st.mtimeMs, size: st.size, blocks })
-    return blocks
+    cache.set(agentSessionId, { version, blocks })
+    return { version, blocks }
   } catch {
-    return []
+    return { version: '', blocks: [] }
   }
 }
