@@ -440,7 +440,9 @@
 .tr-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 99;
+  /* Above all app chrome (modal-overlay 100, tracker/intro 200/2000) so the
+     fullscreen viewer is never covered by another layer. */
+  z-index: 3000;
   display: flex;
   flex-direction: column;
   background: rgba(5, 5, 6, 0.92);

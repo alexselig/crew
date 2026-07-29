@@ -5,7 +5,6 @@ import type { TranscriptBlock, PermissionResolution } from '../transcript'
 import type { AgentBlock } from '../../shared/agent-events'
 import { DEMO_BLOCKS_DEBUG } from '../transcript/fixtures'
 import { getTranscript } from '../terminal/facade'
-import { previewToken } from '../preview-bus'
 import './TranscriptPane.css'
 
 // Compile-time guard: the shared parser's blocks are rendered directly as the
@@ -94,13 +93,13 @@ export function TranscriptPane({
         window.crew.sendInput(sessionId, `${optionId}\r`),
       // Approvals reuse the raw terminal's y/n convention.
       onPermission: (_blockId: string, res: PermissionResolution): void =>
-        window.crew.sendInput(sessionId, `${res === 'deny' ? 'n' : 'y'}\r`),
-      onOpenImage: (blockId: string): void => {
-        const b = blocks.find((x) => x.id === blockId)
-        if (b && b.kind === 'image') void previewToken(sessionId, b.src)
-      }
+        window.crew.sendInput(sessionId, `${res === 'deny' ? 'n' : 'y'}\r`)
+      // No onOpenImage: transcript images are inlined data: URIs (agent
+      // screenshots + resolved attachments), which the asset-token previewer
+      // can't resolve. Omitting it makes ImageOutput use its built-in fullscreen
+      // lightbox, which renders data: URIs directly.
     }),
-    [sessionId, blocks]
+    [sessionId]
   )
 
   if (!DEMO && !enhanced) {
