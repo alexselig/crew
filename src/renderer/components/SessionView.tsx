@@ -135,10 +135,10 @@ export function SessionView({
         <span className="session-header__spacer" />
 
         {active && enhancedTerminal && (
-          <span className="pane-toggle" style={{ display: 'flex', gap: 4, marginRight: 4 }}>
+          <span className="pane-toggle">
             <button
               type="button"
-              className={`btn ${pane === 'terminal' ? 'btn--primary' : ''}`}
+              className={`btn pane-toggle__btn ${pane === 'terminal' ? 'is-active' : ''}`}
               title="Raw terminal"
               onClick={() => setPane('terminal')}
             >
@@ -146,7 +146,7 @@ export function SessionView({
             </button>
             <button
               type="button"
-              className={`btn ${pane === 'transcript' ? 'btn--primary' : ''}`}
+              className={`btn pane-toggle__btn ${pane === 'transcript' ? 'is-active' : ''}`}
               title="Typed transcript (read layer)"
               onClick={() => setPane('transcript')}
             >

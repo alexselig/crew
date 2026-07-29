@@ -411,6 +411,7 @@ button {
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   -webkit-app-region: drag;
+  position: relative;
 }
 
 .session-header button,
@@ -508,6 +509,32 @@ button {
 
 .session-header__spacer {
   flex: 1;
+}
+
+/* Terminal/Transcript pane toggle — absolutely centered in the title bar so it
+   sits mid-header regardless of the left (identity) and right (since/actions)
+   content widths. The active pane reads as a blue hairline OUTLINE (not a
+   filled button) so it stays quiet within the window chrome. */
+.pane-toggle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.session-header .pane-toggle__btn.is-active {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.session-header .pane-toggle__btn.is-active:hover {
+  border-color: var(--accent);
+  background: rgba(43, 76, 242, 0.08);
 }
 
 .session-header__status {
