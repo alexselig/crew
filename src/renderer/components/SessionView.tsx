@@ -134,7 +134,7 @@ export function SessionView({
 
         <span className="session-header__spacer" />
 
-        {active && (
+        {active && enhancedTerminal && (
           <span className="pane-toggle" style={{ display: 'flex', gap: 4, marginRight: 4 }}>
             <button
               type="button"
@@ -220,7 +220,7 @@ export function SessionView({
         {active ? (
           <>
             <div className="term-wrap">
-              {pane === 'transcript' ? (
+              {enhancedTerminal && pane === 'transcript' ? (
                 <TranscriptPane
                   sessionId={session.id}
                   enhanced={enhancedTerminal}
