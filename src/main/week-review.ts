@@ -213,7 +213,7 @@ export async function buildPastWeek(): Promise<PastWeek> {
   const inWindow =
     `IN (SELECT id FROM sessions WHERE substr(created_at,1,10) BETWEEN '${fromDayUTC}' AND '${toDayUTC}')`
 
-  const [sessionRows, turnRows, fileRows, cpRows, usageRows] = await Promise.all([
+  const [sessionRows, turnRows, fileRows, cpRows, usageRows, usageBySessionRows] = await Promise.all([
     sqlite3Json(
       COPILOT_DB,
       `SELECT id, summary, created_at FROM sessions ` +
@@ -227,8 +227,12 @@ export async function buildPastWeek(): Promise<PastWeek> {
     ),
     sqlite3Json(
       COPILOT_DB,
-      `SELECT model, COUNT(*) AS calls, COALESCE(SUM(COALESCE(output_tokens,0)),0) AS tok ` +
-        `FROM assistant_usage_events WHERE session_id ${inWindow} GROUP BY model`
+      `SELECT model, COUNT(*) AS calls FROM assistant_usage_events WHERE session_id ${inWindow} GROUP BY model`
+    ),
+    sqlite3Json(
+      COPILOT_DB,
+      `SELECT session_id, COALESCE(SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0)),0) AS tok ` +
+        `FROM assistant_usage_events WHERE session_id ${inWindow} GROUP BY session_id`
     )
   ])
 
@@ -245,6 +249,9 @@ export async function buildPastWeek(): Promise<PastWeek> {
 
   const turns = new Map<string, number>()
   for (const r of turnRows) turns.set(str(r.session_id), num(r.n))
+
+  const tokensBySession = new Map<string, number>()
+  for (const r of usageBySessionRows) tokensBySession.set(str(r.session_id), num(r.tok))
 
   // Project attribution from touched files.
   const filesBySession = new Map<string, Map<string, number>>()
@@ -264,8 +271,13 @@ export async function buildPastWeek(): Promise<PastWeek> {
   }
 
   const projects: PastWeekProject[] = [...projectAgg.values()]
-    .map((p) => ({ name: p.name, sessions: p.sessions.size, files: p.files }))
-    .sort((a, b) => b.sessions - a.sessions || b.files - a.files || a.name.localeCompare(b.name))
+    .map((p) => ({
+      name: p.name,
+      sessions: p.sessions.size,
+      files: p.files,
+      tokens: [...p.sessions].reduce((a, sid) => a + (tokensBySession.get(sid) || 0), 0)
+    }))
+    .sort((a, b) => b.tokens - a.tokens || b.sessions - a.sessions || b.files - a.files || a.name.localeCompare(b.name))
 
   // Sessions bucketed by local day. Enrich each with its turns, top projects and
   // a display title first, then drop pure-noise blank launches (no summary, no
@@ -299,7 +311,8 @@ export async function buildPastWeek(): Promise<PastWeek> {
       time: timeLabel(e.s.created_at),
       title: e.title,
       projects: e.topProjects,
-      turns: e.turns
+      turns: e.turns,
+      tokens: tokensBySession.get(e.s.id) || 0
     })
   }
 
@@ -323,18 +336,20 @@ export async function buildPastWeek(): Promise<PastWeek> {
     if (followups.length >= MAX_FOLLOWUPS) break
   }
 
-  // Usage / stats.
-  let tokens = 0
+  // Usage / stats. "Tokens" is total processed (input + output) across the week's
+  // displayed sessions; topModel is whichever model ran the most calls.
   let topModel: string | null = null
   let bestCalls = -1
   for (const r of usageRows) {
-    tokens += num(r.tok)
     const calls = num(r.calls)
     if (calls > bestCalls) {
       bestCalls = calls
       topModel = str(r.model) || null
     }
   }
+
+  let tokens = 0
+  for (const e of enriched) tokens += tokensBySession.get(e.s.id) || 0
 
   let messages = 0
   for (const e of enriched) messages += e.turns

@@ -220,6 +220,7 @@ export const IPC = {
   AGENT_TRANSCRIPT_GET: 'agentTranscript:get',
   TRACKER_SCAN: 'tracker:scan',
   TRACKER_PAST_WEEK: 'tracker:pastWeek',
+  USAGE_ANALYTICS: 'usage:analytics',
   OPEN_EXTERNAL: 'shell:openExternal',
   ACTIVITY_COMMITS: 'activity:commits',
   TRACKER_LAUNCH: 'tracker:launch',

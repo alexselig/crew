@@ -40,6 +40,7 @@ const api: CrewAPI = {
   exportTranscript: (id, label) => ipcRenderer.invoke(IPC.TRANSCRIPT_EXPORT, { id, label }),
   scanTracker: () => ipcRenderer.invoke(IPC.TRACKER_SCAN),
   getPastWeek: () => ipcRenderer.invoke(IPC.TRACKER_PAST_WEEK),
+  getUsageAnalytics: () => ipcRenderer.invoke(IPC.USAGE_ANALYTICS),
   openExternal: (url) => ipcRenderer.invoke(IPC.OPEN_EXTERNAL, url),
   getCommitActivity: () => ipcRenderer.invoke(IPC.ACTIVITY_COMMITS),
   launchProject: (id) => ipcRenderer.invoke(IPC.TRACKER_LAUNCH, id),

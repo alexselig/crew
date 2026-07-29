@@ -55,7 +55,7 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal modal--settings" onMouseDown={(e) => e.stopPropagation()}>
         <h2 className="modal__title">Settings</h2>
         {!settings ? (
           <div className="settings__loading">Loading…</div>

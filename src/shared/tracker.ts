@@ -183,6 +183,8 @@ export interface PastWeekSession {
   title: string
   projects: string[]
   turns: number
+  /** Total tokens (input + output) the models processed for this session. */
+  tokens: number
 }
 
 /** A day with its sessions. */
@@ -197,6 +199,8 @@ export interface PastWeekProject {
   name: string
   sessions: number
   files: number
+  /** Total tokens (input + output) across the project's sessions this week. */
+  tokens: number
 }
 
 /** A follow-up suggestion extracted from checkpoint next-steps. */

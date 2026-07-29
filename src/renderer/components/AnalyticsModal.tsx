@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { SessionInfo, CharacterDef, Settings } from '../../shared/types'
 import type { ActivityEvent } from '../../shared/api'
 import type { CommitActivity } from '../../shared/tracker'
+import type { UsageAnalytics, UsageRangeKey } from '../../shared/usage'
 import { formatUsd, formatCredits, sessionUsd } from '../state-meta'
 import { CharacterArt, hasCharacterArt } from '../character-art'
 
@@ -15,6 +16,15 @@ interface Props {
 type Tab = 'spend' | 'activity'
 
 const NEEDS = new Set(['WAITING_INPUT', 'WAITING_APPROVAL'])
+
+/** Compact token count, e.g. 1_650_000 → "1.6M", 2.1e9 → "2.1B". */
+function fmtTokens(n: number): string {
+  if (!n) return '0'
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`
+  return String(n)
+}
 
 function fmtDur(ms: number): string {
   const s = Math.floor(ms / 1000)
@@ -48,10 +58,13 @@ export function AnalyticsModal({ roster, characters, settings, onClose }: Props)
   const [tab, setTab] = useState<Tab>('spend')
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [commits, setCommits] = useState<CommitActivity[]>([])
+  const [usage, setUsage] = useState<UsageAnalytics | null>(null)
+  const [range, setRange] = useState<UsageRangeKey>('week')
 
   useEffect(() => {
     void window.crew.getEvents().then(setEvents)
     void window.crew.getCommitActivity().then(setCommits)
+    void window.crew.getUsageAnalytics().then(setUsage)
   }, [])
 
   useEffect(() => {
@@ -75,6 +88,11 @@ export function AnalyticsModal({ roster, characters, settings, onClose }: Props)
   // open sessions' repos. Session state churn (idle/working) is deliberately not
   // shown here; it's low-signal and would crowd out the commit notes.
   const feed = useMemo(() => [...commits].sort((a, b) => b.ts - a.ts).slice(0, 60), [commits])
+
+  // Selected token-usage range + chart/intensity scales for the Activity tab.
+  const activeRange = useMemo(() => usage?.ranges.find((r) => r.key === range) ?? null, [usage, range])
+  const chartMax = useMemo(() => (activeRange ? Math.max(1, ...activeRange.series.map((b) => b.tokens)) : 1), [activeRange])
+  const sliceMax = useMemo(() => (activeRange ? Math.max(1, ...activeRange.projects.map((p) => p.tokens)) : 1), [activeRange])
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -156,23 +174,98 @@ export function AnalyticsModal({ roster, characters, settings, onClose }: Props)
             </table>
           </div>
         ) : (
-          <div className="analytics__scroll analytics__feed">
-            {feed.length === 0 ? (
-              <div className="muted">No commits yet.</div>
+          <div className="analytics__scroll">
+            <div className="usage-range" role="group" aria-label="Token usage time range">
+              {(usage?.ranges ?? []).map((r) => (
+                <button
+                  key={r.key}
+                  type="button"
+                  className={`usage-range__opt ${range === r.key ? 'is-on' : ''}`}
+                  aria-pressed={range === r.key}
+                  onClick={() => setRange(r.key)}
+                >
+                  {r.short}
+                </button>
+              ))}
+            </div>
+
+            {!usage ? (
+              <div className="muted usage__msg">Reading token history…</div>
+            ) : !usage.available ? (
+              <div className="muted usage__msg">No Copilot CLI history found.</div>
+            ) : !activeRange || activeRange.totalTokens === 0 ? (
+              <div className="muted usage__msg">No token usage in this range.</div>
             ) : (
-              feed.map((item, i) => (
-                <div key={i} className="timeline-row timeline-row--commit">
-                  <span className="timeline-time">{new Date(item.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                  <span className="commit-chip">
-                    <span className="commit-chip__sha">{item.sha}</span>
-                    <span className="commit-chip__proj">{item.project}</span>
-                  </span>
-                  <span className={`commit-chip__msg ${item.isRelease ? 'is-rel' : ''}`} title={item.subject}>
-                    {item.subject}
+              <>
+                <div className="usage__headline">
+                  <span className="usage__big">{fmtTokens(activeRange.totalTokens)}</span>
+                  <span className="usage__unit">tokens</span>
+                  <span className="usage__meta">
+                    {activeRange.title.toLowerCase()} · {activeRange.bucketLabel}
+                    {activeRange.totalAiu > 0 ? ` · ${formatCredits(activeRange.totalAiu / 1e9)} credits` : ''}
+                    {activeRange.peakLabel ? ` · peak ${activeRange.peakLabel}` : ''}
                   </span>
                 </div>
-              ))
+
+                <div className="usage-chart" role="img" aria-label={`Token usage over time — ${activeRange.title}`}>
+                  {activeRange.series.map((b, i) => (
+                    <div
+                      key={i}
+                      className={`usage-bar ${b.tokens > 0 ? '' : 'is-empty'}`}
+                      style={{ height: `${(b.tokens / chartMax) * 100}%` }}
+                      title={`${b.label ? b.label + ' · ' : ''}${fmtTokens(b.tokens)} tokens`}
+                    />
+                  ))}
+                </div>
+                <div className="usage-axis">
+                  {activeRange.series.map((b, i) => (
+                    <span key={i} className="usage-axis__tick">
+                      {b.label}
+                    </span>
+                  ))}
+                </div>
+
+                {activeRange.projects.length > 0 && (
+                  <div className="usage-intensity">
+                    <div className="usage-intensity__head">
+                      Project intensity <span className="muted">· tokens by repo / session</span>
+                    </div>
+                    {activeRange.projects.map((p, i) => (
+                      <div className="usage-int" key={i}>
+                        <span className="usage-int__name" title={p.name}>
+                          {p.kind === 'session' && p.name !== 'Other' ? '❯ ' : ''}
+                          {p.name}
+                        </span>
+                        <span className="usage-int__track">
+                          <span className="usage-int__fill" style={{ width: `${(p.tokens / sliceMax) * 100}%` }} />
+                        </span>
+                        <span className="usage-int__val">{fmtTokens(p.tokens)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
+
+            <div className="usage-commits">
+              <div className="usage-intensity__head">Recent commits</div>
+              {feed.length === 0 ? (
+                <div className="muted">No commits yet.</div>
+              ) : (
+                feed.map((item, i) => (
+                  <div key={i} className="timeline-row timeline-row--commit">
+                    <span className="timeline-time">{new Date(item.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                    <span className="commit-chip">
+                      <span className="commit-chip__sha">{item.sha}</span>
+                      <span className="commit-chip__proj">{item.project}</span>
+                    </span>
+                    <span className={`commit-chip__msg ${item.isRelease ? 'is-rel' : ''}`} title={item.subject}>
+                      {item.subject}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         )}
 

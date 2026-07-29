@@ -8,9 +8,10 @@ interface Props {
 const FRAMEWORK_LABEL: Record<string, string> = { next: 'Next.js', vite: 'Vite', electron: 'Electron', node: 'Node', static: 'Static' }
 const ORIGIN_LABEL: Record<string, string> = { work: 'Work', personal: 'Personal', external: 'External' }
 
-/** Compact token count, e.g. 1_650_000 → "1.6M", 22_555 → "23k". */
+/** Compact token count, e.g. 1_650_000 → "1.6M", 22_555 → "23k", 2.1e9 → "2.1B". */
 function fmtTokens(n: number): string {
   if (!n) return '0'
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`
   return String(n)
@@ -403,6 +404,7 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
                   <span className="pw-proj__meta">
                     {pr.sessions} session{pr.sessions === 1 ? '' : 's'}
                     {pr.files > 0 ? ` · ${pr.files} file${pr.files === 1 ? '' : 's'}` : ''}
+                    {pr.tokens > 0 ? ` · ${fmtTokens(pr.tokens)} tokens` : ''}
                   </span>
                 </div>
               ))}
@@ -431,9 +433,11 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
                     <div className="pw-sess" key={s.id}>
                       <span className="pw-sess__time">{s.time}</span>
                       <span className="pw-sess__title">{s.title}</span>
-                      {s.turns > 0 && (
+                      {(s.tokens > 0 || s.turns > 0) && (
                         <span className="pw-sess__turns">
-                          {s.turns} msg{s.turns === 1 ? '' : 's'}
+                          {s.tokens > 0 ? `${fmtTokens(s.tokens)} tok` : ''}
+                          {s.tokens > 0 && s.turns > 0 ? ' · ' : ''}
+                          {s.turns > 0 ? `${s.turns} msg${s.turns === 1 ? '' : 's'}` : ''}
                         </span>
                       )}
                       {s.projects.length > 0 && <span className="pw-sess__proj">{s.projects.join(' · ')}</span>}

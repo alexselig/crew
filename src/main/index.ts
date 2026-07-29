@@ -25,6 +25,7 @@ import { listInstalledSkills } from './skills'
 import { scanProjects, recentCommits, resolveLaunch } from './tracker'
 import { readAgentTranscript } from './agent-transcript'
 import { buildPastWeek } from './week-review'
+import { buildUsageAnalytics } from './usage-analytics'
 import { launch as launchServer, stop as stopServer, status as serverStatus, stopAll as stopAllServers } from './launcher'
 import { CHARACTERS } from './characters'
 
@@ -668,6 +669,8 @@ function registerIpc(): void {
   })
   // Read-only "past week" review derived from the Copilot CLI session history.
   ipcMain.handle(IPC.TRACKER_PAST_WEEK, () => buildPastWeek())
+  // Read-only token-usage analytics (time series + intensity) for the Activity view.
+  ipcMain.handle(IPC.USAGE_ANALYTICS, () => buildUsageAnalytics())
   // Open an external http(s) URL (GitHub / live demo) in the default browser.
   ipcMain.handle(IPC.OPEN_EXTERNAL, (_e, url: string) => {
     if (typeof url === 'string' && /^https?:\/\//.test(url)) void shell.openExternal(url)

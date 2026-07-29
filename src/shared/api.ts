@@ -13,6 +13,7 @@ import type {
 } from './types'
 import type { AssetItem } from './assets'
 import type { TrackerData, CommitActivity, RunningServer, LaunchResult, PastWeek } from './tracker'
+import type { UsageAnalytics } from './usage'
 import type { AgentBlock } from './agent-events'
 
 export interface StateEvent {
@@ -113,6 +114,8 @@ export interface CrewAPI {
   scanTracker(): Promise<TrackerData>
   /** A read-only "past week" review derived from the Copilot CLI history. */
   getPastWeek(): Promise<PastWeek>
+  /** Read-only token-usage analytics (time-series + intensity) for the Activity view. */
+  getUsageAnalytics(): Promise<UsageAnalytics>
   /** Open an external http(s) URL in the default browser. */
   openExternal(url: string): Promise<void>
   /** Recent git commits across the open sessions' working dirs (newest first). */
