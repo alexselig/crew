@@ -92,5 +92,7 @@ zero renderer/main-process errors.
 ## Status
 
 See [`SPEC.md`](./SPEC.md) for the full design, MVP scope (§13), and the v0.1
-implementation notes (§17). The highest-value next step is calibrating the
-prompt/spinner signatures against real Claude Code / Copilot CLI transcripts.
+implementation notes (§17), and [`DESIGN.md`](./DESIGN.md) for the visual design
+system (Obsidian palette, typography, motion, state model). The highest-value next
+step is calibrating the prompt/spinner signatures against real Claude Code /
+Copilot CLI transcripts.

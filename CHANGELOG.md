@@ -3,7 +3,31 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
-## Unreleased
+## 0.4.0 — 2026-07-28
+
+**Beta Enhanced Terminal engine, a typed Transcript view, plus Project Tracker refinements.**
+
+### Enhanced Terminal (Beta)
+- A new Crew-owned terminal engine behind **Settings ▸ "Beta: Enhanced Terminal
+  Interface"** (off by default, app-wide): GPU (WebGL) rendering, Unicode 11
+  widths, and inline images (Sixel / iTerm2). Toggle it off to return to the
+  classic terminal instantly.
+- **Highlighted input rows** (light-yellow row + amber left bar) for every
+  command you run, an **overview-ruler map** in the scrollbar gutter (yellow =
+  your prompts, green/red = exit code), and **jump-to-prompt** navigation
+  (`⌘↑` / `⌘↓`).
+- Optional **zsh / bash shell integration** (OSC 133) for exact per-command
+  marks. Highlights are purely visual — they never intercept clicks, text
+  selection, or scrolling.
+
+### Transcript view
+- A typed, block-based **read layer** over a session — user / agent / thinking /
+  tool run / diff / plan / decision / permission / error / image — on the
+  Obsidian hairline rail. Switch **Terminal ⇄ Transcript** from the session
+  header; the raw terminal stays the source of truth.
+
+### Session spend
+- Per-session cost gains an **Auto / Manual** mode.
 
 ### Project Tracker
 - **Rebuilt each project card around three clearer bands.** A promoted
