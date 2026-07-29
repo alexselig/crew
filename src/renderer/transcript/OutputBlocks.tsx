@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   ErrorBlock,
   FileDiffBlock,
@@ -74,7 +74,12 @@ export function FileDiff({ block }: { block: FileDiffBlock }): JSX.Element {
   )
 }
 
-/** Screenshot / rendered preview emitted by the agent. */
+/**
+ * Screenshot / rendered preview emitted by the agent. Clicking the image (or
+ * "Open full size") opens it fullscreen: via `handlers.onOpenImage` when the
+ * host provides one (e.g. native viewer), otherwise via the built-in lightbox
+ * (Esc or click to close).
+ */
 export function ImageOutput({
   block,
   handlers
@@ -82,21 +87,49 @@ export function ImageOutput({
   block: ImageBlock
   handlers?: TranscriptHandlers
 }): JSX.Element {
+  const [zoomed, setZoomed] = useState(false)
+
+  const open = () => {
+    if (handlers?.onOpenImage) handlers.onOpenImage(block.id)
+    else setZoomed(true)
+  }
+
+  useEffect(() => {
+    if (!zoomed) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setZoomed(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [zoomed])
+
   return (
     <BlockFrame variant="image" tick="▣" meta={<>screenshot{block.alt && ` · ${block.alt}`}</>}>
       <div className="tr-card tr-img">
-        <img className="tr-img__pic" src={block.src} alt={block.alt ?? ''} />
-        {(block.caption || handlers?.onOpenImage) && (
-          <div className="tr-img__cap">
-            {block.caption}
-            {handlers?.onOpenImage && (
-              <button className="tr-img__open" onClick={() => handlers.onOpenImage?.(block.id)}>
-                Open full size
-              </button>
-            )}
-          </div>
-        )}
+        <button className="tr-img__shot" onClick={open} aria-label="View full screen">
+          <img className="tr-img__pic" src={block.src} alt={block.alt ?? ''} />
+          <span className="tr-img__hint">⤢ Click to view full screen</span>
+        </button>
+        <div className="tr-img__cap">
+          {block.caption}
+          <button className="tr-img__open" onClick={open}>
+            Open full size
+          </button>
+        </div>
       </div>
+      {zoomed && (
+        <div className="tr-lightbox" role="dialog" aria-modal="true" aria-label="Image viewer">
+          <div className="tr-lightbox__bar">
+            <span className="tr-lightbox__name">{block.caption ?? block.alt ?? 'image'}</span>
+            <button className="tr-lightbox__close" onClick={() => setZoomed(false)}>
+              ✕ Close  esc
+            </button>
+          </div>
+          <div className="tr-lightbox__stage" onClick={() => setZoomed(false)}>
+            <img src={block.src} alt={block.alt ?? ''} />
+          </div>
+        </div>
+      )}
     </BlockFrame>
   )
 }
