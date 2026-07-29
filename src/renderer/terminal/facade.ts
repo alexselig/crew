@@ -13,6 +13,7 @@
 import * as legacy from '../terminal-pool'
 import * as crew from './pool'
 import type { Block } from '../../shared/blocks'
+import type { TranscriptBlock } from '../transcript/types'
 
 export type EngineMode = 'legacy' | 'crew'
 
@@ -56,4 +57,14 @@ export function jumpToPrompt(id: string, dir: 'prev' | 'next'): boolean {
 /** Copy the terminal selection (Crew engine only). */
 export function copySelection(id: string): Promise<string> {
   return mode === 'crew' ? crew.copySelection(id) : Promise.resolve('')
+}
+
+/** Record a submitted command line for the typed Transcript (Crew engine only). */
+export function recordInput(id: string, line: string): void {
+  if (mode === 'crew') crew.recordInput(id, line)
+}
+
+/** Typed session scrollback for the Transcript view (Crew engine only). */
+export function getTranscript(id: string): TranscriptBlock[] {
+  return mode === 'crew' ? crew.getTranscript(id) : []
 }

@@ -1,0 +1,29 @@
+/* Host wrapper for the typed Transcript view. The transcript module owns all
+   block styling (tr- prefixed); this only makes the scroll area fill the pane
+   and provides the empty-state. */
+.transcript-pane {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+
+/* Merged onto the module's .transcript root via its className prop — additive,
+   not a restyle: just lets the scroll region grow to fill the pane. */
+.transcript-pane .transcript-fill {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.transcript-pane--empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+  padding: 24px;
+}

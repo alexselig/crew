@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { getPooled, focusTerminal, markPrompt, jumpToPrompt } from '../terminal/pool'
+import { getPooled, focusTerminal, markPrompt, jumpToPrompt, recordInput } from '../terminal/pool'
 import { quotePaths } from '../../shared/shell-quote'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
@@ -30,6 +30,9 @@ export function CrewTerminal({
   focusOnMount?: boolean
 }): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
+  // Rough per-line accumulator of what the human types, flushed to the typed
+  // Transcript on Enter. Heuristic (ignores cursor movement / escape sequences).
+  const lineRef = useRef('')
   // dragenter/leave fire for every child; a depth counter avoids flicker.
   const depth = useRef(0)
   const [dragOver, setDragOver] = useState(false)
@@ -78,9 +81,28 @@ export function CrewTerminal({
     ro.observe(host)
 
     // Forward keystrokes to the PTY. A carriage return means the user submitted
-    // input, so drop a landmark on that row (see markPrompt).
+    // input, so drop a landmark on that row (see markPrompt) and flush the typed
+    // command line to the transcript.
     const inputSub = p.engine.onInput((d) => {
       window.crew.sendInput(id, d)
+      if (!d.includes('\x1b')) {
+        for (const ch of d) {
+          if (ch === '\r' || ch === '\n') {
+            recordInput(id, lineRef.current)
+            lineRef.current = ''
+          } else if (ch === '\x7f' || ch === '\b') {
+            lineRef.current = lineRef.current.slice(0, -1)
+          } else if (ch === '\x03' || ch === '\x15') {
+            lineRef.current = '' // Ctrl-C / Ctrl-U clears the line
+          } else if (ch >= ' ') {
+            lineRef.current += ch
+          }
+        }
+        if (lineRef.current.length > 4096) lineRef.current = lineRef.current.slice(-4096)
+      } else if (d.includes('\r') || d.includes('\n')) {
+        recordInput(id, lineRef.current)
+        lineRef.current = ''
+      }
       if (d.includes('\r') || d.includes('\n')) markPrompt(id)
     })
 

@@ -16,6 +16,7 @@ import { pickJumpTarget } from '../../shared/nav'
 import { shouldHighlightInputOnEnter } from '../../shared/highlight'
 import { findAssetPaths } from '../../shared/assets'
 import { previewToken } from '../preview-bus'
+import type { TranscriptBlock } from '../transcript/types'
 
 export interface Pooled {
   engine: ReturnType<typeof createXtermEngine>
@@ -28,6 +29,12 @@ export interface Pooled {
    *  which switches input highlighting from the coarse Enter fallback to the
    *  accurate, semantic prompt marks. */
   hasSemanticMarks: boolean
+  /** Typed session scrollback as typed blocks (drives the Transcript view). */
+  transcript: TranscriptBlock[]
+  /** The last command line the human submitted (correlates to a tool result). */
+  lastInputLine: string
+  /** Monotonic id source for transcript blocks. */
+  txSeq: number
 }
 
 const pool = new Map<string, Pooled>()
@@ -73,11 +80,22 @@ export function getPooled(id: string): Pooled {
       blocks: new BlockTracker(),
       linkSub,
       marks: [],
-      hasSemanticMarks: false
+      hasSemanticMarks: false,
+      transcript: [],
+      lastInputLine: '',
+      txSeq: 0
     }
     pool.set(id, p)
   }
   return p
+}
+
+// Cap the typed transcript so a long session doesn't grow it without bound.
+const MAX_TX = 400
+
+function pushTx(p: Pooled, block: TranscriptBlock): void {
+  p.transcript.push(block)
+  if (p.transcript.length > MAX_TX) p.transcript.splice(0, p.transcript.length - MAX_TX)
 }
 
 export function writeTo(id: string, data: string): void {
@@ -89,17 +107,49 @@ export function writeTo(id: string, data: string): void {
   const now = Date.now()
   for (const ev of p.parser.push(data)) {
     p.blocks.apply(ev, now)
-    onBoundary(p, ev)
+    onBoundary(p, ev, now)
   }
 }
 
-/** React to semantic marks: highlight the prompt/input row accurately, keep
- *  navigation landmarks, and paint exit-code ruler ticks. Any mark also flips
- *  hasSemanticMarks so the coarse Enter fallback stands down for this session. */
-function onBoundary(p: Pooled, ev: OscEvent): void {
+/**
+ * Record a command line the human just submitted (called from CrewTerminal on
+ * Enter). Adds a `user` block to the typed transcript and remembers it so a
+ * following OSC 133 command-end can attribute its result. No-op for blank lines.
+ */
+export function recordInput(id: string, line: string): void {
+  const text = line.trim()
+  const p = pool.get(id)
+  if (!p) return
+  p.lastInputLine = text
+  if (!text) return
+  pushTx(p, { kind: 'user', id: `u${++p.txSeq}`, text, ts: Date.now() })
+}
+
+/** The typed session scrollback for the Transcript view (a copy). */
+export function getTranscript(id: string): TranscriptBlock[] {
+  return pool.get(id)?.transcript.slice() ?? []
+}
+
+/** React to semantic marks: build typed transcript blocks, highlight the
+ *  prompt/input row accurately, keep navigation landmarks, and paint exit-code
+ *  ruler ticks. Any mark also flips hasSemanticMarks so the coarse Enter
+ *  fallback stands down for this session. */
+function onBoundary(p: Pooled, ev: OscEvent, now: number): void {
   if (ev.kind === 'prompt-start' || ev.kind === 'output-start' || ev.kind === 'command-end') {
     p.hasSemanticMarks = true
   }
+  // Typed transcript (independent of whether the terminal is currently mounted).
+  if (ev.kind === 'command-end') {
+    pushTx(p, {
+      kind: 'tool',
+      id: `r${++p.txSeq}`,
+      command: p.lastInputLine || '(command)',
+      exitCode: ev.exitCode,
+      durationMs: undefined,
+      ts: now
+    })
+  }
+  // Visual decorations require a mounted terminal.
   if (!p.engine.mounted) return
   if (ev.kind === 'prompt-start') {
     // The prompt line: highlight it (this is where the user's command is typed)
