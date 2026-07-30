@@ -3,7 +3,9 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
-## Unreleased
+## 0.4.3 — 2026-07-29
+
+**Project Tracker absorbs Activity & Spend; a refined grid Transcript toggle.**
 
 ### Project Tracker
 - **Merged Activity & Spend into the tracker.** The separate "Activity & spend"
@@ -15,6 +17,10 @@ running and supervising multiple AI CLI agent sessions at a glance.
 - **Two toolbar buttons, one feature:** the chart icon deep-links to the tracker's
   **Activity** section and the clipboard icon to its **Planning** section (the
   command palette exposes both as "Activity & spend" and "Project tracker").
+
+### Grid
+- The per-tile **Transcript toggle** gets a purpose-built "rail-and-blocks" icon
+  (filled bars off the timeline, open rings), with crisper rendering at small sizes.
 
 ## 0.4.2 — 2026-07-29
 
