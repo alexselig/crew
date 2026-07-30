@@ -342,8 +342,8 @@
           <li><b>Grid view</b> — the live dashboard; click again to change density.</li>
           <li><b>Sort / group</b> — how the roster is organized (<a href="#sorting">see modes</a>).</li>
           <li><b>Broadcast</b> — send one prompt to many sessions.</li>
-          <li><b>Activity &amp; spend</b> — the analytics panel.</li>
-          <li><b>Project Tracker</b> — the full-screen project dashboard (<a href="#tracker">see it</a>).</li>
+          <li><b>Activity &amp; spend</b> — opens the <a href="#tracker">Project Tracker</a> on its Activity tab.</li>
+          <li><b>Project Tracker</b> — the full-screen project dashboard, Planning tab (<a href="#tracker">see it</a>).</li>
           <li><b>New window</b> — a second Crew window (<kbd>⇧⌘N</kbd>).</li>
           <li><b>Settings</b> — notifications, spend, transcripts and more.</li>
         </ol>
@@ -596,15 +596,17 @@
     <section class="doc" id="transcript">
       <div class="sec-eyebrow">14 · Read your session like a story</div>
       <h2>The Transcript view.</h2>
-      <p class="lead">With the enhanced terminal on, each session gains a <b>Terminal / Transcript</b> toggle in its header. The Transcript is a typed read-layer over the raw stream: your prompts, the agent’s replies, the commands it ran (with exit codes), and — crucially — the moments it’s <em>blocked on you</em>, all as clean blocks.</p>
+      <p class="lead">With the enhanced terminal on, each session gains a <b>Terminal / Transcript</b> toggle — in the focus-view header and on every grid tile. The Transcript is a typed read-layer over the raw stream: your prompts, the agent’s replies and reasoning, the commands it ran (with exit codes), and — crucially — the moments it’s <em>blocked on you</em>, all as clean blocks.</p>
       <figure>
-        <div class="frame"><img loading="lazy" src="assets/guide/transcript.jpg" alt="The typed Transcript view with decision and approval blocks" /></div>
-        <figcaption>Decisions, approvals and ran-commands as structured blocks — answer a question or approve a command right from the transcript.</figcaption>
+        <div class="frame"><img loading="lazy" src="assets/guide/transcript.jpg" alt="The typed Transcript view with decision and approval blocks and a prompt composer" /></div>
+        <figcaption>Decisions, approvals and ran-commands as structured blocks — answer, approve, or message the agent right from the transcript.</figcaption>
       </figure>
       <ul class="feat">
         <li><b>Decisions</b> — numbered choices you can click (or press the number) to answer.</li>
         <li><b>Approvals</b> — “Fox wants to run …” with <b>Deny / Once / Always allow</b>, wired back to the session.</li>
         <li><b>Ran commands</b> — each with its status and exit code; the raw terminal stays the source of truth.</li>
+        <li><b>Thinking blocks</b> — the agent’s reasoning as a compact “Thought for Ns” card you can expand.</li>
+        <li><b>Prompt composer</b> — a text box at the bottom to message the agent without leaving the transcript (Enter to send, Shift+Enter for a newline).</li>
       </ul>
     </section>
 
@@ -624,14 +626,14 @@
     <section class="doc" id="analytics">
       <div class="sec-eyebrow">16 · Where the time &amp; money went</div>
       <h2>Activity &amp; spend.</h2>
-      <p class="lead">Two tabs. <b>Spend</b> totals how long each session kept you waiting, what it cost, and any credits used. <b>Activity</b> is a commit feed — the git history across your open sessions' repos, newest first, with release commits highlighted.</p>
+      <p class="lead">Activity &amp; spend now lives inside the <a href="#tracker">Project Tracker</a>, on its <b>Activity</b> tab (the chart button in the toolbar jumps straight there). Three views: <b>Past Week</b> reviews your Copilot history, <b>Spend</b> totals waiting time + cost + credits per session, and <b>Activity</b> is a live commit feed across your repos.</p>
       <figure>
-        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/analytics.jpg" alt="The Activity and spend panel — Spend tab" /></div>
-        <figcaption><b>Spend</b> tab: per-session waiting time, spend and credits, with a running total.</figcaption>
+        <div class="frame"><img loading="lazy" src="assets/guide/analytics.jpg" alt="The Project Tracker's Activity tab — Spend view" /></div>
+        <figcaption>Tracker → <b>Activity</b> → <b>Spend</b>: per-session waiting time, spend and credits, with a running total and token analytics up top.</figcaption>
       </figure>
       <figure>
-        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/analytics-activity.jpg" alt="The Activity tab — a live commit feed" /></div>
-        <figcaption><b>Activity</b> tab: a live commit feed across the crew's repos; releases are highlighted.</figcaption>
+        <div class="frame"><img loading="lazy" src="assets/guide/analytics-activity.jpg" alt="The Activity view — a live commit feed" /></div>
+        <figcaption>The <b>Activity</b> view: a live commit feed across the crew's repos; releases are highlighted.</figcaption>
       </figure>
     </section>
 
@@ -639,17 +641,17 @@
     <section class="doc" id="tracker">
       <div class="sec-eyebrow">17 · Mission control for your repos</div>
       <h2>The Project Tracker.</h2>
-      <p class="lead">The clipboard button opens a full-screen <b>Project Index</b> — a live dashboard built from the working directories of your open sessions. Each session becomes a project card, derived straight from disk: git status, version, what shipped recently, open tasks, and commit history.</p>
+      <p class="lead">The clipboard button opens a full-screen <b>Project Index</b> with two tabs. <b>Planning</b> is the live project index — one card per open session, derived straight from disk: git status, version, what shipped recently, open tasks and commit history. <b>Activity</b> is the review layer (<a href="#analytics">Past Week / Spend / commit feed</a>) that absorbed the old Activity &amp; Spend dialog.</p>
       <figure>
-        <div class="frame"><img loading="lazy" src="assets/guide/tracker.jpg" alt="The full-screen Project Tracker dashboard" /></div>
-        <figcaption>The Project Tracker: totals (Projects · Shipped 7d · Open tasks), tab filters, then a card per project.</figcaption>
+        <div class="frame"><img loading="lazy" src="assets/guide/tracker.jpg" alt="The full-screen Project Tracker — Planning tab" /></div>
+        <figcaption>The Project Tracker, <b>Planning</b> tab: totals (Projects · Shipped 7d · Open tasks), tag filters, then a card per project.</figcaption>
       </figure>
       <ul class="feat">
+        <li><b>Activity / Planning tabs</b> — flip between the review dashboard and the live project index.</li>
         <li><b>Status at a glance</b> — a colored dot (active / recent / stale) and an “N open” task count per project.</li>
         <li><b>Recently shipped</b> — the week’s commits per project; <b>Open tasks</b> come from the session’s live agent to-do list and each repo’s <code>TODO.md</code> / “Next steps”.</li>
         <li><b>Proposed next steps</b> — gentle auto-suggestions (add a README, wire up tests, push a remote…).</li>
         <li><b>▶ Launch local</b> — start a project’s dev server right from the tracker (Vite / Next / Node), then stop it again.</li>
-        <li><b>Past Week</b> tab — a review of your Copilot CLI history: sessions, active days, projects and tokens for the last 7 days.</li>
         <li><b>Grouped by your session tags</b>, filterable, with an <b>Auto</b> re-scan every 20s.</li>
       </ul>
     </section>
@@ -690,8 +692,8 @@
       <h2>Settings.</h2>
       <p class="lead">Everything is off-by-default-sensible, but you can tune it all.</p>
       <figure>
-        <div class="frame frame--mid"><img loading="lazy" src="assets/guide/settings.jpg" alt="The settings panel" /></div>
-        <figcaption>Notifications, spend &amp; credits, transcripts, minimized-as-list, the Beta Enhanced Terminal, launch-at-login, a spend budget and stale-session hiding.</figcaption>
+        <div class="frame"><img loading="lazy" src="assets/guide/settings.jpg" alt="The two-column settings panel" /></div>
+        <figcaption>A two-column panel: notifications, spend &amp; credits, transcripts, minimized-as-list, cost tracking, the Beta Enhanced Terminal, launch-at-login, a spend budget and stale-session hiding.</figcaption>
       </figure>
       <ul class="feat">
         <li><b>Notifications</b> — native alert (with optional sound) when a session starts waiting; optionally only when Crew isn’t focused.</li>
