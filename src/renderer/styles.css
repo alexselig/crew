@@ -1943,14 +1943,30 @@ button {
   -webkit-app-region: no-drag;
 }
 
+/* Dim the inactive toggle icons with a SOLID paint + group opacity rather than a
+   translucent color. The transcript icon's rail/connectors overlap its rings and
+   bars; a translucent color compounds alpha at those overlaps, drawing phantom
+   seams that made the rings/bars read as odd shapes. Group opacity flattens the
+   icon to opaque pixels first, then applies one uniform alpha — always clean. */
+.tile__header .tile__pane-toggle .mini-btn {
+  color: var(--text);
+  opacity: 0.5;
+}
+
+.tile__header .tile__pane-toggle .mini-btn:hover {
+  opacity: 0.8;
+}
+
 .tile__header .tile__pane-toggle .mini-btn.is-active {
   color: var(--accent-text);
   background: rgba(43, 76, 242, 0.14);
+  opacity: 1;
 }
 
 .tile__header .tile__pane-toggle .mini-btn.is-active:hover {
   color: var(--accent-text);
   background: rgba(43, 76, 242, 0.2);
+  opacity: 1;
 }
 
 /* Transcript fills the tile body (the terminal fills via its own mount). */
