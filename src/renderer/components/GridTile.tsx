@@ -151,12 +151,12 @@ export function GridTile({
                 <circle cx="5" cy="6.5" r="1.5" />
                 <circle cx="5" cy="12" r="1.5" />
                 <circle cx="5" cy="17.5" r="1.5" />
-                <line x1="6.8" y1="6.5" x2="8.4" y2="6.5" />
-                <line x1="6.8" y1="12" x2="8.4" y2="12" />
-                <line x1="6.8" y1="17.5" x2="8.4" y2="17.5" />
-                <rect x="9" y="4.7" width="10" height="3.6" rx="1.2" />
-                <rect x="9" y="10.2" width="10" height="3.6" rx="1.2" />
-                <rect x="9" y="15.7" width="10" height="3.6" rx="1.2" />
+                <line x1="6.8" y1="6.5" x2="8.6" y2="6.5" />
+                <line x1="6.8" y1="12" x2="8.6" y2="12" />
+                <line x1="6.8" y1="17.5" x2="8.6" y2="17.5" />
+                <rect x="9" y="4.7" width="10" height="3.6" rx="1.2" fill="currentColor" stroke="none" />
+                <rect x="9" y="10.2" width="10" height="3.6" rx="1.2" fill="currentColor" stroke="none" />
+                <rect x="9" y="15.7" width="10" height="3.6" rx="1.2" fill="currentColor" stroke="none" />
               </svg>
             </button>
           </span>
