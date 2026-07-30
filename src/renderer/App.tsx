@@ -8,7 +8,7 @@ import { NewSessionModal } from './components/NewSessionModal'
 import { SettingsModal } from './components/SettingsModal'
 import { BroadcastModal } from './components/BroadcastModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
-import { ProjectTracker } from './components/ProjectTracker'
+import { ProjectTracker, type Section as TrackerSection } from './components/ProjectTracker'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
@@ -27,7 +27,10 @@ export function App(): JSX.Element {
   const [showPalette, setShowPalette] = useState(false)
   const [showBroadcast, setShowBroadcast] = useState(false)
   const [showTranscripts, setShowTranscripts] = useState(false)
-  const [showTracker, setShowTracker] = useState(false)
+  // The Project Tracker is a single feature reached from two toolbar buttons that
+  // deep-link to different sections (chart → Activity, clipboard → Planning).
+  // null = closed; a section value = open on that section.
+  const [trackerSection, setTrackerSection] = useState<TrackerSection | null>(null)
   // The title launch sequence plays on boot (waiting for a "click to start")
   // and replays on logo click. Skipped under automation (Playwright e2e) so it
   // never blocks the tests, and on secondary windows (?intro=0) so only the
@@ -43,7 +46,7 @@ export function App(): JSX.Element {
     showPalette ||
     showBroadcast ||
     showTranscripts ||
-    showTracker ||
+    trackerSection !== null ||
     showIntro ||
     c.showNew
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
@@ -236,7 +239,8 @@ export function App(): JSX.Element {
       },
       { id: 'act-next', label: 'Jump to next waiting', icon: <Icon name="bell" />, hint: '⌘J', run: jumpNextWaiting },
       { id: 'act-broadcast', label: 'Broadcast a prompt…', icon: <Icon name="broadcast" />, run: () => setShowBroadcast(true) },
-      { id: 'act-tracker', label: 'Project tracker', icon: <Icon name="tracker" />, run: () => setShowTracker(true) },
+      { id: 'act-analytics', label: 'Activity & spend', icon: <Icon name="chart" />, run: () => setTrackerSection('activity') },
+      { id: 'act-tracker', label: 'Project tracker', icon: <Icon name="tracker" />, run: () => setTrackerSection('planning') },
       { id: 'act-transcripts', label: 'Search transcripts…', icon: <Icon name="search" />, run: () => setShowTranscripts(true) },
       { id: 'act-settings', label: 'Open Settings', icon: <Icon name="settings" />, run: () => setShowSettings(true) }
     ]
@@ -307,7 +311,8 @@ export function App(): JSX.Element {
         onReplayIntro={() => setShowIntro(true)}
         onOpenSettings={() => setShowSettings(true)}
         onBroadcast={() => setShowBroadcast(true)}
-        onOpenTracker={() => setShowTracker(true)}
+        onAnalytics={() => setTrackerSection('activity')}
+        onOpenTracker={() => setTrackerSection('planning')}
         showSpend={c.settings?.showSpend ?? true}
         showCredits={c.settings?.showCredits ?? false}
         budgetUsd={c.settings?.budgetUsd ?? 0}
@@ -348,7 +353,8 @@ export function App(): JSX.Element {
           onGridRepeat={cycleGridDensity}
           onOpenSettings={() => setShowSettings(true)}
           onBroadcast={() => setShowBroadcast(true)}
-          onOpenTracker={() => setShowTracker(true)}
+          onAnalytics={() => setTrackerSection('activity')}
+          onOpenTracker={() => setTrackerSection('planning')}
           showSpend={c.settings?.showSpend ?? true}
           showCredits={c.settings?.showCredits ?? false}
           staleHideHours={c.settings?.staleHideHours ?? 72}
@@ -406,12 +412,13 @@ export function App(): JSX.Element {
           onClose={() => setShowTranscripts(false)}
         />
       )}
-      {showTracker && (
+      {trackerSection && (
         <ProjectTracker
           roster={c.roster}
           characters={c.characters}
           settings={c.settings}
-          onClose={() => setShowTracker(false)}
+          initialSection={trackerSection}
+          onClose={() => setTrackerSection(null)}
         />
       )}
 

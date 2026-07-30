@@ -12,8 +12,9 @@ running and supervising multiple AI CLI agent sessions at a glance.
   - **Activity** — Past Week, Spend, and Activity (token usage + recent commits).
   - **Planning** — the live project index (All + per-tag groups) with each
     project's open tasks and proposed next steps.
-- One entrypoint now (the tracker icon / "Project tracker" command); the chart
-  icon in the grid and roster toolbars was removed.
+- **Two toolbar buttons, one feature:** the chart icon deep-links to the tracker's
+  **Activity** section and the clipboard icon to its **Planning** section (the
+  command palette exposes both as "Activity & spend" and "Project tracker").
 
 ## 0.4.2 — 2026-07-29
 

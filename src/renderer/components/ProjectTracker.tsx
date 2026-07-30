@@ -10,12 +10,15 @@ interface Props {
   roster: SessionInfo[]
   characters: CharacterDef[]
   settings: Settings | null
+  /** Which top-level section to open on first render (deep-link from the two
+   * toolbar entrypoints: chart → activity, clipboard → planning). */
+  initialSection?: Section
   onClose: () => void
 }
 
 /** Top-level tracker sections. Activity = review (Past Week / Spend / Activity);
  * Planning = the live project index (All + per-tag groups, tasks & proposals). */
-type Section = 'activity' | 'planning'
+export type Section = 'activity' | 'planning'
 type ActivityView = 'past' | 'spend' | 'activity'
 
 const FRAMEWORK_LABEL: Record<string, string> = { next: 'Next.js', vite: 'Vite', electron: 'Electron', node: 'Node', static: 'Static' }
@@ -90,13 +93,13 @@ function shipSummary(p: Project): string {
  * is derived live from disk (git, package.json, task files): status, version,
  * next steps, commit/feature history, and open/launch actions.
  */
-export function ProjectTracker({ roster, characters, settings, onClose }: Props): JSX.Element {
+export function ProjectTracker({ roster, characters, settings, initialSection = 'activity', onClose }: Props): JSX.Element {
   const [data, setData] = useState<TrackerData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [openHistory, setOpenHistory] = useState<Set<string>>(new Set())
-  const [section, setSection] = useState<Section>('activity')
+  const [section, setSection] = useState<Section>(initialSection)
   const [activityView, setActivityView] = useState<ActivityView>('past')
   const [filter, setFilter] = useState<string>('all')
   const [pastWeek, setPastWeek] = useState<PastWeek | null>(null)

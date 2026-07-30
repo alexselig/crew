@@ -378,10 +378,10 @@ async function main() {
     await wait(200)
   })
 
-  // Activity & spend — now merged into the Project Tracker's Activity section.
-  // Spend sub-view, then the Activity (commit feed) sub-view.
+  // Activity & spend — the chart button deep-links to the tracker's Activity
+  // section. Spend sub-view, then the Activity (commit feed) sub-view.
   await shot('analytics.png', async () => {
-    await page.locator('[title="Project tracker"]').first().click()
+    await page.locator('[title="Activity & spend"]').first().click()
     await waitUntil(async () => (await page.locator('.tracker-filter').count()) >= 1, 'tracker open', 20000)
     await page.locator('.tracker-filter', { hasText: /^Spend$/ }).first().click()
     await waitUntil(async () => (await page.locator('.analytics').count()) >= 1, 'spend table', 20000)
@@ -390,7 +390,7 @@ async function main() {
   })
   await shot('analytics-activity.png', async () => {
     if ((await page.locator('.tracker').count()) === 0) {
-      await page.locator('[title="Project tracker"]').first().click()
+      await page.locator('[title="Activity & spend"]').first().click()
       await waitUntil(async () => (await page.locator('.tracker-filter').count()) >= 1, 'tracker open', 20000)
     }
     const activityTab = page.locator('.tracker-filter', { hasText: /^Activity$/ })
@@ -403,13 +403,11 @@ async function main() {
     await wait(200)
   })
 
-  // Project Tracker — the full-screen dashboard. It opens on the Activity section
-  // (Past Week review, empty in the harness), so switch to the Planning section
-  // and the "All" sub-filter to show the live project cards.
+  // Project Tracker — the clipboard button deep-links to the Planning section.
+  // Switch to the "All" sub-filter to show the live project cards.
   await shot('tracker.png', async () => {
     await page.locator('[title="Project tracker"]').first().click()
     await waitUntil(async () => (await page.locator('.tracker-tab').count()) >= 1, 'tracker open', 20000)
-    await page.locator('.tracker-tab', { hasText: /^Planning$/ }).first().click()
     const allTab = page.locator('.tracker-filter', { hasText: /^All$/ })
     if (await allTab.count()) await allTab.first().click()
     await waitUntil(async () => (await page.locator('.tracker-proj').count()) >= 1, 'tracker projects', 20000)

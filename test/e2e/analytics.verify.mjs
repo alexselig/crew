@@ -29,9 +29,11 @@ async function main() {
   await page.waitForTimeout(1500)
 
   // ---- Analytics (now merged into the Project Tracker → Activity section) ----
-  await page.locator('.icon-btn[title="Project tracker"]').click()
+  // ---- Analytics (Project Tracker → Activity section, deep-linked from the
+  //      chart button) ----
+  await page.locator('.icon-btn[title="Activity & spend"]').click()
   await page.waitForSelector('.tracker')
-  // Activity is the default section; open its Spend sub-view.
+  // The chart button opens the Activity section; open its Spend sub-view.
   await page.locator('.tracker-filter', { hasText: 'Spend' }).click()
   await page.waitForSelector('.analytics')
   const tableText = await page.locator('.analytics').textContent()

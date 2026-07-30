@@ -43,6 +43,7 @@ interface Props {
   onReplayIntro?: () => void
   onOpenSettings: () => void
   onBroadcast: () => void
+  onAnalytics: () => void
   onOpenTracker: () => void
   showSpend: boolean
   showCredits: boolean
@@ -93,6 +94,7 @@ export function Roster(props: Props): JSX.Element {
     onReplayIntro,
     onOpenSettings,
     onBroadcast,
+    onAnalytics,
     onOpenTracker,
     showSpend,
     showCredits,
@@ -395,6 +397,9 @@ export function Roster(props: Props): JSX.Element {
             <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
             <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
               <Icon name="broadcast" />
+            </button>
+            <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
+              <Icon name="chart" />
             </button>
             <button type="button" className="icon-btn" title="Project tracker" onClick={onOpenTracker}>
               <Icon name="tracker" />
