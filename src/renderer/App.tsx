@@ -369,6 +369,7 @@ export function App(): JSX.Element {
         <SessionView
           session={selected}
           enhancedTerminal={c.settings?.enhancedTerminal ?? false}
+          inputTokenWarn={c.settings?.inputTokenWarn ?? 100000}
           characters={c.characters}
           presets={c.presets}
           usedCharacterIds={usedCharacterIds}

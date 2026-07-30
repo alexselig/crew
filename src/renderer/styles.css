@@ -1121,6 +1121,10 @@ button {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* Scroll internally when the content is taller than the window (e.g. the New
+     Session modal with "Advanced" expanded, or a short window) so the action
+     bar and every field stay reachable instead of overflowing off-screen. */
+  overflow-y: auto;
 }
 
 .modal__title {
@@ -1193,6 +1197,13 @@ button {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 6px;
+  /* Keep the primary action reachable when the modal scrolls: pin the action
+     bar to the bottom edge over a panel backdrop. */
+  position: sticky;
+  bottom: -24px;
+  background: var(--panel);
+  padding: 12px 0;
+  margin-bottom: -24px;
 }
 
 /* New Session dialog — "Obsidian" design tokens (scoped so other modals keep
@@ -3734,6 +3745,43 @@ button {
   min-width: 0;
   min-height: 0;
   display: flex;
+  flex-direction: column;
+}
+
+/* Large-input warning — a maroon footer bar below the terminal/composer that
+   appears only when a big unsent input is pending, gently shrinking the terminal
+   above it. */
+.input-warn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: #7a1220;
+  border-top: 1px solid #a5162b;
+  color: #ffe9ec;
+  font-size: 12px;
+  line-height: 1.35;
+  animation: input-warn-in 0.14s ease;
+}
+.input-warn__icon {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #ffb3bd;
+}
+.input-warn__text strong {
+  font-weight: 700;
+  color: #fff;
+}
+@keyframes input-warn-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .session-body--split .term-drop {

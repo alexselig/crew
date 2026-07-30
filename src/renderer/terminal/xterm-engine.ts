@@ -248,6 +248,16 @@ export class XtermEngine implements TerminalEngine {
     return this.term.getSelection()
   }
 
+  getVisibleText(): string {
+    const buf = this.term.buffer.active
+    const lines: string[] = []
+    for (let y = 0; y < buf.length; y++) {
+      const line = buf.getLine(y)
+      lines.push(line ? line.translateToString(true) : '')
+    }
+    return lines.join('\n')
+  }
+
   registerLinkProvider(p: LinkProvider): Disposable {
     const sub = this.term.registerLinkProvider({
       provideLinks: (y, cb) => {

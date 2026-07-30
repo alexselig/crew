@@ -570,7 +570,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.SETTINGS_GET, () => store.settings)
   ipcMain.handle(IPC.SETTINGS_UPDATE, (_e, patch: Partial<Settings>) => {
     const next = store.updateSettings(patch)
-    applyLoginItem(next.launchAtLogin)
+    // Only touch the OS login item when that setting actually changed — syncing
+    // it on every unrelated settings edit is a redundant system call (and errors
+    // noisily under a sandbox / managed Mac).
+    if ('launchAtLogin' in patch) applyLoginItem(next.launchAtLogin)
     return next
   })
   ipcMain.handle(IPC.SETS_GET, () => store.sets)

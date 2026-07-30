@@ -2,6 +2,7 @@ import type React from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getPooled, focusTerminal, markPrompt, jumpToPrompt, recordInput } from '../terminal/pool'
 import { quotePaths } from '../../shared/shell-quote'
+import { meterInput } from '../input-meter'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
 function hasFiles(e: React.DragEvent): boolean {
@@ -85,6 +86,7 @@ export function CrewTerminal({
     // command line to the transcript.
     const inputSub = p.engine.onInput((d) => {
       window.crew.sendInput(id, d)
+      meterInput(id, d)
       if (!d.includes('\x1b')) {
         for (const ch of d) {
           if (ch === '\r' || ch === '\n') {

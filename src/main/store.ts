@@ -5,7 +5,7 @@
 // Privacy: we persist ONLY labels, character map and settings — never terminal
 // output, prompts, env values, or secrets (see SPEC §11).
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Settings, SessionSet } from '../shared/types'
 import { workspaceNames, normalizeSetNames } from '../shared/workspaces'
@@ -57,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aicPerUsd: 100,
   resumeConversations: true,
   budgetUsd: 0,
+  inputTokenWarn: 100000,
   captureTranscripts: false,
   staleHideHours: 72,
   minimizedAsList: true,
@@ -145,11 +146,24 @@ export class Store {
       const migrated = runMigrations(data)
       return { data, migrated }
     } catch {
-      // Fresh (or unreadable) store: start at the latest schema and mark every
-      // migration as already applied — there's nothing to upgrade on a clean
-      // slate, and this avoids nudging a value the user later sets themselves.
-      // Not persisted here, staying non-destructive if the file was merely
-      // unreadable; the baseline is written on the first real save.
+      // Distinguish a fresh start (no file) from a CORRUPT existing file. For a
+      // clean slate there's nothing to preserve. But if the file exists and
+      // merely failed to parse (e.g. a truncated write after a crash), move it
+      // aside to a timestamped backup BEFORE we continue on an empty baseline —
+      // otherwise the first save would overwrite it and lose recoverable data.
+      if (existsSync(this.path)) {
+        const backup = `${this.path}.corrupt-${Date.now()}`
+        try {
+          renameSync(this.path, backup)
+          console.warn(`[crew] store unreadable; preserved corrupt file at ${backup}`)
+        } catch (err) {
+          console.warn('[crew] store unreadable and could not be backed up:', err instanceof Error ? err.message : err)
+        }
+      }
+      // Start at the latest schema and mark every migration as already applied —
+      // there's nothing to upgrade on a clean slate, and this avoids nudging a
+      // value the user later sets themselves. The baseline is written on the
+      // first real save.
       return {
         data: {
           ...EMPTY,

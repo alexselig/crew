@@ -85,6 +85,10 @@ export interface Settings {
   resumeConversations: boolean
   /** Warn when total spend reaches this many USD (0 = off). */
   budgetUsd: number
+  /** Warn in the session footer before submitting more than this many *input*
+   * tokens at once — e.g. pasting a big prompt or rehydrating a conversation.
+   * Estimated at ~4 chars/token. 0 = off. */
+  inputTokenWarn: number
   /** Opt-in: save each session's (ANSI-stripped) transcript locally for search/export. */
   captureTranscripts: boolean
   /** In group (tag) sort, hide sessions in a group not used within this many

@@ -91,6 +91,10 @@ export interface TerminalEngine {
   readonly viewportTop: number
   /** Currently selected text (for copy affordances). */
   getSelection(): string
+  /** All buffered text (scrollback + viewport), renderer-agnostic — reads the
+   * xterm buffer directly, so it works whether the DOM or WebGL renderer is
+   * active. Primarily for tests/inspection. */
+  getVisibleText(): string
 
   // links
   registerLinkProvider(p: LinkProvider): Disposable

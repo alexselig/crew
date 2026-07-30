@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionInfo, Preset, CharacterDef, Settings } from '../shared/types'
 import type { GroupMode } from './grouping'
 import { writeTo, disposePooled, setEngineMode } from './terminal/facade'
+import { clearInputMeter } from './input-meter'
 import { windowSlot, readViewPref, writeViewPref } from './window-scope'
 import { workspaceNames } from '../shared/workspaces'
 
@@ -280,7 +281,10 @@ export function useCrew(): CrewState {
   useEffect(() => {
     const current = new Set(roster.map((s) => s.id))
     for (const id of knownIds.current) {
-      if (!current.has(id)) disposePooled(id)
+      if (!current.has(id)) {
+        disposePooled(id)
+        clearInputMeter(id)
+      }
     }
     knownIds.current = current
   }, [roster])

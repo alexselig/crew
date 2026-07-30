@@ -111,6 +111,12 @@ export function writeTo(id: string, data: string): void {
   }
 }
 
+/** Renderer-agnostic buffer text for a session (empty if not pooled). Reads the
+ * xterm buffer, so it works under both the DOM and WebGL renderers. */
+export function bufferText(id: string): string {
+  return pool.get(id)?.engine.getVisibleText() ?? ''
+}
+
 /**
  * Record a command line the human just submitted (called from CrewTerminal on
  * Enter). Adds a `user` block to the typed transcript and remembers it so a

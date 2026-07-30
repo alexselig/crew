@@ -194,11 +194,14 @@ export function stop(id: string): { ok: boolean; external?: boolean; error?: str
     return { ok: true, external: true }
   }
   try {
-    // kill the whole process group (spawned detached)
-    process.kill(-rec.pid, 'SIGTERM')
+    // Kill the whole detached process group. Guard pid > 0 first: process.kill
+    // with -0 (or 0) targets the CALLER's process group — i.e. Crew itself and
+    // every agent session — which would tear down the whole app. A record can
+    // hold pid 0 when a dev-server spawn returned no pid (see run(): pid ?? 0).
+    if (rec.pid > 0) process.kill(-rec.pid, 'SIGTERM')
   } catch {
     try {
-      process.kill(rec.pid, 'SIGTERM')
+      if (rec.pid > 0) process.kill(rec.pid, 'SIGTERM')
     } catch {
       /* already gone */
     }

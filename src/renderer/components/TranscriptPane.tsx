@@ -158,7 +158,17 @@ export function TranscriptPane({
     }
 
     void tick()
-    const t = setInterval(() => void tick(), 500)
+    // Guard against overlapping ticks: if a poll's IPC round-trip runs longer
+    // than the 500ms interval, skip the next tick rather than stacking in-flight
+    // requests (which would compound under load).
+    let inFlight = false
+    const t = setInterval(() => {
+      if (inFlight) return
+      inFlight = true
+      void tick().finally(() => {
+        inFlight = false
+      })
+    }, 500)
     return () => {
       alive = false
       clearInterval(t)

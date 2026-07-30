@@ -2,6 +2,7 @@ import type React from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getPooled, focusTerminal, markPrompt } from '../terminal-pool'
 import { quotePaths } from '../../shared/shell-quote'
+import { meterInput } from '../input-meter'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
 function hasFiles(e: React.DragEvent): boolean {
@@ -116,6 +117,7 @@ export function TerminalView({
     // harmless for a spotting aid.
     const dataSub = p.term.onData((d) => {
       window.crew.sendInput(id, d)
+      meterInput(id, d)
       if (d.includes('\r') || d.includes('\n')) markPrompt(id)
     })
 

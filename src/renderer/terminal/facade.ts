@@ -32,6 +32,18 @@ export function writeTo(id: string, data: string): void {
   else legacy.writeTo(id, data)
 }
 
+/** Renderer-agnostic buffer text for a session under the active engine. Reads
+ * the xterm buffer directly (works for both the DOM and WebGL renderers), so
+ * tests can assert terminal content without depending on `.xterm-rows` DOM. */
+export function getVisibleText(id: string): string {
+  return mode === 'crew' ? crew.bufferText(id) : legacy.bufferText(id)
+}
+
+// Expose a read-only terminal-text reader for e2e/inspection. Harmless in
+// production (a pure buffer read), and lets tests observe output regardless of
+// which renderer (DOM vs WebGL) xterm chose.
+;(globalThis as { __crewTerminalText?: (id: string) => string }).__crewTerminalText = getVisibleText
+
 export function focusTerminal(id: string): void {
   if (mode === 'crew') crew.focusTerminal(id)
   else legacy.focusTerminal(id)

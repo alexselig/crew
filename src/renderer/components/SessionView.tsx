@@ -13,6 +13,7 @@ import { SkillsBar } from './SkillsBar'
 import { TagChip } from './TagChip'
 import { ResumeSets } from './ResumeSets'
 import { focusTerminal } from '../terminal/facade'
+import { usePendingInputTokens } from '../input-meter'
 import { useTakeoff, HeaderTakeoff } from './HeaderTakeoff'
 
 interface Props {
@@ -32,6 +33,9 @@ interface Props {
   onNew: () => void
   /** App-wide Beta Enhanced Terminal Interface toggle. */
   enhancedTerminal: boolean
+  /** Warn in the session footer before submitting more than this many input
+   * tokens at once (0 = off). */
+  inputTokenWarn: number
 }
 
 export function SessionView({
@@ -47,7 +51,8 @@ export function SessionView({
   onRestart,
   onClose,
   onNew,
-  enhancedTerminal
+  enhancedTerminal,
+  inputTokenWarn
 }: Props): JSX.Element {
   const [metaOpen, setMetaOpen] = useState(false)
   // Which representation of the session is shown: the raw terminal (default,
@@ -234,6 +239,7 @@ export function SessionView({
                   <SkillsBar sessionId={session.id} agent={session.command} />
                 </>
               )}
+              <InputWarnBar sessionId={session.id} threshold={inputTokenWarn} />
             </div>
             <AssetsPanel sessionId={session.id} />
           </>
@@ -257,5 +263,27 @@ export function SessionView({
         )}
       </div>
     </main>
+  )
+}
+
+/**
+ * A footer warning shown below the terminal/composer when a large amount of
+ * input is sitting unsent — e.g. a pasted rehydration blob. It only occupies
+ * space once tripped, so the terminal shrinks slightly to make room. Off when
+ * threshold <= 0.
+ */
+function InputWarnBar({ sessionId, threshold }: { sessionId: string; threshold: number }): JSX.Element | null {
+  const tokens = usePendingInputTokens(sessionId)
+  if (threshold <= 0 || tokens < threshold) return null
+  return (
+    <div className="input-warn" role="status" aria-live="polite">
+      <span className="input-warn__icon" aria-hidden>
+        ▲
+      </span>
+      <span className="input-warn__text">
+        Large input — about <strong>{tokens.toLocaleString()}</strong> tokens ready to send. Submitting
+        will push a lot of context at once (warns past {threshold.toLocaleString()}).
+      </span>
+    </div>
   )
 }

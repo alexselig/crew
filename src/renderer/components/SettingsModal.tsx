@@ -95,6 +95,24 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
             </div>
             <div className="settings-row settings-row--static">
               <span className="settings-row__text">
+                <span className="settings-row__label">Large-input warning (tokens)</span>
+                <span className="settings-row__desc">
+                  Show a maroon warning below the terminal before you submit more than this many
+                  input tokens at once — e.g. pasting a big prompt or rehydrating a conversation
+                  (estimated at ~4 chars/token). 0 = off.
+                </span>
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="1000"
+                className="settings-num"
+                value={settings.inputTokenWarn}
+                onChange={(e) => onToggle('inputTokenWarn', Math.max(0, Number(e.target.value) || 0))}
+              />
+            </div>
+            <div className="settings-row settings-row--static">
+              <span className="settings-row__text">
                 <span className="settings-row__label">Hide stale sessions after (hours)</span>
                 <span className="settings-row__desc">
                   In group sort, tuck sessions not used within this many hours behind a per-group

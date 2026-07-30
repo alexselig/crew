@@ -60,6 +60,10 @@ export function getPooled(id: string): Pooled {
       // Reserve a gutter so prompt landmarks (see markPrompt) show as ticks in
       // the scrollbar, letting you scan a whole session for your own prompts.
       overviewRulerWidth: 14,
+      // Required for registerDecoration (the prompt-row highlight in markPrompt)
+      // and the overview-ruler ticks; without it every submit throws
+      // "You must set the allowProposedApi option to true".
+      allowProposedApi: true,
       theme: THEME,
       // OSC 8 hyperlinks (emitted by many CLI agents) open in the user's default
       // browser rather than letting the default handler spawn an in-app window.
@@ -98,6 +102,19 @@ export function writeTo(id: string, data: string): void {
   // Create-on-demand so output for a not-yet-viewed session is buffered in the
   // terminal (preserving scrollback) rather than dropped.
   getPooled(id).term.write(data)
+}
+
+/** Renderer-agnostic buffer text for a session (empty if not pooled). */
+export function bufferText(id: string): string {
+  const p = pool.get(id)
+  if (!p) return ''
+  const buf = p.term.buffer.active
+  const lines: string[] = []
+  for (let y = 0; y < buf.length; y++) {
+    const line = buf.getLine(y)
+    lines.push(line ? line.translateToString(true) : '')
+  }
+  return lines.join('\n')
 }
 
 /** Focus a session's terminal (e.g. after inserting a skill invocation). */
