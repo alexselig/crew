@@ -3,6 +3,38 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.4.4 — 2026-07-30
+
+**A large-input safety warning, reliability fixes, and Activity chart filtering.**
+
+### New — large-input warning
+- A maroon footer bar now appears below the terminal when the unsent input for a
+  session exceeds a configurable token estimate (default **100,000**;
+  Settings ▸ **Large-input warning (tokens)**, 0 = off). It catches the classic
+  "paste a big blob to rehydrate a conversation" case before you submit a huge
+  send. The terminal shrinks slightly to make room.
+
+### Fixes
+- **Stopping a dev server can no longer take the whole app down.** A launcher
+  edge case could signal Crew's own process group (killing the app and every
+  session) when a spawned dev server had no pid; now guarded.
+- **The default terminal no longer throws on every submit.** The legacy engine
+  was missing an xterm flag, so pressing Enter raised an internal error and the
+  input-row highlight didn't paint. Fixed.
+- **Modal buttons stay reachable.** A tall New Session dialog (with "Advanced"
+  open) or a short window could push Launch/Cancel off-screen; modals now scroll
+  with a pinned action bar.
+- **A corrupt settings file is preserved, not overwritten** — it's moved aside to
+  a timestamped backup so nothing is silently lost.
+
+### Project Tracker
+- The **Activity** chart can now be **filtered by project** (All + per-project).
+- Reliability + polish on the tracker's top controls.
+
+### Under the hood
+- Trimmed unused webfonts; hardened the transcript poller; expanded automated
+  end-to-end coverage across the full session lifecycle.
+
 ## 0.4.3 — 2026-07-29
 
 **Project Tracker absorbs Activity & Spend; a refined grid Transcript toggle.**
