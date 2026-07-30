@@ -28,8 +28,11 @@ async function main() {
   }, 'worker waiting + $5 reported')
   await page.waitForTimeout(1500)
 
-  // ---- Analytics ----
-  await page.locator('.icon-btn[title="Activity & spend"]').click()
+  // ---- Analytics (now merged into the Project Tracker → Activity section) ----
+  await page.locator('.icon-btn[title="Project tracker"]').click()
+  await page.waitForSelector('.tracker')
+  // Activity is the default section; open its Spend sub-view.
+  await page.locator('.tracker-filter', { hasText: 'Spend' }).click()
   await page.waitForSelector('.analytics')
   const tableText = await page.locator('.analytics').textContent()
   if ((tableText || '').includes('$5.00')) ok('analytics shows per-session + total spend')
@@ -37,10 +40,13 @@ async function main() {
   const waitCell = await page.locator('.analytics tbody tr td').nth(1).textContent()
   if (waitCell && waitCell !== '0s') ok(`analytics shows accrued waiting time (${waitCell.trim()})`)
   else bad(`waiting time not tracked: ${waitCell}`)
+  // The commit feed lives under the Activity sub-view.
+  await page.locator('.tracker-filter', { hasText: 'Activity' }).click()
+  await waitUntil(async () => (await page.locator('.timeline-row').count()) > 0, 'activity commit feed', 8000)
   const timelineRows = await page.locator('.timeline-row').count()
   if (timelineRows > 0) ok(`activity timeline has ${timelineRows} events`)
   else bad('timeline empty')
-  await page.locator('.modal .btn--primary').click()
+  await page.locator('.tracker__close').click()
 
   // ---- Budget alert ----
   await page.locator('.icon-btn[title="Settings"]').click()

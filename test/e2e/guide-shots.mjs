@@ -378,21 +378,24 @@ async function main() {
     await wait(200)
   })
 
-  // Activity & spend — Spend tab, then Activity (commit feed) tab.
+  // Activity & spend — now merged into the Project Tracker's Activity section.
+  // Spend sub-view, then the Activity (commit feed) sub-view.
   await shot('analytics.png', async () => {
-    await page.locator('[title="Activity & spend"]').first().click()
-    await waitUntil(async () => (await page.locator('.modal--wide').count()) >= 1, 'analytics modal')
+    await page.locator('[title="Project tracker"]').first().click()
+    await waitUntil(async () => (await page.locator('.tracker-filter').count()) >= 1, 'tracker open', 20000)
+    await page.locator('.tracker-filter', { hasText: /^Spend$/ }).first().click()
+    await waitUntil(async () => (await page.locator('.analytics').count()) >= 1, 'spend table', 20000)
     await wait(400)
     await full('analytics.png')
   })
   await shot('analytics-activity.png', async () => {
-    if ((await page.locator('.modal--wide').count()) === 0) {
-      await page.locator('[title="Activity & spend"]').first().click()
-      await waitUntil(async () => (await page.locator('.modal--wide').count()) >= 1, 'analytics modal')
+    if ((await page.locator('.tracker').count()) === 0) {
+      await page.locator('[title="Project tracker"]').first().click()
+      await waitUntil(async () => (await page.locator('.tracker-filter').count()) >= 1, 'tracker open', 20000)
     }
-    const activityTab = page.locator('.analytics-tab', { hasText: 'Activity' })
+    const activityTab = page.locator('.tracker-filter', { hasText: /^Activity$/ })
     if (await activityTab.count()) {
-      await activityTab.click()
+      await activityTab.first().click()
       await wait(500)
     }
     await full('analytics-activity.png')
@@ -400,12 +403,13 @@ async function main() {
     await wait(200)
   })
 
-  // Project Tracker — the full-screen dashboard. It now opens on the "Past Week"
-  // tab (Copilot-history review, empty in the harness), so switch to "All" to
-  // show the live project cards.
+  // Project Tracker — the full-screen dashboard. It opens on the Activity section
+  // (Past Week review, empty in the harness), so switch to the Planning section
+  // and the "All" sub-filter to show the live project cards.
   await shot('tracker.png', async () => {
     await page.locator('[title="Project tracker"]').first().click()
-    await waitUntil(async () => (await page.locator('.tracker-filter').count()) >= 1, 'tracker open', 20000)
+    await waitUntil(async () => (await page.locator('.tracker-tab').count()) >= 1, 'tracker open', 20000)
+    await page.locator('.tracker-tab', { hasText: /^Planning$/ }).first().click()
     const allTab = page.locator('.tracker-filter', { hasText: /^All$/ })
     if (await allTab.count()) await allTab.first().click()
     await waitUntil(async () => (await page.locator('.tracker-proj').count()) >= 1, 'tracker projects', 20000)

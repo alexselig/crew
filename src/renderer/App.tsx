@@ -7,7 +7,6 @@ import { GridView } from './components/GridView'
 import { NewSessionModal } from './components/NewSessionModal'
 import { SettingsModal } from './components/SettingsModal'
 import { BroadcastModal } from './components/BroadcastModal'
-import { AnalyticsModal } from './components/AnalyticsModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
 import { ProjectTracker } from './components/ProjectTracker'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
@@ -27,7 +26,6 @@ export function App(): JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [showBroadcast, setShowBroadcast] = useState(false)
-  const [showAnalytics, setShowAnalytics] = useState(false)
   const [showTranscripts, setShowTranscripts] = useState(false)
   const [showTracker, setShowTracker] = useState(false)
   // The title launch sequence plays on boot (waiting for a "click to start")
@@ -44,7 +42,6 @@ export function App(): JSX.Element {
     showSettings ||
     showPalette ||
     showBroadcast ||
-    showAnalytics ||
     showTranscripts ||
     showTracker ||
     showIntro ||
@@ -239,7 +236,7 @@ export function App(): JSX.Element {
       },
       { id: 'act-next', label: 'Jump to next waiting', icon: <Icon name="bell" />, hint: '⌘J', run: jumpNextWaiting },
       { id: 'act-broadcast', label: 'Broadcast a prompt…', icon: <Icon name="broadcast" />, run: () => setShowBroadcast(true) },
-      { id: 'act-analytics', label: 'Activity & spend', icon: <Icon name="chart" />, run: () => setShowAnalytics(true) },
+      { id: 'act-tracker', label: 'Project tracker', icon: <Icon name="tracker" />, run: () => setShowTracker(true) },
       { id: 'act-transcripts', label: 'Search transcripts…', icon: <Icon name="search" />, run: () => setShowTranscripts(true) },
       { id: 'act-settings', label: 'Open Settings', icon: <Icon name="settings" />, run: () => setShowSettings(true) }
     ]
@@ -310,7 +307,6 @@ export function App(): JSX.Element {
         onReplayIntro={() => setShowIntro(true)}
         onOpenSettings={() => setShowSettings(true)}
         onBroadcast={() => setShowBroadcast(true)}
-        onAnalytics={() => setShowAnalytics(true)}
         onOpenTracker={() => setShowTracker(true)}
         showSpend={c.settings?.showSpend ?? true}
         showCredits={c.settings?.showCredits ?? false}
@@ -352,7 +348,6 @@ export function App(): JSX.Element {
           onGridRepeat={cycleGridDensity}
           onOpenSettings={() => setShowSettings(true)}
           onBroadcast={() => setShowBroadcast(true)}
-          onAnalytics={() => setShowAnalytics(true)}
           onOpenTracker={() => setShowTracker(true)}
           showSpend={c.settings?.showSpend ?? true}
           showCredits={c.settings?.showCredits ?? false}
@@ -404,14 +399,6 @@ export function App(): JSX.Element {
           onClose={() => setShowBroadcast(false)}
         />
       )}
-      {showAnalytics && (
-        <AnalyticsModal
-          roster={c.roster}
-          characters={c.characters}
-          settings={c.settings}
-          onClose={() => setShowAnalytics(false)}
-        />
-      )}
       {showTranscripts && (
         <TranscriptsModal
           roster={c.roster}
@@ -419,7 +406,14 @@ export function App(): JSX.Element {
           onClose={() => setShowTranscripts(false)}
         />
       )}
-      {showTracker && <ProjectTracker onClose={() => setShowTracker(false)} />}
+      {showTracker && (
+        <ProjectTracker
+          roster={c.roster}
+          characters={c.characters}
+          settings={c.settings}
+          onClose={() => setShowTracker(false)}
+        />
+      )}
 
       {showIntro && <TitleSequence onDone={() => setShowIntro(false)} />}
     </div>

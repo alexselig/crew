@@ -2955,37 +2955,6 @@ button {
   font-size: 12.5px;
 }
 
-/* Tabs (Spend / Activity) inside the analytics modal. */
-.analytics-tabs {
-  display: flex;
-  gap: 24px;
-  margin: 2px 0 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.analytics-tab {
-  background: none;
-  border: none;
-  padding: 6px 0;
-  margin-bottom: -1px;
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  color: var(--text-dim);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.13s ease, border-color 0.13s ease;
-}
-
-.analytics-tab:hover {
-  color: var(--text);
-}
-
-.analytics-tab.is-on {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
-
 .analytics__note {
   margin: 0 0 12px;
   padding-top: 2px;
@@ -4482,6 +4451,38 @@ button.grid-topbar__wordmark:hover {
   color: var(--text-faint);
 }
 
+/* Primary section tabs (Activity / Planning) — one hierarchy level above the
+   pill sub-filters below them; underline treatment echoes the app's tab system. */
+.tracker-tabs {
+  display: flex;
+  gap: 22px;
+  margin-top: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tracker-tab {
+  background: none;
+  border: none;
+  padding: 8px 0;
+  margin-bottom: -1px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.13s ease, border-color 0.13s ease;
+}
+
+.tracker-tab:hover {
+  color: var(--ivory);
+}
+
+.tracker-tab.is-on {
+  color: var(--ivory);
+  border-bottom-color: var(--accent);
+}
+
 .tracker-filters {
   display: flex;
   flex-wrap: wrap;
@@ -4512,6 +4513,19 @@ button.grid-topbar__wordmark:hover {
   background: var(--accent);
   border-color: transparent;
   color: #fff;
+}
+
+/* Ported Activity & Spend content (spend table, token-usage chart, commit feed),
+   embedded in the tracker's Activity section. Its inner .analytics / .usage-* /
+   .commit-chip rules are shared with the rest of the app and already tokenised. */
+.tracker-analytics {
+  padding-top: 4px;
+}
+.tracker-analytics .analytics {
+  margin-top: 2px;
+}
+.tracker-analytics .usage-commits {
+  margin-top: 22px;
 }
 
 /* ---------- Groups ---------- */

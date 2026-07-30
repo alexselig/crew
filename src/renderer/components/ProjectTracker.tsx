@@ -1,12 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { LaunchResult, PastWeek, Project, RunningServer, TrackerData } from '../../shared/tracker'
+import type { CommitActivity, LaunchResult, PastWeek, Project, RunningServer, TrackerData } from '../../shared/tracker'
+import type { SessionInfo, CharacterDef, Settings } from '../../shared/types'
+import type { ActivityEvent } from '../../shared/api'
+import type { UsageAnalytics, UsageRangeKey } from '../../shared/usage'
+import { formatUsd, formatCredits, sessionUsd } from '../state-meta'
+import { CharacterArt, hasCharacterArt } from '../character-art'
 
 interface Props {
+  roster: SessionInfo[]
+  characters: CharacterDef[]
+  settings: Settings | null
   onClose: () => void
 }
 
+/** Top-level tracker sections. Activity = review (Past Week / Spend / Activity);
+ * Planning = the live project index (All + per-tag groups, tasks & proposals). */
+type Section = 'activity' | 'planning'
+type ActivityView = 'past' | 'spend' | 'activity'
+
 const FRAMEWORK_LABEL: Record<string, string> = { next: 'Next.js', vite: 'Vite', electron: 'Electron', node: 'Node', static: 'Static' }
 const ORIGIN_LABEL: Record<string, string> = { work: 'Work', personal: 'Personal', external: 'External' }
+const NEEDS = new Set(['WAITING_INPUT', 'WAITING_APPROVAL'])
 
 /** Compact token count, e.g. 1_650_000 → "1.6M", 22_555 → "23k", 2.1e9 → "2.1B". */
 function fmtTokens(n: number): string {
@@ -15,6 +29,34 @@ function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`
   return String(n)
+}
+
+function fmtDur(ms: number): string {
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ${s % 60}s`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+/** Sum time each session spent in a needs-you state, from the transition log. */
+function waitingBySession(events: ActivityEvent[], now: number): Record<string, number> {
+  const bySession = new Map<string, ActivityEvent[]>()
+  for (const e of events) {
+    const arr = bySession.get(e.id) ?? []
+    arr.push(e)
+    bySession.set(e.id, arr)
+  }
+  const out: Record<string, number> = {}
+  for (const [id, evs] of bySession) {
+    let total = 0
+    for (let i = 0; i < evs.length; i++) {
+      const end = i + 1 < evs.length ? evs[i + 1].ts : now
+      if (NEEDS.has(evs[i].to)) total += end - evs[i].ts
+    }
+    out[id] = total
+  }
+  return out
 }
 
 /** Build the metadata line for an expanded project (identity + location bits;
@@ -48,15 +90,21 @@ function shipSummary(p: Project): string {
  * is derived live from disk (git, package.json, task files): status, version,
  * next steps, commit/feature history, and open/launch actions.
  */
-export function ProjectTracker({ onClose }: Props): JSX.Element {
+export function ProjectTracker({ roster, characters, settings, onClose }: Props): JSX.Element {
   const [data, setData] = useState<TrackerData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [openHistory, setOpenHistory] = useState<Set<string>>(new Set())
-  const [filter, setFilter] = useState<string>('past')
+  const [section, setSection] = useState<Section>('activity')
+  const [activityView, setActivityView] = useState<ActivityView>('past')
+  const [filter, setFilter] = useState<string>('all')
   const [pastWeek, setPastWeek] = useState<PastWeek | null>(null)
   const [pastLoading, setPastLoading] = useState(true)
+  const [events, setEvents] = useState<ActivityEvent[]>([])
+  const [commits, setCommits] = useState<CommitActivity[]>([])
+  const [usage, setUsage] = useState<UsageAnalytics | null>(null)
+  const [range, setRange] = useState<UsageRangeKey>('week')
   const [running, setRunning] = useState<Record<string, RunningServer>>({})
   const [launching, setLaunching] = useState<Set<string>>(new Set())
   const [launchNote, setLaunchNote] = useState<Record<string, string>>({})
@@ -105,9 +153,24 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
     }
   }
 
+  // Activity-section data (state-transition log for waiting time, commit feed,
+  // token-usage analytics). Merged in from the former Activity & Spend dialog;
+  // loaded on mount + Refresh, outside the live-tree auto-loop.
+  async function loadActivity(): Promise<void> {
+    const [ev, cm, us] = await Promise.all([
+      window.crew.getEvents(),
+      window.crew.getCommitActivity(),
+      window.crew.getUsageAnalytics()
+    ])
+    setEvents(ev)
+    setCommits(cm)
+    setUsage(us)
+  }
+
   useEffect(() => {
     void refresh()
     void loadPastWeek()
+    void loadActivity()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -138,6 +201,24 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
     if (!data) return []
     return filter === 'all' ? data.groups : data.groups.filter((g) => g.tag === filter)
   }, [data, filter])
+
+  // ── Activity-section derived values (ported from the Activity & Spend dialog) ──
+  const waiting = useMemo(() => waitingBySession(events, Date.now()), [events])
+  const glyph = (id: string): string => characters.find((c) => c.id === id)?.glyph ?? '●'
+  const costMode = settings?.costMode ?? 'auto'
+  const aicPerUsd = settings?.aicPerUsd ?? 100
+  const spendOf = (s: SessionInfo): number => sessionUsd(s, costMode, aicPerUsd)
+  const totalSpend = roster.reduce((a, s) => a + spendOf(s), 0)
+  const totalCredits = roster.reduce((a, s) => a + (s.creditsUsed || 0), 0)
+  const totalWait = roster.reduce((a, s) => a + (waiting[s.id] || 0), 0)
+
+  // The Activity feed is a commit feed (newest first) — the git history across the
+  // open sessions' repos. Session state churn (idle/working) is deliberately not
+  // shown; it's low-signal and would crowd out the commit notes.
+  const feed = useMemo(() => [...commits].sort((a, b) => b.ts - a.ts).slice(0, 60), [commits])
+  const activeRange = useMemo(() => usage?.ranges.find((r) => r.key === range) ?? null, [usage, range])
+  const chartMax = useMemo(() => (activeRange ? Math.max(1, ...activeRange.series.map((b) => b.tokens)) : 1), [activeRange])
+  const sliceMax = useMemo(() => (activeRange ? Math.max(1, ...activeRange.projects.map((p) => p.tokens)) : 1), [activeRange])
 
   const openLink = (url: string | null): void => {
     if (url) void window.crew.openExternal(url)
@@ -470,6 +551,157 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
     )
   }
 
+  function renderSpend(): JSX.Element {
+    return (
+      <div className="tracker-analytics">
+        {costMode === 'manual' && (
+          <p className="analytics__note">
+            Manual — spend calculated from reported usage at {formatCredits(aicPerUsd)} units = $1.
+          </p>
+        )}
+        <table className="analytics">
+          <thead>
+            <tr>
+              <th>Session</th>
+              <th>Waiting</th>
+              <th>Spend</th>
+              <th>Credits</th>
+            </tr>
+          </thead>
+          <tbody>
+            {roster.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="muted">
+                  No sessions.
+                </td>
+              </tr>
+            ) : (
+              roster.map((s) => (
+                <tr key={s.id}>
+                  <td>
+                    <span className="analytics__glyph" style={{ color: s.color }}>
+                      {hasCharacterArt(s.characterId) ? <CharacterArt id={s.characterId} size={18} /> : glyph(s.characterId)}
+                    </span>{' '}
+                    {s.label}
+                  </td>
+                  <td>{fmtDur(waiting[s.id] || 0)}</td>
+                  <td>{formatUsd(spendOf(s))}</td>
+                  <td>{formatCredits(s.creditsUsed)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td>{fmtDur(totalWait)}</td>
+              <td>{formatUsd(totalSpend)}</td>
+              <td>{formatCredits(totalCredits)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    )
+  }
+
+  function renderActivity(): JSX.Element {
+    return (
+      <div className="tracker-analytics">
+        <div className="usage-range" role="group" aria-label="Token usage time range">
+          {(usage?.ranges ?? []).map((r) => (
+            <button
+              key={r.key}
+              type="button"
+              className={`usage-range__opt ${range === r.key ? 'is-on' : ''}`}
+              aria-pressed={range === r.key}
+              onClick={() => setRange(r.key)}
+            >
+              {r.short}
+            </button>
+          ))}
+        </div>
+
+        {!usage ? (
+          <div className="muted usage__msg">Reading token history…</div>
+        ) : !usage.available ? (
+          <div className="muted usage__msg">No Copilot CLI history found.</div>
+        ) : !activeRange || activeRange.totalTokens === 0 ? (
+          <div className="muted usage__msg">No token usage in this range.</div>
+        ) : (
+          <>
+            <div className="usage__headline">
+              <span className="usage__big">{fmtTokens(activeRange.totalTokens)}</span>
+              <span className="usage__unit">tokens</span>
+              <span className="usage__meta">
+                {activeRange.title.toLowerCase()} · {activeRange.bucketLabel}
+                {activeRange.totalAiu > 0 ? ` · ${formatCredits(activeRange.totalAiu / 1e9)} credits` : ''}
+                {activeRange.peakLabel ? ` · peak ${activeRange.peakLabel}` : ''}
+              </span>
+            </div>
+
+            <div className="usage-chart" role="img" aria-label={`Token usage over time — ${activeRange.title}`}>
+              {activeRange.series.map((b, i) => (
+                <div
+                  key={i}
+                  className={`usage-bar ${b.tokens > 0 ? '' : 'is-empty'}`}
+                  style={{ height: `${(b.tokens / chartMax) * 100}%` }}
+                  title={`${b.label ? b.label + ' · ' : ''}${fmtTokens(b.tokens)} tokens`}
+                />
+              ))}
+            </div>
+            <div className="usage-axis">
+              {activeRange.series.map((b, i) => (
+                <span key={i} className="usage-axis__tick">
+                  {b.label}
+                </span>
+              ))}
+            </div>
+
+            {activeRange.projects.length > 0 && (
+              <div className="usage-intensity">
+                <div className="usage-intensity__head">
+                  Project intensity <span className="muted">· tokens by repo / session</span>
+                </div>
+                {activeRange.projects.map((p, i) => (
+                  <div className="usage-int" key={i}>
+                    <span className="usage-int__name" title={p.name}>
+                      {p.kind === 'session' && p.name !== 'Other' ? '❯ ' : ''}
+                      {p.name}
+                    </span>
+                    <span className="usage-int__track">
+                      <span className="usage-int__fill" style={{ width: `${(p.tokens / sliceMax) * 100}%` }} />
+                    </span>
+                    <span className="usage-int__val">{fmtTokens(p.tokens)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="usage-commits">
+          <div className="usage-intensity__head">Recent commits</div>
+          {feed.length === 0 ? (
+            <div className="muted">No commits yet.</div>
+          ) : (
+            feed.map((item, i) => (
+              <div key={i} className="timeline-row timeline-row--commit">
+                <span className="timeline-time">{new Date(item.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                <span className="commit-chip">
+                  <span className="commit-chip__sha">{item.sha}</span>
+                  <span className="commit-chip__proj">{item.project}</span>
+                </span>
+                <span className={`commit-chip__msg ${item.isRelease ? 'is-rel' : ''}`} title={item.subject}>
+                  {item.subject}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="tracker">
       <div className="tracker__inner">
@@ -485,6 +717,7 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
               onClick={() => {
                 void refresh()
                 void loadPastWeek()
+                void loadActivity()
               }}
               title="Rescan now"
             >
@@ -502,7 +735,7 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
           </h1>
           <div className="tracker__rule" />
 
-          {filter === 'past' ? (
+          {section === 'activity' ? (
             <div className="tracker__stats">
               <div className="tracker-stat">
                 <span className="tracker-stat__num">{pastWeek?.available ? pastWeek.stats.sessions : '–'}</span>
@@ -517,10 +750,8 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
                 <span className="tracker-stat__label">Projects</span>
               </div>
               <div className="tracker-stat">
-                <span className="tracker-stat__num tracker-stat__num--accent">
-                  {pastWeek?.available ? fmtTokens(pastWeek.stats.tokens) : '–'}
-                </span>
-                <span className="tracker-stat__label">Tokens</span>
+                <span className="tracker-stat__num tracker-stat__num--accent">{formatUsd(totalSpend)}</span>
+                <span className="tracker-stat__label">Spend</span>
               </div>
             </div>
           ) : (
@@ -540,26 +771,64 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
             </div>
           )}
 
-          <nav className="tracker-filters">
-            <button type="button" className={`tracker-filter ${filter === 'past' ? 'is-on' : ''}`} onClick={() => setFilter('past')}>
-              Past Week
+          <nav className="tracker-tabs" role="tablist" aria-label="Tracker section">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={section === 'activity'}
+              className={`tracker-tab ${section === 'activity' ? 'is-on' : ''}`}
+              onClick={() => setSection('activity')}
+            >
+              Activity
             </button>
-            <button type="button" className={`tracker-filter ${filter === 'all' ? 'is-on' : ''}`} onClick={() => setFilter('all')}>
-              All
+            <button
+              type="button"
+              role="tab"
+              aria-selected={section === 'planning'}
+              className={`tracker-tab ${section === 'planning' ? 'is-on' : ''}`}
+              onClick={() => setSection('planning')}
+            >
+              Planning
             </button>
-            {data &&
-              data.groups.length > 1 &&
-              data.groups.map((g) => (
-                <button type="button" key={g.tag} className={`tracker-filter ${filter === g.tag ? 'is-on' : ''}`} onClick={() => setFilter(g.tag)}>
-                  {g.label} · {g.projects.length}
-                </button>
-              ))}
           </nav>
+
+          {section === 'activity' ? (
+            <nav className="tracker-filters">
+              <button type="button" className={`tracker-filter ${activityView === 'past' ? 'is-on' : ''}`} onClick={() => setActivityView('past')}>
+                Past Week
+              </button>
+              <button type="button" className={`tracker-filter ${activityView === 'spend' ? 'is-on' : ''}`} onClick={() => setActivityView('spend')}>
+                Spend
+              </button>
+              <button type="button" className={`tracker-filter ${activityView === 'activity' ? 'is-on' : ''}`} onClick={() => setActivityView('activity')}>
+                Activity
+              </button>
+            </nav>
+          ) : (
+            <nav className="tracker-filters">
+              <button type="button" className={`tracker-filter ${filter === 'all' ? 'is-on' : ''}`} onClick={() => setFilter('all')}>
+                All
+              </button>
+              {data &&
+                data.groups.length > 1 &&
+                data.groups.map((g) => (
+                  <button type="button" key={g.tag} className={`tracker-filter ${filter === g.tag ? 'is-on' : ''}`} onClick={() => setFilter(g.tag)}>
+                    {g.label} · {g.projects.length}
+                  </button>
+                ))}
+            </nav>
+          )}
         </header>
 
         <main className="tracker__main">
-          {filter === 'past' ? (
-            renderPastWeek()
+          {section === 'activity' ? (
+            activityView === 'past' ? (
+              renderPastWeek()
+            ) : activityView === 'spend' ? (
+              renderSpend()
+            ) : (
+              renderActivity()
+            )
           ) : loading ? (
             <div className="tracker-empty">Scanning repositories…</div>
           ) : error ? (
@@ -581,16 +850,15 @@ export function ProjectTracker({ onClose }: Props): JSX.Element {
           )}
         </main>
 
-        {filter === 'past' ? (
-          pastWeek?.available && (
-            <footer className="tracker__colophon">
-              <span>
-                {pastWeek.stats.sessions} sessions · {pastWeek.stats.activeDays} active days
-                {pastWeek.stats.topModel ? ` · mostly ${pastWeek.stats.topModel}` : ''}
-              </span>
-              <span>Read-only, from your Copilot CLI history</span>
-            </footer>
-          )
+        {section === 'activity' ? (
+          <footer className="tracker__colophon">
+            <span>
+              {pastWeek?.available
+                ? `${pastWeek.stats.sessions} sessions · ${pastWeek.stats.activeDays} active days${pastWeek.stats.topModel ? ` · mostly ${pastWeek.stats.topModel}` : ''}`
+                : `${roster.length} open session${roster.length === 1 ? '' : 's'}`}
+            </span>
+            <span>Read-only, from your Copilot CLI history</span>
+          </footer>
         ) : data ? (
           <footer className="tracker__colophon">
             <span>

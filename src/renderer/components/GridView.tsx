@@ -46,7 +46,6 @@ interface Props {
   onGridRepeat: () => void
   onOpenSettings: () => void
   onBroadcast: () => void
-  onAnalytics: () => void
   onOpenTracker: () => void
   showSpend: boolean
   showCredits: boolean
@@ -80,7 +79,6 @@ export function GridView({
   onReplayIntro,
   onOpenSettings,
   onBroadcast,
-  onAnalytics,
   onOpenTracker,
   showSpend,
   showCredits,
@@ -303,9 +301,6 @@ export function GridView({
             <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
             <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
               <Icon name="broadcast" />
-            </button>
-            <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
-              <Icon name="chart" />
             </button>
             <button type="button" className="icon-btn" title="Project tracker" onClick={onOpenTracker}>
               <Icon name="tracker" />
