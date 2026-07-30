@@ -4308,6 +4308,12 @@ button.grid-topbar__wordmark:hover {
   color: var(--text);
   overflow-y: auto;
   animation: tracker-in 0.18s ease;
+  /* This full-screen overlay covers the app's frameless-window titlebar, whose
+     .roster__header / .session-header declare -webkit-app-region: drag. Those
+     OS drag regions are computed from the DOM regardless of z-index, so without
+     this the top strip (where the ✕ / Refresh / Auto controls live) stays a
+     window-drag area and real mouse clicks on them are swallowed by the OS. */
+  -webkit-app-region: no-drag;
 }
 
 .tracker ::selection {
