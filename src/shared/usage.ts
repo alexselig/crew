@@ -39,6 +39,12 @@ export interface UsageRangeData {
   peakLabel: string | null
   /** Top slices by token volume (repos, with a session fallback). */
   projects: UsageSlice[]
+  /**
+   * Per-project over-time series, keyed by the project/slice name that appears
+   * in `projects`. Each array is bucket-aligned with `series` (same length and
+   * labels), so the Activity chart can filter to a single project. The global
+   * `series` above is the "All projects" view. */
+  seriesByProject: Record<string, UsageBucket[]>
 }
 
 export interface UsageAnalytics {

@@ -3173,6 +3173,45 @@ button {
   text-align: right;
   color: var(--text-dim);
 }
+/* Selectable project rows (filter the chart). Keep the grid layout from
+   .usage-int but reset native button chrome. */
+.usage-int-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.usage-int--btn {
+  width: 100%;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 4px 8px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.usage-int--btn:hover {
+  background: var(--bg-elev);
+}
+.usage-int--btn .usage-int__name {
+  color: var(--text-dim);
+  transition: color 0.12s;
+}
+.usage-int--btn:hover .usage-int__name {
+  color: var(--text);
+}
+.usage-int--btn.is-sel {
+  background: var(--bg-elev);
+  border-color: var(--accent);
+}
+.usage-int--btn.is-sel .usage-int__name {
+  color: var(--text);
+  font-weight: 600;
+}
+.usage-int--btn.is-sel .usage-int__val {
+  color: var(--text);
+}
 .usage-commits {
   margin-top: 18px;
   padding-top: 8px;

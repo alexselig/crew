@@ -90,7 +90,7 @@ function hourLabel(d: Date): string {
 // strings so the same Map-based accumulation works for clock-aligned (hour/day)
 // and calendar-aligned (week/month/year) buckets alike.
 
-interface RangeSpec {
+export interface RangeSpec {
   key: UsageRangeKey
   short: string
   title: string
@@ -100,7 +100,7 @@ interface RangeSpec {
   keyOf: (d: Date) => string
 }
 
-const RANGES: RangeSpec[] = [
+export const RANGES: RangeSpec[] = [
   {
     key: 'hour',
     short: '1h',
@@ -189,14 +189,14 @@ const RANGES: RangeSpec[] = [
   }
 ]
 
-interface UsageEvent {
+export interface UsageEvent {
   ms: number
   tokens: number
   aiu: number
   session: string
 }
 
-function buildRange(spec: RangeSpec, events: UsageEvent[], now: Date, labelOf: (session: string) => UsageSlice): UsageRangeData {
+export function buildRange(spec: RangeSpec, events: UsageEvent[], now: Date, labelOf: (session: string) => UsageSlice): UsageRangeData {
   const defs = spec.buckets(now)
   const idx = new Map<string, number>()
   defs.forEach((b, i) => idx.set(b.key, i))
@@ -206,6 +206,10 @@ function buildRange(spec: RangeSpec, events: UsageEvent[], now: Date, labelOf: (
   let totalTokens = 0
   let totalAiu = 0
   const bySlice = new Map<string, UsageSlice>()
+  // Per-slice bucket accumulators (name → tokens[] aligned to `defs`), so the
+  // chart can be redrawn for a single project. Bounded: one array per distinct
+  // slice name, trimmed below to just the surfaced `projects`.
+  const bucketsBySlice = new Map<string, number[]>()
 
   for (const e of events) {
     if (e.ms < cutoff) continue
@@ -218,6 +222,12 @@ function buildRange(spec: RangeSpec, events: UsageEvent[], now: Date, labelOf: (
     const acc = bySlice.get(slice.name)
     if (acc) acc.tokens += e.tokens
     else bySlice.set(slice.name, { name: slice.name, tokens: e.tokens, kind: slice.kind })
+    let arr = bucketsBySlice.get(slice.name)
+    if (!arr) {
+      arr = new Array(defs.length).fill(0)
+      bucketsBySlice.set(slice.name, arr)
+    }
+    arr[i] += e.tokens
   }
 
   let peakLabel: string | null = null
@@ -231,9 +241,27 @@ function buildRange(spec: RangeSpec, events: UsageEvent[], now: Date, labelOf: (
 
   const ranked = [...bySlice.values()].sort((a, b) => b.tokens - a.tokens)
   const projects = ranked.slice(0, TOP_SLICES)
+  const topNames = new Set(projects.map((p) => p.name))
   if (ranked.length > TOP_SLICES) {
     const rest = ranked.slice(TOP_SLICES).reduce((a, s) => a + s.tokens, 0)
     if (rest > 0) projects.push({ name: 'Other', tokens: rest, kind: 'session' })
+  }
+
+  // Emit a per-project series for exactly the surfaced projects (top slices +
+  // the aggregated "Other"), so the Activity chart can filter to one of them.
+  const seriesByProject: Record<string, UsageBucket[]> = {}
+  for (const p of projects) {
+    if (p.name === 'Other' && !topNames.has('Other')) {
+      const agg = new Array(defs.length).fill(0)
+      for (const [name, arr] of bucketsBySlice) {
+        if (topNames.has(name)) continue
+        for (let i = 0; i < arr.length; i++) agg[i] += arr[i]
+      }
+      seriesByProject.Other = defs.map((b, i) => ({ label: b.label, tokens: agg[i] }))
+    } else {
+      const arr = bucketsBySlice.get(p.name) ?? new Array(defs.length).fill(0)
+      seriesByProject[p.name] = defs.map((b, i) => ({ label: b.label, tokens: arr[i] }))
+    }
   }
 
   return {
@@ -245,7 +273,8 @@ function buildRange(spec: RangeSpec, events: UsageEvent[], now: Date, labelOf: (
     totalTokens,
     totalAiu,
     peakLabel,
-    projects
+    projects,
+    seriesByProject
   }
 }
 

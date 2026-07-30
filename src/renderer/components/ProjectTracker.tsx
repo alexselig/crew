@@ -108,6 +108,9 @@ export function ProjectTracker({ roster, characters, settings, initialSection = 
   const [commits, setCommits] = useState<CommitActivity[]>([])
   const [usage, setUsage] = useState<UsageAnalytics | null>(null)
   const [range, setRange] = useState<UsageRangeKey>('week')
+  /** Project name the Activity chart is filtered to (null = All). Validated
+   * against the active range via `usageProject` before use. */
+  const [selectedUsageProject, setSelectedUsageProject] = useState<string | null>(null)
   const [running, setRunning] = useState<Record<string, RunningServer>>({})
   const [launching, setLaunching] = useState<Set<string>>(new Set())
   const [launchNote, setLaunchNote] = useState<Record<string, string>>({})
@@ -220,7 +223,35 @@ export function ProjectTracker({ roster, characters, settings, initialSection = 
   // shown; it's low-signal and would crowd out the commit notes.
   const feed = useMemo(() => [...commits].sort((a, b) => b.ts - a.ts).slice(0, 60), [commits])
   const activeRange = useMemo(() => usage?.ranges.find((r) => r.key === range) ?? null, [usage, range])
-  const chartMax = useMemo(() => (activeRange ? Math.max(1, ...activeRange.series.map((b) => b.tokens)) : 1), [activeRange])
+  // Which project the Activity chart is filtered to (null = All). Kept only when
+  // the project actually exists in the active range, so switching ranges (whose
+  // project sets differ) cleanly falls back to All rather than a blank chart.
+  const usageProject = useMemo(
+    () => (selectedUsageProject && activeRange?.projects.some((p) => p.name === selectedUsageProject) ? selectedUsageProject : null),
+    [selectedUsageProject, activeRange]
+  )
+  // The series actually charted: the selected project's, or the global "All".
+  const shownSeries = useMemo(() => {
+    if (!activeRange) return []
+    if (usageProject && activeRange.seriesByProject[usageProject]) return activeRange.seriesByProject[usageProject]
+    return activeRange.series
+  }, [activeRange, usageProject])
+  const shownTokens = useMemo(
+    () => (usageProject ? activeRange?.projects.find((p) => p.name === usageProject)?.tokens ?? 0 : activeRange?.totalTokens ?? 0),
+    [activeRange, usageProject]
+  )
+  const shownPeak = useMemo(() => {
+    let peak = 0
+    let label: string | null = null
+    for (const b of shownSeries) {
+      if (b.tokens > peak && b.label) {
+        peak = b.tokens
+        label = b.label
+      }
+    }
+    return label
+  }, [shownSeries])
+  const chartMax = useMemo(() => Math.max(1, ...shownSeries.map((b) => b.tokens)), [shownSeries])
   const sliceMax = useMemo(() => (activeRange ? Math.max(1, ...activeRange.projects.map((p) => p.tokens)) : 1), [activeRange])
 
   const openLink = (url: string | null): void => {
@@ -633,17 +664,22 @@ export function ProjectTracker({ roster, characters, settings, initialSection = 
         ) : (
           <>
             <div className="usage__headline">
-              <span className="usage__big">{fmtTokens(activeRange.totalTokens)}</span>
+              <span className="usage__big">{fmtTokens(shownTokens)}</span>
               <span className="usage__unit">tokens</span>
               <span className="usage__meta">
+                {usageProject ? `${usageProject} · ` : ''}
                 {activeRange.title.toLowerCase()} · {activeRange.bucketLabel}
-                {activeRange.totalAiu > 0 ? ` · ${formatCredits(activeRange.totalAiu / 1e9)} credits` : ''}
-                {activeRange.peakLabel ? ` · peak ${activeRange.peakLabel}` : ''}
+                {!usageProject && activeRange.totalAiu > 0 ? ` · ${formatCredits(activeRange.totalAiu / 1e9)} credits` : ''}
+                {shownPeak ? ` · peak ${shownPeak}` : ''}
               </span>
             </div>
 
-            <div className="usage-chart" role="img" aria-label={`Token usage over time — ${activeRange.title}`}>
-              {activeRange.series.map((b, i) => (
+            <div
+              className="usage-chart"
+              role="img"
+              aria-label={`Token usage over time — ${activeRange.title}${usageProject ? ` — ${usageProject}` : ''}`}
+            >
+              {shownSeries.map((b, i) => (
                 <div
                   key={i}
                   className={`usage-bar ${b.tokens > 0 ? '' : 'is-empty'}`}
@@ -653,7 +689,7 @@ export function ProjectTracker({ roster, characters, settings, initialSection = 
               ))}
             </div>
             <div className="usage-axis">
-              {activeRange.series.map((b, i) => (
+              {shownSeries.map((b, i) => (
                 <span key={i} className="usage-axis__tick">
                   {b.label}
                 </span>
@@ -663,20 +699,45 @@ export function ProjectTracker({ roster, characters, settings, initialSection = 
             {activeRange.projects.length > 0 && (
               <div className="usage-intensity">
                 <div className="usage-intensity__head">
-                  Project intensity <span className="muted">· tokens by repo / session</span>
+                  Project intensity <span className="muted">· pick one to filter the chart</span>
                 </div>
-                {activeRange.projects.map((p, i) => (
-                  <div className="usage-int" key={i}>
-                    <span className="usage-int__name" title={p.name}>
-                      {p.kind === 'session' && p.name !== 'Other' ? '❯ ' : ''}
-                      {p.name}
-                    </span>
+                <div className="usage-int-list" role="group" aria-label="Filter chart by project">
+                  <button
+                    type="button"
+                    className={`usage-int usage-int--btn ${!usageProject ? 'is-sel' : ''}`}
+                    aria-pressed={!usageProject}
+                    onClick={() => setSelectedUsageProject(null)}
+                    title="All projects — click to show combined usage"
+                  >
+                    <span className="usage-int__name">All projects</span>
                     <span className="usage-int__track">
-                      <span className="usage-int__fill" style={{ width: `${(p.tokens / sliceMax) * 100}%` }} />
+                      <span className="usage-int__fill" style={{ width: '100%' }} />
                     </span>
-                    <span className="usage-int__val">{fmtTokens(p.tokens)}</span>
-                  </div>
-                ))}
+                    <span className="usage-int__val">{fmtTokens(activeRange.totalTokens)}</span>
+                  </button>
+                  {activeRange.projects.map((p, i) => {
+                    const sel = usageProject === p.name
+                    return (
+                      <button
+                        type="button"
+                        key={i}
+                        className={`usage-int usage-int--btn ${sel ? 'is-sel' : ''}`}
+                        aria-pressed={sel}
+                        onClick={() => setSelectedUsageProject(sel ? null : p.name)}
+                        title={`${p.name} — ${fmtTokens(p.tokens)} tokens · click to ${sel ? 'clear' : 'filter the chart'}`}
+                      >
+                        <span className="usage-int__name">
+                          {p.kind === 'session' && p.name !== 'Other' ? '❯ ' : ''}
+                          {p.name}
+                        </span>
+                        <span className="usage-int__track">
+                          <span className="usage-int__fill" style={{ width: `${(p.tokens / sliceMax) * 100}%` }} />
+                        </span>
+                        <span className="usage-int__val">{fmtTokens(p.tokens)}</span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             )}
           </>
