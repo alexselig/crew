@@ -3,6 +3,16 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.4.5 — 2026-07-31
+
+**In-app update notifications.**
+
+- Crew now tells you when a newer signed build is available — a subtle,
+  dismissible toast with a one-click **Download**. It checks GitHub Releases in
+  the background (shortly after launch, then periodically); dismissing remembers
+  that version so it won't nag, while a later release still shows. No more
+  manually checking for updates.
+
 ## 0.4.4 — 2026-07-30
 
 **A large-input safety warning, reliability fixes, and Activity chart filtering.**
