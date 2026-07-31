@@ -225,6 +225,7 @@ export const IPC = {
   TRACKER_SCAN: 'tracker:scan',
   TRACKER_PAST_WEEK: 'tracker:pastWeek',
   USAGE_ANALYTICS: 'usage:analytics',
+  UPDATE_CHECK: 'update:check',
   OPEN_EXTERNAL: 'shell:openExternal',
   ACTIVITY_COMMITS: 'activity:commits',
   TRACKER_LAUNCH: 'tracker:launch',
@@ -237,5 +238,6 @@ export const IPC = {
   EVT_JUMP: 'evt:jump',
   EVT_NEW: 'evt:new',
   EVT_WORKSPACE: 'evt:workspace',
-  EVT_ASSETS: 'evt:assets'
+  EVT_ASSETS: 'evt:assets',
+  EVT_UPDATE: 'evt:update'
 } as const

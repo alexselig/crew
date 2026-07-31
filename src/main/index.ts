@@ -26,6 +26,7 @@ import { scanProjects, recentCommits, resolveLaunch } from './tracker'
 import { readAgentTranscript } from './agent-transcript'
 import { buildPastWeek } from './week-review'
 import { buildUsageAnalytics } from './usage-analytics'
+import { checkForUpdate, startUpdateChecks } from './updater'
 import { launch as launchServer, stop as stopServer, status as serverStatus, stopAll as stopAllServers } from './launcher'
 import { CHARACTERS } from './characters'
 
@@ -674,6 +675,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.TRACKER_PAST_WEEK, () => buildPastWeek())
   // Read-only token-usage analytics (time series + intensity) for the Activity view.
   ipcMain.handle(IPC.USAGE_ANALYTICS, () => buildUsageAnalytics())
+  // Manual "check for updates" (the app also checks in the background on launch).
+  ipcMain.handle(IPC.UPDATE_CHECK, () => checkForUpdate())
   // Open an external http(s) URL (GitHub / live demo) in the default browser.
   ipcMain.handle(IPC.OPEN_EXTERNAL, (_e, url: string) => {
     if (typeof url === 'string' && /^https?:\/\//.test(url)) void shell.openExternal(url)
@@ -724,6 +727,10 @@ if (!app.requestSingleInstanceLock()) {
   manager = new SessionManager(store, recorder, ensureCrewHookDir(app.getPath('userData')))
   assets = new AssetWatchers((id, list) => broadcast(IPC.EVT_ASSETS, { id, assets: list }))
   applyLoginItem(store.settings.launchAtLogin)
+
+  // Background "update available" checks: notify the renderer when a newer signed
+  // release is published, so it can show a one-click-download banner.
+  startUpdateChecks((info) => broadcast(IPC.EVT_UPDATE, info))
 
   // Serve previewable files — only ones the asset watcher has vouched for.
   protocol.handle('crew-asset', async (request) => {

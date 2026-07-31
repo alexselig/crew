@@ -14,6 +14,7 @@ import type {
 import type { AssetItem } from './assets'
 import type { TrackerData, CommitActivity, RunningServer, LaunchResult, PastWeek } from './tracker'
 import type { UsageAnalytics } from './usage'
+import type { UpdateInfo } from './update'
 import type { AgentTranscriptResult } from './agent-events'
 
 export interface StateEvent {
@@ -118,6 +119,8 @@ export interface CrewAPI {
   getPastWeek(): Promise<PastWeek>
   /** Read-only token-usage analytics (time-series + intensity) for the Activity view. */
   getUsageAnalytics(): Promise<UsageAnalytics>
+  /** Check GitHub for a newer published release; null when up to date. */
+  checkForUpdate(): Promise<UpdateInfo | null>
   /** Open an external http(s) URL in the default browser. */
   openExternal(url: string): Promise<void>
   /** Recent git commits across the open sessions' working dirs (newest first). */
@@ -152,4 +155,6 @@ export interface CrewAPI {
   /** Active workspace filter changed from the app menu (name, or null for All). */
   onWorkspace(cb: (name: string | null) => void): Unsubscribe
   onAssets(cb: (e: AssetsEvent) => void): Unsubscribe
+  /** Fired when a background check finds a newer published release. */
+  onUpdate(cb: (info: UpdateInfo) => void): Unsubscribe
 }

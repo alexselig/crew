@@ -10,6 +10,7 @@ import { BroadcastModal } from './components/BroadcastModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
 import { ProjectTracker, type Section as TrackerSection } from './components/ProjectTracker'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
+import { UpdateBanner } from './components/UpdateBanner'
 import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
 import { Character } from './components/Character'
@@ -283,6 +284,7 @@ export function App(): JSX.Element {
         } as CSSProperties
       }
     >
+      <UpdateBanner />
       <Roster
         roster={visibleRoster}
         characters={c.characters}

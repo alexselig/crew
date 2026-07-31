@@ -42,6 +42,7 @@ const api: CrewAPI = {
   scanTracker: () => ipcRenderer.invoke(IPC.TRACKER_SCAN),
   getPastWeek: () => ipcRenderer.invoke(IPC.TRACKER_PAST_WEEK),
   getUsageAnalytics: () => ipcRenderer.invoke(IPC.USAGE_ANALYTICS),
+  checkForUpdate: () => ipcRenderer.invoke(IPC.UPDATE_CHECK),
   openExternal: (url) => ipcRenderer.invoke(IPC.OPEN_EXTERNAL, url),
   getCommitActivity: () => ipcRenderer.invoke(IPC.ACTIVITY_COMMITS),
   launchProject: (id) => ipcRenderer.invoke(IPC.TRACKER_LAUNCH, id),
@@ -65,7 +66,8 @@ const api: CrewAPI = {
   onJump: (cb) => subscribe(IPC.EVT_JUMP, cb),
   onNew: (cb) => subscribe(IPC.EVT_NEW, () => cb()),
   onWorkspace: (cb) => subscribe(IPC.EVT_WORKSPACE, cb),
-  onAssets: (cb) => subscribe(IPC.EVT_ASSETS, cb)
+  onAssets: (cb) => subscribe(IPC.EVT_ASSETS, cb),
+  onUpdate: (cb) => subscribe(IPC.EVT_UPDATE, cb)
 }
 
 contextBridge.exposeInMainWorld('crew', api)
