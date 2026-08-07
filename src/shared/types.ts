@@ -146,6 +146,9 @@ export interface SessionInfo {
    * initialized to createdAt. Drives the 'recent' grouping so the most recently
    * prompted sessions bucket as "Last hour" etc. */
   lastPromptAt?: number
+  /** A loopback dev-server URL seen in this session's output (Vite/Next/etc.),
+   * or undefined if none — drives the "App" pane. Loopback-only by construction. */
+  appUrl?: string
 }
 
 export interface CreateSessionRequest {
@@ -230,6 +233,7 @@ export const IPC = {
   ACTIVITY_COMMITS: 'activity:commits',
   TRACKER_LAUNCH: 'tracker:launch',
   TRACKER_STOP: 'tracker:stop',
+  APP_CAN_LAUNCH: 'app:canLaunch',
   TRACKER_STATUS: 'tracker:status',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',

@@ -47,6 +47,7 @@ const api: CrewAPI = {
   getCommitActivity: () => ipcRenderer.invoke(IPC.ACTIVITY_COMMITS),
   launchProject: (id) => ipcRenderer.invoke(IPC.TRACKER_LAUNCH, id),
   stopProject: (id) => ipcRenderer.invoke(IPC.TRACKER_STOP, id),
+  canLaunchApp: (id) => ipcRenderer.invoke(IPC.APP_CAN_LAUNCH, id),
   getRunningServers: () => ipcRenderer.invoke(IPC.TRACKER_STATUS),
   getSettings: () => ipcRenderer.invoke(IPC.SETTINGS_GET),
   updateSettings: (patch) => ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   StateDetector,
   stripAnsi,
+  detectDevUrl,
   DEFAULT_SPINNER_REGEX,
   type DetectionConfig
 } from '../src/shared/detection'
@@ -202,5 +203,46 @@ describe('StateDetector', () => {
       det.tick(t) // ~120ms between frames, well under quietMs
       expect(det.state).toBe('WORKING')
     }
+  })
+})
+
+describe('detectDevUrl', () => {
+  it('extracts a Vite-style local URL', () => {
+    expect(detectDevUrl('  ➜  Local:   http://localhost:5173/')).toBe('http://localhost:5173/')
+  })
+
+  it('extracts Next.js and CRA style URLs', () => {
+    expect(detectDevUrl('- Local:        http://localhost:3000')).toBe('http://localhost:3000')
+    expect(detectDevUrl('On Your Network:  http://127.0.0.1:3001/app')).toBe('http://127.0.0.1:3001/app')
+  })
+
+  it('strips ANSI color codes around the URL', () => {
+    const line = '  \u001b[32m➜\u001b[39m  \u001b[1mLocal\u001b[22m:   \u001b[36mhttp://localhost:4321/\u001b[39m'
+    expect(detectDevUrl(line)).toBe('http://localhost:4321/')
+  })
+
+  it('returns the LAST loopback URL when several appear', () => {
+    const out = 'restarting…\nLocal: http://localhost:5173/\nPort in use, using http://localhost:5174/'
+    expect(detectDevUrl(out)).toBe('http://localhost:5174/')
+  })
+
+  it('normalizes 0.0.0.0 to loopback and accepts [::1]', () => {
+    expect(detectDevUrl('Serving on http://0.0.0.0:8000/')).toBe('http://127.0.0.1:8000/')
+    expect(detectDevUrl('Listening: http://[::1]:9000')).toBe('http://[::1]:9000')
+  })
+
+  it('trims trailing sentence punctuation but keeps a real slash', () => {
+    expect(detectDevUrl('open http://localhost:3000.')).toBe('http://localhost:3000')
+    expect(detectDevUrl('open http://localhost:3000/.')).toBe('http://localhost:3000/')
+  })
+
+  it('ignores non-loopback URLs', () => {
+    expect(detectDevUrl('see https://example.com:443/ for docs')).toBeNull()
+    expect(detectDevUrl('deployed to https://crew.fly.dev')).toBeNull()
+  })
+
+  it('returns null when there is no URL', () => {
+    expect(detectDevUrl('building… done in 421ms')).toBeNull()
+    expect(detectDevUrl('')).toBeNull()
   })
 })

@@ -11,6 +11,7 @@ import {
   StateDetector,
   DEFAULT_DETECTION,
   stripAnsi,
+  detectDevUrl,
   type DetectionConfig,
   type DetectionReason
 } from '../shared/detection'
@@ -244,6 +245,12 @@ export class SessionManager extends EventEmitter {
       }
       if (managed.credits.push(clean)) {
         managed.info.creditsUsed = managed.credits.value
+        this.rosterDirty = true
+      }
+      // Watch for a dev-server URL the agent printed, to power the "App" pane.
+      const url = detectDevUrl(clean)
+      if (url && url !== managed.info.appUrl) {
+        managed.info.appUrl = url
         this.rosterDirty = true
       }
     })

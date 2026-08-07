@@ -3821,6 +3821,133 @@ button {
   flex-direction: column;
 }
 
+/* Session "App" pane — an isolated <webview> showing this session's local dev
+   server, with a thin toolbar (reload / url / stop / open-in-browser) and
+   loading / failed / empty (launch-fallback) states. */
+.app-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--term-bg);
+}
+.app-pane__bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg-elev-2);
+  border-bottom: 1px solid var(--border-soft);
+}
+.app-pane__ctl {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.app-pane__ctl:hover {
+  background: var(--bg-elev);
+  border-color: var(--border);
+  color: var(--text);
+}
+.app-pane__url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.app-pane__spin {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.6px solid var(--border);
+  border-top-color: var(--accent-text);
+  animation: app-pane-spin 0.7s linear infinite;
+}
+@keyframes app-pane-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.app-pane__view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+}
+.app-pane__webview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.app-pane__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 24px;
+  background: var(--term-bg);
+}
+.app-pane--empty {
+  align-items: center;
+  justify-content: center;
+}
+.app-pane__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 28px;
+  color: var(--text-dim);
+}
+.app-pane__empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.app-pane__empty-sub {
+  margin: 0;
+  max-width: 340px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.app-pane__empty .btn {
+  margin-top: 4px;
+}
+
+/* App toggle button carries a small globe icon alongside its label. */
+.pane-toggle__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+
 /* Large-input warning — a maroon footer bar below the terminal/composer that
    appears only when a big unsent input is pending, gently shrinking the terminal
    above it. */

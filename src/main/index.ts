@@ -16,6 +16,7 @@ import { SessionManager } from './session-manager'
 import { ensureCrewHookDir } from './crew-hook'
 import { AssetWatchers } from './assets'
 import { assetMime } from '../shared/assets'
+import { isLoopbackHttp } from '../shared/detection'
 import { CrewTray } from './tray'
 import { isMac } from './platform'
 import { Store } from './store'
@@ -183,13 +184,40 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      contextIsolation: true
+      contextIsolation: true,
+      // Enables the <webview> tag used by the session "App" pane to render a
+      // session's local dev server. Hardened below in will-attach-webview.
+      webviewTag: true
     }
   })
 
   w.on('ready-to-show', () => {
     w.show()
     w.focus()
+  })
+
+  // Harden every <webview> the renderer attaches (the "App" pane): strip node,
+  // pin an isolated partition, and only allow loopback http(s) sources — a
+  // session's app is always a local dev server, never an arbitrary site.
+  w.webContents.on('will-attach-webview', (_e, prefs, params) => {
+    delete (prefs as { preload?: string }).preload
+    prefs.nodeIntegration = false
+    prefs.contextIsolation = true
+    params.partition = 'persist:crewapp'
+    if (!isLoopbackHttp(params.src)) {
+      // Refuse to attach a webview pointed anywhere but a local dev server.
+      params.src = 'about:blank'
+    }
+  })
+
+  // Route popups / target=_blank links from inside a previewed app to the
+  // user's default browser (the guest has its own webContents, separate from
+  // the host window's handler below).
+  w.webContents.on('did-attach-webview', (_e, guest) => {
+    guest.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+      return { action: 'deny' }
+    })
   })
 
   // Links opened from inside the app — terminal OSC 8 hyperlinks, any
@@ -698,6 +726,14 @@ function registerIpc(): void {
     return launchServer(id, s.cwd, s.label, meta)
   })
   ipcMain.handle(IPC.TRACKER_STOP, (_e, id: string) => stopServer(id))
+  // Can this session's working dir be launched as a dev server (for the "App"
+  // pane's launch fallback)? Cheap one-shot resolve; the renderer memoizes it.
+  ipcMain.handle(IPC.APP_CAN_LAUNCH, async (_e, id: string) => {
+    const s = manager.roster().find((x) => x.id === id)
+    if (!s) return false
+    const meta = await resolveLaunch(s.cwd)
+    return meta.launchable
+  })
   ipcMain.handle(IPC.TRACKER_STATUS, () => serverStatus())
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>

@@ -221,3 +221,58 @@ export class StateDetector {
     }
   }
 }
+
+// ── Dev-server URL detection (for the session "App" pane) ────────────────────
+// Agents building a web app typically start a dev server that prints its local
+// URL (Vite "Local: http://localhost:5173/", Next "http://localhost:3000",
+// etc.). We watch a session's output for such a URL so Crew can offer to show
+// the running app inside a webview. Scoped to loopback hosts only — we never
+// surface an arbitrary internet URL as "the app".
+
+// Loopback dev URL: http(s)://(localhost|127.0.0.1|0.0.0.0|[::1]):<port><path?>.
+// 0.0.0.0 is normalized to 127.0.0.1 in detectDevUrl (a bind-all address isn't a
+// reliable client target).
+const DEV_URL_RE =
+  /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d{2,5}(?:\/[^\s"'<>）)]*)?/gi
+
+/**
+ * Extract the last loopback dev-server URL from a chunk of terminal text, or
+ * null if none. ANSI escapes are stripped first (many frameworks colorize the
+ * URL). The LAST match wins so a fresh "server restarted on :5174" supersedes an
+ * earlier line. A trailing sentence punctuation mark (.,;) is trimmed so a URL
+ * ending a sentence stays clean; a real trailing slash is kept. Host 0.0.0.0
+ * (a bind-all address, not reliably connectable as a client) is normalized to
+ * 127.0.0.1 so the returned URL is directly loadable in a webview/browser.
+ */
+export function detectDevUrl(text: string): string | null {
+  if (!text) return null
+  const clean = stripAnsi(text)
+  const matches = clean.match(DEV_URL_RE)
+  if (!matches || matches.length === 0) return null
+  let url = matches[matches.length - 1]
+  // Trim trailing sentence punctuation that isn't part of the URL.
+  url = url.replace(/[.,;]+$/, '')
+  // 0.0.0.0 means "all interfaces" to a server but isn't a valid client target
+  // on every platform; point it at loopback instead.
+  url = url.replace(/:\/\/0\.0\.0\.0:/, '://127.0.0.1:')
+  return url
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'])
+
+/**
+ * True when `url` is an http(s) URL whose host is a loopback address — the only
+ * thing the "App" pane is ever allowed to load. Used both to gate webview
+ * attachment (main) and to validate a URL before display (renderer).
+ */
+export function isLoopbackHttp(url: string | null | undefined): boolean {
+  if (!url) return false
+  try {
+    const u = new URL(url)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+    const host = u.hostname
+    return LOOPBACK_HOSTS.has(host) || host === '[::1]'
+  } catch {
+    return false
+  }
+}

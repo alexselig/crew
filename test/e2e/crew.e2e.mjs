@@ -5,6 +5,7 @@
 // Screenshots are written to $SHOTS (default /tmp/crew-e2e).
 
 import { _electron as electron } from 'playwright'
+import { createServer } from 'node:http'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
@@ -326,6 +327,56 @@ async function main() {
   ok('restart spawns a fresh process (new pid)')
   await page.waitForSelector('.xterm', { timeout: 5000 })
   ok('terminal present after restart')
+
+  // ---- App pane: detect a dev-server URL and render it in a <webview> ----
+  log('App pane (dev-server webview)')
+  const appServer = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' })
+    res.end('<!doctype html><html><body><h1>CREW-APP-PANE-OK</h1></body></html>')
+  })
+  await new Promise((r) => appServer.listen(0, '127.0.0.1', r))
+  const appPort = appServer.address().port
+  const appUrl = `http://127.0.0.1:${appPort}/`
+  const appScript = `process.stdout.write('  VITE ready\\n  Local:   ${appUrl}\\n'); setInterval(() => {}, 1000)`
+  const appId = await page.evaluate(
+    async ({ bin, s, cwd }) => {
+      const info = await window.crew.createSession({ presetId: null, command: bin, args: ['-e', s], cwd, label: 'App Preview' })
+      return info.id
+    },
+    { bin: NODE_BIN, s: appScript, cwd: ROOT }
+  )
+  const appDetected = await waitUntil(
+    async () => page.evaluate(async (sid) => (await window.crew.getRoster()).find((s) => s.id === sid)?.appUrl ?? null, appId),
+    'dev-server URL detected from output',
+    8000
+  )
+  if (appDetected === appUrl) ok(`appUrl detected: ${appDetected}`)
+  else bad(`appUrl mismatch: got ${appDetected}, expected ${appUrl}`)
+
+  await page.locator('.card:has-text("App Preview")').click()
+  await waitUntil(async () => (await page.locator('.pane-toggle__btn', { hasText: 'App' }).count()) > 0, 'App tab visible', 5000)
+  ok('App tab appears in the pane toggle')
+  await page.locator('.pane-toggle__btn', { hasText: 'App' }).click()
+  await waitUntil(async () => (await page.locator('.app-pane__webview').count()) > 0, 'webview mounts', 5000)
+  const guestText = await waitUntil(
+    async () =>
+      page.evaluate(async () => {
+        const wv = document.querySelector('.app-pane__webview')
+        if (!wv || typeof wv.executeJavaScript !== 'function') return null
+        try {
+          return (await wv.executeJavaScript('document.body && document.body.innerText')) || null
+        } catch {
+          return null
+        }
+      }),
+    'guest page content readable',
+    20000
+  )
+  if (guestText && guestText.includes('CREW-APP-PANE-OK')) ok('webview rendered the local dev server')
+  else bad(`webview did not render marker (got "${guestText}")`)
+  await shot(page, 'app-pane')
+  await page.evaluate((sid) => window.crew.closeSession(sid), appId)
+  appServer.close()
 
   // ---- Close both sessions ----
   log('Close button → back to empty')

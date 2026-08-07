@@ -24,6 +24,10 @@ interface IconProps {
     | 'search'
     | 'bell'
     | 'tracker'
+    | 'globe'
+    | 'refresh'
+    | 'external'
+    | 'x'
   size?: number
 }
 
@@ -155,6 +159,37 @@ const PATHS: Record<IconProps['name'], JSX.Element> = {
       <path d="M15.5 4H17a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1.5" />
       <rect x="8" y="2.5" width="8" height="3.5" rx="1.2" />
       <path d="m8 13 2.5 2.5L16 10" />
+    </>
+  ),
+  // Globe: the running web app (App pane).
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </>
+  ),
+  // Circular arrows: reload the app webview.
+  refresh: (
+    <>
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </>
+  ),
+  // Box with an out-arrow: open the app in the system browser.
+  external: (
+    <>
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </>
+  ),
+  // A plain X: stop / close.
+  x: (
+    <>
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
     </>
   )
 }
