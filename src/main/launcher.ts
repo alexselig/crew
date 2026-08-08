@@ -61,7 +61,7 @@ function buildCommand(framework: Framework, port: number | null, launch: Launch)
     case 'electron':
       return { cmd: 'npm', args: ['run', 'dev'] }
     case 'static':
-      return { cmd: 'python3', args: ['-m', 'http.server', String(port)] }
+      return { cmd: 'python3', args: ['-m', 'http.server', String(port), '--bind', '127.0.0.1'] }
     case 'node':
       return { cmd: 'npm', args: ['run', launch.cmdPreview?.includes('run dev') ? 'dev' : 'start'] }
     default:

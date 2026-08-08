@@ -4,34 +4,29 @@ import type { CrewWebviewElement } from '../webview'
 import { isLoopbackHttp } from '../../shared/detection'
 
 interface Props {
-  sessionId: string
   /** A dev-server URL detected in this session's output, if any. */
   appUrl?: string
 }
 
-type Phase = 'idle' | 'launching' | 'loading' | 'ready' | 'failed'
+type Phase = 'loading' | 'ready' | 'failed'
 
 /**
- * The session "App" pane: renders a session's local dev server in an isolated
- * Electron <webview>. Shows the detected app URL when present, otherwise offers
- * to launch the working dir's dev server (reusing the tracker launcher). The
- * webview is hardened + loopback-only in the main process (will-attach-webview).
+ * The session "App" pane: a read-only viewer that renders a session's local dev
+ * server in an isolated Electron <webview>. Crew shows it only once it has
+ * detected a loopback URL in the session's own output — start the dev server in
+ * the terminal and it appears here. The webview is hardened + loopback-only in
+ * the main process (will-attach-webview). Crew never launches anything itself.
  */
-export function AppPane({ sessionId, appUrl }: Props): JSX.Element {
+export function AppPane({ appUrl }: Props): JSX.Element {
   const ref = useRef<CrewWebviewElement | null>(null)
-  const [url, setUrl] = useState<string | null>(appUrl && isLoopbackHttp(appUrl) ? appUrl : null)
-  const [phase, setPhase] = useState<Phase>(url ? 'loading' : 'idle')
-  const [note, setNote] = useState<string>('')
-  const [launched, setLaunched] = useState(false)
+  const url = appUrl && isLoopbackHttp(appUrl) ? appUrl : null
+  const [phase, setPhase] = useState<Phase>('loading')
 
-  // Adopt a freshly-detected URL if we didn't have one yet (agent started its
-  // server after the pane opened).
+  // Reset to the loading state whenever the URL changes (e.g. the server
+  // restarted on a new port).
   useEffect(() => {
-    if (!url && appUrl && isLoopbackHttp(appUrl)) {
-      setUrl(appUrl)
-      setPhase('loading')
-    }
-  }, [appUrl, url])
+    if (url) setPhase('loading')
+  }, [url])
 
   // Wire webview lifecycle events to drive the load/failed states.
   useEffect(() => {
@@ -62,54 +57,17 @@ export function AppPane({ sessionId, appUrl }: Props): JSX.Element {
   const openExternal = (): void => {
     if (url) void window.crew.openExternal(url)
   }
-  const launch = async (): Promise<void> => {
-    setPhase('launching')
-    setNote('Starting dev server… (first compile can take ~10–20s)')
-    try {
-      const res = await window.crew.launchProject(sessionId)
-      if (res.ok && res.url && isLoopbackHttp(res.url)) {
-        setLaunched(!res.external)
-        setUrl(res.url)
-        setPhase('loading')
-        setNote(res.slow ? 'Still compiling — the app will appear shortly.' : '')
-      } else {
-        setPhase('idle')
-        setNote(res.error || 'Could not start a dev server for this folder.')
-      }
-    } catch (e) {
-      setPhase('idle')
-      setNote(e instanceof Error ? e.message : String(e))
-    }
-  }
-  const stop = async (): Promise<void> => {
-    await window.crew.stopProject(sessionId)
-    setLaunched(false)
-    setUrl(null)
-    setPhase('idle')
-    setNote('')
-  }
 
   if (!url) {
     return (
       <div className="app-pane app-pane--empty">
         <div className="app-pane__empty">
           <Icon name="globe" size={26} />
-          {phase === 'launching' ? (
-            <>
-              <p className="app-pane__empty-title">Launching…</p>
-              <p className="app-pane__empty-sub">{note}</p>
-            </>
-          ) : (
-            <>
-              <p className="app-pane__empty-title">No app detected yet</p>
-              <p className="app-pane__empty-sub">
-                {note || 'Start a dev server in the terminal, or launch this project’s dev server.'}
-              </p>
-              <button type="button" className="btn btn--primary" onClick={() => void launch()}>
-                Launch app
-              </button>
-            </>
-          )}
+          <p className="app-pane__empty-title">No app running yet</p>
+          <p className="app-pane__empty-sub">
+            Start your app’s dev server in the terminal (e.g. <code>npm run dev</code>). When Crew sees its
+            local URL, the app shows up here.
+          </p>
         </div>
       </div>
     )
@@ -125,11 +83,6 @@ export function AppPane({ sessionId, appUrl }: Props): JSX.Element {
           {url}
         </span>
         {phase === 'loading' && <span className="app-pane__spin" aria-hidden />}
-        {launched && (
-          <button type="button" className="app-pane__ctl" title="Stop dev server" onClick={() => void stop()}>
-            <Icon name="x" size={13} />
-          </button>
-        )}
         <button type="button" className="app-pane__ctl" title="Open in browser" onClick={openExternal}>
           <Icon name="external" size={13} />
         </button>

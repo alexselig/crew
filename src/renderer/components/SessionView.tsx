@@ -59,24 +59,11 @@ export function SessionView({
   // Which representation of the session is shown: the raw terminal (default,
   // source of truth) or the typed Transcript read layer.
   const [pane, setPane] = useState<'terminal' | 'transcript' | 'app'>('terminal')
-  // Whether this session's working dir can be launched as a dev server. Probed
-  // lazily (once per session) so the "App" tab appears for web projects even
-  // before their server is running. Detected URLs (session.appUrl) also enable it.
-  const [canLaunch, setCanLaunch] = useState(false)
+  // Reset to the terminal whenever the active session changes, so switching
+  // (or creating) a session never leaves you stranded in a pane that session
+  // doesn't have (e.g. the App view).
   useEffect(() => {
-    const id = session?.id
-    if (!id) return
-    let alive = true
-    setCanLaunch(false)
-    window.crew
-      .canLaunchApp(id)
-      .then((v) => {
-        if (alive) setCanLaunch(v)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
+    setPane('terminal')
   }, [session?.id])
   const { flight, end } = useTakeoff(session?.id ?? '', session?.autopilot ?? false, session?.characterId ?? '')
   if (!session) {
@@ -99,9 +86,15 @@ export function SessionView({
   const presetName = session.presetId ? preset?.name ?? 'custom' : 'custom'
   const character = characters.find((c) => c.id === session.characterId)
   const active = session.status === 'active'
-  // The "App" pane is available when we've detected a dev-server URL in this
-  // session's output, or its working dir is launchable as one.
-  const showApp = active && (!!session.appUrl || canLaunch)
+  // The "App" pane is available once Crew has detected a local dev-server URL in
+  // this session's own output. Crew never launches anything itself — you start
+  // the server in the terminal and it appears here.
+  const showApp = active && !!session.appUrl
+  // Guard against rendering a pane the current session can't show (e.g. App
+  // after its URL is gone, or Transcript without the enhanced engine) — always
+  // fall back to the terminal so you can never get stranded.
+  const effectivePane =
+    pane === 'app' && !showApp ? 'terminal' : pane === 'transcript' && !enhancedTerminal ? 'terminal' : pane
   const needsApproval = session.state === 'WAITING_APPROVAL'
   const approveKeys = preset?.approveKeys ?? 'y\r'
   const denyKeys = preset?.denyKeys ?? 'n\r'
@@ -166,7 +159,7 @@ export function SessionView({
           <span className="pane-toggle">
             <button
               type="button"
-              className={`btn pane-toggle__btn ${pane === 'terminal' ? 'is-active' : ''}`}
+              className={`btn pane-toggle__btn ${effectivePane === 'terminal' ? 'is-active' : ''}`}
               title="Raw terminal"
               onClick={() => setPane('terminal')}
             >
@@ -175,7 +168,7 @@ export function SessionView({
             {enhancedTerminal && (
               <button
                 type="button"
-                className={`btn pane-toggle__btn ${pane === 'transcript' ? 'is-active' : ''}`}
+                className={`btn pane-toggle__btn ${effectivePane === 'transcript' ? 'is-active' : ''}`}
                 title="Typed transcript (read layer)"
                 onClick={() => setPane('transcript')}
               >
@@ -185,7 +178,7 @@ export function SessionView({
             {showApp && (
               <button
                 type="button"
-                className={`btn pane-toggle__btn ${pane === 'app' ? 'is-active' : ''}`}
+                className={`btn pane-toggle__btn ${effectivePane === 'app' ? 'is-active' : ''}`}
                 title="The running web app for this session"
                 onClick={() => setPane('app')}
               >
@@ -261,9 +254,9 @@ export function SessionView({
         {active ? (
           <>
             <div className="term-wrap">
-              {pane === 'app' ? (
-                <AppPane sessionId={session.id} appUrl={session.appUrl} />
-              ) : enhancedTerminal && pane === 'transcript' ? (
+              {effectivePane === 'app' ? (
+                <AppPane appUrl={session.appUrl} />
+              ) : effectivePane === 'transcript' ? (
                 <TranscriptPane
                   sessionId={session.id}
                   enhanced={enhancedTerminal}
@@ -277,7 +270,7 @@ export function SessionView({
                   <SkillsBar sessionId={session.id} agent={session.command} />
                 </>
               )}
-              {pane !== 'app' && <InputWarnBar sessionId={session.id} threshold={inputTokenWarn} />}
+              {effectivePane !== 'app' && <InputWarnBar sessionId={session.id} threshold={inputTokenWarn} />}
             </div>
             <AssetsPanel sessionId={session.id} />
           </>

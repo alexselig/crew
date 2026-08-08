@@ -233,7 +233,6 @@ export const IPC = {
   ACTIVITY_COMMITS: 'activity:commits',
   TRACKER_LAUNCH: 'tracker:launch',
   TRACKER_STOP: 'tracker:stop',
-  APP_CAN_LAUNCH: 'app:canLaunch',
   TRACKER_STATUS: 'tracker:status',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',

@@ -3,6 +3,23 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.4.7 — 2026-08-08
+
+**App pane fixes — simpler and safer.**
+
+- The **App** pane is now purely a viewer of the dev server *you* start in the
+  terminal. Removed the "Launch app" button: Crew no longer starts servers for
+  you, which also removes a case where launching in a non-web folder could serve
+  that directory's file listing (and, for a plain static folder, expose it).
+- The **App** tab now appears only once Crew detects a real local dev-server URL
+  in the session's output — no more tab (or empty pane) for sessions that aren't
+  running a web app.
+- **Fixed getting stuck in the App view.** Switching to — or creating — a session
+  that has no app now always lands you back on the Terminal, instead of stranding
+  you in an empty App pane with no way out.
+- Hardening: the built-in static-server path (Project Tracker launch) now binds
+  to loopback only and requires a real `index.html`.
+
 ## 0.4.6 — 2026-08-08
 
 **See the app you're building — a new "App" pane.**

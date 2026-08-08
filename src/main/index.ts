@@ -726,14 +726,6 @@ function registerIpc(): void {
     return launchServer(id, s.cwd, s.label, meta)
   })
   ipcMain.handle(IPC.TRACKER_STOP, (_e, id: string) => stopServer(id))
-  // Can this session's working dir be launched as a dev server (for the "App"
-  // pane's launch fallback)? Cheap one-shot resolve; the renderer memoizes it.
-  ipcMain.handle(IPC.APP_CAN_LAUNCH, async (_e, id: string) => {
-    const s = manager.roster().find((x) => x.id === id)
-    if (!s) return false
-    const meta = await resolveLaunch(s.cwd)
-    return meta.launchable
-  })
   ipcMain.handle(IPC.TRACKER_STATUS, () => serverStatus())
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>

@@ -615,14 +615,14 @@
     <section class="doc" id="app">
       <div class="sec-eyebrow">15 · Watch what you’re building</div>
       <h2>The App pane.</h2>
-      <p class="lead">When a session is building a web app, a third tab — <b>App</b> — joins <a href="#terminal">Terminal</a> and <a href="#transcript">Transcript</a> in the header. Crew watches the session’s output for a local dev-server URL (Vite, Next, Create React App, and friends) and lights the tab up automatically the moment it sees one, then renders your running app live, right inside Crew.</p>
+      <p class="lead">When a session is building a web app, a third tab — <b>App</b> — joins <a href="#terminal">Terminal</a> and <a href="#transcript">Transcript</a> in the header. Start your dev server in the terminal as you normally would; the moment Crew spots its local URL (Vite, Next, Create React App, and friends) in the session’s output, the tab lights up and renders your running app live, right inside Crew.</p>
       <figure>
         <div class="frame"><img loading="lazy" src="assets/guide/app.jpg" alt="The App pane rendering a running local dev server — a checkout page — inside Crew, with a Terminal / Transcript / App toggle and a URL bar" /></div>
         <figcaption>The agent’s dev server, live in Crew — no browser window to juggle. A slim toolbar carries <b>Reload</b>, the URL, and <b>Open in browser</b>.</figcaption>
       </figure>
       <ul class="feat">
-        <li><b>Auto-detected</b> — the tab appears as soon as a session prints its <code>http://localhost:…</code> URL; no configuration.</li>
-        <li><b>Launch on demand</b> — if nothing is running yet but the working directory can start a dev server, the pane offers a one-click <b>Launch app</b> (and a <b>Stop</b> for servers Crew started).</li>
+        <li><b>Auto-detected</b> — the tab appears as soon as a session prints its <code>http://localhost:…</code> URL; no configuration, nothing to click.</li>
+        <li><b>You’re in control</b> — Crew never starts servers for you; it just mirrors the one you ran in the terminal, so there are no surprise processes.</li>
         <li><b>Reload &amp; open externally</b> — refresh the preview after a change, or pop it out to your default browser.</li>
         <li><b>Live-reload just works</b> — your dev server’s hot-reload drives the pane exactly as it would a browser tab.</li>
       </ul>

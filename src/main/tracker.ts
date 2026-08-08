@@ -449,7 +449,11 @@ function detectFramework(pkg: Record<string, unknown> | null, entries: string[])
   if (deps.vite || scripts.dev === 'vite') return 'vite'
   if (deps.electron || /electron/.test(scripts.dev || '')) return 'electron'
   if (scripts.dev || scripts.start) return 'node'
-  if (entries.some((e) => /\.html$/i.test(e))) return 'static'
+  // Only treat a folder as a launchable static site when it has an actual
+  // index.html at its root — otherwise `python -m http.server` just serves a
+  // directory listing (and a stray .html anywhere, e.g. in $HOME, would falsely
+  // look launchable).
+  if (entries.some((e) => /^index\.html?$/i.test(e))) return 'static'
   return null
 }
 

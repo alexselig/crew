@@ -129,8 +129,6 @@ export interface CrewAPI {
   launchProject(id: string): Promise<LaunchResult>
   /** Stop a dev server the tracker started (or untrack an adopted one). */
   stopProject(id: string): Promise<{ ok: boolean; external?: boolean; error?: string }>
-  /** Whether a session's working dir can be launched as a dev server (App pane). */
-  canLaunchApp(id: string): Promise<boolean>
   /** Currently-running dev servers started/adopted by the tracker. */
   getRunningServers(): Promise<RunningServer[]>
   getSettings(): Promise<Settings>
