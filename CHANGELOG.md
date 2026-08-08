@@ -3,6 +3,22 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.4.6 — 2026-08-08
+
+**See the app you're building — a new "App" pane.**
+
+- Each session now has an **App** tab next to Terminal/Transcript that renders
+  the web app that session is building, live, inside Crew. Crew watches the
+  session's output for a local dev-server URL (Vite, Next, CRA, and friends) and
+  lights up the tab automatically when it sees one.
+- The pane has a thin toolbar — **Reload**, the current URL, **Stop** (for dev
+  servers Crew started), and **Open in browser**. If a server isn't running yet
+  but the working directory can start one, the pane offers a one-click
+  **Launch app**.
+- Safe by construction: the embedded view only ever loads a local (loopback)
+  dev server — never an arbitrary site — runs with node integration disabled in
+  an isolated session, and sends any pop-out links to your default browser.
+
 ## 0.4.5 — 2026-07-31
 
 **In-app update notifications.**
