@@ -14,8 +14,9 @@
 // Each capture is wrapped so one flaky step never aborts the whole run.
 
 import { _electron as electron } from 'playwright'
-import { mkdirSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, symlinkSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { createServer } from 'node:http'
 import { resolve, join } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -177,6 +178,7 @@ function makeRepo(s) {
 
 const done = []
 const failed = []
+let appServer = null
 
 async function main() {
   rmSync(DATA_DIR, { recursive: true, force: true })
@@ -600,7 +602,69 @@ async function main() {
     await page.evaluate(() => localStorage.removeItem('crew.transcriptDemo'))
   })
 
+  // ===== APP PANE =====
+  // Serve the atlas-web checkout page on loopback, announce its URL from a
+  // session's output (like a real Vite dev server), then show it live in the
+  // App pane's <webview>.
+  await shot('app.png', async () => {
+    const html = readFileSync(join(AP_CWD, 'index.html'), 'utf8')
+    appServer = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html' })
+      res.end(html)
+    })
+    await new Promise((r) => appServer.listen(0, '127.0.0.1', r))
+    const appUrl = `http://127.0.0.1:${appServer.address().port}/`
+    const term =
+      "process.stdout.write('  \\x1b[32mVITE\\x1b[0m v5.4.9  ready in 412 ms\\r\\n\\r\\n" +
+      "  \\x1b[32m\\u2192\\x1b[0m  Local:   \\x1b[36m" +
+      appUrl +
+      "\\x1b[0m\\r\\n  \\x1b[32m\\u2192\\x1b[0m  press \\x1b[1mh + enter\\x1b[0m to show help\\r\\n'); setInterval(()=>{},1000)"
+    const appId = await page.evaluate(
+      async ({ term, node, cwd }) => {
+        const info = await window.crew.createSession({
+          presetId: null,
+          command: node,
+          args: ['-e', term],
+          cwd,
+          label: 'atlas-web',
+          tag: 'product'
+        })
+        return info.id
+      },
+      { term, node: NODE_BIN, cwd: AP_CWD }
+    )
+    const card = page.locator(`.card[data-session-id="${appId}"]`)
+    await waitUntil(async () => (await card.count()) > 0, 'app session card', 8000)
+    await card.click()
+    const appBtn = page.locator('.pane-toggle__btn', { hasText: 'App' })
+    await waitUntil(async () => (await appBtn.count()) > 0, 'App tab visible', 8000)
+    await appBtn.click()
+    // Collapse the assets rail so the app preview gets the full pane width.
+    const hideAssets = page.locator('.assets__header .icon-btn[title="Hide assets"]')
+    if (await hideAssets.count()) await hideAssets.click().catch(() => {})
+    await waitUntil(async () => (await page.locator('.app-pane__webview').count()) > 0, 'webview mounted', 8000)
+    // Wait for the guest page to actually paint its checkout card.
+    await waitUntil(
+      async () =>
+        page.evaluate(async () => {
+          const wv = document.querySelector('.app-pane__webview')
+          if (!wv || typeof wv.executeJavaScript !== 'function') return false
+          try {
+            return !!(await wv.executeJavaScript('!!document.querySelector(".card")'))
+          } catch {
+            return false
+          }
+        }),
+      'guest checkout rendered',
+      15000
+    )
+    await page.mouse.move(1100, 700)
+    await wait(700)
+    await full('app.png')
+  })
+
   await app.close()
+  if (appServer) appServer.close()
   rmSync(SHIM_DIR, { recursive: true, force: true })
   rmSync(PROJ_ROOT, { recursive: true, force: true })
   rmSync(AP_PROJECT_DIR, { recursive: true, force: true })

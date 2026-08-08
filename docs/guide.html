@@ -265,6 +265,7 @@
       <li><a href="#skills">Skills</a></li>
       <li><a href="#terminal">Enhanced Terminal</a></li>
       <li><a href="#transcript">Transcript view</a></li>
+      <li><a href="#app">The App pane</a></li>
       <li><a href="#broadcast">Broadcast</a></li>
       <li><a href="#analytics">Activity &amp; spend</a></li>
       <li><a href="#tracker">Project Tracker</a></li>
@@ -610,9 +611,27 @@
       </ul>
     </section>
 
-    <!-- 15 BROADCAST -->
+    <!-- 15 APP PANE -->
+    <section class="doc" id="app">
+      <div class="sec-eyebrow">15 · Watch what you’re building</div>
+      <h2>The App pane.</h2>
+      <p class="lead">When a session is building a web app, a third tab — <b>App</b> — joins <a href="#terminal">Terminal</a> and <a href="#transcript">Transcript</a> in the header. Crew watches the session’s output for a local dev-server URL (Vite, Next, Create React App, and friends) and lights the tab up automatically the moment it sees one, then renders your running app live, right inside Crew.</p>
+      <figure>
+        <div class="frame"><img loading="lazy" src="assets/guide/app.jpg" alt="The App pane rendering a running local dev server — a checkout page — inside Crew, with a Terminal / Transcript / App toggle and a URL bar" /></div>
+        <figcaption>The agent’s dev server, live in Crew — no browser window to juggle. A slim toolbar carries <b>Reload</b>, the URL, and <b>Open in browser</b>.</figcaption>
+      </figure>
+      <ul class="feat">
+        <li><b>Auto-detected</b> — the tab appears as soon as a session prints its <code>http://localhost:…</code> URL; no configuration.</li>
+        <li><b>Launch on demand</b> — if nothing is running yet but the working directory can start a dev server, the pane offers a one-click <b>Launch app</b> (and a <b>Stop</b> for servers Crew started).</li>
+        <li><b>Reload &amp; open externally</b> — refresh the preview after a change, or pop it out to your default browser.</li>
+        <li><b>Live-reload just works</b> — your dev server’s hot-reload drives the pane exactly as it would a browser tab.</li>
+      </ul>
+      <div class="note">Safe by design: the App pane only ever loads a <b>local (loopback) dev server</b> — never an arbitrary website — runs with node integration off in an isolated session, and sends any pop-out links to your real browser.</div>
+    </section>
+
+    <!-- 16 BROADCAST -->
     <section class="doc" id="broadcast">
-      <div class="sec-eyebrow">15 · One prompt, many agents</div>
+      <div class="sec-eyebrow">16 · One prompt, many agents</div>
       <h2>Broadcast.</h2>
       <p class="lead">Send the same message to several sessions at once — great for “run the tests” or a coordinated checkpoint.</p>
       <figure>
@@ -624,7 +643,7 @@
 
     <!-- 14 ANALYTICS -->
     <section class="doc" id="analytics">
-      <div class="sec-eyebrow">16 · Where the time &amp; money went</div>
+      <div class="sec-eyebrow">17 · Where the time &amp; money went</div>
       <h2>Activity &amp; spend.</h2>
       <p class="lead">Activity &amp; spend now lives inside the <a href="#tracker">Project Tracker</a>, on its <b>Activity</b> tab (the chart button in the toolbar jumps straight there). Three views: <b>Past Week</b> reviews your Copilot history, <b>Spend</b> totals waiting time + cost + credits per session, and <b>Activity</b> is a live commit feed across your repos.</p>
       <figure>
@@ -639,7 +658,7 @@
 
     <!-- 17 PROJECT TRACKER -->
     <section class="doc" id="tracker">
-      <div class="sec-eyebrow">17 · Mission control for your repos</div>
+      <div class="sec-eyebrow">18 · Mission control for your repos</div>
       <h2>The Project Tracker.</h2>
       <p class="lead">The clipboard button opens a full-screen <b>Project Index</b> with two tabs. <b>Planning</b> is the live project index — one card per open session, derived straight from disk: git status, version, what shipped recently, open tasks and commit history. <b>Activity</b> is the review layer (<a href="#analytics">Past Week / Spend / commit feed</a>) that absorbed the old Activity &amp; Spend dialog.</p>
       <figure>
@@ -658,7 +677,7 @@
 
     <!-- 18 SEARCH TRANSCRIPTS -->
     <section class="doc" id="transcripts">
-      <div class="sec-eyebrow">18 · Search your history</div>
+      <div class="sec-eyebrow">19 · Search your history</div>
       <h2>Search transcripts.</h2>
       <p class="lead">Different from the live <a href="#transcript">Transcript view</a>: turn on <b>Capture transcripts</b> in Settings and Crew saves each session’s output locally so you can search across <em>everything</em> and export a session later. It never leaves your machine.</p>
       <figure>
@@ -669,7 +688,7 @@
 
     <!-- 19 PALETTE -->
     <section class="doc" id="palette">
-      <div class="sec-eyebrow">19 · Move fast</div>
+      <div class="sec-eyebrow">20 · Move fast</div>
       <h2>Command palette &amp; shortcuts.</h2>
       <p class="lead">Press <kbd>⌘K</kbd> for a fuzzy quick-switcher: jump to any session, run any action, or switch workspace without touching the mouse.</p>
       <figure>
@@ -688,7 +707,7 @@
 
     <!-- 17 SETTINGS -->
     <section class="doc" id="settings">
-      <div class="sec-eyebrow">20 · Dial it in</div>
+      <div class="sec-eyebrow">21 · Dial it in</div>
       <h2>Settings.</h2>
       <p class="lead">Everything is off-by-default-sensible, but you can tune it all.</p>
       <figure>
@@ -709,14 +728,14 @@
 
     <!-- 21 AUTOPILOT -->
     <section class="doc" id="autopilot">
-      <div class="sec-eyebrow">21 · Hands-off runs</div>
+      <div class="sec-eyebrow">22 · Hands-off runs</div>
       <h2>Autopilot-aware.</h2>
       <p class="lead">When an agent is running unattended — approving its own edits — its character puts on a <b>pilot costume</b> (goggles + an ✈ badge), and a little takeoff animation plays across the header. You can tell at a glance which agents are flying solo and which are working with you in the loop.</p>
     </section>
 
     <!-- 22 WINDOWS / PLATFORMS -->
     <section class="doc" id="windows">
-      <div class="sec-eyebrow">22 · Beyond one window</div>
+      <div class="sec-eyebrow">23 · Beyond one window</div>
       <h2>Windows, the menu bar &amp; platforms.</h2>
       <ul class="feat">
         <li><b>macOS &amp; Windows</b> — Crew ships as a native app for both (Apple Silicon, Intel, and a Windows installer).</li>
@@ -728,7 +747,7 @@
 
     <!-- 23 START -->
     <section class="doc" id="start">
-      <div class="sec-eyebrow">23 · Your turn</div>
+      <div class="sec-eyebrow">24 · Your turn</div>
       <h2>Getting started.</h2>
       <p class="lead">That’s the whole tour. Download Crew, launch a couple of agents, and let the crew do the work — you’ll get pinged the moment one needs you.</p>
       <p>

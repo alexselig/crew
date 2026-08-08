@@ -45,6 +45,11 @@ releases are signed + notarized.
   guarded against false red dots during post-input think-time.
 - Per-session **unique character** + **editable label**, persisted by
   `preset + cwd` so relaunching a job reuses its identity.
+- **App preview pane** — when a session is building a web app, an **App** tab
+  (next to Terminal/Transcript) renders its running dev server live inside Crew.
+  Crew auto-detects the local dev-server URL from the session's output (Vite,
+  Next, CRA, …), with a one-click **Launch app** fallback. Loopback-only and
+  hardened (isolated session, node integration off).
 - Menu-bar **badge + count**, context-menu jump-to-waiting, and a native
   **notification** when a session starts waiting.
 - Needs-you-first roster sort; restart / dismiss; graceful error handling.

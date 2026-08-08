@@ -1,6 +1,6 @@
 # Session "App" pane — a live webview of the app you're building
 
-**Status:** Design proposal — awaiting review (not yet implemented)
+**Status:** Implemented in v0.4.6 (shipped 2026-08-08). This document is the original design proposal, kept for context.
 **Date:** 2026-08-06
 **Author:** brainstorming session (decisions made autonomously; user to review)
 
