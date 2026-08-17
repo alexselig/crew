@@ -663,6 +663,35 @@ async function main() {
     await full('app.png')
   })
 
+  // ===== WORKSPACE MANAGER =====
+  // Organize the staged sessions into a couple of workspaces, then open the
+  // full-screen manager (File › Workspaces… — reached here via the palette).
+  await shot('workspaces.png', async () => {
+    const roster = await page.evaluate(async () => (await window.crew.getRoster()).map((s) => ({ id: s.id, label: s.label })))
+    const product = await page.evaluate(async () => window.crew.createWorkspace('Product'))
+    const infra = await page.evaluate(async () => window.crew.createWorkspace('Infrastructure'))
+    const pick = (label) => roster.find((s) => s.label && s.label.includes(label))?.id
+    const assign = async (label, wsId) => {
+      const id = pick(label)
+      if (id && wsId) await page.evaluate(async ({ id, wsId }) => window.crew.addSessionToWorkspace(id, wsId), { id, wsId })
+    }
+    // atlas-web + one more into Product; a backend-ish one into Infrastructure.
+    await assign('atlas', product?.id)
+    if (roster[1]) await page.evaluate(async ({ id, wsId }) => window.crew.addSessionToWorkspace(id, wsId), { id: roster[1].id, wsId: product?.id })
+    if (roster[2]) await page.evaluate(async ({ id, wsId }) => window.crew.addSessionToWorkspace(id, wsId), { id: roster[2].id, wsId: infra?.id })
+    await wait(400)
+    await page.keyboard.press('Meta+k')
+    await waitUntil(async () => (await page.locator('.palette__input').count()) > 0, 'palette open', 5000)
+    await page.locator('.palette__input').fill('Manage workspaces')
+    await wait(300)
+    await page.keyboard.press('Enter')
+    await waitUntil(async () => (await page.locator('.workspace-board').count()) > 0, 'board open', 5000)
+    await page.mouse.move(1100, 700)
+    await wait(700)
+    await full('workspaces.png')
+    await page.keyboard.press('Escape')
+  })
+
   await app.close()
   if (appServer) appServer.close()
   rmSync(SHIM_DIR, { recursive: true, force: true })
