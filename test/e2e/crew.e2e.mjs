@@ -378,6 +378,50 @@ async function main() {
   await page.evaluate((sid) => window.crew.closeSession(sid), appId)
   appServer.close()
 
+  // ---- Workspaces: first-class membership + archive + duplicate ----
+  log('Workspaces (first-class membership)')
+  const wsCreated = await page.evaluate(async () => window.crew.createWorkspace('Alpha WS'))
+  if (wsCreated && wsCreated.id) ok(`created workspace "${wsCreated.name}"`)
+  else bad(`createWorkspace returned ${JSON.stringify(wsCreated)}`)
+  const dupDenom = await page.evaluate(async () => (await window.crew.getRoster()).length)
+  const wsSid = await page.evaluate(async () => (await window.crew.getRoster())[0]?.id)
+  await page.evaluate(async ({ sid, wsId }) => window.crew.addSessionToWorkspace(sid, wsId), { sid: wsSid, wsId: wsCreated.id })
+  await waitUntil(
+    async () =>
+      page.evaluate(async ({ sid, wsId }) => {
+        const s = (await window.crew.getRoster()).find((x) => x.id === sid)
+        return !!s?.workspaceIds?.includes(wsId)
+      }, { sid: wsSid, wsId: wsCreated.id }),
+    'session joined workspace',
+    5000
+  )
+  ok('addSessionToWorkspace adds membership')
+  await page.evaluate(async (sid) => window.crew.archiveSession(sid), wsSid)
+  await waitUntil(
+    async () =>
+      page.evaluate(async (sid) => {
+        const s = (await window.crew.getRoster()).find((x) => x.id === sid)
+        return (s?.workspaceIds?.length ?? 0) === 0
+      }, wsSid),
+    'session archived',
+    5000
+  )
+  ok('archiveSession clears membership')
+  await page.evaluate(async ({ sid, wsId }) => window.crew.duplicateSession(sid, wsId), { sid: wsSid, wsId: wsCreated.id })
+  await waitUntil(async () => (await page.evaluate(async () => (await window.crew.getRoster()).length)) === dupDenom + 1, 'duplicate spawned a session', 6000)
+  const dupInWs = await page.evaluate(async ({ sid, wsId }) => {
+    const roster = await window.crew.getRoster()
+    return roster.some((s) => s.id !== sid && s.workspaceIds?.includes(wsId))
+  }, { sid: wsSid, wsId: wsCreated.id })
+  if (dupInWs) ok('duplicateSession creates a new session in the workspace')
+  else bad('duplicate not found in workspace')
+  // Clean up the duplicate so the later "close all" count is deterministic.
+  const dupId = await page.evaluate(async ({ sid, wsId }) => {
+    const roster = await window.crew.getRoster()
+    return roster.find((s) => s.id !== sid && s.workspaceIds?.includes(wsId))?.id ?? null
+  }, { sid: wsSid, wsId: wsCreated.id })
+  if (dupId) await page.evaluate((id) => window.crew.closeSession(id), dupId)
+
   // ---- Close both sessions ----
   log('Close button → back to empty')
   // Close via the roster card ✕ to also exercise that control. The card actions
