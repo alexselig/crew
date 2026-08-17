@@ -77,3 +77,42 @@ describe('store migration — stale-hide 12h → 72h', () => {
     expect(persisted.settings.staleHideHours).toBe(12)
   })
 })
+
+describe('store migration — first-class workspaces', () => {
+  const WS_MIGRATION = '2026-08-workspaces-firstclass'
+
+  it('promotes legacy name membership to Workspace entities + workspaceIds', () => {
+    const path = tmpStorePath()
+    seed(path, {
+      sessions: [
+        { id: 's1', presetId: null, command: 'x', args: [], cwd: '/tmp', label: 'S1', characterId: 'fox', sets: ['July 2026'] }
+      ],
+      sets: [{ name: 'July 2026', sessions: [] }],
+      migrations: []
+    })
+
+    const store = new Store(path)
+    const wss = store.getWorkspaces()
+    expect(wss.map((w) => w.name)).toEqual(['July 2026'])
+    const wsId = wss[0].id
+    expect(store.getSessions()[0].workspaceIds).toEqual([wsId])
+
+    const persisted = JSON.parse(readFileSync(path, 'utf8'))
+    expect(persisted.migrations).toContain(WS_MIGRATION)
+  })
+
+  it('keeps non-empty resume bundles and does not double-run', () => {
+    const path = tmpStorePath()
+    seed(path, {
+      sessions: [],
+      sets: [{ name: 'Resume Bundle', sessions: [{ presetId: null, command: 'x', args: [], cwd: '/tmp', label: 'A' }] }],
+      workspaces: [{ id: 'ws_keep', name: 'Kept', order: 0, createdAt: 1 }],
+      migrations: [WS_MIGRATION]
+    })
+
+    const store = new Store(path)
+    // Already migrated → workspaces untouched, resume bundle preserved.
+    expect(store.getWorkspaces().map((w) => w.id)).toEqual(['ws_keep'])
+    expect(store.sets.find((s) => s.name === 'Resume Bundle')?.sessions).toHaveLength(1)
+  })
+})

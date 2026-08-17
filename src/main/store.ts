@@ -8,7 +8,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Settings, SessionSet } from '../shared/types'
-import { workspaceNames, normalizeSetNames } from '../shared/workspaces'
+import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 
 export interface CharacterAssignment {
   characterId: string
@@ -37,6 +37,10 @@ export interface PersistedSession {
   tag?: string
   /** Workspaces (named sets) this session belongs to. */
   sets?: string[]
+  /** Workspace ids this session belongs to (first-class membership). */
+  workspaceIds?: string[]
+  /** Freeform user note shown in the Workspace Manager. */
+  description?: string
   /** The agent's session UUID, so restore reattaches the same conversation. */
   agentSessionId?: string
   /** Epoch ms the session was first created, preserved across restart. */
@@ -70,6 +74,7 @@ interface StoreData {
   recentDirs: string[]
   sessions: PersistedSession[]
   sets: SessionSet[]
+  workspaces: Workspace[]
   windowBounds?: WindowBounds
   /** Ids of the one-time data migrations already applied to this store (see
    * MIGRATIONS), so each runs at most once. */
@@ -81,7 +86,8 @@ const EMPTY: StoreData = {
   settings: { ...DEFAULT_SETTINGS },
   recentDirs: [],
   sessions: [],
-  sets: []
+  sets: [],
+  workspaces: []
 }
 
 /** One-time, ordered data migrations. Each is recorded by id in
@@ -95,6 +101,32 @@ const MIGRATIONS: Array<{ id: string; apply: (d: StoreData) => void }> = [
     id: '2026-07-stale-hide-72h',
     apply: (d) => {
       if (d.settings.staleHideHours === 12) d.settings.staleHideHours = 72
+    }
+  },
+  {
+    // Promote name-based workspaces (session.sets + empty SessionSets) to
+    // first-class Workspace entities with stable ids, and rewrite each session's
+    // membership to workspaceIds. Non-empty resume bundles in `sets` are left
+    // untouched (they power Save & Park).
+    id: '2026-08-workspaces-firstclass',
+    apply: (d) => {
+      if ((d.workspaces?.length ?? 0) > 0) return
+      const names: string[] = []
+      for (const s of d.sessions) if (s.sets) names.push(...s.sets)
+      for (const set of d.sets) if (set.sessions.length === 0) names.push(set.name)
+      let list: Workspace[] = []
+      let now = Date.now()
+      for (const name of normalizeSetNames(names)) {
+        list = createWorkspace(list, name, now++).list
+      }
+      d.workspaces = list
+      const byName = nameToIdMap(list)
+      for (const s of d.sessions) {
+        if (s.workspaceIds) continue
+        s.workspaceIds = (s.sets ?? [])
+          .map((n) => byName.get(n.trim().toLowerCase()))
+          .filter((x): x is string => !!x)
+      }
     }
   }
 ]
@@ -140,6 +172,7 @@ export class Store {
         recentDirs: raw.recentDirs ?? [],
         sessions: raw.sessions ?? [],
         sets: raw.sets ?? [],
+        workspaces: raw.workspaces ?? [],
         windowBounds: raw.windowBounds,
         migrations: [...(raw.migrations ?? [])]
       }
@@ -171,6 +204,7 @@ export class Store {
           recentDirs: [],
           sessions: [],
           sets: [],
+          workspaces: [],
           migrations: MIGRATIONS.map((m) => m.id)
         },
         migrated: false
@@ -242,6 +276,17 @@ export class Store {
     this.data.sets = this.data.sets.filter((s) => s.name !== name)
     this.persist()
     return this.data.sets
+  }
+
+  /** First-class workspaces (id-based). */
+  getWorkspaces(): Workspace[] {
+    return this.data.workspaces
+  }
+
+  saveWorkspaces(list: Workspace[]): Workspace[] {
+    this.data.workspaces = list
+    this.persist()
+    return this.data.workspaces
   }
 
   /** Register workspace names as (possibly empty) sets so they persist and show
