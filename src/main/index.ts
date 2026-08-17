@@ -24,6 +24,14 @@ import { TranscriptRecorder } from './transcripts'
 import { builtinPresets } from './presets'
 import { listInstalledSkills } from './skills'
 import { scanProjects, recentCommits, resolveLaunch } from './tracker'
+import {
+  createWorkspace,
+  renameWorkspace,
+  describeWorkspace,
+  deleteWorkspace,
+  reorderWorkspaces,
+  type Workspace
+} from '../shared/workspaces'
 import { readAgentTranscript } from './agent-transcript'
 import { buildPastWeek } from './week-review'
 import { buildUsageAnalytics } from './usage-analytics'
@@ -370,6 +378,11 @@ function rebuildAppMenu(): void {
         { label: 'New Session', click: () => openNewSession() },
         { label: 'New Window', click: () => openWindow() },
         { type: 'separator' },
+        {
+          label: 'Workspaces…',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          click: () => focusedWindow()?.webContents.send(IPC.EVT_OPEN_WORKSPACES)
+        },
         { label: 'Change Workspace', submenu: workspaceItems },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' }
@@ -727,6 +740,58 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.TRACKER_STOP, (_e, id: string) => stopServer(id))
   ipcMain.handle(IPC.TRACKER_STATUS, () => serverStatus())
+
+  // ── First-class workspaces (Workspace Manager) ──
+  const pushWorkspaces = (): Workspace[] => {
+    const list = store.getWorkspaces()
+    broadcast(IPC.EVT_WORKSPACES, list)
+    rebuildAppMenu() // Change Workspace flyout reflects new names/order
+    return list
+  }
+  ipcMain.handle(IPC.WORKSPACES_GET, () => store.getWorkspaces())
+  ipcMain.handle(IPC.WORKSPACE_CREATE, (_e, name: string) => {
+    const { list, created } = createWorkspace(store.getWorkspaces(), name, Date.now())
+    store.saveWorkspaces(list)
+    pushWorkspaces()
+    return created
+  })
+  ipcMain.handle(IPC.WORKSPACE_RENAME, (_e, p: { id: string; name: string }) => {
+    store.saveWorkspaces(renameWorkspace(store.getWorkspaces(), p.id, p.name))
+    return pushWorkspaces()
+  })
+  ipcMain.handle(IPC.WORKSPACE_DESCRIBE, (_e, p: { id: string; description: string }) => {
+    store.saveWorkspaces(describeWorkspace(store.getWorkspaces(), p.id, p.description))
+    return pushWorkspaces()
+  })
+  ipcMain.handle(IPC.WORKSPACE_DELETE, (_e, id: string) => {
+    store.saveWorkspaces(deleteWorkspace(store.getWorkspaces(), id))
+    manager.removeWorkspaceFromAll(id)
+    if (activeWorkspace === id) setActiveWorkspace(null)
+    return pushWorkspaces()
+  })
+  ipcMain.handle(IPC.WORKSPACE_REORDER, (_e, ids: string[]) => {
+    store.saveWorkspaces(reorderWorkspaces(store.getWorkspaces(), ids))
+    return pushWorkspaces()
+  })
+  ipcMain.handle(IPC.SESSION_SET_WORKSPACE_IDS, (_e, p: { id: string; workspaceIds: string[] }) =>
+    manager.setWorkspaceIds(p.id, p.workspaceIds)
+  )
+  ipcMain.handle(IPC.SESSION_ADD_WORKSPACE, (_e, p: { id: string; wsId: string }) =>
+    manager.addToWorkspace(p.id, p.wsId)
+  )
+  ipcMain.handle(IPC.SESSION_REMOVE_WORKSPACE, (_e, p: { id: string; wsId: string }) =>
+    manager.removeFromWorkspace(p.id, p.wsId)
+  )
+  ipcMain.handle(IPC.SESSION_MOVE_WORKSPACE, (_e, p: { id: string; fromId: string; toId: string }) =>
+    manager.moveToWorkspace(p.id, p.fromId, p.toId)
+  )
+  ipcMain.handle(IPC.SESSION_ARCHIVE, (_e, id: string) => manager.archiveSession(id))
+  ipcMain.handle(IPC.SESSION_DUPLICATE, (_e, p: { id: string; wsId: string | null }) => {
+    manager.duplicateSession(p.id, p.wsId)
+  })
+  ipcMain.handle(IPC.SESSION_DESCRIBE, (_e, p: { id: string; description: string }) =>
+    manager.setDescription(p.id, p.description)
+  )
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
     manager.input(p.id, p.data)

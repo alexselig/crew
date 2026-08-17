@@ -249,6 +249,19 @@ export const IPC = {
   TRACKER_LAUNCH: 'tracker:launch',
   TRACKER_STOP: 'tracker:stop',
   TRACKER_STATUS: 'tracker:status',
+  WORKSPACES_GET: 'workspaces:get',
+  WORKSPACE_CREATE: 'workspace:create',
+  WORKSPACE_RENAME: 'workspace:rename',
+  WORKSPACE_DESCRIBE: 'workspace:describe',
+  WORKSPACE_DELETE: 'workspace:delete',
+  WORKSPACE_REORDER: 'workspace:reorder',
+  SESSION_SET_WORKSPACE_IDS: 'session:setWorkspaceIds',
+  SESSION_ADD_WORKSPACE: 'session:addWorkspace',
+  SESSION_REMOVE_WORKSPACE: 'session:removeWorkspace',
+  SESSION_MOVE_WORKSPACE: 'session:moveWorkspace',
+  SESSION_ARCHIVE: 'session:archive',
+  SESSION_DUPLICATE: 'session:duplicate',
+  SESSION_DESCRIBE: 'session:describe',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',
   EVT_STATE: 'evt:state',
@@ -256,6 +269,8 @@ export const IPC = {
   EVT_JUMP: 'evt:jump',
   EVT_NEW: 'evt:new',
   EVT_WORKSPACE: 'evt:workspace',
+  EVT_WORKSPACES: 'evt:workspaces',
+  EVT_OPEN_WORKSPACES: 'evt:openWorkspaces',
   EVT_ASSETS: 'evt:assets',
   EVT_UPDATE: 'evt:update'
 } as const

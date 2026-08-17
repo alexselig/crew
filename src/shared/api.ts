@@ -9,7 +9,8 @@ import type {
   CharacterDef,
   SessionState,
   Settings,
-  SessionSet
+  SessionSet,
+  Workspace
 } from './types'
 import type { AssetItem } from './assets'
 import type { TrackerData, CommitActivity, RunningServer, LaunchResult, PastWeek } from './tracker'
@@ -79,6 +80,21 @@ export interface CrewAPI {
   setTag(id: string, tag: string): Promise<void>
   /** Replace a session's workspace (named set) memberships. */
   setWorkspaces(id: string, sets: string[]): Promise<void>
+  // ── First-class workspaces (Workspace Manager) ──
+  getWorkspaces(): Promise<Workspace[]>
+  createWorkspace(name: string): Promise<Workspace | null>
+  renameWorkspace(id: string, name: string): Promise<Workspace[]>
+  describeWorkspace(id: string, description: string): Promise<Workspace[]>
+  deleteWorkspace(id: string): Promise<Workspace[]>
+  reorderWorkspaces(ids: string[]): Promise<Workspace[]>
+  /** Replace a session's workspace-id membership. */
+  setSessionWorkspaces(id: string, workspaceIds: string[]): Promise<void>
+  addSessionToWorkspace(id: string, wsId: string): Promise<void>
+  removeSessionFromWorkspace(id: string, wsId: string): Promise<void>
+  moveSessionWorkspace(id: string, fromId: string, toId: string): Promise<void>
+  archiveSession(id: string): Promise<void>
+  duplicateSession(id: string, wsId: string | null): Promise<void>
+  setSessionDescription(id: string, description: string): Promise<void>
   reorder(orderedIds: string[]): Promise<void>
   /** Open an additional app window (e.g. to use a second monitor). */
   openWindow(): Promise<void>
@@ -152,8 +168,12 @@ export interface CrewAPI {
   onRoster(cb: (roster: SessionInfo[]) => void): Unsubscribe
   onJump(cb: (id: string) => void): Unsubscribe
   onNew(cb: () => void): Unsubscribe
-  /** Active workspace filter changed from the app menu (name, or null for All). */
-  onWorkspace(cb: (name: string | null) => void): Unsubscribe
+  /** Active workspace filter changed from the app menu (id, or null for All). */
+  onWorkspace(cb: (id: string | null) => void): Unsubscribe
+  /** The workspace list changed (created/renamed/reordered/deleted). */
+  onWorkspaces(cb: (list: Workspace[]) => void): Unsubscribe
+  /** File › Workspaces… — open the Workspace Manager. */
+  onOpenWorkspaces(cb: () => void): Unsubscribe
   onAssets(cb: (e: AssetsEvent) => void): Unsubscribe
   /** Fired when a background check finds a newer published release. */
   onUpdate(cb: (info: UpdateInfo) => void): Unsubscribe
