@@ -104,6 +104,15 @@ export interface Settings {
   enhancedTerminal: boolean
 }
 
+/** A first-class workspace: a named, ordered bucket sessions can belong to. */
+export interface Workspace {
+  id: string
+  name: string
+  description?: string
+  order: number
+  createdAt: number
+}
+
 export interface SessionInfo {
   id: string
   label: string
@@ -140,6 +149,10 @@ export interface SessionInfo {
   tag?: string
   /** Workspaces (named sets) this session belongs to; a session can be in many. */
   sets?: string[]
+  /** Workspace ids this session belongs to (first-class membership; replaces name-based `sets`). */
+  workspaceIds?: string[]
+  /** Freeform user note shown in the Workspace Manager. */
+  description?: string
   createdAt: number
   stateChangedAt: number
   /** Time (ms) the user last submitted a prompt to this session (pressed Enter);
