@@ -1,24 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Preset, CreateSessionRequest, SessionSet } from '../../shared/types'
+import type { Preset, CreateSessionRequest, SessionSet, Workspace } from '../../shared/types'
 import type { AgentStatus } from '../../shared/api'
 import { SessionSetChips } from './SessionSetChips'
 import { Icon } from './Icon'
-import { normalizeSetNames, workspaceNames } from '../../shared/workspaces'
 
 interface Props {
   presets: Preset[]
   homeDir: string
   /** Existing group (tag) names, offered as selectable chips. */
   groups?: string[]
-  /** Workspaces to pre-select (e.g. the active workspace filter). */
-  defaultSets?: string[]
+  /** First-class workspaces, offered as membership chips. */
+  workspaces?: Workspace[]
+  /** Workspace ids to pre-select (e.g. the active workspace filter). */
+  defaultWorkspaceIds?: string[]
   onCancel: () => void
   onCreate: (req: CreateSessionRequest) => void
 }
 
 const CUSTOM = '__custom__'
 
-export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [], onCancel, onCreate }: Props): JSX.Element {
+export function NewSessionModal({
+  presets,
+  homeDir,
+  groups = [],
+  workspaces = [],
+  defaultWorkspaceIds = [],
+  onCancel,
+  onCreate
+}: Props): JSX.Element {
   const [presetId, setPresetId] = useState<string>(presets[0]?.id ?? CUSTOM)
   const [cwd, setCwd] = useState<string>(homeDir)
   const [command, setCommand] = useState('')
@@ -33,10 +42,9 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
   const [newGroup, setNewGroup] = useState('')
   // Set-management (launch/save saved sets) lives in a collapsed Advanced area.
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  // Workspaces the new session will join, plus any freshly-typed names not yet
-  // saved as sets. Pre-seeded with the active workspace when creating inside one.
-  const [selectedSets, setSelectedSets] = useState<string[]>(() => normalizeSetNames(defaultSets))
-  const [extraNames, setExtraNames] = useState<string[]>([])
+  // Workspace ids the new session will join. Pre-seeded with the active
+  // workspace when creating inside one.
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => [...defaultWorkspaceIds])
   const [newWs, setNewWs] = useState('')
   // The Workspaces section starts collapsed to the default (most-recently-used)
   // pick with a "Change" button; expanding reveals the full picker + new field.
@@ -61,27 +69,21 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
     setNewGroup('')
   }
 
-  // All workspace names offered as membership chips: saved sets ∪ typed-new ∪ selected.
-  const availableSets = workspaceNames(
-    [...sets.map((s) => s.name), ...extraNames, ...selectedSets],
-    []
-  )
-  const isSelected = (name: string): boolean =>
-    selectedSets.some((s) => s.toLowerCase() === name.toLowerCase())
-  const toggleSet = (name: string): void =>
-    setSelectedSets((prev) =>
-      prev.some((s) => s.toLowerCase() === name.toLowerCase())
-        ? prev.filter((s) => s.toLowerCase() !== name.toLowerCase())
-        : [...prev, name]
-    )
-  const addWorkspace = (): void => {
+  // Workspace membership chips are the first-class workspaces (by id).
+  const isSelected = (id: string): boolean => selectedIds.includes(id)
+  const toggleWs = (id: string): void =>
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  const addWorkspace = async (): Promise<void> => {
     const name = newWs.trim()
     if (!name) return
-    if (!availableSets.some((s) => s.toLowerCase() === name.toLowerCase())) {
-      setExtraNames((prev) => [...prev, name])
-    }
-    if (!isSelected(name)) setSelectedSets((prev) => [...prev, name])
     setNewWs('')
+    const existing = workspaces.find((w) => w.name.toLowerCase() === name.toLowerCase())
+    if (existing) {
+      if (!isSelected(existing.id)) setSelectedIds((prev) => [...prev, existing.id])
+      return
+    }
+    const created = await window.crew.createWorkspace(name)
+    if (created) setSelectedIds((prev) => [...prev, created.id])
   }
 
   // Default the cwd once the home dir arrives (async).
@@ -112,7 +114,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
     e.preventDefault()
     if (!canCreate) return
     const preset = presets.find((p) => p.id === presetId)
-    const chosenSets = normalizeSetNames(selectedSets)
+    const workspaceIds = [...selectedIds]
     const tag = group.trim() || undefined
     const req: CreateSessionRequest = isCustom
       ? {
@@ -123,7 +125,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
           label: label.trim() || undefined,
           initialPrompt: initialPrompt.trim() || undefined,
           tag,
-          sets: chosenSets
+          workspaceIds
         }
       : {
           presetId: preset!.id,
@@ -133,7 +135,7 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
           label: label.trim() || undefined,
           initialPrompt: initialPrompt.trim() || undefined,
           tag,
-          sets: chosenSets
+          workspaceIds
         }
     onCreate(req)
   }
@@ -197,14 +199,14 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
         <div className="sets">
           <span className="field__label">Workspaces</span>
           <p className="modal__hint modal__hint--tight">
-            Add this session to one or more workspaces — switch between them from File › Change Workspace.
+            Add this session to one or more workspaces — organize them anytime from File › Workspaces.
           </p>
-          {!wsExpanded && availableSets.length > 0 ? (
+          {!wsExpanded && workspaces.length > 0 ? (
             <div className="ws-picker ws-picker--current">
-              {selectedSets.length > 0 ? (
-                selectedSets.map((name) => (
-                  <span key={name} className="ws-chip is-on ws-chip--static">
-                    {name}
+              {selectedIds.length > 0 ? (
+                selectedIds.map((id) => (
+                  <span key={id} className="ws-chip is-on ws-chip--static">
+                    {workspaces.find((w) => w.id === id)?.name ?? '—'}
                   </span>
                 ))
               ) : (
@@ -217,18 +219,18 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
           ) : (
             <>
               <div className="ws-picker">
-                {availableSets.length === 0 && (
+                {workspaces.length === 0 && (
                   <span className="sets__empty">No workspaces yet — add one below.</span>
                 )}
-                {availableSets.map((name) => (
+                {workspaces.map((w) => (
                   <button
                     type="button"
-                    key={name}
-                    className={`ws-chip ${isSelected(name) ? 'is-on' : ''}`}
-                    aria-pressed={isSelected(name)}
-                    onClick={() => toggleSet(name)}
+                    key={w.id}
+                    className={`ws-chip ${isSelected(w.id) ? 'is-on' : ''}`}
+                    aria-pressed={isSelected(w.id)}
+                    onClick={() => toggleWs(w.id)}
                   >
-                    {name}
+                    {w.name}
                   </button>
                 ))}
               </div>
@@ -241,11 +243,11 @@ export function NewSessionModal({ presets, homeDir, groups = [], defaultSets = [
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault()
-                      addWorkspace()
+                      void addWorkspace()
                     }
                   }}
                 />
-                <button type="button" className="btn" disabled={!newWs.trim()} onClick={addWorkspace}>
+                <button type="button" className="btn" disabled={!newWs.trim()} onClick={() => void addWorkspace()}>
                   ＋ Add
                 </button>
               </div>

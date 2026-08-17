@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SessionInfo, Preset, CharacterDef, Settings, Workspace } from '../shared/types'
 import type { GroupMode } from './grouping'
 import { writeTo, disposePooled, setEngineMode } from './terminal/facade'
 import { clearInputMeter } from './input-meter'
 import { windowSlot, readViewPref, writeViewPref } from './window-scope'
-import { workspaceNames } from '../shared/workspaces'
 
 export type ViewMode = 'single' | 'grid'
 /** Grid density (all horizontal-scroll): `two` = 1 row (2 tiles), `four` = 2 rows
@@ -62,8 +61,6 @@ export interface CrewState {
   /** Active workspace filter (null = All Sessions). */
   activeWorkspace: string | null
   setActiveWorkspace: (name: string | null) => void
-  /** All known workspace (named set) names — saved sets ∪ live memberships (legacy). */
-  workspaceNamesList: string[]
   /** First-class workspaces (id-based), the source of truth for the manager. */
   workspaces: Workspace[]
   /** Re-fetch the workspace list. */
@@ -139,7 +136,6 @@ export function useCrew(): CrewState {
   const [activeWorkspace, setActiveWorkspaceState] = useState<string | null>(
     () => readViewPref('activeWorkspace') || null
   )
-  const [setNames, setSetNames] = useState<string[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [showWorkspaces, setShowWorkspaces] = useState(false)
   const knownIds = useRef<Set<string>>(new Set())
@@ -239,7 +235,6 @@ export function useCrew(): CrewState {
     void window.crew.getCharacters().then((c) => mounted && setCharacters(c))
     void window.crew.getHomeDir().then((h) => mounted && setHomeDir(h))
     void window.crew.getSettings().then((s) => mounted && setSettings(s))
-    void window.crew.getSets().then((s) => mounted && setSetNames(s.map((x) => x.name)))
     void window.crew.getWorkspaces().then((w) => mounted && setWorkspaces(w))
 
     const offRoster = window.crew.onRoster((r) => setRoster(r))
@@ -301,12 +296,6 @@ export function useCrew(): CrewState {
     knownIds.current = current
   }, [roster])
 
-  // Known workspace names: saved sets ∪ every session's live membership (legacy).
-  const workspaceNamesList = useMemo(
-    () => workspaceNames(setNames, roster.map((s) => s.sets)),
-    [setNames, roster]
-  )
-
   return {
     roster,
     presets,
@@ -336,7 +325,6 @@ export function useCrew(): CrewState {
     reorderGroups,
     activeWorkspace,
     setActiveWorkspace,
-    workspaceNamesList,
     workspaces,
     refreshWorkspaces,
     showWorkspaces,

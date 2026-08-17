@@ -19,7 +19,7 @@ import { focusTerminal } from './terminal/facade'
 import { existingGroups, recencyOf } from './grouping'
 import { arrowNavIntent } from './gridNav'
 import { NEEDS_YOU } from '../shared/types'
-import { sessionInWorkspace } from '../shared/workspaces'
+import { sessionInWorkspaceId } from '../shared/workspaces'
 import { STATE_META } from './state-meta'
 import type { CreateSessionRequest } from '../shared/types'
 
@@ -57,24 +57,30 @@ export function App(): JSX.Element {
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
     .map((s) => s.characterId)
   // Roster filtered to the active workspace (null = All). Non-destructive: hidden
-  // sessions keep running; this only changes what's shown.
+  // sessions keep running; this only changes what's shown. Filter is by workspace
+  // id (first-class membership).
   const visibleRoster = useMemo(
-    () => c.roster.filter((s) => sessionInWorkspace(s.sets, c.activeWorkspace)),
+    () => c.roster.filter((s) => sessionInWorkspaceId(s.workspaceIds, c.activeWorkspace)),
     [c.roster, c.activeWorkspace]
   )
+  // The active workspace's display name (the filter itself is an id), shown in
+  // the roster / grid indicators.
+  const activeWorkspaceName = useMemo(
+    () => c.workspaces.find((w) => w.id === c.activeWorkspace)?.name ?? null,
+    [c.workspaces, c.activeWorkspace]
+  )
 
-  // Default workspace for a new session, always non-empty when any workspace
-  // exists: the active workspace filter → else the most recently used one (the
-  // workspace of the most recently prompted session) → else the first known
-  // workspace. Empty only when no workspaces exist at all.
-  const defaultWorkspaces = useMemo<string[]>(() => {
+  // Default workspace ids for a new session: the active workspace → else the most
+  // recently used one (from the most recently prompted session) → else the first
+  // known workspace. Empty only when no workspaces exist.
+  const defaultWorkspaceIds = useMemo<string[]>(() => {
     if (c.activeWorkspace) return [c.activeWorkspace]
     const mostRecent = [...c.roster]
       .sort((a, b) => recencyOf(b) - recencyOf(a))
-      .flatMap((s) => s.sets ?? [])[0]
+      .flatMap((s) => s.workspaceIds ?? [])[0]
     if (mostRecent) return [mostRecent]
-    return c.workspaceNamesList.length > 0 ? [c.workspaceNamesList[0]] : []
-  }, [c.activeWorkspace, c.roster, c.workspaceNamesList])
+    return c.workspaces.length > 0 ? [c.workspaces[0].id] : []
+  }, [c.activeWorkspace, c.roster, c.workspaces])
 
   async function create(req: CreateSessionRequest): Promise<void> {
     const info = await window.crew.createSession(req)
@@ -257,17 +263,17 @@ export function App(): JSX.Element {
         keywords: 'workspace change filter set',
         run: () => c.setActiveWorkspace(null)
       },
-      ...c.workspaceNamesList.map((name) => ({
-        id: 'ws-' + name,
-        label: `Workspace: ${name}`,
+      ...c.workspaces.map((w) => ({
+        id: 'ws-' + w.id,
+        label: `Workspace: ${w.name}`,
         icon: <Icon name="filter" />,
         keywords: 'workspace change filter set',
-        run: () => c.setActiveWorkspace(name)
+        run: () => c.setActiveWorkspace(w.id)
       }))
     ]
     return [...sessionItems, ...actions, ...workspaceItems]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRoster, c.characters, c.viewMode, c.selectedId, c.workspaceNamesList, c.activeWorkspace])
+  }, [visibleRoster, c.characters, c.viewMode, c.selectedId, c.workspaces, c.activeWorkspace])
 
   const navIsCollapsed = c.navCollapsed || c.viewMode === 'grid'
   // Float the rail open on hover whenever it is collapsed — in grid view too.
@@ -328,7 +334,7 @@ export function App(): JSX.Element {
         onClose={close}
         onReorder={(ids) => void window.crew.reorder(ids)}
         onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
-        activeWorkspace={c.activeWorkspace}
+        activeWorkspace={activeWorkspaceName}
         onClearWorkspace={() => c.setActiveWorkspace(null)}
       />
 
@@ -339,7 +345,7 @@ export function App(): JSX.Element {
           characters={c.characters}
           selectedId={c.selectedId}
           gridDensity={c.gridDensity}
-          activeWorkspace={c.activeWorkspace}
+          activeWorkspace={activeWorkspaceName}
           groupMode={c.groupMode}
           onSetGroupMode={c.setGroupMode}
           collapsedGroups={c.collapsedGroups}
@@ -394,7 +400,8 @@ export function App(): JSX.Element {
           presets={c.presets}
           homeDir={c.homeDir}
           groups={existingGroups(c.roster)}
-          defaultSets={defaultWorkspaces}
+          workspaces={c.workspaces}
+          defaultWorkspaceIds={defaultWorkspaceIds}
           onCancel={() => c.setShowNew(false)}
           onCreate={create}
         />

@@ -46,9 +46,10 @@ let recorder: TranscriptRecorder
 let assets: AssetWatchers
 let isQuitting = false
 let sessionsRestored = false
-// Active workspace (named set) filter shown in the "Change Workspace" menu. null
-// = "All Sessions". Held app-wide (mirrors the focused window's filter) so the
-// menu can show a radio checkmark; the renderer persists its own per-window copy.
+// Active workspace filter shown in the "Change Workspace" menu — a workspace
+// **id** (not name), or null = "All Sessions". Held app-wide (mirrors the focused
+// window's filter) so the menu can show a radio checkmark; the renderer persists
+// its own per-window copy.
 let activeWorkspace: string | null = null
 
 // Persist why the app went down so a "it just disappeared" report is
@@ -348,7 +349,7 @@ function setActiveWorkspace(name: string | null): void {
  *  gains New Session / New Window and a "Change Workspace" flyout listing every
  *  saved workspace (radio-checked on the active one) plus "All Sessions". */
 function rebuildAppMenu(): void {
-  const names = store ? store.workspaceNames() : []
+  const wss = store ? store.getWorkspaces() : []
   const workspaceItems: MenuItemConstructorOptions[] = [
     {
       label: 'All Sessions',
@@ -357,14 +358,14 @@ function rebuildAppMenu(): void {
       click: () => setActiveWorkspace(null)
     }
   ]
-  if (names.length) {
+  if (wss.length) {
     workspaceItems.push({ type: 'separator' })
-    for (const name of names) {
+    for (const w of [...wss].sort((a, b) => a.order - b.order)) {
       workspaceItems.push({
-        label: name,
+        label: w.name,
         type: 'radio',
-        checked: activeWorkspace === name,
-        click: () => setActiveWorkspace(name)
+        checked: activeWorkspace === w.id,
+        click: () => setActiveWorkspace(w.id)
       })
     }
   }
