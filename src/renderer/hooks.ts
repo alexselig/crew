@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { SessionInfo, Preset, CharacterDef, Settings } from '../shared/types'
+import type { SessionInfo, Preset, CharacterDef, Settings, Workspace } from '../shared/types'
 import type { GroupMode } from './grouping'
 import { writeTo, disposePooled, setEngineMode } from './terminal/facade'
 import { clearInputMeter } from './input-meter'
@@ -62,10 +62,15 @@ export interface CrewState {
   /** Active workspace filter (null = All Sessions). */
   activeWorkspace: string | null
   setActiveWorkspace: (name: string | null) => void
-  /** All known workspace (named set) names — saved sets ∪ live memberships. */
-  workspaces: string[]
-  /** Re-fetch saved set names (after save/delete in a modal). */
+  /** All known workspace (named set) names — saved sets ∪ live memberships (legacy). */
+  workspaceNamesList: string[]
+  /** First-class workspaces (id-based), the source of truth for the manager. */
+  workspaces: Workspace[]
+  /** Re-fetch the workspace list. */
   refreshWorkspaces: () => void
+  /** Whether the full-screen Workspace Manager is open. */
+  showWorkspaces: boolean
+  setShowWorkspaces: (v: boolean) => void
   settings: Settings | null
   setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
 }
@@ -135,6 +140,8 @@ export function useCrew(): CrewState {
     () => readViewPref('activeWorkspace') || null
   )
   const [setNames, setSetNames] = useState<string[]>([])
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [showWorkspaces, setShowWorkspaces] = useState(false)
   const knownIds = useRef<Set<string>>(new Set())
 
   const setActiveWorkspace = (name: string | null): void => {
@@ -142,7 +149,7 @@ export function useCrew(): CrewState {
     writeViewPref('activeWorkspace', name ?? '')
   }
   const refreshWorkspaces = (): void => {
-    void window.crew.getSets().then((s) => setSetNames(s.map((x) => x.name)))
+    void window.crew.getWorkspaces().then(setWorkspaces)
   }
 
   const setNavWidth = (w: number): void => {
@@ -233,6 +240,7 @@ export function useCrew(): CrewState {
     void window.crew.getHomeDir().then((h) => mounted && setHomeDir(h))
     void window.crew.getSettings().then((s) => mounted && setSettings(s))
     void window.crew.getSets().then((s) => mounted && setSetNames(s.map((x) => x.name)))
+    void window.crew.getWorkspaces().then((w) => mounted && setWorkspaces(w))
 
     const offRoster = window.crew.onRoster((r) => setRoster(r))
     const offState = window.crew.onState((e) =>
@@ -249,6 +257,8 @@ export function useCrew(): CrewState {
     })
     const offNew = window.crew.onNew(() => setShowNew(true))
     const offWorkspace = window.crew.onWorkspace((name) => setActiveWorkspace(name))
+    const offWorkspaces = window.crew.onWorkspaces((w) => setWorkspaces(w))
+    const offOpenWorkspaces = window.crew.onOpenWorkspaces(() => setShowWorkspaces(true))
 
     return () => {
       mounted = false
@@ -258,6 +268,8 @@ export function useCrew(): CrewState {
       offJump()
       offNew()
       offWorkspace()
+      offWorkspaces()
+      offOpenWorkspaces()
     }
   }, [])
 
@@ -289,8 +301,8 @@ export function useCrew(): CrewState {
     knownIds.current = current
   }, [roster])
 
-  // Known workspace names: saved sets ∪ every session's live membership.
-  const workspaces = useMemo(
+  // Known workspace names: saved sets ∪ every session's live membership (legacy).
+  const workspaceNamesList = useMemo(
     () => workspaceNames(setNames, roster.map((s) => s.sets)),
     [setNames, roster]
   )
@@ -324,8 +336,11 @@ export function useCrew(): CrewState {
     reorderGroups,
     activeWorkspace,
     setActiveWorkspace,
+    workspaceNamesList,
     workspaces,
     refreshWorkspaces,
+    showWorkspaces,
+    setShowWorkspaces,
     settings,
     setSetting
   }

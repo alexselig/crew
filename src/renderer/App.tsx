@@ -71,8 +71,8 @@ export function App(): JSX.Element {
       .sort((a, b) => recencyOf(b) - recencyOf(a))
       .flatMap((s) => s.sets ?? [])[0]
     if (mostRecent) return [mostRecent]
-    return c.workspaces.length > 0 ? [c.workspaces[0]] : []
-  }, [c.activeWorkspace, c.roster, c.workspaces])
+    return c.workspaceNamesList.length > 0 ? [c.workspaceNamesList[0]] : []
+  }, [c.activeWorkspace, c.roster, c.workspaceNamesList])
 
   async function create(req: CreateSessionRequest): Promise<void> {
     const info = await window.crew.createSession(req)
@@ -254,7 +254,7 @@ export function App(): JSX.Element {
         keywords: 'workspace change filter set',
         run: () => c.setActiveWorkspace(null)
       },
-      ...c.workspaces.map((name) => ({
+      ...c.workspaceNamesList.map((name) => ({
         id: 'ws-' + name,
         label: `Workspace: ${name}`,
         icon: <Icon name="filter" />,
@@ -264,7 +264,7 @@ export function App(): JSX.Element {
     ]
     return [...sessionItems, ...actions, ...workspaceItems]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRoster, c.characters, c.viewMode, c.selectedId, c.workspaces, c.activeWorkspace])
+  }, [visibleRoster, c.characters, c.viewMode, c.selectedId, c.workspaceNamesList, c.activeWorkspace])
 
   const navIsCollapsed = c.navCollapsed || c.viewMode === 'grid'
   // Float the rail open on hover whenever it is collapsed — in grid view too.
