@@ -13,7 +13,9 @@ const MIME = 'application/x-crew-session'
 
 export interface SessionDrag {
   dragging: string | null
-  overLane: string | null
+  /** The lane currently hovered while dragging: a workspace id, `null` for the
+   *  Archived lane, or `undefined` when nothing is hovered. */
+  overLane: string | null | undefined
   cardHandlers: (sessionId: string, laneId: string | null) => {
     draggable: true
     onDragStart: (e: React.DragEvent) => void
@@ -38,11 +40,14 @@ export function useSessionDrag(
   onDrop: (sessionId: string, fromLaneId: string | null, toLaneId: string | null, intent: DropIntent) => void
 ): SessionDrag {
   const [dragging, setDragging] = useState<string | null>(null)
-  const [overLane, setOverLane] = useState<string | null>(null)
+  // `undefined` = not hovering any lane; `null` = hovering the Archived lane;
+  // a string = hovering that workspace lane. Keeping "none" distinct from the
+  // Archived lane's `null` id stops Archived from always looking like a target.
+  const [overLane, setOverLane] = useState<string | null | undefined>(undefined)
 
   const reset = (): void => {
     setDragging(null)
-    setOverLane(null)
+    setOverLane(undefined)
   }
   const intentFrom = (e: React.DragEvent): DropIntent => (e.altKey || e.metaKey ? 'move' : 'copy')
 
@@ -65,7 +70,7 @@ export function useSessionDrag(
         e.dataTransfer.dropEffect = intentFrom(e)
         if (overLane !== laneId) setOverLane(laneId)
       },
-      onDragLeave: () => setOverLane((cur) => (cur === laneId ? null : cur)),
+      onDragLeave: () => setOverLane((cur) => (cur === laneId ? undefined : cur)),
       onDrop: (e) => {
         e.preventDefault()
         const raw = e.dataTransfer.getData(MIME)

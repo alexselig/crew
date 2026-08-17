@@ -9,6 +9,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { BroadcastModal } from './components/BroadcastModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
 import { ProjectTracker, type Section as TrackerSection } from './components/ProjectTracker'
+import { WorkspaceManager } from './components/WorkspaceManager'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { UpdateBanner } from './components/UpdateBanner'
 import { TitleSequence } from './components/TitleSequence'
@@ -49,7 +50,8 @@ export function App(): JSX.Element {
     showTranscripts ||
     trackerSection !== null ||
     showIntro ||
-    c.showNew
+    c.showNew ||
+    c.showWorkspaces
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
   const usedCharacterIds = c.roster
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
@@ -242,6 +244,7 @@ export function App(): JSX.Element {
       { id: 'act-broadcast', label: 'Broadcast a prompt…', icon: <Icon name="broadcast" />, run: () => setShowBroadcast(true) },
       { id: 'act-analytics', label: 'Activity & spend', icon: <Icon name="chart" />, run: () => setTrackerSection('activity') },
       { id: 'act-tracker', label: 'Project tracker', icon: <Icon name="tracker" />, run: () => setTrackerSection('planning') },
+      { id: 'act-workspaces', label: 'Manage workspaces…', icon: <Icon name="columns" />, run: () => c.setShowWorkspaces(true) },
       { id: 'act-transcripts', label: 'Search transcripts…', icon: <Icon name="search" />, run: () => setShowTranscripts(true) },
       { id: 'act-settings', label: 'Open Settings', icon: <Icon name="settings" />, run: () => setShowSettings(true) }
     ]
@@ -422,6 +425,15 @@ export function App(): JSX.Element {
           settings={c.settings}
           initialSection={trackerSection}
           onClose={() => setTrackerSection(null)}
+        />
+      )}
+      {c.showWorkspaces && (
+        <WorkspaceManager
+          roster={c.roster}
+          characters={c.characters}
+          workspaces={c.workspaces}
+          onOpenSession={(id) => c.setSelectedId(id)}
+          onClose={() => c.setShowWorkspaces(false)}
         />
       )}
 
