@@ -175,6 +175,8 @@ export interface CreateSessionRequest {
   tag?: string
   /** Workspaces (named sets) to add the new session to. */
   sets?: string[]
+  /** Workspace ids to add the new session to (first-class membership). */
+  workspaceIds?: string[]
 }
 
 /** A saved "project set" of sessions that can be launched together. */

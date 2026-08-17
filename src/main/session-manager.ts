@@ -21,7 +21,14 @@ import type { ActivityEvent } from '../shared/api'
 import { getPreset } from './presets'
 import { defaultShell } from './platform'
 import { pickCharacter, isCharacterId } from './characters'
-import { normalizeSetNames, addToSets, removeFromSets } from '../shared/workspaces'
+import {
+  normalizeSetNames,
+  addToSets,
+  removeFromSets,
+  addMembership,
+  removeMembership,
+  moveMembership
+} from '../shared/workspaces'
 import { randomCharacterColor, fallbackCharacterColor } from '../shared/palette'
 import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
@@ -101,7 +108,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; createdAt?: number; lastPromptAt?: number }
+    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; workspaceIds?: string[]; description?: string; createdAt?: number; lastPromptAt?: number }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || defaultShell()
@@ -160,6 +167,8 @@ export class SessionManager extends EventEmitter {
       autopilot: false,
       tag: restore?.tag ?? (req.tag && req.tag.trim() ? req.tag.trim() : undefined),
       sets,
+      workspaceIds: restore?.workspaceIds ?? req.workspaceIds ?? [],
+      description: restore?.description,
       createdAt: restore?.createdAt ?? now,
       stateChangedAt: now,
       lastPromptAt: restore?.lastPromptAt ?? now
@@ -357,6 +366,87 @@ export class SessionManager extends EventEmitter {
     this.persistSessions()
   }
 
+  // ── First-class workspace membership (by id) ──────────────────────────────
+
+  /** Replace a session's workspace-id membership wholesale. */
+  setWorkspaceIds(id: string, workspaceIds: string[]): void {
+    const m = this.sessions.get(id)
+    if (!m) return
+    m.info.workspaceIds = [...new Set(workspaceIds)]
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Add a session to a workspace (non-destructive; keeps existing memberships). */
+  addToWorkspace(id: string, wsId: string): void {
+    const m = this.sessions.get(id)
+    if (!m) return
+    m.info.workspaceIds = addMembership(m.info.workspaceIds, wsId)
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Remove a session from a single workspace. */
+  removeFromWorkspace(id: string, wsId: string): void {
+    const m = this.sessions.get(id)
+    if (!m) return
+    m.info.workspaceIds = removeMembership(m.info.workspaceIds, wsId)
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Move a session from one workspace to another (drop from, add to). */
+  moveToWorkspace(id: string, fromId: string, toId: string): void {
+    const m = this.sessions.get(id)
+    if (!m) return
+    m.info.workspaceIds = moveMembership(m.info.workspaceIds, fromId, toId)
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Archive a session: remove it from every workspace (keeps it running). */
+  archiveSession(id: string): void {
+    const m = this.sessions.get(id)
+    if (!m) return
+    m.info.workspaceIds = []
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Set (or clear, when blank) a session's freeform description. */
+  setDescription(id: string, description: string): void {
+    const m = this.sessions.get(id)
+    if (!m) return
+    m.info.description = description.trim() || undefined
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Strip a workspace id from every session's membership (on workspace delete). */
+  removeWorkspaceFromAll(wsId: string): void {
+    for (const m of this.sessions.values()) {
+      m.info.workspaceIds = removeMembership(m.info.workspaceIds, wsId)
+    }
+    this.emitRoster()
+    this.persistSessions()
+  }
+
+  /** Spawn a fresh session reusing another's recipe, optionally into a workspace. */
+  duplicateSession(id: string, wsId: string | null): SessionInfo | null {
+    const m = this.sessions.get(id)
+    if (!m) return null
+    const info = this.create({
+      presetId: m.info.presetId,
+      command: m.info.command,
+      args: m.info.args,
+      cwd: m.info.cwd,
+      label: m.info.label,
+      tag: m.info.tag,
+      workspaceIds: wsId ? [wsId] : []
+    })
+    return info
+  }
+
   resize(id: string, cols: number, rows: number): void {
     const m = this.sessions.get(id)
     if (!m || !m.proc) return
@@ -528,6 +618,8 @@ export class SessionManager extends EventEmitter {
         color: m.info.color,
         tag: m.info.tag,
         sets: m.info.sets,
+        workspaceIds: m.info.workspaceIds,
+        description: m.info.description,
         agentSessionId: m.info.agentSessionId,
         createdAt: m.info.createdAt,
         lastPromptAt: m.info.lastPromptAt
@@ -556,6 +648,8 @@ export class SessionManager extends EventEmitter {
           extraArgs,
           tag: p.tag,
           sets: p.sets,
+          workspaceIds: p.workspaceIds,
+          description: p.description,
           createdAt: p.createdAt,
           lastPromptAt: p.lastPromptAt
         }
