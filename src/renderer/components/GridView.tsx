@@ -259,7 +259,7 @@ export function GridView({
                   color={s.color}
                   state={s.state}
                   size={22}
-                  dot
+                  dot={false}
                   badge={false}
                 />
               </span>
