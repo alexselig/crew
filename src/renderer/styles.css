@@ -5767,3 +5767,105 @@ button.grid-topbar__wordmark:hover {
   color: #e5a13a;
   font-size: 12px;
 }
+
+/* Agent result drawer — a non-blocking right-side panel that streams a run. */
+.agent-run {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 180;
+  width: 440px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  animation: agent-run-in 0.16s ease;
+  -webkit-app-region: no-drag;
+}
+@keyframes agent-run-in {
+  from { transform: translateX(16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.agent-run__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.agent-run__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.agent-run__task {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+.agent-run__status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.agent-run__status--done {
+  color: #3fb950;
+}
+.agent-run__status--error {
+  color: #e5484d;
+}
+.agent-run__spin {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.6px solid var(--border);
+  border-top-color: var(--accent-text);
+  animation: app-pane-spin 0.7s linear infinite;
+}
+.agent-run__close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.agent-run__close:hover {
+  color: var(--text);
+  background: var(--bg-elev-2);
+}
+.agent-run__out {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 14px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+.agent-run__foot {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.agent-run__foot .btn {
+  flex: 1;
+}

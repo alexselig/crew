@@ -1,7 +1,7 @@
 // Pure asset-classification helpers shared by the main-process watcher and the
 // renderer panel. No Node imports — unit-tested like detection.ts.
 
-export type AssetKind = 'image' | 'html' | 'pdf' | 'video' | 'audio'
+export type AssetKind = 'image' | 'html' | 'pdf' | 'video' | 'audio' | 'text'
 
 /** A previewable file found in (or created into) a session's working directory. */
 export interface AssetItem {
@@ -36,7 +36,10 @@ const EXT_KIND: Record<string, AssetKind> = {
   mp3: 'audio',
   wav: 'audio',
   ogg: 'audio',
-  m4a: 'audio'
+  m4a: 'audio',
+  md: 'text',
+  markdown: 'text',
+  txt: 'text'
 }
 
 const EXT_MIME: Record<string, string> = {
@@ -58,7 +61,10 @@ const EXT_MIME: Record<string, string> = {
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
   ogg: 'audio/ogg',
-  m4a: 'audio/mp4'
+  m4a: 'audio/mp4',
+  md: 'text/markdown; charset=utf-8',
+  markdown: 'text/markdown; charset=utf-8',
+  txt: 'text/plain; charset=utf-8'
 }
 
 export function assetExt(name: string): string {

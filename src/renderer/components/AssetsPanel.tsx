@@ -13,7 +13,8 @@ const KIND_GLYPH: Record<AssetKind, string> = {
   html: '🌐',
   pdf: '📄',
   video: '🎞',
-  audio: '🔊'
+  audio: '🔊',
+  text: '📝'
 }
 
 function formatSize(bytes: number): string {
@@ -41,6 +42,8 @@ function Preview({ asset }: { asset: AssetItem }): JSX.Element {
       )
     case 'pdf':
       return <iframe className="assets__preview-frame" src={src} title={asset.name} />
+    case 'text':
+      return <iframe className="assets__preview-frame" src={src} sandbox="" title={asset.name} />
     case 'video':
       return <video className="assets__preview-media" src={src} controls />
     case 'audio':

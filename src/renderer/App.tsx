@@ -12,6 +12,7 @@ import { ProjectTracker, type Section as TrackerSection } from './components/Pro
 import { WorkspaceManager } from './components/WorkspaceManager'
 import { AgentInvoke } from './components/AgentInvoke'
 import { AgentEditor } from './components/AgentEditor'
+import { AgentRunPanel } from './components/AgentRunPanel'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { UpdateBanner } from './components/UpdateBanner'
 import { TitleSequence } from './components/TitleSequence'
@@ -480,6 +481,20 @@ export function App(): JSX.Element {
           onSave={(a) => void window.crew.upsertAgent(a)}
           onDelete={(id) => void window.crew.deleteAgent(id)}
           onClose={() => c.setEditingAgent(null)}
+        />
+      )}
+
+      {c.activeRunId && c.runs[c.activeRunId] && (
+        <AgentRunPanel
+          run={c.runs[c.activeRunId]}
+          agent={c.agents.find((a) => a.id === c.runs[c.activeRunId!].agentId)}
+          onCancel={() => void window.crew.cancelAgentRun(c.activeRunId!)}
+          onInsert={() => {
+            const r = c.runs[c.activeRunId!]
+            if (r.sessionId) void window.crew.sendInput(r.sessionId, r.output)
+          }}
+          onSave={() => void window.crew.saveAgentResult(c.activeRunId!)}
+          onClose={() => c.setActiveRunId(null)}
         />
       )}
 

@@ -18,6 +18,8 @@ describe('assetKind', () => {
     expect(assetKind('doc.pdf')).toBe('pdf')
     expect(assetKind('demo.mp4')).toBe('video')
     expect(assetKind('voice.mp3')).toBe('audio')
+    expect(assetKind('ux-critique.md')).toBe('text')
+    expect(assetKind('notes.txt')).toBe('text')
   })
 
   it('rejects non-assets and extension-less names', () => {
