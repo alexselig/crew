@@ -104,6 +104,34 @@ export interface Settings {
   enhancedTerminal: boolean
 }
 
+/** A reusable specialist agent invoked headless against a session's context. */
+export interface Agent {
+  id: string
+  name: string
+  icon: string
+  color?: string
+  base: string
+  persona: string
+  contextMode: 'cwd' | 'cwd+transcript'
+  writes: boolean
+  order: number
+  builtin?: boolean
+}
+
+/** A single headless invocation of an agent (transient; last-per-agent kept). */
+export interface AgentRun {
+  id: string
+  agentId: string
+  sessionId: string | null
+  cwd: string
+  task: string
+  status: 'running' | 'done' | 'error'
+  output: string
+  startedAt: number
+  endedAt?: number
+  error?: string
+}
+
 /** A first-class workspace: a named, ordered bucket sessions can belong to. */
 export interface Workspace {
   id: string
@@ -262,6 +290,13 @@ export const IPC = {
   SESSION_ARCHIVE: 'session:archive',
   SESSION_DUPLICATE: 'session:duplicate',
   SESSION_DESCRIBE: 'session:describe',
+  AGENTS_GET: 'agents:get',
+  AGENT_UPSERT: 'agent:upsert',
+  AGENT_DELETE: 'agent:delete',
+  AGENTS_REORDER: 'agents:reorder',
+  AGENT_RUN: 'agent:run',
+  AGENT_RUN_CANCEL: 'agent:runCancel',
+  AGENT_SAVE_RESULT: 'agent:saveResult',
   // main -> renderer (send)
   EVT_OUTPUT: 'evt:output',
   EVT_STATE: 'evt:state',
@@ -271,6 +306,8 @@ export const IPC = {
   EVT_WORKSPACE: 'evt:workspace',
   EVT_WORKSPACES: 'evt:workspaces',
   EVT_OPEN_WORKSPACES: 'evt:openWorkspaces',
+  EVT_AGENTS: 'evt:agents',
+  EVT_AGENT_RUN: 'evt:agentRun',
   EVT_ASSETS: 'evt:assets',
   EVT_UPDATE: 'evt:update'
 } as const
