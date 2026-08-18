@@ -692,6 +692,20 @@ async function main() {
     await page.keyboard.press('Escape')
   })
 
+  // ===== AGENTS SHELF =====
+  // The nav's Agents shelf (seeded specialists) + the invoke popover for one.
+  await shot('agents.png', async () => {
+    // Make sure the sidebar is expanded so the shelf + names are visible.
+    const exp = page.locator('.icon-btn[title="Expand sidebar"]')
+    if (await exp.count()) await exp.click().catch(() => {})
+    await waitUntil(async () => (await page.locator('.agent-row').count()) > 0, 'agents shelf', 5000)
+    await page.locator('.agent-row:has-text("UX Critique")').click()
+    await waitUntil(async () => (await page.locator('.modal--agent').count()) > 0, 'invoke popover', 5000)
+    await wait(300)
+    await full('agents.png')
+    await page.keyboard.press('Escape')
+  })
+
   await app.close()
   if (appServer) appServer.close()
   rmSync(SHIM_DIR, { recursive: true, force: true })
