@@ -3,22 +3,46 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
-## 0.4.7 — 2026-08-08
+## 0.5.0 — 2026-08-18
 
-**App pane fixes — simpler and safer.**
+**Manage workspaces, on-call specialist agents, and App-pane fixes.**
 
+### New — Workspace Manager
+- Workspaces are now a first-class way to organize your crew at a macro level.
+  **File › Workspaces…** (⌘⇧W) opens a full-screen board — one lane per workspace
+  plus a pinned **Archived** lane — where you drag sessions between workspaces.
+- Dragging **adds** a session to a workspace (it stays wherever it was); hold
+  ⌘/⌥ to **move** it, or drop it on **Archived** to remove it from all. It's the
+  same live session shown in many places — organizing never starts or stops an
+  agent.
+- Create / rename / describe / reorder / delete workspaces (deleting archives its
+  sessions, never closes them), and give each session an inline **name +
+  description**. Under the hood workspaces became first-class entities with a
+  one-time migration from the old name-based tags.
+
+### New — Specialist agents
+- A shelf of reusable **agents** (UX Critique, Code Review, Security Review, Doc
+  Writer…) now sits at the bottom of the nav. Point one at a session and Crew
+  runs it **headless/one-shot** in that session's folder and reports back — like
+  a skill, but with its own brain — while you keep working.
+- A streaming **result panel** lets you **Copy**, **Insert into session**, or
+  **Save to Assets** (a markdown note that shows up in the Assets pane; markdown
+  is now a previewable asset type). Specialists are **read-first** by default and
+  never touch your live session; a write-capable agent is clearly flagged.
+- Bring your own: add a custom specialist (name, icon, base model, persona) or
+  duplicate a built-in.
+
+### Fixes
 - The **App** pane is now purely a viewer of the dev server *you* start in the
-  terminal. Removed the "Launch app" button: Crew no longer starts servers for
+  terminal. Removed the "Launch app" button — Crew no longer starts servers for
   you, which also removes a case where launching in a non-web folder could serve
-  that directory's file listing (and, for a plain static folder, expose it).
-- The **App** tab now appears only once Crew detects a real local dev-server URL
-  in the session's output — no more tab (or empty pane) for sessions that aren't
-  running a web app.
-- **Fixed getting stuck in the App view.** Switching to — or creating — a session
-  that has no app now always lands you back on the Terminal, instead of stranding
-  you in an empty App pane with no way out.
-- Hardening: the built-in static-server path (Project Tracker launch) now binds
-  to loopback only and requires a real `index.html`.
+  that directory's file listing.
+- The **App** tab now appears only once Crew detects a real local dev-server URL,
+  and switching to (or creating) a session with no app no longer strands you in
+  an empty App view.
+- Minimized-list sessions: the status dot no longer covers the animal mascot.
+- Hardening: the built-in static-server path binds to loopback only and requires
+  a real `index.html`.
 
 ## 0.4.6 — 2026-08-08
 
