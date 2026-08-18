@@ -7,8 +7,9 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { Settings, SessionSet } from '../shared/types'
+import type { Settings, SessionSet, Agent } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
+import { BUILTIN_AGENTS } from '../shared/agents'
 
 export interface CharacterAssignment {
   characterId: string
@@ -75,6 +76,7 @@ interface StoreData {
   sessions: PersistedSession[]
   sets: SessionSet[]
   workspaces: Workspace[]
+  agents: Agent[]
   windowBounds?: WindowBounds
   /** Ids of the one-time data migrations already applied to this store (see
    * MIGRATIONS), so each runs at most once. */
@@ -87,7 +89,8 @@ const EMPTY: StoreData = {
   recentDirs: [],
   sessions: [],
   sets: [],
-  workspaces: []
+  workspaces: [],
+  agents: []
 }
 
 /** One-time, ordered data migrations. Each is recorded by id in
@@ -127,6 +130,14 @@ const MIGRATIONS: Array<{ id: string; apply: (d: StoreData) => void }> = [
           .map((n) => byName.get(n.trim().toLowerCase()))
           .filter((x): x is string => !!x)
       }
+    }
+  },
+  {
+    // Seed the built-in specialist agents once. Users can edit/delete them after.
+    id: '2026-08-agents-seed',
+    apply: (d) => {
+      if ((d.agents?.length ?? 0) > 0) return
+      d.agents = BUILTIN_AGENTS.map((a) => ({ ...a }))
     }
   }
 ]
@@ -173,6 +184,7 @@ export class Store {
         sessions: raw.sessions ?? [],
         sets: raw.sets ?? [],
         workspaces: raw.workspaces ?? [],
+        agents: raw.agents ?? [],
         windowBounds: raw.windowBounds,
         migrations: [...(raw.migrations ?? [])]
       }
@@ -205,6 +217,7 @@ export class Store {
           sessions: [],
           sets: [],
           workspaces: [],
+          agents: BUILTIN_AGENTS.map((a) => ({ ...a })),
           migrations: MIGRATIONS.map((m) => m.id)
         },
         migrated: false
@@ -287,6 +300,17 @@ export class Store {
     this.data.workspaces = list
     this.persist()
     return this.data.workspaces
+  }
+
+  /** Specialist agent definitions (Agents shelf). */
+  getAgents(): Agent[] {
+    return this.data.agents
+  }
+
+  saveAgents(list: Agent[]): Agent[] {
+    this.data.agents = list
+    this.persist()
+    return this.data.agents
   }
 
   /** Register workspace names as (possibly empty) sets so they persist and show

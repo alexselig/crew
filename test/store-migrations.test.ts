@@ -116,3 +116,26 @@ describe('store migration — first-class workspaces', () => {
     expect(store.sets.find((s) => s.name === 'Resume Bundle')?.sessions).toHaveLength(1)
   })
 })
+
+describe('store migration — seed built-in agents', () => {
+  const ID = '2026-08-agents-seed'
+  it('seeds built-in agents on an existing store missing them', () => {
+    const p = tmpStorePath()
+    seed(p, { sessions: [], migrations: [] })
+    const store = new Store(p)
+    const agents = store.getAgents()
+    expect(agents.length).toBeGreaterThanOrEqual(3)
+    expect(agents.some((a) => a.name === 'UX Critique')).toBe(true)
+    const persisted = JSON.parse(readFileSync(p, 'utf8'))
+    expect(persisted.migrations).toContain(ID)
+  })
+  it('does not duplicate seeds once present', () => {
+    const p = tmpStorePath()
+    seed(p, {
+      agents: [{ id: 'ag_x', name: 'Mine', icon: 'spark', base: 'copilot-cli', persona: 'p', contextMode: 'cwd', writes: false, order: 0 }],
+      migrations: [ID]
+    })
+    const store = new Store(p)
+    expect(store.getAgents().map((a) => a.id)).toEqual(['ag_x'])
+  })
+})
