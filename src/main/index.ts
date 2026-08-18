@@ -6,7 +6,7 @@ import type { Rectangle, Display, MessageBoxOptions, MenuItemConstructorOptions 
 import { isAbsolute, join, resolve, basename } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { accessSync, constants, writeFileSync, appendFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { IPC, NEEDS_YOU } from '../shared/types'
 import type { CreateSessionRequest, Settings } from '../shared/types'
@@ -21,7 +21,7 @@ import { CrewTray } from './tray'
 import { isMac } from './platform'
 import { Store } from './store'
 import { TranscriptRecorder } from './transcripts'
-import { builtinPresets } from './presets'
+import { builtinPresets, getPreset } from './presets'
 import { listInstalledSkills } from './skills'
 import { scanProjects, recentCommits, resolveLaunch } from './tracker'
 import {
@@ -37,11 +37,20 @@ import { buildPastWeek } from './week-review'
 import { buildUsageAnalytics } from './usage-analytics'
 import { checkForUpdate, startUpdateChecks } from './updater'
 import { launch as launchServer, stop as stopServer, status as serverStatus, stopAll as stopAllServers } from './launcher'
+import { AgentRunner } from './agent-runner'
+import {
+  makeAgentId,
+  upsertAgent as upsertAgentList,
+  deleteAgent as deleteAgentList,
+  reorderAgents as reorderAgentList
+} from '../shared/agents'
+import type { Agent, AgentRun } from '../shared/types'
 import { CHARACTERS } from './characters'
 
 let tray: CrewTray | null = null
 let manager: SessionManager
 let store: Store
+let agentRunner: AgentRunner
 let recorder: TranscriptRecorder
 let assets: AssetWatchers
 let isQuitting = false
@@ -416,6 +425,7 @@ function teardown(): void {
   crashLog('quit', 'tearing down')
   recorder?.dispose()
   manager?.disposeAll()
+  agentRunner?.disposeAll()
   assets?.disposeAll()
   stopAllServers()
   tray?.destroy()
@@ -794,6 +804,56 @@ function registerIpc(): void {
     manager.setDescription(p.id, p.description)
   )
 
+  // ── Specialist agents ──
+  const pushAgents = (): Agent[] => {
+    const l = store.getAgents()
+    broadcast(IPC.EVT_AGENTS, l)
+    return l
+  }
+  ipcMain.handle(IPC.AGENTS_GET, () => store.getAgents())
+  ipcMain.handle(IPC.AGENT_UPSERT, (_e, a: Agent) => {
+    const agent = a.id ? a : { ...a, id: makeAgentId() }
+    store.saveAgents(upsertAgentList(store.getAgents(), agent))
+    return pushAgents()
+  })
+  ipcMain.handle(IPC.AGENT_DELETE, (_e, id: string) => {
+    store.saveAgents(deleteAgentList(store.getAgents(), id))
+    return pushAgents()
+  })
+  ipcMain.handle(IPC.AGENTS_REORDER, (_e, ids: string[]) => {
+    store.saveAgents(reorderAgentList(store.getAgents(), ids))
+    return pushAgents()
+  })
+  ipcMain.handle(IPC.AGENT_RUN, (_e, p: { agentId: string; sessionId: string | null; task: string }) => {
+    const agent = store.getAgents().find((a) => a.id === p.agentId)
+    const errRun = (error: string): AgentRun => ({
+      id: '', agentId: p.agentId, sessionId: p.sessionId, cwd: '', task: p.task,
+      status: 'error', output: '', startedAt: Date.now(), error
+    })
+    if (!agent) return errRun('Agent not found.')
+    const s = p.sessionId ? manager.roster().find((x) => x.id === p.sessionId) : null
+    const cwd = s?.cwd ?? ''
+    if (!cwd || cwd === homedir()) return errRun('Pick a session with a project folder to run against.')
+    return agentRunner.run(agent, { sessionId: p.sessionId, cwd, task: p.task })
+  })
+  ipcMain.handle(IPC.AGENT_RUN_CANCEL, (_e, runId: string) => agentRunner.cancel(runId))
+  ipcMain.handle(IPC.AGENT_SAVE_RESULT, async (_e, runId: string) => {
+    const run = agentRunner.get(runId)
+    if (!run || !run.cwd) return { ok: false, error: 'No result to save.' }
+    const agent = store.getAgents().find((a) => a.id === run.agentId)
+    const slug = (agent?.name ?? 'agent').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const stamp = new Date(run.startedAt).toISOString().slice(0, 19).replace(/[:T]/g, '')
+    const dir = join(run.cwd, 'agents')
+    const file = join(dir, `${slug}-${stamp}.md`)
+    try {
+      await mkdir(dir, { recursive: true })
+      await writeFile(file, `# ${agent?.name ?? 'Agent'} — ${run.task || 'run'}\n\n${run.output}\n`)
+      return { ok: true, path: file }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
     manager.input(p.id, p.data)
   )
@@ -819,6 +879,11 @@ if (!app.requestSingleInstanceLock()) {
   store = new Store(join(app.getPath('userData'), 'crew-store.json'))
   recorder = new TranscriptRecorder(join(app.getPath('userData'), 'transcripts'))
   manager = new SessionManager(store, recorder, ensureCrewHookDir(app.getPath('userData')))
+  agentRunner = new AgentRunner((baseId) => {
+    const p = getPreset(baseId)
+    return p ? { command: p.command, args: p.args } : null
+  })
+  agentRunner.on('run', (run) => broadcast(IPC.EVT_AGENT_RUN, run))
   assets = new AssetWatchers((id, list) => broadcast(IPC.EVT_ASSETS, { id, assets: list }))
   applyLoginItem(store.settings.launchAtLogin)
 

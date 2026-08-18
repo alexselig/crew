@@ -34,6 +34,13 @@ const api: CrewAPI = {
   archiveSession: (id) => ipcRenderer.invoke(IPC.SESSION_ARCHIVE, id),
   duplicateSession: (id, wsId) => ipcRenderer.invoke(IPC.SESSION_DUPLICATE, { id, wsId }),
   setSessionDescription: (id, description) => ipcRenderer.invoke(IPC.SESSION_DESCRIBE, { id, description }),
+  getAgents: () => ipcRenderer.invoke(IPC.AGENTS_GET),
+  upsertAgent: (a) => ipcRenderer.invoke(IPC.AGENT_UPSERT, a),
+  deleteAgent: (id) => ipcRenderer.invoke(IPC.AGENT_DELETE, id),
+  reorderAgents: (ids) => ipcRenderer.invoke(IPC.AGENTS_REORDER, ids),
+  runAgent: (agentId, sessionId, task) => ipcRenderer.invoke(IPC.AGENT_RUN, { agentId, sessionId, task }),
+  cancelAgentRun: (runId) => ipcRenderer.invoke(IPC.AGENT_RUN_CANCEL, runId),
+  saveAgentResult: (runId) => ipcRenderer.invoke(IPC.AGENT_SAVE_RESULT, runId),
   reorder: (orderedIds) => ipcRenderer.invoke(IPC.SESSION_REORDER, orderedIds),
   openWindow: () => ipcRenderer.invoke(IPC.WINDOW_OPEN),
   getRoster: () => ipcRenderer.invoke(IPC.ROSTER_GET),
@@ -81,6 +88,8 @@ const api: CrewAPI = {
   onWorkspace: (cb) => subscribe(IPC.EVT_WORKSPACE, cb),
   onWorkspaces: (cb) => subscribe(IPC.EVT_WORKSPACES, cb),
   onOpenWorkspaces: (cb) => subscribe(IPC.EVT_OPEN_WORKSPACES, () => cb()),
+  onAgents: (cb) => subscribe(IPC.EVT_AGENTS, cb),
+  onAgentRun: (cb) => subscribe(IPC.EVT_AGENT_RUN, cb),
   onAssets: (cb) => subscribe(IPC.EVT_ASSETS, cb),
   onUpdate: (cb) => subscribe(IPC.EVT_UPDATE, cb)
 }

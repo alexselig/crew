@@ -10,7 +10,9 @@ import type {
   SessionState,
   Settings,
   SessionSet,
-  Workspace
+  Workspace,
+  Agent,
+  AgentRun
 } from './types'
 import type { AssetItem } from './assets'
 import type { TrackerData, CommitActivity, RunningServer, LaunchResult, PastWeek } from './tracker'
@@ -95,6 +97,14 @@ export interface CrewAPI {
   archiveSession(id: string): Promise<void>
   duplicateSession(id: string, wsId: string | null): Promise<void>
   setSessionDescription(id: string, description: string): Promise<void>
+  // ── Specialist agents (Agents shelf) ──
+  getAgents(): Promise<Agent[]>
+  upsertAgent(a: Agent): Promise<Agent[]>
+  deleteAgent(id: string): Promise<Agent[]>
+  reorderAgents(ids: string[]): Promise<Agent[]>
+  runAgent(agentId: string, sessionId: string | null, task: string): Promise<AgentRun>
+  cancelAgentRun(runId: string): Promise<void>
+  saveAgentResult(runId: string): Promise<{ ok: boolean; path?: string; error?: string }>
   reorder(orderedIds: string[]): Promise<void>
   /** Open an additional app window (e.g. to use a second monitor). */
   openWindow(): Promise<void>
@@ -174,6 +184,10 @@ export interface CrewAPI {
   onWorkspaces(cb: (list: Workspace[]) => void): Unsubscribe
   /** File › Workspaces… — open the Workspace Manager. */
   onOpenWorkspaces(cb: () => void): Unsubscribe
+  /** The agent list changed (created/edited/deleted/reordered). */
+  onAgents(cb: (list: Agent[]) => void): Unsubscribe
+  /** An agent run's state/output changed (streamed). */
+  onAgentRun(cb: (run: AgentRun) => void): Unsubscribe
   onAssets(cb: (e: AssetsEvent) => void): Unsubscribe
   /** Fired when a background check finds a newer published release. */
   onUpdate(cb: (info: UpdateInfo) => void): Unsubscribe
