@@ -28,6 +28,7 @@ export function App(): JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [showBroadcast, setShowBroadcast] = useState(false)
+  const [invokeAgentId, setInvokeAgentId] = useState<string | null>(null)
   const [showTranscripts, setShowTranscripts] = useState(false)
   // The Project Tracker is a single feature reached from two toolbar buttons that
   // deep-link to different sections (chart → Activity, clipboard → Planning).
@@ -51,7 +52,9 @@ export function App(): JSX.Element {
     trackerSection !== null ||
     showIntro ||
     c.showNew ||
-    c.showWorkspaces
+    c.showWorkspaces ||
+    invokeAgentId !== null ||
+    c.editingAgent !== null
   const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
   const usedCharacterIds = c.roster
     .filter((s) => s.status === 'active' && s.id !== selected?.id)
@@ -324,6 +327,10 @@ export function App(): JSX.Element {
         onBroadcast={() => setShowBroadcast(true)}
         onAnalytics={() => setTrackerSection('activity')}
         onOpenTracker={() => setTrackerSection('planning')}
+        agents={c.agents}
+        runs={c.runs}
+        onInvokeAgent={(id) => setInvokeAgentId(id)}
+        onAddAgent={() => c.setEditingAgent('new')}
         showSpend={c.settings?.showSpend ?? true}
         showCredits={c.settings?.showCredits ?? false}
         budgetUsd={c.settings?.budgetUsd ?? 0}

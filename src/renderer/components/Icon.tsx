@@ -28,6 +28,10 @@ interface IconProps {
     | 'refresh'
     | 'external'
     | 'x'
+    | 'spark'
+    | 'check'
+    | 'shield'
+    | 'doc'
   size?: number
 }
 
@@ -190,6 +194,33 @@ const PATHS: Record<IconProps['name'], JSX.Element> = {
     <>
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
+    </>
+  ),
+  // Four-point spark: a specialist agent (default).
+  spark: (
+    <>
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
+      <path d="M12 8.5c.6 2 1.5 2.9 3.5 3.5-2 .6-2.9 1.5-3.5 3.5-.6-2-1.5-2.9-3.5-3.5 2-.6 2.9-1.5 3.5-3.5z" />
+    </>
+  ),
+  // Check in a circle: a review/critique agent.
+  check: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12 2.5 2.5 4.5-5" />
+    </>
+  ),
+  // Shield: a security agent.
+  shield: (
+    <>
+      <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" />
+    </>
+  ),
+  // Document with lines: a doc-writer agent.
+  doc: (
+    <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5M9 13h6M9 17h6" />
     </>
   )
 }

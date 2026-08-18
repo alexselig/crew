@@ -9,6 +9,8 @@ import { ViewToggle } from './ViewToggle'
 import { groupSessions, partitionHidden, isSessionHidden, type GroupMode } from '../grouping'
 import { useGroupReorder } from '../useGroupReorder'
 import { useCardDnd, mergeHeaderDnd } from '../useCardDnd'
+import { AgentShelf } from './AgentShelf'
+import type { Agent, AgentRun } from '../../shared/types'
 import { useNowTick } from '../hooks'
 import type { ViewMode, GridDensity } from '../hooks'
 
@@ -45,6 +47,10 @@ interface Props {
   onBroadcast: () => void
   onAnalytics: () => void
   onOpenTracker: () => void
+  agents: Agent[]
+  runs: Record<string, AgentRun>
+  onInvokeAgent: (agentId: string) => void
+  onAddAgent: () => void
   showSpend: boolean
   showCredits: boolean
   budgetUsd: number
@@ -96,6 +102,10 @@ export function Roster(props: Props): JSX.Element {
     onBroadcast,
     onAnalytics,
     onOpenTracker,
+    agents,
+    runs,
+    onInvokeAgent,
+    onAddAgent,
     showSpend,
     showCredits,
     budgetUsd,
@@ -389,6 +399,8 @@ export function Roster(props: Props): JSX.Element {
           renderBucket(roster, '__all__')
         )}
       </div>
+
+      <AgentShelf agents={agents} runs={runs} railed={railed} onInvoke={onInvokeAgent} onAddAgent={onAddAgent} />
 
       <div className="roster__toolbar">
         <ViewToggle mode={viewMode} density={gridDensity} onChange={onSetViewMode} onGridRepeat={onGridRepeat} />
