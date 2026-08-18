@@ -5732,3 +5732,38 @@ button.grid-topbar__wordmark:hover {
   border-top-color: var(--accent-text);
   animation: app-pane-spin 0.7s linear infinite;
 }
+
+/* Agent invoke / editor modals reuse the base .modal system with a few extras. */
+.modal--agent {
+  width: 480px;
+  max-width: 92vw;
+}
+.field--row {
+  display: flex;
+  gap: 10px;
+  border: none;
+  padding: 0;
+}
+.field--row > .field {
+  flex: 1;
+  min-width: 0;
+}
+.field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  padding-bottom: 8px;
+  white-space: nowrap;
+}
+.field--check input {
+  width: auto;
+}
+.modal__warn {
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(229, 161, 58, 0.12);
+  color: #e5a13a;
+  font-size: 12px;
+}

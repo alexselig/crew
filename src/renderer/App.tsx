@@ -10,6 +10,8 @@ import { BroadcastModal } from './components/BroadcastModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
 import { ProjectTracker, type Section as TrackerSection } from './components/ProjectTracker'
 import { WorkspaceManager } from './components/WorkspaceManager'
+import { AgentInvoke } from './components/AgentInvoke'
+import { AgentEditor } from './components/AgentEditor'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { UpdateBanner } from './components/UpdateBanner'
 import { TitleSequence } from './components/TitleSequence'
@@ -254,6 +256,13 @@ export function App(): JSX.Element {
       { id: 'act-analytics', label: 'Activity & spend', icon: <Icon name="chart" />, run: () => setTrackerSection('activity') },
       { id: 'act-tracker', label: 'Project tracker', icon: <Icon name="tracker" />, run: () => setTrackerSection('planning') },
       { id: 'act-workspaces', label: 'Manage workspaces…', icon: <Icon name="columns" />, run: () => c.setShowWorkspaces(true) },
+      ...c.agents.map((a) => ({
+        id: 'agent-' + a.id,
+        label: `Run: ${a.name}`,
+        icon: <Icon name={(a.icon as 'spark') || 'spark'} />,
+        keywords: 'agent specialist run critique review',
+        run: () => setInvokeAgentId(a.id)
+      })),
       { id: 'act-transcripts', label: 'Search transcripts…', icon: <Icon name="search" />, run: () => setShowTranscripts(true) },
       { id: 'act-settings', label: 'Open Settings', icon: <Icon name="settings" />, run: () => setShowSettings(true) }
     ]
@@ -448,6 +457,29 @@ export function App(): JSX.Element {
           workspaces={c.workspaces}
           onOpenSession={(id) => c.setSelectedId(id)}
           onClose={() => c.setShowWorkspaces(false)}
+        />
+      )}
+
+      {invokeAgentId && c.agents.find((a) => a.id === invokeAgentId) && (
+        <AgentInvoke
+          agent={c.agents.find((a) => a.id === invokeAgentId)!}
+          sessions={c.roster}
+          defaultSessionId={c.selectedId}
+          onRun={(sessionId, task) => {
+            void window.crew.runAgent(invokeAgentId, sessionId, task)
+            setInvokeAgentId(null)
+          }}
+          onClose={() => setInvokeAgentId(null)}
+        />
+      )}
+
+      {c.editingAgent !== null && (
+        <AgentEditor
+          agent={c.editingAgent === 'new' ? null : c.agents.find((a) => a.id === c.editingAgent) ?? null}
+          presets={c.presets}
+          onSave={(a) => void window.crew.upsertAgent(a)}
+          onDelete={(id) => void window.crew.deleteAgent(id)}
+          onClose={() => c.setEditingAgent(null)}
         />
       )}
 
