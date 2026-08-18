@@ -422,6 +422,31 @@ async function main() {
   }, { sid: wsSid, wsId: wsCreated.id })
   if (dupId) await page.evaluate((id) => window.crew.closeSession(id), dupId)
 
+  // ---- Agents: seeded specialists + headless run reaches a terminal state ----
+  log('Agents (headless specialists)')
+  const agents0 = await page.evaluate(async () => window.crew.getAgents())
+  if (agents0.some((a) => a.name === 'UX Critique')) ok('built-in specialists seeded')
+  else bad('no built-in agents seeded')
+  const agSid = await page.evaluate(async () => (await window.crew.getRoster())[0]?.id)
+  const agList = await page.evaluate(async () =>
+    window.crew.upsertAgent({ id: '', name: 'Echo Spec', icon: 'spark', base: 'shell', persona: 'echo hello', contextMode: 'cwd', writes: false, order: 99 })
+  )
+  const echoId = agList.find((a) => a.name === 'Echo Spec')?.id
+  if (echoId) ok('custom agent created via upsertAgent')
+  else bad('upsertAgent failed')
+  await page.evaluate(async ({ id, sid }) => {
+    window.__lastRun = null
+    window.crew.onAgentRun((r) => { window.__lastRun = r })
+    await window.crew.runAgent(id, sid, 'print a greeting')
+  }, { id: echoId, sid: agSid })
+  const finished = await waitUntil(
+    async () => page.evaluate(() => (window.__lastRun && window.__lastRun.status && window.__lastRun.status !== 'running') ? window.__lastRun.status : null),
+    'agent run reaches a terminal state',
+    15000
+  ).catch(() => null)
+  if (finished) ok(`agent run streams to a terminal state (${finished}, no hang)`)
+  else bad('agent run did not reach a terminal state')
+
   // ---- Close both sessions ----
   log('Close button → back to empty')
   // Close via the roster card ✕ to also exercise that control. The card actions
