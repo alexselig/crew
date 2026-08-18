@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SessionInfo, Preset, CharacterDef, Settings, Workspace } from '../shared/types'
+import type { SessionInfo, Preset, CharacterDef, Settings, Workspace, Agent, AgentRun } from '../shared/types'
 import type { GroupMode } from './grouping'
 import { writeTo, disposePooled, setEngineMode } from './terminal/facade'
 import { clearInputMeter } from './input-meter'
@@ -68,6 +68,16 @@ export interface CrewState {
   /** Whether the full-screen Workspace Manager is open. */
   showWorkspaces: boolean
   setShowWorkspaces: (v: boolean) => void
+  /** Specialist agents (the nav shelf). */
+  agents: Agent[]
+  /** Agent runs keyed by run id (streamed). */
+  runs: Record<string, AgentRun>
+  /** The run shown in the result drawer, or null. */
+  activeRunId: string | null
+  setActiveRunId: (id: string | null) => void
+  /** Which agent is being edited ('new' = create), or null. */
+  editingAgent: string | null | 'new'
+  setEditingAgent: (v: string | null | 'new') => void
   settings: Settings | null
   setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void
 }
@@ -138,6 +148,10 @@ export function useCrew(): CrewState {
   )
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [showWorkspaces, setShowWorkspaces] = useState(false)
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [runs, setRuns] = useState<Record<string, AgentRun>>({})
+  const [activeRunId, setActiveRunId] = useState<string | null>(null)
+  const [editingAgent, setEditingAgent] = useState<string | null | 'new'>(null)
   const knownIds = useRef<Set<string>>(new Set())
 
   const setActiveWorkspace = (name: string | null): void => {
@@ -236,6 +250,7 @@ export function useCrew(): CrewState {
     void window.crew.getHomeDir().then((h) => mounted && setHomeDir(h))
     void window.crew.getSettings().then((s) => mounted && setSettings(s))
     void window.crew.getWorkspaces().then((w) => mounted && setWorkspaces(w))
+    void window.crew.getAgents().then((a) => mounted && setAgents(a))
 
     const offRoster = window.crew.onRoster((r) => setRoster(r))
     const offState = window.crew.onState((e) =>
@@ -254,6 +269,11 @@ export function useCrew(): CrewState {
     const offWorkspace = window.crew.onWorkspace((name) => setActiveWorkspace(name))
     const offWorkspaces = window.crew.onWorkspaces((w) => setWorkspaces(w))
     const offOpenWorkspaces = window.crew.onOpenWorkspaces(() => setShowWorkspaces(true))
+    const offAgents = window.crew.onAgents((a) => setAgents(a))
+    const offAgentRun = window.crew.onAgentRun((run) => {
+      setRuns((prev) => ({ ...prev, [run.id]: run }))
+      if (run.id) setActiveRunId((cur) => cur ?? run.id)
+    })
 
     return () => {
       mounted = false
@@ -265,6 +285,8 @@ export function useCrew(): CrewState {
       offWorkspace()
       offWorkspaces()
       offOpenWorkspaces()
+      offAgents()
+      offAgentRun()
     }
   }, [])
 
@@ -329,6 +351,12 @@ export function useCrew(): CrewState {
     refreshWorkspaces,
     showWorkspaces,
     setShowWorkspaces,
+    agents,
+    runs,
+    activeRunId,
+    setActiveRunId,
+    editingAgent,
+    setEditingAgent,
     settings,
     setSetting
   }
