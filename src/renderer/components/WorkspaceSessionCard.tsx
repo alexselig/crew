@@ -58,7 +58,7 @@ export function WorkspaceSessionCard({
 
   return (
     <div
-      className={`workspace-card ${drag.dragging === session.id ? 'is-dragging' : ''}`}
+      className={`workspace-card ${drag.draggingIds.includes(session.id) ? 'is-dragging' : ''}`}
       {...drag.cardHandlers(session.id, laneId)}
     >
       <span className="workspace-card__glyph">

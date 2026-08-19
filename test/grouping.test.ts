@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { groupSessions, partitionHidden, splitMinimized, isSessionHidden, recencyOf, groupSessionsForPicker, _resetRecencyOrder } from '../src/renderer/grouping'
+import { groupSessions, partitionHidden, splitMinimized, isSessionHidden, recencyOf, groupSessionsForPicker, organizeSessions, _resetRecencyOrder } from '../src/renderer/grouping'
 import type { SessionInfo } from '../src/shared/types'
 
 const MIN = 60_000
@@ -347,5 +347,59 @@ describe('groupSessionsForPicker', () => {
     expect(out.map((g) => g.name)).toEqual(['Product', 'Infra', 'Ungrouped'])
     expect(out[0].sessions.map((s) => s.id)).toEqual(['p-new', 'p-old'])
     expect(out[2].sessions.map((s) => s.id)).toEqual(['loose'])
+  })
+})
+
+describe('organizeSessions', () => {
+  it("'group' delegates to the tag grouping", () => {
+    const now = Date.now()
+    const sessions = [
+      sess({ id: 'p1', tag: 'Product', lastPromptAt: now - 3 * MIN }),
+      sess({ id: 'loose', lastPromptAt: now - 1 * MIN })
+    ]
+    expect(organizeSessions(sessions, 'group')).toEqual(groupSessionsForPicker(sessions))
+  })
+
+  it("'recent' returns one unnamed group, newest first", () => {
+    const now = Date.now()
+    const out = organizeSessions(
+      [
+        sess({ id: 'old', tag: 'Product', lastPromptAt: now - 5 * HOUR }),
+        sess({ id: 'fresh', tag: 'Infra', lastPromptAt: now - 2 * MIN })
+      ],
+      'recent'
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].name).toBeNull()
+    expect(out[0].sessions.map((s) => s.id)).toEqual(['fresh', 'old'])
+  })
+
+  it("'name' sorts one unnamed group alphabetically by label", () => {
+    const out = organizeSessions(
+      [
+        sess({ id: 'c', label: 'Charlie' }),
+        sess({ id: 'a', label: 'alpha' }),
+        sess({ id: 'b', label: 'Bravo' })
+      ],
+      'name'
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].name).toBeNull()
+    expect(out[0].sessions.map((s) => s.label)).toEqual(['alpha', 'Bravo', 'Charlie'])
+  })
+
+  it("'status' puts needs-you first, then working, then rest (recency tiebreak)", () => {
+    const now = Date.now()
+    const out = organizeSessions(
+      [
+        sess({ id: 'work', state: 'WORKING', lastPromptAt: now - 9 * MIN }),
+        sess({ id: 'idle', state: 'IDLE', lastPromptAt: now - 1 * MIN }),
+        sess({ id: 'need-old', state: 'WAITING_INPUT', lastPromptAt: now - 8 * MIN }),
+        sess({ id: 'need-new', state: 'WAITING_APPROVAL', lastPromptAt: now - 2 * MIN })
+      ],
+      'status'
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].sessions.map((s) => s.id)).toEqual(['need-new', 'need-old', 'work', 'idle'])
   })
 })

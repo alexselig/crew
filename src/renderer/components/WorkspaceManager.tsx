@@ -3,6 +3,7 @@ import type { SessionInfo, CharacterDef, Workspace } from '../../shared/types'
 import { isArchived } from '../../shared/workspaces'
 import { useSessionDrag, type DropIntent } from '../useSessionDrag'
 import { useGroupReorder } from '../useGroupReorder'
+import { LANE_SORTS, type LaneSort } from '../grouping'
 import { WorkspaceLane } from './WorkspaceLane'
 
 interface Props {
@@ -22,6 +23,8 @@ interface Props {
  */
 export function WorkspaceManager({ roster, characters, workspaces, onOpenSession, onClose }: Props): JSX.Element {
   const [newName, setNewName] = useState('')
+  // How each lane organizes the sessions inside it. Defaults to grouping by tag.
+  const [sort, setSort] = useState<LaneSort>('group')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -49,13 +52,15 @@ export function WorkspaceManager({ roster, characters, workspaces, onOpenSession
   }, [ordered, roster])
 
   const drag = useSessionDrag(
-    (sessionId: string, fromLaneId: string | null, toLaneId: string | null, intent: DropIntent) => {
-      if (toLaneId === null) {
-        void window.crew.archiveSession(sessionId)
-        return
+    (sessionIds: string[], fromLaneId: string | null, toLaneId: string | null, intent: DropIntent) => {
+      for (const sessionId of sessionIds) {
+        if (toLaneId === null) {
+          void window.crew.archiveSession(sessionId)
+          continue
+        }
+        if (intent === 'move' && fromLaneId) void window.crew.moveSessionWorkspace(sessionId, fromLaneId, toLaneId)
+        else void window.crew.addSessionToWorkspace(sessionId, toLaneId)
       }
-      if (intent === 'move' && fromLaneId) void window.crew.moveSessionWorkspace(sessionId, fromLaneId, toLaneId)
-      else void window.crew.addSessionToWorkspace(sessionId, toLaneId)
     }
   )
 
@@ -89,6 +94,20 @@ export function WorkspaceManager({ roster, characters, workspaces, onOpenSession
           Work<em>spaces</em>
         </h1>
         <div className="workspace-manager__controls">
+          <label className="workspace-manager__sort">
+            <span className="workspace-manager__sort-label">Sort</span>
+            <select
+              className="workspace-manager__sort-select"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as LaneSort)}
+            >
+              {LANE_SORTS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <input
             className="workspace-manager__new"
             placeholder="New workspace name…"
@@ -116,6 +135,7 @@ export function WorkspaceManager({ roster, characters, workspaces, onOpenSession
             characters={characters}
             workspaces={workspaces}
             drag={drag}
+            sort={sort}
             reorder={reorder.handlers(w.id)}
             onRenameWs={(id, name) => void window.crew.renameWorkspace(id, name)}
             onDescribeWs={(id, description) => void window.crew.describeWorkspace(id, description)}
@@ -140,6 +160,7 @@ export function WorkspaceManager({ roster, characters, workspaces, onOpenSession
           characters={characters}
           workspaces={workspaces}
           drag={drag}
+          sort={sort}
           onRenameWs={() => {}}
           onDescribeWs={() => {}}
           onDeleteWs={() => {}}

@@ -5324,7 +5324,8 @@ button.grid-topbar__wordmark:hover {
   display: flex;
   align-items: baseline;
   gap: 14px;
-  padding: 22px 28px 16px;
+  /* Top padding clears the macOS traffic lights (hiddenInset, ~y18–34). */
+  padding: 44px 28px 16px;
   border-bottom: 1px solid var(--border);
 }
 .workspace-manager__eyebrow {
@@ -5348,6 +5349,31 @@ button.grid-topbar__wordmark:hover {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.workspace-manager__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.workspace-manager__sort-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.workspace-manager__sort-select {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.workspace-manager__sort-select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 .workspace-manager__new {
   height: 30px;
@@ -5519,6 +5545,46 @@ button.grid-topbar__wordmark:hover {
   margin: 8px 4px;
   color: var(--text-dim);
   font-size: 12px;
+  text-align: center;
+}
+.workspace-lane__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workspace-lane__group + .workspace-lane__group {
+  margin-top: 4px;
+}
+.workspace-lane__group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  cursor: grab;
+  user-select: none;
+}
+.workspace-lane__group-head:hover {
+  background: var(--bg-elev);
+}
+.workspace-lane__group-head.is-dragging {
+  opacity: 0.5;
+}
+.workspace-lane__group-name {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.workspace-lane__group-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 15px;
   text-align: center;
 }
 

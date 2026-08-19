@@ -263,3 +263,38 @@ export function groupSessionsForPicker(sessions: SessionInfo[]): PickerGroup[] {
   })
   return groups
 }
+
+/** How a workspace lane organizes the sessions inside it. */
+export type LaneSort = 'group' | 'recent' | 'name' | 'status'
+
+export const LANE_SORTS: { id: LaneSort; label: string }[] = [
+  { id: 'group', label: 'Group' },
+  { id: 'recent', label: 'Recent' },
+  { id: 'name', label: 'Name' },
+  { id: 'status', label: 'Status' }
+]
+
+// Needs-you first, then working, then everything else (for the 'status' sort).
+function statusRank(s: SessionInfo): number {
+  if (NEEDS_YOU.includes(s.state)) return 0
+  if (s.state === 'WORKING') return 1
+  return 2
+}
+
+/**
+ * Organize a lane's sessions per the chosen sort. 'group' returns tag groups
+ * (the default — recency-sorted within, "Ungrouped" last); the flat sorts return
+ * a single unnamed group. Shared by the Workspace Manager lanes.
+ */
+export function organizeSessions(sessions: SessionInfo[], sort: LaneSort): PickerGroup[] {
+  if (sort === 'group') return groupSessionsForPicker(sessions)
+  const list = [...sessions]
+  if (sort === 'name') {
+    list.sort((a, b) => a.label.localeCompare(b.label))
+  } else if (sort === 'status') {
+    list.sort((a, b) => statusRank(a) - statusRank(b) || recencyOf(b) - recencyOf(a))
+  } else {
+    list.sort((a, b) => recencyOf(b) - recencyOf(a))
+  }
+  return [{ name: null, sessions: list }]
+}

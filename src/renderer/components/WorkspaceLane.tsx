@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { SessionInfo, CharacterDef, Workspace } from '../../shared/types'
 import type { SessionDrag } from '../useSessionDrag'
 import type { GroupHeaderDnd } from '../useGroupReorder'
+import { organizeSessions, type LaneSort } from '../grouping'
 import { WorkspaceSessionCard } from './WorkspaceSessionCard'
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
   characters: CharacterDef[]
   workspaces: Workspace[]
   drag: SessionDrag
+  /** How to organize the sessions inside this lane. */
+  sort: LaneSort
   /** Drag handlers to reorder lane headers (real workspaces only). */
   reorder?: GroupHeaderDnd
   onRenameWs: (id: string, name: string) => void
@@ -37,6 +40,7 @@ export function WorkspaceLane({
   characters,
   workspaces,
   drag,
+  sort,
   reorder,
   onRenameWs,
   onDescribeWs,
@@ -155,22 +159,41 @@ export function WorkspaceLane({
             {isArchived ? 'No archived sessions.' : 'Drag a session here.'}
           </p>
         ) : (
-          sessions.map((s) => (
-            <WorkspaceSessionCard
-              key={s.id}
-              session={s}
-              characters={characters}
-              laneId={laneId}
-              workspaces={workspaces}
-              drag={drag}
-              onRename={onRename}
-              onDescribe={onDescribe}
-              onArchive={onArchive}
-              onDuplicate={onDuplicate}
-              onMoveTo={onMoveTo}
-              onRemoveFrom={onRemoveFrom}
-              onOpen={onOpen}
-            />
+          organizeSessions(sessions, sort).map((group, gi) => (
+            <div className="workspace-lane__group" key={group.name ?? `__flat-${gi}`}>
+              {group.name && (
+                <div
+                  className={`workspace-lane__group-head ${
+                    group.sessions.every((s) => drag.draggingIds.includes(s.id)) ? 'is-dragging' : ''
+                  }`}
+                  title="Drag the whole group into another workspace"
+                  {...drag.groupHandlers(
+                    group.sessions.map((s) => s.id),
+                    laneId
+                  )}
+                >
+                  <span className="workspace-lane__group-name">{group.name}</span>
+                  <span className="workspace-lane__group-count">{group.sessions.length}</span>
+                </div>
+              )}
+              {group.sessions.map((s) => (
+                <WorkspaceSessionCard
+                  key={s.id}
+                  session={s}
+                  characters={characters}
+                  laneId={laneId}
+                  workspaces={workspaces}
+                  drag={drag}
+                  onRename={onRename}
+                  onDescribe={onDescribe}
+                  onArchive={onArchive}
+                  onDuplicate={onDuplicate}
+                  onMoveTo={onMoveTo}
+                  onRemoveFrom={onRemoveFrom}
+                  onOpen={onOpen}
+                />
+              ))}
+            </div>
           ))
         )}
       </div>
