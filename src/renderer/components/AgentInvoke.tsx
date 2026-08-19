@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Agent, SessionInfo } from '../../shared/types'
+import { groupSessionsForPicker } from '../grouping'
 
 interface Props {
   agent: Agent
@@ -13,6 +14,8 @@ interface Props {
  *  and (optionally) a specific task, then Run. */
 export function AgentInvoke({ agent, sessions, defaultSessionId, onRun, onClose }: Props): JSX.Element {
   const targets = sessions.filter((s) => s.status === 'active' && s.cwd)
+  // Organize the picker: grouped by group (tag) when present, else recency-sorted.
+  const pickerGroups = groupSessionsForPicker(targets)
   const [sessionId, setSessionId] = useState<string>(
     defaultSessionId && targets.some((s) => s.id === defaultSessionId) ? defaultSessionId : targets[0]?.id ?? ''
   )
@@ -52,11 +55,23 @@ export function AgentInvoke({ agent, sessions, defaultSessionId, onRun, onClose 
             <span className="sets__empty">No active session with a project folder. Start one first.</span>
           ) : (
             <select className="field__input" value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
-              {targets.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label} — {s.cwd}
-                </option>
-              ))}
+              {pickerGroups.map((g, i) =>
+                g.name === null ? (
+                  g.sessions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label} — {s.cwd}
+                    </option>
+                  ))
+                ) : (
+                  <optgroup key={g.name + i} label={g.name}>
+                    {g.sessions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label} — {s.cwd}
+                      </option>
+                    ))}
+                  </optgroup>
+                )
+              )}
             </select>
           )}
         </label>

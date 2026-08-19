@@ -5640,27 +5640,40 @@ button.grid-topbar__wordmark:hover {
 }
 
 /* ==========================================================================
-   Agents shelf — on-call specialist agents pinned at the bottom of the nav,
-   visually distinct from the session roster (geometric tinted icons).
+   Agents shelf — on-call specialist agents, shown as a trailing "group" at the
+   end of the scrollable session list (scroll down past the sessions to reach
+   them). Header mirrors a session group header; rows use tinted geometric icons
+   so they read as distinct from sessions.
    ========================================================================== */
 .agent-shelf {
-  flex: 0 0 auto;
-  border-top: 1px solid var(--border);
-  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 10px;
 }
 .agent-shelf__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 2px 4px 6px;
+  gap: 6px;
+  padding: 6px 4px 5px;
+  border-bottom: 1px solid var(--text-faint);
+  margin-bottom: 4px;
 }
 .agent-shelf__label {
-  font-size: 10px;
-  letter-spacing: 0.14em;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.4px;
   color: var(--text-dim);
 }
+.agent-shelf__count {
+  flex: 1;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 700;
+}
 .agent-shelf__add {
+  flex: none;
   width: 18px;
   height: 18px;
   border: none;

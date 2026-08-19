@@ -21,6 +21,7 @@ export function AgentShelf({ agents, runs, railed, onInvoke, onAddAgent }: Props
       {!railed && (
         <div className="agent-shelf__head">
           <span className="agent-shelf__label">Agents</span>
+          <span className="agent-shelf__count">{agents.length}</span>
           <button type="button" className="agent-shelf__add" title="New agent" onClick={onAddAgent}>
             +
           </button>

@@ -398,9 +398,9 @@ export function Roster(props: Props): JSX.Element {
         ) : (
           renderBucket(roster, '__all__')
         )}
-      </div>
 
-      <AgentShelf agents={agents} runs={runs} railed={railed} onInvoke={onInvokeAgent} onAddAgent={onAddAgent} />
+        <AgentShelf agents={agents} runs={runs} railed={railed} onInvoke={onInvokeAgent} onAddAgent={onAddAgent} />
+      </div>
 
       <div className="roster__toolbar">
         <ViewToggle mode={viewMode} density={gridDensity} onChange={onSetViewMode} onGridRepeat={onGridRepeat} />

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { groupSessions, partitionHidden, splitMinimized, isSessionHidden, recencyOf, _resetRecencyOrder } from '../src/renderer/grouping'
+import { groupSessions, partitionHidden, splitMinimized, isSessionHidden, recencyOf, groupSessionsForPicker, _resetRecencyOrder } from '../src/renderer/grouping'
 import type { SessionInfo } from '../src/shared/types'
 
 const MIN = 60_000
@@ -318,5 +318,34 @@ describe('splitMinimized', () => {
     const { gridRoster, minimizedList } = splitMinimized(roster, new Set(), true)
     expect(gridRoster.map((s) => s.id)).toEqual(['a', 'b'])
     expect(minimizedList).toEqual([])
+  })
+})
+
+describe('groupSessionsForPicker', () => {
+  it('falls back to a flat recency-sorted list when no groups', () => {
+    const now = Date.now()
+    const out = groupSessionsForPicker([
+      sess({ id: 'old', lastPromptAt: now - 5 * HOUR }),
+      sess({ id: 'fresh', lastPromptAt: now - 2 * MIN }),
+      sess({ id: 'mid', lastPromptAt: now - 40 * MIN })
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].name).toBeNull()
+    expect(out[0].sessions.map((s) => s.id)).toEqual(['fresh', 'mid', 'old'])
+  })
+
+  it('groups by tag (recency within), Ungrouped last', () => {
+    const now = Date.now()
+    const out = groupSessionsForPicker([
+      sess({ id: 'p-old', tag: 'Product', lastPromptAt: now - 3 * HOUR }),
+      sess({ id: 'loose', lastPromptAt: now - 1 * MIN }),
+      sess({ id: 'i-new', tag: 'Infra', lastPromptAt: now - 5 * MIN }),
+      sess({ id: 'p-new', tag: 'Product', lastPromptAt: now - 2 * MIN })
+    ])
+    // Infra's most-recent (5m) is older than Product's (2m) → Product first,
+    // Infra next, Ungrouped always last.
+    expect(out.map((g) => g.name)).toEqual(['Product', 'Infra', 'Ungrouped'])
+    expect(out[0].sessions.map((s) => s.id)).toEqual(['p-new', 'p-old'])
+    expect(out[2].sessions.map((s) => s.id)).toEqual(['loose'])
   })
 })

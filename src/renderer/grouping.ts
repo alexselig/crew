@@ -228,3 +228,38 @@ export function existingGroups(roster: SessionInfo[]): string[] {
   for (const s of roster) if (s.tag && s.tag.trim()) set.add(s.tag.trim())
   return [...set].sort((a, b) => a.localeCompare(b))
 }
+
+/** One optgroup for the agent-invoke session picker. `name` is null for the flat
+ *  (no-groups) case. */
+export interface PickerGroup {
+  name: string | null
+  sessions: SessionInfo[]
+}
+
+/**
+ * Organize sessions for the agent-invoke picker. Defaults to grouping by group
+ * (tag) when any session has one — each group recency-sorted (most-recent
+ * first), groups ordered by their most-recent session, "Ungrouped" always last.
+ * Falls back to a single flat, recency-sorted list when no groups are present.
+ */
+export function groupSessionsForPicker(sessions: SessionInfo[]): PickerGroup[] {
+  const byRecency = (a: SessionInfo, b: SessionInfo): number => recencyOf(b) - recencyOf(a)
+  const hasTags = sessions.some((s) => s.tag && s.tag.trim())
+  if (!hasTags) {
+    return [{ name: null, sessions: [...sessions].sort(byRecency) }]
+  }
+  const map = new Map<string, SessionInfo[]>()
+  for (const s of sessions) {
+    const name = s.tag && s.tag.trim() ? s.tag.trim() : 'Ungrouped'
+    const list = map.get(name)
+    if (list) list.push(s)
+    else map.set(name, [s])
+  }
+  const groups = [...map.entries()].map(([name, list]) => ({ name, sessions: list.sort(byRecency) }))
+  groups.sort((a, b) => {
+    if (a.name === 'Ungrouped') return 1
+    if (b.name === 'Ungrouped') return -1
+    return recencyOf(b.sessions[0]) - recencyOf(a.sessions[0])
+  })
+  return groups
+}
