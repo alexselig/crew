@@ -122,11 +122,12 @@ export class SessionManager extends EventEmitter {
     const now = Date.now()
 
     const key = identityKey(req.presetId, cwd)
-    const usedChars = new Set(
-      [...this.sessions.values()]
-        .filter((m) => m.info.status === 'active')
-        .map((m) => m.info.characterId)
-    )
+    // Character usage across active sessions, WITH duplicates, so pickCharacter
+    // can hand out a least-used character once every character is taken (rather
+    // than getting stuck on one).
+    const usedChars = [...this.sessions.values()]
+      .filter((m) => m.info.status === 'active')
+      .map((m) => m.info.characterId)
     const saved = this.store.getAssignment(key)
     // Heal invalid character ids (e.g. a legacy session UUID stored as the
     // characterId, which would render as a bare colored circle) by falling back

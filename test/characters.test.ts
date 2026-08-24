@@ -40,4 +40,26 @@ describe('pickCharacter', () => {
     const all = new Set(CHARACTERS.map((c) => c.id))
     expect(isCharacterId(pickCharacter(all, 'fox'))).toBe(true)
   })
+
+  it('picks a least-used character once every character is in use', () => {
+    // Everyone used twice except owl (once) → owl is the unique least-used.
+    const used = [
+      ...CHARACTERS.map((c) => c.id),
+      ...CHARACTERS.filter((c) => c.id !== 'owl').map((c) => c.id)
+    ]
+    expect(pickCharacter(used)).toBe('owl')
+  })
+
+  it('does not get stuck on one character when all are in use (regression)', () => {
+    // 32 distinct + an extra fox: fox is the most-used, so it must never be the
+    // next pick — and repeated calls must keep varying rather than always fox.
+    const used = [...CHARACTERS.map((c) => c.id), 'fox']
+    const picks = new Set<string>()
+    for (let i = 0; i < 60; i++) {
+      const pick = pickCharacter(used)
+      expect(pick).not.toBe('fox')
+      picks.add(pick)
+    }
+    expect(picks.size).toBeGreaterThan(1)
+  })
 })

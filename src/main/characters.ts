@@ -1,7 +1,7 @@
 // The character roster. MVP art is an emoji-glyph fallback (SPEC §7.4 allows
-// upgrading to real sprites later). Each active session gets a distinct
-// character; assignment is deterministic (next unused, in list order) so the
-// roster feels stable.
+// upgrading to real sprites later). New sessions get a distinct character while
+// any are free; once every character is in use we spread evenly by handing out
+// a least-used one (random tiebreak) so the roster stays varied.
 
 import type { CharacterDef } from '../shared/types'
 
@@ -50,15 +50,33 @@ export function isCharacterId(id: string | undefined | null): boolean {
 }
 
 /**
- * Pick the next character for a new session.
- * - Honor `preferred` (e.g. a remembered assignment) when it is a real, free character.
- * - Otherwise return the first character not currently in use.
- * - If every character is in use, cycle deterministically so we never crash.
+ * Pick a character for a new session, minimizing duplication.
+ * - Honor `preferred` (e.g. a remembered assignment) when it is a real character
+ *   that is not currently in use, so the same job keeps its character across
+ *   relaunches.
+ * - Otherwise return the first character that is not in use at all (list order,
+ *   so early sessions get a stable, varied roster).
+ * - Once every character is in use, choose among the *least-used* ones with a
+ *   random tiebreak. This spreads new sessions evenly instead of getting stuck
+ *   repeatedly handing out `CHARACTERS[0]`.
+ *
+ * `used` is the collection of in-use character ids. Pass an array (which may
+ * contain duplicates) so usage counts inform the least-used pick; a Set also
+ * works when only distinctness matters.
  */
-export function pickCharacter(used: Set<string>, preferred?: string): string {
-  if (preferred && isCharacterId(preferred) && !used.has(preferred)) return preferred
+export function pickCharacter(used: Iterable<string>, preferred?: string): string {
+  const counts = new Map<string, number>()
+  for (const id of used) counts.set(id, (counts.get(id) ?? 0) + 1)
+  const countOf = (id: string): number => counts.get(id) ?? 0
+
+  if (preferred && isCharacterId(preferred) && countOf(preferred) === 0) return preferred
+
   for (const c of CHARACTERS) {
-    if (!used.has(c.id)) return c.id
+    if (countOf(c.id) === 0) return c.id
   }
-  return CHARACTERS[used.size % CHARACTERS.length].id
+  // Every character is in use — pick a least-used one, breaking ties at random
+  // so consecutive new sessions don't all land on the same character.
+  const min = Math.min(...CHARACTERS.map((c) => countOf(c.id)))
+  const leastUsed = CHARACTERS.filter((c) => countOf(c.id) === min)
+  return leastUsed[Math.floor(Math.random() * leastUsed.length)].id
 }
