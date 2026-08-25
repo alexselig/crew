@@ -10,7 +10,7 @@ import { TerminalHost } from './TerminalHost'
 import { TranscriptPane } from './TranscriptPane'
 import { AppPane } from './AppPane'
 import { AssetsPanel } from './AssetsPanel'
-import { SkillsBar } from './SkillsBar'
+import { SessionTools } from './SessionTools'
 import { TagChip } from './TagChip'
 import { ResumeSets } from './ResumeSets'
 import { focusTerminal } from '../terminal/facade'
@@ -267,7 +267,7 @@ export function SessionView({
               ) : (
                 <>
                   <TerminalHost id={session.id} enhanced={enhancedTerminal} key={session.id} />
-                  <SkillsBar sessionId={session.id} agent={session.command} />
+                  <SessionTools sessionId={session.id} agent={session.command} cwd={session.cwd} />
                 </>
               )}
               {effectivePane !== 'app' && <InputWarnBar sessionId={session.id} threshold={inputTokenWarn} />}

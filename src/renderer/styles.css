@@ -2327,12 +2327,35 @@ button {
 }
 
 /* ---------- Skills menu (floating, top-right of the terminal) ---------- */
-.skills-menu {
+.session-tools {
   position: absolute;
   top: 10px;
   right: 10px;
   z-index: 6;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   -webkit-app-region: no-drag;
+}
+
+.skills-menu {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+/* GitHub repo chip — matches the Skills chip; only rendered when the session has
+   a GitHub remote. Turns accent while showing its brief "Copied" confirmation. */
+.github-btn {
+  height: 28px;
+  padding: 0 12px;
+  gap: 6px;
+  background: rgba(10, 10, 11, 0.72);
+  backdrop-filter: blur(4px);
+  white-space: nowrap;
+}
+.github-btn.is-copied {
+  color: var(--accent-text);
+  border-color: var(--accent);
 }
 
 .skills-menu__toggle {

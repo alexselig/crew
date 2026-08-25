@@ -149,6 +149,8 @@ export interface CrewAPI {
   checkForUpdate(): Promise<UpdateInfo | null>
   /** Open an external http(s) URL in the default browser. */
   openExternal(url: string): Promise<void>
+  /** Resolve the GitHub repo URL for a working dir (its `origin` remote), or null. */
+  getGithubUrl(cwd: string): Promise<string | null>
   /** Recent git commits across the open sessions' working dirs (newest first). */
   getCommitActivity(): Promise<CommitActivity[]>
   /** Start (or adopt) a project's local dev server; returns its URL when ready. */

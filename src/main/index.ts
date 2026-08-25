@@ -24,6 +24,7 @@ import { TranscriptRecorder } from './transcripts'
 import { builtinPresets, getPreset } from './presets'
 import { listInstalledSkills } from './skills'
 import { scanProjects, recentCommits, resolveLaunch } from './tracker'
+import { resolveGithubUrl } from './github'
 import {
   createWorkspace,
   renameWorkspace,
@@ -733,6 +734,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.OPEN_EXTERNAL, (_e, url: string) => {
     if (typeof url === 'string' && /^https?:\/\//.test(url)) void shell.openExternal(url)
   })
+  // Resolve a session's GitHub repo URL (its origin remote) for the header button.
+  ipcMain.handle(IPC.GITHUB_URL, (_e, cwd: string) => resolveGithubUrl(cwd))
   // Recent git commits across the open sessions' working dirs, for the Activity feed.
   ipcMain.handle(IPC.ACTIVITY_COMMITS, () => {
     const seen = new Map<string, string>()

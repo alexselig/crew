@@ -64,6 +64,7 @@ const api: CrewAPI = {
   getUsageAnalytics: () => ipcRenderer.invoke(IPC.USAGE_ANALYTICS),
   checkForUpdate: () => ipcRenderer.invoke(IPC.UPDATE_CHECK),
   openExternal: (url) => ipcRenderer.invoke(IPC.OPEN_EXTERNAL, url),
+  getGithubUrl: (cwd) => ipcRenderer.invoke(IPC.GITHUB_URL, cwd),
   getCommitActivity: () => ipcRenderer.invoke(IPC.ACTIVITY_COMMITS),
   launchProject: (id) => ipcRenderer.invoke(IPC.TRACKER_LAUNCH, id),
   stopProject: (id) => ipcRenderer.invoke(IPC.TRACKER_STOP, id),

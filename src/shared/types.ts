@@ -273,6 +273,7 @@ export const IPC = {
   USAGE_ANALYTICS: 'usage:analytics',
   UPDATE_CHECK: 'update:check',
   OPEN_EXTERNAL: 'shell:openExternal',
+  GITHUB_URL: 'session:githubUrl',
   ACTIVITY_COMMITS: 'activity:commits',
   TRACKER_LAUNCH: 'tracker:launch',
   TRACKER_STOP: 'tracker:stop',

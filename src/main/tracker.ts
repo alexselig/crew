@@ -25,6 +25,7 @@ import type {
   TrackerSessionInput,
   CommitActivity
 } from '../shared/tracker'
+import { githubUrlFrom } from '../shared/github'
 
 const HOME = homedir()
 // Copilot CLI stores each session's state (including its live `todos` table) at
@@ -236,14 +237,6 @@ async function getCommits(cwd: string): Promise<Commit[]> {
 }
 
 // ── version / changelog / next steps ─────────────────────────────────────────
-
-function githubUrlFrom(raw: string): string | null {
-  if (!raw) return null
-  let u = raw.trim()
-  if (u.startsWith('git@')) u = u.replace(':', '/').replace('git@', 'https://')
-  u = u.replace(/\.git$/, '')
-  return u.startsWith('http') ? u : null
-}
 
 // Hard-coded owner rule (see handoff 08-PORTING-CHECKLIST §2): alexselig-microsoft
 // = work, alexselig = personal, anything else = external.

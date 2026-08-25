@@ -8,7 +8,7 @@ import { Since } from './Since'
 import { TerminalHost } from './TerminalHost'
 import { TranscriptPane } from './TranscriptPane'
 import { TagChip } from './TagChip'
-import { SkillsBar } from './SkillsBar'
+import { SessionTools } from './SessionTools'
 import { useTakeoff, HeaderTakeoff } from './HeaderTakeoff'
 
 interface Props {
@@ -234,9 +234,12 @@ export function GridTile({
           ) : (
             <>
               <TerminalHost id={session.id} enhanced={enhanced} focusOnMount={false} />
-              <span onClick={(e) => e.stopPropagation()}>
-                <SkillsBar sessionId={session.id} agent={session.command} />
-              </span>
+              <SessionTools
+                sessionId={session.id}
+                agent={session.command}
+                cwd={session.cwd}
+                isolateClicks
+              />
             </>
           )
         ) : (
