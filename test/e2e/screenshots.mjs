@@ -173,9 +173,13 @@ async function main() {
   // panel shows real image thumbnails — a plausible checkout refactor's output
   // (all generic, no real names). SVGs render crisply at the 40px thumbnail size.
   mkdirSync(join(AP_CWD, 'public'), { recursive: true })
+  // Give index.html real inline-styled content so the Assets panel's iframe
+  // thumbnail renders a branded mini-page (dark bg + orange atlas-web mark)
+  // instead of a blank white square — a bare vite root div paints white and
+  // reads as broken at the 40px preview size.
   writeFileSync(
     join(AP_CWD, 'index.html'),
-    '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <link rel="icon" href="/public/logo.svg" />\n    <title>atlas-web</title>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.tsx"></script>\n  </body>\n</html>\n'
+    '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <title>atlas-web</title>\n    <style>\n      *{margin:0;padding:0;box-sizing:border-box}\n      html,body{width:100%;height:100%}\n      body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:radial-gradient(120% 120% at 50% 0%,#1b1f27 0%,#0f1115 65%);font-family:Georgia,"Times New Roman",serif;color:#f5f6f8}\n      .logo{width:64px;height:64px;border-radius:16px;background:#ff7a3c;display:flex;align-items:center;justify-content:center;color:#fff;font-size:38px;font-weight:700;box-shadow:0 8px 20px rgba(255,122,60,.35)}\n      h1{font-size:22px;letter-spacing:.5px}\n      .bar{width:120px;height:8px;border-radius:4px;background:linear-gradient(90deg,#ff7a3c,#ffb07a)}\n    </style>\n  </head>\n  <body>\n    <div class="logo">A</div>\n    <h1>atlas-web</h1>\n    <div class="bar"></div>\n  </body>\n</html>\n'
   )
   writeFileSync(
     join(AP_CWD, 'public', 'logo.svg'),
