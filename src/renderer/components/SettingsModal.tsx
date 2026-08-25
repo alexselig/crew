@@ -77,6 +77,42 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
                 </span>
               </button>
             ))}
+            <button
+              type="button"
+              className="settings-row"
+              onClick={() => onToggle('showGithubButton', !settings.showGithubButton)}
+            >
+              <span className="settings-row__text">
+                <span className="settings-row__label">GitHub button</span>
+                <span className="settings-row__desc">
+                  Show a GitHub chip next to Skills when the session’s folder is a GitHub repo.
+                </span>
+              </span>
+              <span className={`switch ${settings.showGithubButton ? 'is-on' : ''}`} aria-hidden>
+                <span className="switch__knob" />
+              </span>
+            </button>
+            {settings.showGithubButton && (
+              <button
+                type="button"
+                className="settings-row settings-row--sub"
+                onClick={() => onToggle('githubButtonOpensRepo', !settings.githubButtonOpensRepo)}
+              >
+                <span className="settings-row__text">
+                  <span className="settings-row__label">Open the repo on click</span>
+                  <span className="settings-row__desc">
+                    On: clicking opens the repository in your browser and copies its URL. Off:
+                    clicking only copies the URL.
+                  </span>
+                </span>
+                <span
+                  className={`switch ${settings.githubButtonOpensRepo ? 'is-on' : ''}`}
+                  aria-hidden
+                >
+                  <span className="switch__knob" />
+                </span>
+              </button>
+            )}
             <div className="settings-row settings-row--static">
               <span className="settings-row__text">
                 <span className="settings-row__label">Spend budget (USD)</span>

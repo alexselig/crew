@@ -66,7 +66,9 @@ export const DEFAULT_SETTINGS: Settings = {
   captureTranscripts: false,
   staleHideHours: 72,
   minimizedAsList: true,
-  enhancedTerminal: false
+  enhancedTerminal: false,
+  showGithubButton: true,
+  githubButtonOpensRepo: true
 }
 
 interface StoreData {

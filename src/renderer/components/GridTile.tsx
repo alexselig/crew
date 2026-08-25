@@ -8,7 +8,7 @@ import { Since } from './Since'
 import { TerminalHost } from './TerminalHost'
 import { TranscriptPane } from './TranscriptPane'
 import { TagChip } from './TagChip'
-import { SessionTools } from './SessionTools'
+import { SessionTools, type GithubButtonSettings } from './SessionTools'
 import { useTakeoff, HeaderTakeoff } from './HeaderTakeoff'
 
 interface Props {
@@ -27,6 +27,8 @@ interface Props {
   minimized: boolean
   /** App-wide Beta Enhanced Terminal Interface toggle. */
   enhanced: boolean
+  /** GitHub chip behavior from Settings (show + open-vs-copy). */
+  githubButton: GithubButtonSettings
   onSetCharacter: (id: string, characterId: string) => void
   onSetColor: (id: string, color: string) => void
   onSetTag: (tag: string) => void
@@ -54,6 +56,7 @@ export function GridTile({
   onMinimize,
   minimized,
   enhanced,
+  githubButton,
   onSetCharacter,
   onSetColor,
   onSetTag,
@@ -238,6 +241,7 @@ export function GridTile({
                 sessionId={session.id}
                 agent={session.command}
                 cwd={session.cwd}
+                githubButton={githubButton}
                 isolateClicks
               />
             </>

@@ -359,6 +359,10 @@ export function App(): JSX.Element {
         <GridView
           roster={visibleRoster}
           enhancedTerminal={c.settings?.enhancedTerminal ?? false}
+          githubButton={{
+            show: c.settings?.showGithubButton ?? true,
+            opensRepo: c.settings?.githubButtonOpensRepo ?? true
+          }}
           characters={c.characters}
           selectedId={c.selectedId}
           gridDensity={c.gridDensity}
@@ -397,6 +401,10 @@ export function App(): JSX.Element {
         <SessionView
           session={selected}
           enhancedTerminal={c.settings?.enhancedTerminal ?? false}
+          githubButton={{
+            show: c.settings?.showGithubButton ?? true,
+            opensRepo: c.settings?.githubButtonOpensRepo ?? true
+          }}
           inputTokenWarn={c.settings?.inputTokenWarn ?? 100000}
           characters={c.characters}
           presets={c.presets}

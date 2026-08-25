@@ -10,7 +10,7 @@ import { TerminalHost } from './TerminalHost'
 import { TranscriptPane } from './TranscriptPane'
 import { AppPane } from './AppPane'
 import { AssetsPanel } from './AssetsPanel'
-import { SessionTools } from './SessionTools'
+import { SessionTools, type GithubButtonSettings } from './SessionTools'
 import { TagChip } from './TagChip'
 import { ResumeSets } from './ResumeSets'
 import { focusTerminal } from '../terminal/facade'
@@ -34,6 +34,8 @@ interface Props {
   onNew: () => void
   /** App-wide Beta Enhanced Terminal Interface toggle. */
   enhancedTerminal: boolean
+  /** GitHub chip behavior from Settings (show + open-vs-copy). */
+  githubButton: GithubButtonSettings
   /** Warn in the session footer before submitting more than this many input
    * tokens at once (0 = off). */
   inputTokenWarn: number
@@ -53,6 +55,7 @@ export function SessionView({
   onClose,
   onNew,
   enhancedTerminal,
+  githubButton,
   inputTokenWarn
 }: Props): JSX.Element {
   const [metaOpen, setMetaOpen] = useState(false)
@@ -267,7 +270,7 @@ export function SessionView({
               ) : (
                 <>
                   <TerminalHost id={session.id} enhanced={enhancedTerminal} key={session.id} />
-                  <SessionTools sessionId={session.id} agent={session.command} cwd={session.cwd} />
+                  <SessionTools sessionId={session.id} agent={session.command} cwd={session.cwd} githubButton={githubButton} />
                 </>
               )}
               {effectivePane !== 'app' && <InputWarnBar sessionId={session.id} threshold={inputTokenWarn} />}

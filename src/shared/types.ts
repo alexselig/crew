@@ -102,6 +102,11 @@ export interface Settings {
    * jump-to-prompt, exit-code marks, GPU rendering) instead of the legacy xterm
    * view. Off by default; app-wide. */
   enhancedTerminal: boolean
+  /** Show the GitHub chip next to Skills when a session's folder is a GitHub repo. */
+  showGithubButton: boolean
+  /** When the GitHub chip is clicked, also open the repo in the browser (true) or
+   * only copy its URL to the clipboard (false). Only applies when the chip is shown. */
+  githubButtonOpensRepo: boolean
 }
 
 /** A reusable specialist agent invoked headless against a session's context. */

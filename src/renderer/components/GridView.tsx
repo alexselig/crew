@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { SessionInfo, CharacterDef } from '../../shared/types'
 import { GridTile } from './GridTile'
+import type { GithubButtonSettings } from './SessionTools'
 import { GroupPicker } from './GroupPicker'
 import { Icon } from './Icon'
 import { Character } from './Character'
@@ -34,6 +35,8 @@ interface Props {
   minimizedAsList: boolean
   /** App-wide Beta Enhanced Terminal Interface toggle. */
   enhancedTerminal: boolean
+  /** GitHub chip behavior from Settings (show + open-vs-copy). */
+  githubButton: GithubButtonSettings
   groupOrder: string[]
   onReorderGroups: (names: string[]) => void
   onSelect: (id: string) => void
@@ -72,6 +75,7 @@ export function GridView({
   staleHideHours,
   minimizedAsList,
   enhancedTerminal,
+  githubButton,
   groupOrder,
   onSelect,
   onExpand,
@@ -181,6 +185,7 @@ export function GridView({
         onMinimize={() => onToggleMinimize(s.id)}
         minimized={minimized.has(s.id)}
         enhanced={enhancedTerminal}
+        githubButton={githubButton}
         onSetCharacter={onSetCharacter}
         onSetColor={onSetColor}
         onSetTag={(t) => onSetTag(s.id, t)}
