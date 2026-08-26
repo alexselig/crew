@@ -166,6 +166,35 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
             </div>
             <div className="settings-row settings-row--static">
               <span className="settings-row__text">
+                <span className="settings-row__label">Restored context</span>
+                <span className="settings-row__desc">
+                  How a restored session gets its memory back. Transcript replays the whole
+                  conversation — exact, but the cost grows with the log and a very long history
+                  cannot be replayed at all. Brief starts fresh from a saved summary (~1–2k tokens)
+                  and leaves the context window free for work. The full transcript is kept either way.
+                </span>
+              </span>
+              <div className="settings-seg" role="group" aria-label="Restored context mode">
+                <button
+                  type="button"
+                  className={`settings-seg__opt ${settings.contextMode !== 'brief' ? 'is-on' : ''}`}
+                  aria-pressed={settings.contextMode !== 'brief'}
+                  onClick={() => onToggle('contextMode', 'transcript')}
+                >
+                  Transcript
+                </button>
+                <button
+                  type="button"
+                  className={`settings-seg__opt ${settings.contextMode === 'brief' ? 'is-on' : ''}`}
+                  aria-pressed={settings.contextMode === 'brief'}
+                  onClick={() => onToggle('contextMode', 'brief')}
+                >
+                  Brief
+                </button>
+              </div>
+            </div>
+            <div className="settings-row settings-row--static">
+              <span className="settings-row__text">
                 <span className="settings-row__label">Cost tracking</span>
                 <span className="settings-row__desc">
                   Either / or. Auto shows the cost the agent reports itself; Manual ignores that and

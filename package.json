@@ -1,6 +1,6 @@
 {
   "name": "crew",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "description": "Crew — a menu-bar mission control for AI terminal sessions. Each session gets a character; red dot when it's waiting on you.",
   "author": "Alex Selig",
@@ -12,6 +12,7 @@
     "start": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "handoff": "node scripts/handoff.mjs",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
     "test:e2e": "npm run build && node test/e2e/crew.e2e.mjs",

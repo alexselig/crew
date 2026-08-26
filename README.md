@@ -54,6 +54,45 @@ releases are signed + notarized.
   **notification** when a session starts waiting.
 - Needs-you-first roster sort; restart / dismiss; graceful error handling.
 
+## Restored context: transcript vs brief
+
+Resuming a session normally reattaches the original conversation, so the agent
+replays its whole `events.jsonl`. That is exact, but the cost scales with the
+log — a 0.5 MB history costs well over a million tokens, and a multi-megabyte
+one cannot be replayed at all, which is how a long-running session becomes
+unresumable.
+
+**Settings → Restored context → Brief** takes the other route. Crew starts a
+fresh conversation and types in a pointer to that session's *handoff brief*: a
+~1–2k token summary rebuilt from data Copilot already keeps on disk — its own
+compaction checkpoints, the files the work touched, the commits it made, and
+your last few instructions.
+
+```
+npm run handoff          # rebuild every brief into ~/.crew/handoffs
+```
+
+Generating a brief reads only the local session store, so it costs **no tokens
+at all**. To keep them fresh automatically:
+
+```
+cp scripts/com.crew.handoff.plist ~/Library/LaunchAgents/
+launchctl load -w ~/Library/LaunchAgents/com.crew.handoff.plist
+```
+
+Notes on the trade-off:
+
+- A brief is a summary; exact snippets and passing remarks are lost. But a long
+  conversation is *already* summarised — those checkpoints are the compaction —
+  so on big sessions you are comparing a brief against a summary, not verbatim
+  recall.
+- Briefs cite file paths and commit hashes, so the agent re-reads the current
+  repo rather than trusting a transcript describing code you have since changed.
+- Nothing is deleted. The original id is preserved as `priorSessionId`, and the
+  full transcript stays one command away: `copilot --resume=<id>`.
+- The primer is typed into the prompt but **never submitted**, so restoring a
+  roster of dozens of sessions costs nothing until you engage with one.
+
 ## Architecture
 
 ```

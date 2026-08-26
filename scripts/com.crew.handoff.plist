@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Keeps ~/.crew/handoffs fresh so a restored session always has a brief to
+  resume from. Reading the local Copilot session store costs no tokens, so this
+  can run often and cheaply.
+
+  Install:  launchctl load -w ~/Library/LaunchAgents/com.crew.handoff.plist
+  Run now:  launchctl start com.crew.handoff
+  Remove:   launchctl unload -w ~/Library/LaunchAgents/com.crew.handoff.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.crew.handoff</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-lc</string>
+    <string>exec node "$HOME/crew/scripts/handoff.mjs"</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/crew-handoff.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/crew-handoff.err</string>
+</dict>
+</plist>

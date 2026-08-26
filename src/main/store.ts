@@ -44,6 +44,9 @@ export interface PersistedSession {
   description?: string
   /** The agent's session UUID, so restore reattaches the same conversation. */
   agentSessionId?: string
+  /** Conversation this session succeeded, when relaunched in 'brief' mode. Kept
+   * so the original transcript is never orphaned by starting a fresh agent. */
+  priorSessionId?: string
   /** Epoch ms the session was first created, preserved across restart. */
   createdAt?: number
   /** Epoch ms of the user's last prompt, so 'recent' grouping survives restart. */
@@ -61,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   costMode: 'auto',
   aicPerUsd: 100,
   resumeConversations: true,
+  contextMode: 'transcript',
   budgetUsd: 0,
   inputTokenWarn: 100000,
   captureTranscripts: false,

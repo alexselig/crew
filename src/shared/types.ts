@@ -83,6 +83,17 @@ export interface Settings {
    * i.e. 100 AIC = $1). Only used when costMode is 'manual'. */
   aicPerUsd: number
   resumeConversations: boolean
+  /** How a restored session regains its context.
+   *
+   * 'transcript' reattaches the original conversation, so the agent replays its
+   * whole events.jsonl — perfect recall, but the cost scales with the log and a
+   * multi-megabyte history simply cannot be replayed at all.
+   *
+   * 'brief' starts a fresh conversation and seeds it with the session's handoff
+   * brief (see scripts/handoff.mjs), which distils the same work to ~1-2k
+   * tokens. The original id is kept as priorSessionId, so nothing is lost and
+   * the full transcript is still one command away. */
+  contextMode: 'transcript' | 'brief'
   /** Warn when total spend reaches this many USD (0 = off). */
   budgetUsd: number
   /** Warn in the session footer before submitting more than this many *input*
@@ -158,6 +169,10 @@ export interface SessionInfo {
   /** The agent's own session UUID (e.g. passed via Copilot's --session-id) so
    * this exact conversation can be reattached later — the key to resuming a set. */
   agentSessionId?: string
+  /** The conversation this session grew out of, when it was relaunched in
+   * 'brief' context mode. Keeping it means the old transcript stays reachable
+   * (`copilot --resume=<priorSessionId>`) even though the live agent is new. */
+  priorSessionId?: string
   cwd: string
   state: SessionState
   status: SessionStatus

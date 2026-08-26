@@ -21,6 +21,7 @@ import type { ActivityEvent } from '../shared/api'
 import { getPreset } from './presets'
 import { defaultShell } from './platform'
 import { pickCharacter, isCharacterId } from './characters'
+import { briefPathFor, primerFor, resolveContext } from './handoff'
 import {
   normalizeSetNames,
   addToSets,
@@ -51,6 +52,8 @@ interface Managed {
   credits: CostParser
   cols: number
   rows: number
+  /** Handoff primer waiting to be typed once the agent shows its first prompt. */
+  pendingPrimer?: string
 }
 
 export interface Transition {
@@ -108,7 +111,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id?: string; agentSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; workspaceIds?: string[]; description?: string; createdAt?: number; lastPromptAt?: number }
+    restore?: { id?: string; agentSessionId?: string; priorSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; workspaceIds?: string[]; description?: string; createdAt?: number; lastPromptAt?: number }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || defaultShell()
@@ -158,6 +161,7 @@ export class SessionManager extends EventEmitter {
       command,
       args,
       agentSessionId,
+      priorSessionId: restore?.priorSessionId,
       cwd,
       state: 'STARTING',
       status: 'active',
@@ -238,6 +242,11 @@ export class SessionManager extends EventEmitter {
     info.pid = proc.pid
     const detector = new StateDetector(now, cfg, (state, reason) => this.onState(id, state, reason))
     const managed: Managed = { info, proc, detector, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
+    // A session superseding an older conversation carries its brief instead of
+    // the transcript. Hold the primer until the agent is actually at a prompt —
+    // typing into a TUI that hasn't drawn one yet just loses the keystrokes.
+    const brief = briefPathFor(restore?.priorSessionId)
+    if (brief) managed.pendingPrimer = primerFor(brief)
     this.sessions.set(id, managed)
     this.store.setAssignment(key, { characterId, lastLabel: label })
 
@@ -627,10 +636,36 @@ export class SessionManager extends EventEmitter {
         workspaceIds: m.info.workspaceIds,
         description: m.info.description,
         agentSessionId: m.info.agentSessionId,
+        priorSessionId: m.info.priorSessionId,
         createdAt: m.info.createdAt,
         lastPromptAt: m.info.lastPromptAt
       }))
     this.store.saveSessions(list)
+  }
+
+  /**
+   * Decide how a saved session regains its context on relaunch.
+   *
+   * 'transcript' reattaches the original conversation, so the agent replays its
+   * log. 'brief' deliberately does not: it starts a fresh agent and seeds it
+   * with the distilled handoff instead, which is the only way a session whose
+   * log has outgrown the context window can come back at all.
+   *
+   * Either way the original conversation id survives — as agentSessionId when
+   * reattaching, as priorSessionId when superseding — so a relaunch can never
+   * orphan a transcript. That matters even with resume switched off, where the
+   * id used to be dropped and then overwritten by the next persist.
+   */
+  private contextFor(
+    agentSessionId: string | undefined,
+    presetId: string | null
+  ): { agentSessionId?: string; priorSessionId?: string; extraArgs: string[] } {
+    return resolveContext({
+      agentSessionId,
+      resume: this.store.settings.resumeConversations,
+      contextMode: this.store.settings.contextMode,
+      resumeArgs: getPreset(presetId)?.resumeArgs
+    })
   }
 
   /**
@@ -640,18 +675,17 @@ export class SessionManager extends EventEmitter {
    */
   restore(): SessionInfo[] {
     const persisted = this.store.getSessions()
-    const resume = this.store.settings.resumeConversations
     return persisted.map((p) => {
-      const preset = getPreset(p.presetId)
-      const extraArgs = resume ? preset?.resumeArgs ?? [] : []
+      const ctx = this.contextFor(p.agentSessionId ?? p.priorSessionId, p.presetId)
       return this.create(
         { presetId: p.presetId, command: p.command, args: p.args, cwd: p.cwd, label: p.label },
         {
           id: p.id,
-          agentSessionId: resume ? p.agentSessionId : undefined,
+          agentSessionId: ctx.agentSessionId,
+          priorSessionId: ctx.priorSessionId,
           characterId: p.characterId,
           color: p.color ?? fallbackCharacterColor(p.id),
-          extraArgs,
+          extraArgs: ctx.extraArgs,
           tag: p.tag,
           sets: p.sets,
           workspaceIds: p.workspaceIds,
@@ -672,18 +706,17 @@ export class SessionManager extends EventEmitter {
   launchSet(name: string): SessionInfo[] {
     const set = this.store.sets.find((s) => s.name === name)
     if (!set) return []
-    const resume = this.store.settings.resumeConversations
     return set.sessions.map((d) => {
-      const preset = getPreset(d.presetId)
-      const extraArgs = resume ? preset?.resumeArgs ?? [] : []
+      const ctx = this.contextFor(d.agentSessionId, d.presetId)
       return this.create(
         { presetId: d.presetId, command: d.command, args: d.args, cwd: d.cwd, label: d.label },
         {
           id: d.id,
-          agentSessionId: resume ? d.agentSessionId : undefined,
+          agentSessionId: ctx.agentSessionId,
+          priorSessionId: ctx.priorSessionId,
           characterId: d.characterId,
           color: d.color,
-          extraArgs: extraArgs.length ? extraArgs : undefined,
+          extraArgs: ctx.extraArgs.length ? ctx.extraArgs : undefined,
           tag: d.tag,
           sets: d.sets
         }
@@ -699,6 +732,14 @@ export class SessionManager extends EventEmitter {
     m.info.state = state
     m.info.stateChangedAt = now
     if (reason) m.info.detectionReason = reason
+    // First time this agent offers a prompt, type the handoff primer in — but
+    // never press Enter. The user reads it, and a restored roster of dozens of
+    // sessions costs nothing until they choose to engage with one.
+    if (m.pendingPrimer && (state === 'WAITING_INPUT' || state === 'IDLE')) {
+      const primer = m.pendingPrimer
+      m.pendingPrimer = undefined
+      m.proc?.write(primer)
+    }
     this.events.push({ id, ts: now, from, to: state })
     if (this.events.length > EVENT_CAP) this.events.splice(0, this.events.length - EVENT_CAP)
     const snapshot = { ...m.info }

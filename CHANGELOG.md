@@ -3,6 +3,34 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.2 — 2026-08-26
+
+**Sessions too large to replay can now come back.**
+
+### Added — handoff briefs and "brief" restored-context mode
+- Resuming replays the whole `events.jsonl`. A 0.5 MB history costs well over a
+  million tokens, and a multi-megabyte one exceeds any context window — so a
+  long-running session quietly becomes unresumable, however healthy it looks.
+- `npm run handoff` rebuilds every session into a ~1–2k token brief under
+  `~/.crew/handoffs`, from data Copilot already keeps on disk: its own
+  compaction checkpoints, the files touched, the commits made, and the user's
+  last instructions. Reading the local session store costs **no tokens**.
+- New **Settings → Restored context**. *Transcript* is the old behaviour.
+  *Brief* starts a fresh conversation and types in a pointer to that session's
+  brief instead — the only way an oversized session returns at all, and it
+  leaves the context window free for actual work.
+- The primer is typed but **never submitted**, so restoring a large roster costs
+  nothing until you engage with a session.
+- `scripts/com.crew.handoff.plist` keeps briefs fresh on a 30-minute timer.
+
+### Fixed — a relaunch could orphan a conversation
+- Turning conversation resume off dropped the stored `agentSessionId`, and the
+  next save overwrote it with a freshly minted one — silently cutting the link
+  to a real conversation that still existed on disk.
+- A known conversation id is now always preserved: as `agentSessionId` when
+  reattaching, or as `priorSessionId` when a fresh agent supersedes it. A
+  transcript can no longer be orphaned by relaunching.
+
 ## 0.5.1 — 2026-08-25
 
 **Fix: a crashing agent could permanently delete its own session.**
