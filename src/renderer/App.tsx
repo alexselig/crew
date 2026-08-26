@@ -299,6 +299,7 @@ export function App(): JSX.Element {
       <UpdateBanner />
       <Roster
         roster={visibleRoster}
+        hiddenByWorkspace={c.roster.length - visibleRoster.length}
         characters={c.characters}
         presets={c.presets}
         selectedId={c.selectedId}

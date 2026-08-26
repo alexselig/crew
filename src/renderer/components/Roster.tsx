@@ -68,6 +68,9 @@ interface Props {
   onSetTag: (id: string, tag: string) => void
   /** Active workspace filter (null = All), shown as a clearable indicator. */
   activeWorkspace?: string | null
+  /** Sessions the active workspace filter is hiding. Shown so a filtered roster
+   *  can never be mistaken for a lost one. */
+  hiddenByWorkspace?: number
   onClearWorkspace?: () => void
 }
 
@@ -117,6 +120,7 @@ export function Roster(props: Props): JSX.Element {
     onReorder,
     onSetTag,
     activeWorkspace,
+    hiddenByWorkspace = 0,
     onClearWorkspace
   } = props
 
@@ -334,8 +338,17 @@ export function Roster(props: Props): JSX.Element {
                 Crew
               </button>
               <div className="roster__titlebar-right">
-                <span className="roster__count">
-                  {roster.length} {roster.length === 1 ? 'SESSION' : 'SESSIONS'}
+                <span
+                  className="roster__count"
+                  title={
+                    hiddenByWorkspace > 0
+                      ? `${hiddenByWorkspace} more outside “${activeWorkspace}”`
+                      : undefined
+                  }
+                >
+                  {hiddenByWorkspace > 0
+                    ? `${roster.length} OF ${roster.length + hiddenByWorkspace}`
+                    : `${roster.length} ${roster.length === 1 ? 'SESSION' : 'SESSIONS'}`}
                 </span>
                 {viewMode === 'single' && (
                   <button
@@ -361,6 +374,21 @@ export function Roster(props: Props): JSX.Element {
                     onClick={onClearWorkspace}
                   >
                     ✕
+                  </button>
+                )}
+              </div>
+            )}
+
+            {hiddenByWorkspace > 0 && (
+              // The filter surviving one session is the dangerous case: the
+              // roster looks present, just wrong, and the empty state below
+              // never fires. Say what is missing and offer the way back.
+              <div className="roster__hidden">
+                {hiddenByWorkspace} {hiddenByWorkspace === 1 ? 'session' : 'sessions'} hidden by
+                this workspace
+                {onClearWorkspace && (
+                  <button type="button" className="roster__empty-action" onClick={onClearWorkspace}>
+                    Show all sessions
                   </button>
                 )}
               </div>

@@ -3764,6 +3764,21 @@ button {
   background: var(--bg-elev);
 }
 
+.roster__hidden {
+  margin: -4px 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.roster__hidden .roster__empty-action {
+  margin-top: 6px;
+}
+
 .roster__workspace-name {
   font-size: 12px;
   font-weight: 600;

@@ -3,6 +3,15 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.11 — 2026-08-26
+
+### Fixed
+- **A workspace filter could hide 99 of your 100 sessions without saying so.**
+  The sidebar simply read "1 SESSION" — a roster that looks present, just wrong,
+  which is the one case the empty-state message never covered. The count now
+  reads "1 OF 100" whenever a workspace is filtering, and the sidebar says how
+  many sessions that workspace is hiding, with one click to show them all.
+
 ## 0.5.10 — 2026-08-26
 
 ### Fixed
