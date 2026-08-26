@@ -13,7 +13,7 @@
 //   node test/e2e/agent-death-persist.verify.mjs
 
 import { _electron as electron } from 'playwright'
-import { rmSync, readFileSync } from 'node:fs'
+import { rmSync, readFileSync, statSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 
 const ROOT = resolve('/Users/alexselig/crew')
@@ -58,6 +58,14 @@ const persistedLabels = () => {
   }
 }
 
+const storeMtime = () => {
+  try {
+    return statSync(STORE).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
 async function main() {
   rmSync(DATA_DIR, { recursive: true, force: true })
 
@@ -90,6 +98,9 @@ async function main() {
   )
 
   await waitUntil(async () => (await roster(page)).length === 2, 'two sessions exist')
+  // Baseline the store *before* the death, so the snapshot we assert on is the
+  // one the exit handler wrote and not an earlier save.
+  const beforeDeath = storeMtime()
   await waitUntil(
     async () => (await roster(page)).some((s) => s.label === 'Doomed' && s.status !== 'active'),
     'the doomed agent has died'
@@ -97,7 +108,11 @@ async function main() {
   ok('"Doomed" agent exited (status is no longer active)')
 
   // The store is rewritten by the exit handler — this is the exact moment the
-  // old code dropped the session.
+  // old code dropped the session. That write is asynchronous, so wait for it
+  // instead of sampling once: on a loaded machine a single read lands before
+  // the write and reports an empty store, which looks like a failure but is
+  // only a race in the test.
+  await waitUntil(() => storeMtime() > beforeDeath, 'store rewritten after the agent died')
   const saved = persistedLabels()
   console.log('  persisted after death:', JSON.stringify(saved))
   if (saved.includes('Doomed')) ok('dead session SURVIVES in crew-store.json')
