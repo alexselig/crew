@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { getPooled, focusTerminal, markPrompt, jumpToPrompt, recordInput } from '../terminal/pool'
+import { getPooled, touch, focusTerminal, markPrompt, jumpToPrompt, recordInput } from '../terminal/pool'
 import { quotePaths } from '../../shared/shell-quote'
 import { meterInput } from '../input-meter'
 
@@ -42,6 +42,9 @@ export function CrewTerminal({
     const host = hostRef.current
     if (!host) return
     const p = getPooled(id)
+    // A human is looking at this session now — keep it out of the retirement
+    // queue ahead of terminals nobody has opened (see terminal/lru.ts).
+    touch(id)
     p.engine.mount(host)
 
     // Remember this terminal as the focus target whenever it gains focus, so a

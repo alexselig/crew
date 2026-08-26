@@ -76,6 +76,15 @@ function toDisposable(d: IDisposable): Disposable {
  */
 const MAX_WEBGL_CONTEXTS = 8
 
+/**
+ * Decoded-image storage per terminal, in MB. The image addon defaults to 128 MB
+ * each; across a pool of terminals that reserves hundreds of megabytes of
+ * renderer memory for inline pictures that most agent sessions never emit.
+ * A few MB still comfortably holds the plots and screenshots agents do produce.
+ */
+const IMAGE_STORAGE_MB = 8
+
+
 /** Engines currently holding a WebGL context, in acquisition order. */
 const accelerated = new Set<XtermEngine>()
 
@@ -174,8 +183,13 @@ export class XtermEngine implements TerminalEngine {
       // Inline images (Sixel + iTerm2 OSC 1337): lets agents render plots, diffs,
       // and screenshots directly in the terminal. Pure-JS decode; gated so any
       // failure never blocks the terminal.
+      //
+      // storageLimit is explicit and small: the addon defaults to 128 MB of
+      // decoded bitmaps PER TERMINAL, which across a pool of terminals is
+      // hundreds of megabytes of renderer memory reserved for pictures almost
+      // no session ever emits.
       try {
-        this.term.loadAddon(new ImageAddon())
+        this.term.loadAddon(new ImageAddon({ storageLimit: IMAGE_STORAGE_MB }))
         this.capabilities.images = true
       } catch {
         this.capabilities.images = false
