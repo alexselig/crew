@@ -5,7 +5,7 @@
 // Privacy: we persist ONLY labels, character map and settings — never terminal
 // output, prompts, env values, or secrets (see SPEC §11).
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, copyFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Settings, SessionSet, Agent } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
@@ -178,26 +178,13 @@ export class Store {
 
   private load(): { data: StoreData; migrated: boolean } {
     try {
-      const raw = JSON.parse(readFileSync(this.path, 'utf8')) as Partial<StoreData>
-      const data: StoreData = {
-        characters: raw.characters ?? {},
-        settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
-        recentDirs: raw.recentDirs ?? [],
-        sessions: raw.sessions ?? [],
-        sets: raw.sets ?? [],
-        workspaces: raw.workspaces ?? [],
-        agents: raw.agents ?? [],
-        windowBounds: raw.windowBounds,
-        migrations: [...(raw.migrations ?? [])]
-      }
-      const migrated = runMigrations(data)
-      return { data, migrated }
+      return this.readFrom(this.path)
     } catch {
       // Distinguish a fresh start (no file) from a CORRUPT existing file. For a
       // clean slate there's nothing to preserve. But if the file exists and
       // merely failed to parse (e.g. a truncated write after a crash), move it
-      // aside to a timestamped backup BEFORE we continue on an empty baseline —
-      // otherwise the first save would overwrite it and lose recoverable data.
+      // aside to a timestamped backup BEFORE we continue — otherwise the first
+      // save would overwrite it and lose recoverable data.
       if (existsSync(this.path)) {
         const backup = `${this.path}.corrupt-${Date.now()}`
         try {
@@ -205,6 +192,19 @@ export class Store {
           console.warn(`[crew] store unreadable; preserved corrupt file at ${backup}`)
         } catch (err) {
           console.warn('[crew] store unreadable and could not be backed up:', err instanceof Error ? err.message : err)
+        }
+        // Prefer the last known-good rotation over an empty baseline: the roster
+        // is the only mapping from a session to its agent conversation, so
+        // recovering a slightly stale one beats starting from nothing.
+        for (const candidate of [`${this.path}.bak`, `${this.path}.bak2`]) {
+          if (!existsSync(candidate)) continue
+          try {
+            const recovered = this.readFrom(candidate)
+            console.warn(`[crew] recovered store from ${candidate}`)
+            return { ...recovered, migrated: true }
+          } catch {
+            /* try the next rotation */
+          }
         }
       }
       // Start at the latest schema and mark every migration as already applied —
@@ -227,14 +227,53 @@ export class Store {
     }
   }
 
+  /** Parse a store file into a fully-defaulted StoreData. Throws when the file
+   * is missing or unparseable, so callers can fall through to a backup. */
+  private readFrom(path: string): { data: StoreData; migrated: boolean } {
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<StoreData>
+    const data: StoreData = {
+      characters: raw.characters ?? {},
+      settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
+      recentDirs: raw.recentDirs ?? [],
+      sessions: raw.sessions ?? [],
+      sets: raw.sets ?? [],
+      workspaces: raw.workspaces ?? [],
+      agents: raw.agents ?? [],
+      windowBounds: raw.windowBounds,
+      migrations: [...(raw.migrations ?? [])]
+    }
+    const migrated = runMigrations(data)
+    return { data, migrated }
+  }
+
   private persist(): void {
     try {
       mkdirSync(dirname(this.path), { recursive: true })
+      // Keep the previous good copy before overwriting. The roster is the only
+      // record of which conversation each session maps to, and it is rewritten
+      // on nearly every event — so a single bad write (or a bug that prunes the
+      // list) would otherwise be unrecoverable. Cheap insurance: one .bak, one
+      // .bak2, rotated on each save.
+      this.rotateBackups()
       writeFileSync(this.path, JSON.stringify(this.data, null, 2))
     } catch (err) {
       // Non-fatal: persistence is best-effort. Losing labels between runs is
       // preferable to crashing the app on a read-only disk — but surface it.
       console.warn('[crew] failed to persist store:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  /** Rotate <path> -> <path>.bak -> <path>.bak2. Best-effort and never throws:
+   * a failed backup must not block the save itself. */
+  private rotateBackups(): void {
+    if (!existsSync(this.path)) return
+    try {
+      if (existsSync(`${this.path}.bak`)) {
+        copyFileSync(`${this.path}.bak`, `${this.path}.bak2`)
+      }
+      copyFileSync(this.path, `${this.path}.bak`)
+    } catch {
+      /* best-effort */
     }
   }
 

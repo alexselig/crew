@@ -606,8 +606,13 @@ export class SessionManager extends EventEmitter {
   /** Snapshot the current active sessions so they can be resumed next launch. */
   private persistSessions(): void {
     if (this.disposing) return
+    // Persist every session still on the roster, whatever its status. An agent
+    // that died (crashed on resume, killed by a failing MCP server, exited with
+    // an error) must NOT be erased from the saved roster: status is transient,
+    // membership is not. Intentional removal goes through close(), which deletes
+    // the entry from `sessions` outright, so anything still in the map is a
+    // session the user expects to see again next launch.
     const list: PersistedSession[] = [...this.sessions.values()]
-      .filter((m) => m.info.status === 'active')
       .map((m) => ({
         id: m.info.id,
         presetId: m.info.presetId,
