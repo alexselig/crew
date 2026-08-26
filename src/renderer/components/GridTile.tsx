@@ -6,6 +6,7 @@ import { CharacterPicker } from './CharacterPicker'
 import { StatusTag } from './StatusTag'
 import { Since } from './Since'
 import { TerminalHost } from './TerminalHost'
+import { TerminalPreview, useInViewport } from './TerminalPreview'
 import { TranscriptPane } from './TranscriptPane'
 import { TagChip } from './TagChip'
 import { SessionTools, type GithubButtonSettings } from './SessionTools'
@@ -70,12 +71,19 @@ export function GridTile({
   // Which representation this tile shows: the raw terminal (default) or the
   // typed Transcript. Per-tile so grid views can mix. Gated by the beta flag.
   const [pane, setPane] = useState<'terminal' | 'transcript'>('terminal')
+  // Only tiles at the viewport get a real emulator. A live terminal per tile is
+  // what made a large roster unusable: agents stream output even when idle, so
+  // every mounted terminal parses and repaints forever, and past the WebGL
+  // budget the surplus fall back to the DOM renderer and repaint a whole
+  // <span>-per-run grid on each chunk. Off-screen tiles show inert text instead.
+  const [tileRef, inView] = useInViewport()
   const { flight, end } = useTakeoff(session.id, session.autopilot, session.characterId)
 
   return (
     <div
       className={`tile ${needsYou ? 'is-needsyou' : ''} ${selected ? 'is-selected' : ''} ${isDragging ? 'is-dragging' : ''} ${isDragOver ? 'is-drag-over' : ''}`}
       data-session-id={session.id}
+      ref={tileRef}
       onClick={onSelect}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -236,7 +244,11 @@ export function GridTile({
             </span>
           ) : (
             <>
-              <TerminalHost id={session.id} enhanced={enhanced} focusOnMount={false} />
+              {inView ? (
+                <TerminalHost id={session.id} enhanced={enhanced} focusOnMount={false} />
+              ) : (
+                <TerminalPreview id={session.id} />
+              )}
               <SessionTools
                 sessionId={session.id}
                 agent={session.command}

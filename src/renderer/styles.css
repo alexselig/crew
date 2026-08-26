@@ -2082,6 +2082,26 @@ button {
   padding: 8px 6px 16px 10px;
 }
 
+/* Stand-in for a terminal in a tile that is scrolled out of view: the same
+   colours and metrics as the real thing, but inert text. Bottom-anchored so the
+   newest output sits where the live terminal's cursor would be. */
+.tile__preview {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 8px 6px 16px 10px;
+  background: var(--term-bg);
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .tile__exited {
   display: flex;
   align-items: center;

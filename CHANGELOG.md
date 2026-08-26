@@ -3,6 +3,17 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.8 — 2026-08-26
+
+### Fixed
+- **A grid of sessions gave every tile its own terminal emulator.** 0.5.7 bounded
+  the pool but exempted terminals that were on screen, and the grid mounts one
+  per tile — so on a large roster the cap never applied and the renderer still
+  climbed past 5 GB at 500% CPU. Tiles now mount a real emulator only when they
+  are at the viewport; the rest show the last lines of output as inert text. The
+  session keeps running and its output keeps accruing — only the emulator is
+  withheld, and it appears as soon as the tile scrolls into view.
+
 ## 0.5.7 — 2026-08-26
 
 ### Fixed

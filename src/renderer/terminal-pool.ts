@@ -17,6 +17,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { findAssetPaths } from '../shared/assets'
 import { previewToken } from './preview-bus'
+import { previewLines } from '../shared/preview'
 import { selectEvictions } from './terminal/lru'
 
 export interface Pooled {
@@ -219,6 +220,14 @@ export function bufferText(id: string): string {
     lines.push(line ? line.translateToString(true) : '')
   }
   return lines.join('\n')
+}
+
+/** Recent output as plain text lines, for a tile with no live terminal. */
+export function previewText(id: string, maxLines?: number): string[] {
+  const p = pool.get(id)
+  if (p) return previewLines(p.tailParts.join(''), maxLines)
+  const d = dormant.get(id)
+  return d ? previewLines(d.tailParts.join(''), maxLines) : []
 }
 
 /** Focus a session's terminal (e.g. after inserting a skill invocation). */

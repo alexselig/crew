@@ -44,6 +44,12 @@ export function getVisibleText(id: string): string {
 // which renderer (DOM vs WebGL) xterm chose.
 ;(globalThis as { __crewTerminalText?: (id: string) => string }).__crewTerminalText = getVisibleText
 
+/** Recent output as plain text lines under the active engine — what an
+ * off-screen grid tile renders instead of a live emulator. */
+export function previewText(id: string, maxLines?: number): string[] {
+  return mode === 'crew' ? crew.previewText(id, maxLines) : legacy.previewText(id, maxLines)
+}
+
 export function focusTerminal(id: string): void {
   if (mode === 'crew') crew.focusTerminal(id)
   else legacy.focusTerminal(id)

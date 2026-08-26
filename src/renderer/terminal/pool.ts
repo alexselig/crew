@@ -25,6 +25,7 @@ import { BlockTracker, type Block } from '../../shared/blocks'
 import { pickJumpTarget } from '../../shared/nav'
 import { shouldHighlightInputOnEnter } from '../../shared/highlight'
 import { findAssetPaths } from '../../shared/assets'
+import { previewLines } from '../../shared/preview'
 import { previewToken } from '../preview-bus'
 import type { TranscriptBlock } from '../transcript/types'
 
@@ -259,6 +260,19 @@ export function writeTo(id: string, data: string): void {
  * xterm buffer, so it works under both the DOM and WebGL renderers. */
 export function bufferText(id: string): string {
   return pool.get(id)?.engine.getVisibleText() ?? ''
+}
+
+/**
+ * Recent output as plain text lines, for a tile with no live emulator. Works for
+ * live and dormant sessions alike — dormant sessions keep the same replay tail
+ * the engine would have been fed — so a tile that is scrolled off-screen still
+ * shows what its agent is doing.
+ */
+export function previewText(id: string, maxLines?: number): string[] {
+  const p = pool.get(id)
+  if (p) return previewLines(p.tailParts.join(''), maxLines)
+  const d = dormant.get(id)
+  return d ? previewLines(d.tailParts.join(''), maxLines) : []
 }
 
 /**
