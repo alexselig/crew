@@ -1,26 +1,55 @@
-// A renderer-side pool of xterm terminals — one per session, kept alive for the
-// whole session lifetime so scrollback and PTY state survive tab switches. The
+// A renderer-side pool of xterm terminals. One per session while the session is
+// in active rotation, so scrollback and PTY state survive tab switches. The
 // visible <TerminalView> imperatively (re)attaches the terminal's DOM element;
 // output is written here regardless of whether the session is currently shown.
+//
+// The pool is BOUNDED (MAX_LIVE_TERMINALS). A large roster of background agents
+// streams output forever — spinners, progress bars, TUI repaints — so an
+// unbounded pool kept every session's emulator parsing and buffering for panes
+// nobody was watching, until the renderer exhausted its memory and Blink aborted
+// ("Oilpan: Large allocation ... out of memory"). A renderer that keeps dying and
+// reloading is what the user sees as flicker. Past the cap a session keeps only a
+// bounded tail of raw output, replayed into a fresh terminal when it is reopened.
+// See terminal/lru.ts for the retirement policy.
 
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { findAssetPaths } from '../shared/assets'
 import { previewToken } from './preview-bus'
+import { selectEvictions } from './terminal/lru'
 
 export interface Pooled {
   term: Terminal
   fit: FitAddon
   opened: boolean
+  /** When a human last had this terminal on screen — drives retirement. Set by
+   *  touch() on mount, never by output (see terminal/lru.ts for why). */
+  lastUsed: number
+  /** Recent raw output, replayed into a rebuilt terminal so a retired session
+   *  reopens with context rather than a blank screen. Chunks + a running length,
+   *  not one string: re-slicing a 64 KB string on every PTY chunk, for every
+   *  session, is itself a CPU sink. */
+  tailParts: string[]
+  tailLen: number
 }
 
 const pool = new Map<string, Pooled>()
+// Raw output tails for sessions whose terminal has been retired. The session is
+// alive and still producing output — it just has no emulator until reopened.
+const dormant = new Map<string, { tailParts: string[]; tailLen: number; lastUsed: number }>()
 // Ids of sessions whose terminals have been disposed. A killed PTY can emit one
 // last chunk *after* the session left the roster; without this guard writeTo →
 // getPooled would recreate ("resurrect") a terminal that is never attached or
 // disposed again. Session ids are UUIDs (never reused), so this set is safe.
 const tombstones = new Set<string>()
+
+/** How many terminal emulators may exist at once. Well above what any grid
+ *  layout shows, so ordinary use never retires anything. */
+export const MAX_LIVE_TERMINALS = 12
+
+/** Raw output replayed into a rebuilt terminal (~a few screens of context). */
+export const TAIL_LIMIT = 64 * 1024
 
 const THEME = {
   background: '#0A0A0B',
@@ -91,17 +120,92 @@ export function getPooled(id: string): Pooled {
         cb(links.length ? links : undefined)
       }
     })
-    p = { term, fit, opened: false }
+    p = { term, fit, opened: false, lastUsed: Date.now(), tailParts: [], tailLen: 0 }
+    const d = dormant.get(id)
+    if (d) {
+      // Reopening a retired session: carry its tail over and replay it so the
+      // terminal shows recent context instead of an empty screen.
+      dormant.delete(id)
+      p.tailParts = d.tailParts
+      p.tailLen = d.tailLen
+      if (d.tailLen > 0) term.write(d.tailParts.join(''))
+    }
     pool.set(id, p)
+    enforceCap()
   }
   return p
 }
 
+/** Append raw output to a bounded replay tail. */
+function pushTail(t: { tailParts: string[]; tailLen: number }, data: string): void {
+  t.tailParts.push(data)
+  t.tailLen += data.length
+  while (t.tailLen > TAIL_LIMIT && t.tailParts.length > 1) {
+    t.tailLen -= t.tailParts.shift()!.length
+  }
+}
+
+/** Dispose a session's emulator but keep a replay tail so reopening it is cheap
+ *  and still shows recent output. */
+function retire(id: string): void {
+  const p = pool.get(id)
+  if (!p) return
+  try {
+    p.term.dispose()
+  } catch {
+    /* already disposed */
+  }
+  pool.delete(id)
+  dormant.set(id, { tailParts: p.tailParts, tailLen: p.tailLen, lastUsed: p.lastUsed })
+}
+
+/** Retire least-recently-viewed unmounted terminals until the pool fits the cap. */
+function enforceCap(): void {
+  const entries = [...pool.entries()].map(([id, p]) => ({
+    id,
+    lastUsed: p.lastUsed,
+    // Attached to the DOM right now — `opened` alone is sticky (it only records
+    // that term.open() was ever called), which would exempt every terminal the
+    // user has ever visited from retirement.
+    mounted: p.opened && !!p.term.element?.isConnected
+  }))
+  for (const id of selectEvictions(entries, MAX_LIVE_TERMINALS)) retire(id)
+}
+
+/**
+ * Mark a session as just-viewed so it sorts last for retirement. Called when a
+ * terminal mounts; deliberately NOT called on write, because background agents
+ * stream output constantly and would otherwise all look "recently used".
+ */
+export function touch(id: string): void {
+  const p = pool.get(id)
+  if (p) p.lastUsed = Date.now()
+}
+
 export function writeTo(id: string, data: string): void {
   if (tombstones.has(id)) return
-  // Create-on-demand so output for a not-yet-viewed session is buffered in the
-  // terminal (preserving scrollback) rather than dropped.
-  getPooled(id).term.write(data)
+  const live = pool.get(id)
+  if (live) {
+    live.term.write(data)
+    pushTail(live, data)
+    return
+  }
+  let d = dormant.get(id)
+  if (!d && pool.size < MAX_LIVE_TERMINALS) {
+    // Room to spare: give a not-yet-viewed session a real terminal so opening it
+    // is instant and its full scrollback is there.
+    const p = getPooled(id)
+    p.term.write(data)
+    pushTail(p, data)
+    return
+  }
+  // At the cap, output for an unviewed session accrues as a tail only. This is
+  // the case that used to allocate an emulator per session and kill the renderer.
+  if (!d) {
+    d = { tailParts: [], tailLen: 0, lastUsed: Date.now() }
+    dormant.set(id, d)
+  }
+  pushTail(d, data)
 }
 
 /** Renderer-agnostic buffer text for a session (empty if not pooled). */
@@ -157,5 +261,30 @@ export function disposePooled(id: string): void {
     }
     pool.delete(id)
   }
+  dormant.delete(id)
   tombstones.add(id)
+}
+
+/** Live terminal count — the bounded resource. For tests and diagnostics. */
+export function liveTerminalCount(): number {
+  return pool.size
+}
+
+/** Sessions kept as a tail only, without an emulator. For tests/diagnostics. */
+export function dormantTerminalCount(): number {
+  return dormant.size
+}
+
+/** Drop all pooled state. Tests only — production disposes per session. */
+export function resetPoolForTests(): void {
+  for (const p of pool.values()) {
+    try {
+      p.term.dispose()
+    } catch {
+      /* ignore */
+    }
+  }
+  pool.clear()
+  dormant.clear()
+  tombstones.clear()
 }

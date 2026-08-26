@@ -3,6 +3,31 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.7 — 2026-08-26
+
+### Fixed
+- **The flicker: the renderer was running out of memory and being restarted.**
+  Crew pooled one live terminal emulator per session and never released it. That
+  is fine for a handful of sessions, but agent sessions stream output even when
+  idle — spinners, progress bars, TUI repaints — so on a large roster dozens of
+  emulators kept parsing and buffering output for panes nobody was watching. The
+  renderer climbed past 4.7 GB and Blink aborted it with `Oilpan: Large
+  allocation ... out of memory`; each rebuild of the dead renderer repainted the
+  entire window, which is what the flicker was. It got worse the longer Crew ran
+  and cleared on restart, exactly as reported.
+
+  Both terminal pools are now bounded. Past the cap a session goes *dormant*: it
+  keeps its OSC parse state, semantic blocks, typed transcript and a 64 KB tail
+  of recent output, but owns no emulator until you open it, at which point the
+  tail is replayed so it opens with context rather than a blank screen. Nothing
+  is dropped and no history restarts — only scrollback older than the tail is
+  lost for sessions you never looked at. Retirement is by least-recently-*viewed*
+  (never by output, or a noisy background session would outrank the one you just
+  left), and a terminal that is on screen is never retired.
+- **Inline-image storage was unbounded per terminal.** The image addon reserves
+  128 MB of decoded bitmaps by default, for every terminal; now 8 MB, which still
+  comfortably holds the plots and screenshots agents actually emit.
+
 ## 0.5.6 — 2026-08-26
 
 ### Fixed

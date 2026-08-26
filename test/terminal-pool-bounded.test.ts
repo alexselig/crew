@@ -1,0 +1,170 @@
+// The bounded terminal pool — the fix for the renderer OOM that showed up as
+// window flicker.
+//
+// Background agents stream output forever, so an unbounded pool kept one live
+// xterm per session parsing and buffering for panes nobody was watching until
+// the renderer exhausted its memory and Blink aborted with
+// "Oilpan: Large allocation ... out of memory". Every reload of the dead
+// renderer repainted the whole window — the flicker.
+//
+// These tests assert the two properties that keep that from coming back:
+//   1. the number of live emulators is bounded no matter how many sessions run
+//   2. a session that loses its emulator loses no semantics — blocks and the
+//      typed transcript keep accruing, and reopening replays recent output
+//
+// The engine is mocked (vitest runs in node, xterm needs a DOM), which is fine
+// because everything under test lives in the pool, not the emulator.
+
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+
+interface FakeEngine {
+  written: string[]
+  disposed: boolean
+  mounted: boolean
+}
+
+const { engines, createXtermEngine } = vi.hoisted(() => {
+  const engines: FakeEngine[] = []
+  const createXtermEngine = vi.fn(() => {
+    const e = {
+      written: [] as string[],
+      disposed: false,
+      mounted: false,
+      write(d: string) {
+        e.written.push(d)
+      },
+      dispose() {
+        e.disposed = true
+      },
+      setLinkActivator() {},
+      registerLinkProvider: () => ({ dispose() {} }),
+      addMarker: () => null,
+      decorate: () => ({ dispose() {} }),
+      focus() {},
+      getVisibleText: () => e.written.join(''),
+      get altActive() {
+        return false
+      },
+      get cursorAtBottom() {
+        return true
+      }
+    }
+    engines.push(e as unknown as FakeEngine)
+    return e
+  })
+  return { engines, createXtermEngine }
+})
+
+vi.mock('../src/renderer/terminal/xterm-engine', () => ({ createXtermEngine }))
+vi.mock('../src/renderer/preview-bus', () => ({ previewToken: vi.fn() }))
+
+import {
+  writeTo,
+  getPooled,
+  touch,
+  getBlocks,
+  getTranscript,
+  recordInput,
+  disposePooled,
+  liveEngineCount,
+  dormantCount,
+  resetPoolForTests,
+  MAX_LIVE_ENGINES
+} from '../src/renderer/terminal/pool'
+
+/** The pool is typed against the real engine; these tests drive the mock. */
+const asFake = (e: unknown): FakeEngine => e as FakeEngine
+
+const BEL = '\u0007'
+const ESC = '\u001b'
+/** One complete OSC 133 command cycle — the shell-integration marks the pool
+ *  turns into semantic blocks and transcript entries. */
+const CYCLE = `${ESC}]133;A${BEL}${ESC}]133;B${BEL}${ESC}]133;C${BEL}${ESC}]133;D;0${BEL}`
+
+beforeEach(() => {
+  resetPoolForTests()
+  engines.length = 0
+  vi.mocked(createXtermEngine).mockClear()
+  ;(globalThis as { window?: unknown }).window = { crew: { openExternal: vi.fn() } }
+})
+
+describe('bounded terminal engine pool', () => {
+  it('caps live emulators no matter how many sessions produce output', () => {
+    for (let i = 0; i < MAX_LIVE_ENGINES * 4; i++) writeTo(`s${i}`, 'hello')
+    expect(liveEngineCount()).toBeLessThanOrEqual(MAX_LIVE_ENGINES)
+    // Nothing is dropped — the rest are dormant, not gone.
+    expect(liveEngineCount() + dormantCount()).toBe(MAX_LIVE_ENGINES * 4)
+  })
+
+  it('never allocates an emulator for a session that arrives past the cap', () => {
+    for (let i = 0; i < MAX_LIVE_ENGINES; i++) writeTo(`s${i}`, 'x')
+    const before = engines.length
+    for (let i = 0; i < 40; i++) writeTo(`late${i}`, 'x')
+    // The allocation that used to kill the renderer never happens.
+    expect(engines.length).toBe(before)
+  })
+
+  it('keeps parsing blocks and the transcript for a session with no emulator', () => {
+    for (let i = 0; i < MAX_LIVE_ENGINES; i++) writeTo(`s${i}`, 'x')
+    writeTo('dormant-1', `${ESC}]133;A${BEL}`)
+    recordInput('dormant-1', 'npm test')
+    writeTo('dormant-1', `${ESC}]133;B${BEL}${ESC}]133;C${BEL}${ESC}]133;D;0${BEL}`)
+
+    expect(dormantCount()).toBeGreaterThan(0)
+    expect(getBlocks('dormant-1')).toHaveLength(1)
+    const tx = getTranscript('dormant-1')
+    expect(tx.some((b) => b.kind === 'tool' && b.command === 'npm test')).toBe(true)
+  })
+
+  it('replays recent output and continues the same history when reopened', () => {
+    for (let i = 0; i < MAX_LIVE_ENGINES; i++) writeTo(`s${i}`, 'x')
+    writeTo('later', `${CYCLE}visible-tail`)
+
+    const p = getPooled('later')
+    expect(asFake(p.engine).written.join('')).toContain('visible-tail')
+    // Reopening must not restart the session's semantics...
+    expect(getBlocks('later')).toHaveLength(1)
+    // ...nor double-count them by re-parsing the replayed tail.
+    writeTo('later', CYCLE)
+    expect(getBlocks('later')).toHaveLength(2)
+  })
+
+  it('retires the least-recently-viewed session, never the one on screen', () => {
+    const p = getPooled('watched')
+    asFake(p.engine).mounted = true
+    touch('watched')
+    for (let i = 0; i < MAX_LIVE_ENGINES * 2; i++) writeTo(`bg${i}`, 'x')
+
+    expect(liveEngineCount()).toBeLessThanOrEqual(MAX_LIVE_ENGINES)
+    expect(asFake(p.engine).disposed).toBe(false)
+    expect(getPooled('watched')).toBe(p)
+  })
+
+  it('disposes the engine of a retired session (the memory actually goes back)', () => {
+    vi.useFakeTimers()
+    try {
+      getPooled('doomed')
+      const doomed = engines[0]
+      // Separate the view times so "least recently viewed" is unambiguous.
+      vi.advanceTimersByTime(1000)
+      // Fill the cap, then open one more: that is what forces a retirement.
+      for (let i = 0; i < MAX_LIVE_ENGINES; i++) writeTo(`bg${i}`, 'x')
+      getPooled('newcomer')
+      expect(doomed.disposed).toBe(true)
+      expect(liveEngineCount()).toBeLessThanOrEqual(MAX_LIVE_ENGINES)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('forgets a closed session entirely, live or dormant', () => {
+    for (let i = 0; i < MAX_LIVE_ENGINES * 2; i++) writeTo(`s${i}`, CYCLE)
+    const total = liveEngineCount() + dormantCount()
+    disposePooled('s0')
+    disposePooled('s20')
+    expect(liveEngineCount() + dormantCount()).toBe(total - 2)
+    // A late chunk from a killed PTY must not resurrect it.
+    writeTo('s0', 'zombie')
+    expect(getBlocks('s0')).toEqual([])
+  })
+})
