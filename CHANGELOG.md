@@ -6,6 +6,19 @@ running and supervising multiple AI CLI agent sessions at a glance.
 ## 0.5.3
 
 ### Fixed
+- **Render flicker that got worse the longer Crew ran: WebGL context
+  exhaustion.** The enhanced terminal (Settings → Beta Enhanced Terminal
+  Interface) took a WebGL context on a terminal's first mount and never gave it
+  back. Pooled terminals live for a session's whole lifetime, so the number of
+  live contexts grew with every session ever viewed. Chromium caps active WebGL
+  contexts per renderer at 16 and **force-loses the oldest** past that — so each
+  newly shown terminal knocked out another pane's renderer and made it repaint,
+  as a flash somewhere the user wasn't even looking. That is why it worsened as
+  a roster was worked through, and why restarting the app cleared it. Crew now
+  enforces its own budget of 8 contexts, reclaims them from off-screen terminals
+  (invisible — they aren't painting), and leaves a newly shown terminal on the
+  DOM renderer rather than evicting a visible one. A GPU-initiated context loss
+  now returns its slot to the budget instead of leaking it.
 - **Flicker / unusable window: process-table exhaustion.** `resolveGithubUrl`
   shelled out to `git remote get-url origin` on every call, and `GithubButton`
   re-resolves on every mount *and* every `window.focus`. Across a restored

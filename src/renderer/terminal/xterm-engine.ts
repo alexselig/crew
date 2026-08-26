@@ -56,6 +56,58 @@ function toDisposable(d: IDisposable): Disposable {
   return { dispose: () => d.dispose() }
 }
 
+/**
+ * How many terminals may hold a live WebGL context at once.
+ *
+ * Chromium caps active WebGL contexts per renderer process (16 by default) and,
+ * once that cap is passed, **force-loses the oldest context** to make room. The
+ * terminal that owned it drops to the DOM renderer and repaints — seen as a
+ * flash in a pane the user wasn't even touching.
+ *
+ * Pooled engines live for a session's whole lifetime, so a context taken on
+ * first mount used to be held forever: the number of live contexts grew with
+ * every session ever viewed, and past the cap *each* newly shown terminal
+ * evicted another one. That is why the flicker got steadily worse the longer
+ * Crew ran, and why restarting the app cleared it.
+ *
+ * So Crew keeps its own budget, comfortably under the cap (leaving headroom for
+ * other GL users in the renderer) and reclaims contexts from off-screen
+ * terminals instead of letting the browser choose a victim.
+ */
+const MAX_WEBGL_CONTEXTS = 8
+
+/** Engines currently holding a WebGL context, in acquisition order. */
+const accelerated = new Set<XtermEngine>()
+
+/**
+ * Free one context by taking it back from a terminal that isn't on screen.
+ * Off-screen terminals aren't painting, so reclaiming theirs is invisible; they
+ * transparently re-acquire (or fall back to the DOM renderer) when shown again.
+ * Returns false when every context belongs to a visible terminal.
+ */
+function reclaimWebglSlot(): boolean {
+  for (const e of accelerated) {
+    if (!e.mounted) {
+      e.releaseWebgl()
+      return true
+    }
+  }
+  return false
+}
+
+/** Test seam: how many terminals currently hold a WebGL context. */
+export function _webglContextCount(): number {
+  return accelerated.size
+}
+
+/** Test seam: release every live WebGL context. */
+export function _resetWebglBudget(): void {
+  for (const e of [...accelerated]) e.releaseWebgl()
+}
+
+/** Test seam: the ceiling enforced on live WebGL contexts. */
+export const _MAX_WEBGL_CONTEXTS = MAX_WEBGL_CONTEXTS
+
 /** Wraps an xterm IMarker as an engine-agnostic EngineMarker while retaining the
  *  underlying marker so decorate() can anchor to it. */
 class XtermMarker implements EngineMarker {
@@ -75,6 +127,7 @@ export class XtermEngine implements TerminalEngine {
   private readonly term: Terminal
   private readonly fitAddon = new FitAddon()
   private opened = false
+  private webgl: WebglAddon | null = null
   private linkActivator: (uri: string) => void = () => {}
   readonly capabilities: EngineCapabilities = { webgl: false, images: false }
 
@@ -110,17 +163,6 @@ export class XtermEngine implements TerminalEngine {
     if (!this.opened) {
       this.term.open(host)
       this.opened = true
-      // Attach WebGL AFTER open(); fall back silently to the DOM renderer on
-      // failure or context loss (browsers can drop the GL context on OOM /
-      // system suspend), so a terminal never goes blank.
-      try {
-        const webgl = new WebglAddon()
-        webgl.onContextLoss(() => webgl.dispose())
-        this.term.loadAddon(webgl)
-        this.capabilities.webgl = true
-      } catch {
-        this.capabilities.webgl = false
-      }
       // Inline images (Sixel + iTerm2 OSC 1337): lets agents render plots, diffs,
       // and screenshots directly in the terminal. Pure-JS decode; gated so any
       // failure never blocks the terminal.
@@ -133,14 +175,63 @@ export class XtermEngine implements TerminalEngine {
     } else if (this.term.element) {
       host.appendChild(this.term.element)
     }
+    // Take a WebGL context only while this terminal is actually on screen, and
+    // only within Crew's budget (see MAX_WEBGL_CONTEXTS). Attached AFTER open()
+    // — the addon needs a rendered element.
+    this.acquireWebgl()
+  }
+
+  /**
+   * Attach the WebGL renderer if a context is available within budget. Silently
+   * stays on the DOM renderer when every context is spoken for by a visible
+   * terminal — correct, because grabbing one anyway would make Chromium
+   * force-lose a context another visible pane is drawing with (the flicker).
+   */
+  private acquireWebgl(): void {
+    if (this.webgl || !this.opened) return
+    if (accelerated.size >= MAX_WEBGL_CONTEXTS && !reclaimWebglSlot()) {
+      this.capabilities.webgl = false
+      return
+    }
+    try {
+      const webgl = new WebglAddon()
+      // The GPU can still drop a context on its own (OOM / system suspend);
+      // release ours so the terminal falls back to the DOM renderer and the
+      // slot returns to the budget rather than leaking.
+      webgl.onContextLoss(() => this.releaseWebgl())
+      this.term.loadAddon(webgl)
+      this.webgl = webgl
+      accelerated.add(this)
+      this.capabilities.webgl = true
+    } catch {
+      this.capabilities.webgl = false
+    }
+  }
+
+  /** Give up this terminal's WebGL context (falls back to the DOM renderer). */
+  releaseWebgl(): void {
+    const webgl = this.webgl
+    this.webgl = null
+    accelerated.delete(this)
+    this.capabilities.webgl = false
+    if (!webgl) return
+    try {
+      webgl.dispose()
+    } catch {
+      /* already disposed (e.g. by context loss) */
+    }
   }
 
   unmount(host: HTMLElement): void {
     const el = this.term.element
     if (el && el.parentElement === host) host.removeChild(el)
+    // The context is NOT dropped here: tab-switching back is instant if we keep
+    // it, and an off-screen terminal isn't painting. It simply becomes the first
+    // thing reclaimWebglSlot() takes when another terminal needs a context.
   }
 
   dispose(): void {
+    this.releaseWebgl()
     try {
       this.term.dispose()
     } catch {
