@@ -302,7 +302,50 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
     if (!intro) query.intro = '0'
     void w.loadFile(join(__dirname, '../renderer/index.html'), { query })
   }
+  attachMemoryCensus(w)
   return w
+}
+
+/**
+ * With CREW_MEMLOG=1, periodically record what the window is actually holding.
+ *
+ * When the render process runs out of memory there is nothing left to inspect —
+ * it is simply gone — and remote debugging is not available on every machine. So
+ * the window is asked, while it is still alive, to count the things that could
+ * plausibly grow without bound: DOM nodes, listeners, JS heap. A census that
+ * climbs in step with the process points at the culprit; one that stays flat
+ * rules a suspect out. Off unless explicitly requested, and failures are ignored
+ * — diagnostics must never be able to take the app down.
+ */
+function attachMemoryCensus(w: BrowserWindow): void {
+  if (process.env.CREW_MEMLOG !== '1') return
+  const census = `(() => {
+    try {
+      const m = (performance || {}).memory || {}
+      return {
+        dom: document.getElementsByTagName('*').length,
+        tiles: document.querySelectorAll('[data-session-id]').length,
+        canvas: document.getElementsByTagName('canvas').length,
+        xtermRows: document.querySelectorAll('.xterm-rows > div').length,
+        xterms: document.querySelectorAll('.xterm').length,
+        previews: document.querySelectorAll('.tile__preview').length,
+        imgs: document.getElementsByTagName('img').length,
+        iframes: document.getElementsByTagName('iframe').length,
+        heapMB: Math.round((m.usedJSHeapSize || 0) / 1048576),
+        heapLimitMB: Math.round((m.jsHeapSizeLimit || 0) / 1048576)
+      }
+    } catch (e) {
+      return { error: String(e) }
+    }
+  })()`
+  const timer = setInterval(() => {
+    if (w.isDestroyed()) return
+    w.webContents
+      .executeJavaScript(census, true)
+      .then((r) => crashLog('memcensus', JSON.stringify(r)))
+      .catch((e) => crashLog('memcensus-failed', String(e)))
+  }, 5_000)
+  w.on('closed', () => clearInterval(timer))
 }
 
 /** Open an additional window, preferring a monitor without a Crew window. The
@@ -860,6 +903,7 @@ function registerIpc(): void {
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
     manager.input(p.id, p.data)
   )
+  ipcMain.on(IPC.SESSION_WAKE, (_e, id: string) => manager.wake(id))
   ipcMain.on(IPC.SESSION_RESIZE, (_e, p: { id: string; cols: number; rows: number }) =>
     manager.resize(p.id, p.cols, p.rows)
   )

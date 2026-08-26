@@ -1,6 +1,14 @@
 // Shared types & IPC contract used by main, preload, and renderer.
 
 export type SessionState =
+  /**
+   * Restored from a previous run but not yet running: the session is on the
+   * roster with its label, character and workspace intact, and its agent starts
+   * the moment it is opened. A relaunch that revived every saved agent at once
+   * put dozens of live terminals on one renderer and exhausted it, so a roster
+   * now costs nothing until it is actually looked at.
+   */
+  | 'ASLEEP'
   | 'STARTING'
   | 'WORKING'
   | 'WAITING_INPUT'
@@ -259,6 +267,7 @@ export const IPC = {
   SESSION_CLOSE: 'session:close',
   SESSION_RESTART: 'session:restart',
   SESSION_INPUT: 'session:input',
+  SESSION_WAKE: 'session:wake',
   SESSION_RESIZE: 'session:resize',
   SESSION_RENAME: 'session:rename',
   SESSION_SET_CHARACTER: 'session:setCharacter',

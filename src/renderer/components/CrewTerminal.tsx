@@ -45,6 +45,10 @@ export function CrewTerminal({
     // A human is looking at this session now — keep it out of the retirement
     // queue ahead of terminals nobody has opened (see terminal/lru.ts).
     touch(id)
+    // Showing a real terminal is the moment a restored session needs its agent
+    // running. Sessions come back asleep so a large roster costs nothing at
+    // launch; opening one is what starts it.
+    window.crew.wake(id)
     p.engine.mount(host)
 
     // Remember this terminal as the focus target whenever it gains focus, so a

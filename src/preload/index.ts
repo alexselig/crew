@@ -77,6 +77,7 @@ const api: CrewAPI = {
   deleteSet: (name) => ipcRenderer.invoke(IPC.SETS_DELETE, name),
 
   sendInput: (id, data) => ipcRenderer.send(IPC.SESSION_INPUT, { id, data }),
+  wake: (id) => ipcRenderer.send(IPC.SESSION_WAKE, id),
   resize: (id, cols, rows) => ipcRenderer.send(IPC.SESSION_RESIZE, { id, cols, rows }),
 
   pathForFile: (file) => webUtils.getPathForFile(file),

@@ -168,6 +168,12 @@ export interface CrewAPI {
 
   // fire-and-forget (high-frequency)
   sendInput(id: string, data: string): void
+  /**
+   * Start a session that was restored asleep. Safe to call for any session —
+   * one that is already running ignores it — so a view can simply say "I am
+   * showing this now" without tracking whether it needs starting.
+   */
+  wake(id: string): void
   resize(id: string, cols: number, rows: number): void
 
   // synchronous helpers

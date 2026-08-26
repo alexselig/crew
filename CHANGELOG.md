@@ -6,16 +6,34 @@ running and supervising multiple AI CLI agent sessions at a glance.
 ## 0.5.9 — 2026-08-26
 
 ### Fixed
-- **The window kept flickering because every keystroke of agent output was its
-  own message to the screen.** A terminal can produce output far faster than it
-  can be drawn, and Crew was forwarding each burst the instant it arrived — for
-  every session at once. At launch, when every restored agent replays its whole
-  conversation simultaneously, the display could not keep up and the backlog grew
-  until it exhausted memory and was restarted, repainting the window. Output is
-  now gathered per session and delivered in one piece 25 times a second, with a
-  cap on how much a single runaway session can hold: past it the oldest bytes are
-  dropped and the trim is marked in the transcript, so the newest output — the
-  part you are reading — always arrives.
+- **The flicker: a workspace with nothing in it made Crew fight itself until it
+  ran out of memory.** Which session is selected was decided in two places at
+  once — one restored a selection from your whole roster whenever none was set,
+  the other cleared any selection the workspace filter hid. If the workspace you
+  had open contained none of your sessions, neither could ever be satisfied, so
+  they undid each other as fast as the app could redraw. The window pinned a CPU
+  core, stopped responding, and after a few minutes exhausted its memory and was
+  restarted — which repaints everything, and is exactly what the flickering was.
+  Selecting a session is now decided in one place, by one rule: it is always a
+  session you can actually see. An empty workspace now simply says so.
+- **Sessions no longer all restart at once when Crew opens.** Reviving a whole
+  roster meant every agent booting and replaying its conversation simultaneously.
+  Your sessions now come back instantly — every one of them, in the right group,
+  with its label and character — and each agent starts when you open or type into
+  that session. Launch is immediate whatever the size of your roster, and idle
+  sessions cost nothing.
+- **Output from a busy agent no longer arrives one keystroke at a time.** A
+  terminal can produce output far faster than it can be drawn, and every burst
+  was being sent to the display the instant it arrived. Output is now gathered
+  per session and delivered 25 times a second. A single session that floods is
+  capped, keeping the newest output and marking in the transcript that earlier
+  output was trimmed.
+
+### Added
+- A diagnostic memory census, off unless `CREW_MEMLOG=1` is set, recording what
+  the window is holding to `crew-crash.log`. When a display runs out of memory
+  there is nothing left to inspect afterwards, and remote debugging is blocked on
+  some machines.
 
 ## 0.5.8 — 2026-08-26
 

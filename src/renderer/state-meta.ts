@@ -19,6 +19,9 @@ export interface StateMeta {
 }
 
 export const STATE_META: Record<SessionState, StateMeta> = {
+  // Reads as resting rather than broken: an asleep session is a healthy one
+  // that simply hasn't been opened since the app started.
+  ASLEEP: { label: 'asleep · opens on click', short: 'ASLEEP', tone: 'idle', color: '#6E6D67', anim: 'sleep' },
   STARTING: { label: 'starting', short: 'STARTING', tone: 'idle', color: '#8F8E88', anim: 'start' },
   WORKING: { label: 'working', short: 'WORKING', tone: 'working', color: '#5F79FF', anim: 'run' },
   WAITING_INPUT: { label: 'waiting for you', short: 'WAITING', tone: 'attention', color: '#F2F1EA', anim: 'wait' },
@@ -35,8 +38,11 @@ const RANK: Record<SessionState, number> = {
   WORKING: 2,
   STARTING: 3,
   IDLE: 4,
-  ERROR: 5,
-  EXITED: 6
+  // Below idle: nothing is happening in a session that isn't running, so it
+  // never outranks one that is.
+  ASLEEP: 5,
+  ERROR: 6,
+  EXITED: 7
 }
 
 export function stateRank(state: SessionState): number {

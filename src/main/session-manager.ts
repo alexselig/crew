@@ -47,8 +47,6 @@ const AUTOPILOT_POLL_TICKS = 4
 // batches. Each session spawns a PTY that immediately streams its agent's boot
 // output into its own terminal engine, so restoring a large roster in one tick
 // saturates the renderer and flickers the whole window until it catches up.
-const RESTORE_BATCH = 4
-const RESTORE_BATCH_GAP_MS = 400
 
 /**
  * How often buffered PTY output is flushed to the renderer, and how much of a
@@ -72,6 +70,11 @@ const OUTPUT_FLUSH_MS = 40
 const PENDING_CAP = 512 * 1024
 
 interface Managed {
+  /**
+   * Starts this session's agent process. Held so a session restored ASLEEP can
+   * be launched later, on the first thing that actually needs it running.
+   */
+  start?: () => void
   info: SessionInfo
   proc: pty.IPty | null
   detector: StateDetector | null
@@ -122,14 +125,6 @@ export class SessionManager extends EventEmitter {
   // Set during shutdown so PTY exit handlers don't overwrite the saved session
   // list with an empty one (which would defeat resume-on-next-launch).
   private disposing = false
-  // Pending batches from restore(), so shutdown can cancel them instead of
-  // spawning agents into a tearing-down app.
-  private readonly restoreTimers = new Set<ReturnType<typeof setTimeout>>()
-  // Saved sessions that restore() has not spawned yet. They are NOT in
-  // `sessions` and so would be invisible to persistSessions() — which saves the
-  // live map — and a save triggered mid-restore (or a quit before the last
-  // batch lands) would silently prune them from the roster for good.
-  private pendingRestore: PersistedSession[] = []
   /** Per-session output waiting to be sent to the renderer (see OUTPUT_FLUSH_MS). */
   private pendingOutput = new Map<string, { parts: string[]; len: number; dropped: boolean }>()
   private flushTimer: ReturnType<typeof setInterval> | null = null
@@ -149,7 +144,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id?: string; agentSessionId?: string; priorSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; workspaceIds?: string[]; description?: string; createdAt?: number; lastPromptAt?: number }
+    restore?: { id?: string; agentSessionId?: string; priorSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; workspaceIds?: string[]; description?: string; createdAt?: number; lastPromptAt?: number; defer?: boolean }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || defaultShell()
@@ -233,6 +228,15 @@ export class SessionManager extends EventEmitter {
     const cost = new CostParser({ costRegex: compileRegex(preset?.costRegex ?? DEFAULT_COST_REGEX_SRC) })
     const credits = new CostParser({ costRegex: compileRegex(DEFAULT_CREDITS_REGEX_SRC) })
 
+    const detector = new StateDetector(now, cfg, (state, reason) => this.onState(id, state, reason))
+    const managed: Managed = { info, proc: null, detector: null, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
+    // A session superseding an older conversation carries its brief instead of
+    // the transcript. Hold the primer until the agent is actually at a prompt —
+    // typing into a TUI that hasn't drawn one yet just loses the keystrokes.
+    const brief = briefPathFor(restore?.priorSessionId)
+    if (brief) managed.pendingPrimer = primerFor(brief)
+
+    const start = (): void => {
     let proc: pty.IPty
     try {
       // Launch-time args (never persisted into info.args, so flags never
@@ -269,24 +273,20 @@ export class SessionManager extends EventEmitter {
       info.status = 'error'
       info.exitCode = 127
       info.errorMessage = `Failed to launch ${command} in ${cwd}: ${err instanceof Error ? err.message : String(err)}`
-      this.sessions.set(id, { info, proc: null, detector: null, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS })
-      this.store.setAssignment(key, { characterId, lastLabel: label })
+      managed.proc = null
+      managed.detector = null
       this.emitRoster()
       const message = err instanceof Error ? err.message : String(err)
       this.emit('output', { id, data: `\r\n\x1b[31mFailed to launch \x1b[1m${command}\x1b[0m\x1b[31m: ${message}\x1b[0m\r\n` })
-      return { ...info }
+      return
     }
 
     info.pid = proc.pid
-    const detector = new StateDetector(now, cfg, (state, reason) => this.onState(id, state, reason))
-    const managed: Managed = { info, proc, detector, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
-    // A session superseding an older conversation carries its brief instead of
-    // the transcript. Hold the primer until the agent is actually at a prompt —
-    // typing into a TUI that hasn't drawn one yet just loses the keystrokes.
-    const brief = briefPathFor(restore?.priorSessionId)
-    if (brief) managed.pendingPrimer = primerFor(brief)
-    this.sessions.set(id, managed)
-    this.store.setAssignment(key, { characterId, lastLabel: label })
+    info.state = 'STARTING'
+    info.status = 'active'
+    info.stateChangedAt = Date.now()
+    managed.proc = proc
+    managed.detector = detector
 
     proc.onData((data) => {
       // Ignore any final flush that arrives after the session was closed/removed
@@ -341,13 +341,45 @@ export class SessionManager extends EventEmitter {
       }, 700)
     }
 
-    this.ensureTimer()
-    this.emitRoster()
-    this.persistSessions()
+      this.ensureTimer()
+      this.emitRoster()
+      this.persistSessions()
+    }
+
+    managed.start = start
+    this.sessions.set(id, managed)
+    this.store.setAssignment(key, { characterId, lastLabel: label })
+
+    if (restore?.defer) {
+      // On the roster, off the CPU: no process, no terminal, no output — until
+      // someone opens it. See wake().
+      info.state = 'ASLEEP'
+      this.emitRoster()
+      this.persistSessions()
+      return { ...info }
+    }
+
+    start()
     return { ...info }
   }
 
+  /**
+   * Start a session that was restored asleep. Idempotent, and a no-op for a
+   * session that is already running, has exited, or failed to launch — so
+   * callers (opening a tile, typing, sending a prompt) can call it freely
+   * without first working out whether it is needed.
+   */
+  wake(id: string): void {
+    const m = this.sessions.get(id)
+    if (!m || m.info.state !== 'ASLEEP' || !m.start) return
+    m.start()
+  }
+
   input(id: string, data: string): void {
+    // Typing into a sleeping session is a clear instruction to run it. The
+    // keystroke itself is dropped — the agent is still booting and has no
+    // prompt drawn yet, so writing now would only lose it somewhere worse.
+    this.wake(id)
     const m = this.sessions.get(id)
     if (!m || !m.proc) return
     try {
@@ -583,9 +615,6 @@ export class SessionManager extends EventEmitter {
   }
 
   close(id: string): void {
-    // Drop it from the restore queue too, or closing a session that hasn't been
-    // spawned yet would leave it pending and resurrect it on the next save.
-    this.pendingRestore = this.pendingRestore.filter((p) => p.id !== id)
     // Undelivered output for a session that is going away would arrive after the
     // renderer disposed its terminal, resurrecting one that is never shown again.
     this.pendingOutput.delete(id)
@@ -686,10 +715,6 @@ export class SessionManager extends EventEmitter {
     // Freeze persistence first: the kills below fire onExit handlers that would
     // otherwise save an empty session list and wipe the resume state.
     this.disposing = true
-    // Cancel any restore batches still queued, so shutdown doesn't spawn fresh
-    // agents into a tearing-down app.
-    for (const t of this.restoreTimers) clearTimeout(t)
-    this.restoreTimers.clear()
     // Deliver whatever is buffered before the window goes away, then stop.
     this.flushOutput()
     if (this.flushTimer) {
@@ -740,12 +765,6 @@ export class SessionManager extends EventEmitter {
         createdAt: m.info.createdAt,
         lastPromptAt: m.info.lastPromptAt
       }))
-    // Sessions restore() has queued but not spawned yet aren't in the map, so
-    // saving only the map would delete them from the roster permanently — a
-    // save fires on nearly every event, so this would happen within seconds of
-    // launch on any roster big enough to batch.
-    const live = new Set(list.map((s) => s.id))
-    for (const p of this.pendingRestore) if (!live.has(p.id)) list.push(p)
     this.store.saveSessions(list)
   }
 
@@ -775,59 +794,23 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * Re-launch the sessions saved from a previous run. A live agent process can't
-   * literally be frozen, so this restores the workspace layout — same agent, cwd,
-   * label and character — by spawning each session fresh. Call once on startup.
+   * Bring back the sessions saved from a previous run — asleep.
    *
-   * Spawns in small batches rather than all at once. Every session brings up a
-   * PTY that immediately streams its agent's boot output into its own terminal
-   * engine; doing that for a whole roster in a single tick pegs the renderer and
-   * makes the entire window flicker while it catches up — and the bigger the
-   * roster, the longer it lasts. Batching keeps the UI responsive and lets the
-   * roster fill in visibly instead of freezing until it's done.
+   * A live agent can't literally be frozen, so a restored session is really a
+   * fresh launch of the same agent, cwd, label and character. Doing that for a
+   * whole roster the moment the app opened meant dozens of agents booting and
+   * replaying their conversations into dozens of live terminals at once; the
+   * window could not keep up, and on a large roster the display ran out of
+   * memory and was restarted, repainting everything — the flicker.
    *
-   * Returns the first batch synchronously; the rest arrive via roster events.
+   * So restoring now costs nothing. Every saved session reappears immediately,
+   * complete and in its right group, but with no process behind it; the agent
+   * starts when the session is opened or typed into (see wake()). Launch is
+   * instant regardless of roster size, and only the sessions actually being
+   * used consume anything.
    */
   restore(): SessionInfo[] {
-    const persisted = this.store.getSessions()
-    const first = persisted.slice(0, RESTORE_BATCH).map((p) => this.restoreOne(p))
-    const rest = persisted.slice(RESTORE_BATCH)
-    if (rest.length) {
-      this.pendingRestore = [...rest]
-      this.scheduleRestore(rest)
-    }
-    return first
-  }
-
-  /** Spawn the next batch after a gap, then queue the one after it. */
-  private scheduleRestore(queue: PersistedSession[]): void {
-    const timer = setTimeout(() => {
-      this.restoreTimers.delete(timer)
-      if (this.disposing) return
-      const batch = queue.slice(0, RESTORE_BATCH)
-      for (const p of batch) {
-        // Skip anything the user closed while it was still queued — close()
-        // drops it from pendingRestore, and spawning it now would resurrect it.
-        if (!this.pendingRestore.some((q) => q.id === p.id)) continue
-        try {
-          this.restoreOne(p)
-        } catch (err) {
-          // One session that can't be restored (e.g. its cwd is gone) must not
-          // strand every session queued behind it.
-          console.warn(
-            `[crew] failed to restore session ${p.label}:`,
-            err instanceof Error ? err.message : err
-          )
-        }
-      }
-      // Only stop covering these once they are in the live map.
-      const done = new Set(batch.map((p) => p.id))
-      this.pendingRestore = this.pendingRestore.filter((p) => !done.has(p.id))
-      this.emitRoster()
-      const rest = queue.slice(RESTORE_BATCH)
-      if (rest.length) this.scheduleRestore(rest)
-    }, RESTORE_BATCH_GAP_MS)
-    this.restoreTimers.add(timer)
+    return this.store.getSessions().map((p) => this.restoreOne(p))
   }
 
   private restoreOne(p: PersistedSession): SessionInfo {
@@ -846,7 +829,8 @@ export class SessionManager extends EventEmitter {
         workspaceIds: p.workspaceIds,
         description: p.description,
         createdAt: p.createdAt,
-        lastPromptAt: p.lastPromptAt
+        lastPromptAt: p.lastPromptAt,
+        defer: true
       }
     )
   }

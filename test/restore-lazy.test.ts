@@ -67,43 +67,79 @@ afterEach(() => {
 })
 
 describe('restoring a large roster', () => {
-  it('does not spawn every saved agent in one tick', () => {
+  it('brings the whole roster back without starting a single agent', () => {
     const manager = new SessionManager(storeWith(30))
 
-    const first = manager.restore()
+    const restored = manager.restore()
 
-    // The whole point: a 30-session roster must not put 30 PTYs on the renderer
-    // in the same frame, which is what pegged it and flickered the window.
-    expect(first.length).toBeLessThan(30)
-    expect(spawned.length).toBeLessThan(30)
-    expect(spawned.length).toBeGreaterThan(0)
+    // The whole point: reviving 30 agents at once put 30 live terminals on one
+    // renderer and exhausted it. The roster is fully present and labelled; none
+    // of it is running.
+    expect(restored).toHaveLength(30)
+    expect(restored.every((s) => s.state === 'ASLEEP')).toBe(true)
+    expect(spawned.length).toBe(0)
 
     manager.disposeAll()
   })
 
-  it('keeps spawning in batches until the whole roster is restored', () => {
+  it('leaves them asleep however long the app runs', () => {
     const manager = new SessionManager(storeWith(30))
     manager.restore()
-    const afterFirstBatch = spawned.length
 
-    vi.advanceTimersByTime(10_000)
+    vi.advanceTimersByTime(10 * 60_000)
 
-    expect(spawned.length).toBe(30)
+    // Nothing on a timer may quietly start them behind the user's back - that
+    // would just reintroduce the storm a few minutes later.
+    expect(spawned.length).toBe(0)
     expect(manager.roster()).toHaveLength(30)
-    expect(afterFirstBatch).toBeLessThan(30)
 
     manager.disposeAll()
   })
 
-  it('cancels queued batches on shutdown instead of spawning into a closing app', () => {
+  it('starts a session when it is opened', () => {
+    const manager = new SessionManager(storeWith(30))
+    const restored = manager.restore()
+
+    manager.wake(restored[7].id)
+
+    expect(spawned.length).toBe(1)
+    expect(manager.roster().find((s) => s.id === restored[7].id)?.state).toBe('STARTING')
+
+    manager.disposeAll()
+  })
+
+  it('does not start a session twice when it is opened again', () => {
+    const manager = new SessionManager(storeWith(30))
+    const restored = manager.restore()
+
+    manager.wake(restored[0].id)
+    manager.wake(restored[0].id)
+    manager.wake(restored[0].id)
+
+    expect(spawned.length).toBe(1)
+
+    manager.disposeAll()
+  })
+
+  it('starts a session when the user types into it', () => {
+    const manager = new SessionManager(storeWith(30))
+    const restored = manager.restore()
+
+    manager.input(restored[3].id, 'hello\r')
+
+    expect(spawned.length).toBe(1)
+
+    manager.disposeAll()
+  })
+
+  it('does not spawn into a closing app', () => {
     const manager = new SessionManager(storeWith(30))
     manager.restore()
-    const atShutdown = spawned.length
 
     manager.disposeAll()
     vi.advanceTimersByTime(10_000)
 
-    expect(spawned.length).toBe(atShutdown)
+    expect(spawned.length).toBe(0)
   })
 
   it('never prunes not-yet-spawned sessions from the saved roster', () => {
@@ -143,12 +179,16 @@ describe('restoring a large roster', () => {
     expect(saved).not.toContain('s29')
   })
 
-  it('still restores a small roster immediately, with no batching delay', () => {
-    const manager = new SessionManager(storeWith(3))
-
-    expect(manager.restore()).toHaveLength(3)
-    expect(spawned.length).toBe(3)
+  it('keeps a woken session asleep-free across a persist round trip', () => {
+    const store = storeWith(3)
+    const manager = new SessionManager(store)
+    const restored = manager.restore()
+    manager.wake(restored[1].id)
 
     manager.disposeAll()
+
+    // Sleeping is a property of "not opened yet in this run", not of the saved
+    // session, so nothing about it may leak into the store.
+    expect(store.getSessions()).toHaveLength(3)
   })
 })

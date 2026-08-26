@@ -4,6 +4,7 @@ import type { GroupMode } from './grouping'
 import { writeTo, disposePooled, setEngineMode } from './terminal/facade'
 import { clearInputMeter } from './input-meter'
 import { windowSlot, readViewPref, writeViewPref } from './window-scope'
+import { nextSelection } from '../shared/selection'
 
 export type ViewMode = 'single' | 'grid'
 /** Grid density (all horizontal-scroll): `two` = 1 row (2 tiles), `four` = 2 rows
@@ -290,14 +291,11 @@ export function useCrew(): CrewState {
     }
   }, [])
 
-  // Keep the selection valid as sessions come and go.
+  // Keep the selection valid as sessions come and go, and as a workspace filter
+  // hides them. One rule, one place — see nextSelection().
   useEffect(() => {
-    if (selectedId && !roster.some((s) => s.id === selectedId)) {
-      setSelectedId(roster[0]?.id ?? null)
-    } else if (!selectedId && roster.length > 0) {
-      setSelectedId(roster[0].id)
-    }
-  }, [roster, selectedId])
+    setSelectedId(nextSelection(roster, selectedId, activeWorkspace))
+  }, [roster, selectedId, activeWorkspace])
 
   // Point the terminal facade at the engine chosen in Settings (app-wide). Set
   // eagerly so output routes to the right pool as soon as settings load / change.

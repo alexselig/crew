@@ -110,16 +110,6 @@ export function App(): JSX.Element {
     c.setViewMode('single')
   }
 
-  // When a workspace filter hides the selected session, fall back to the first
-  // visible one so the focus view never shows a hidden session.
-  useEffect(() => {
-    if (!c.activeWorkspace) return
-    if (c.selectedId && !visibleRoster.some((s) => s.id === c.selectedId)) {
-      c.setSelectedId(visibleRoster[0]?.id ?? null)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [c.activeWorkspace, visibleRoster, c.selectedId])
-
   // Return keyboard focus to the terminal whenever overlays (modals/palette)
   // close — otherwise focus is left on <body> and typed input goes nowhere.
   useEffect(() => {

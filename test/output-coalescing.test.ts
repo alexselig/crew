@@ -58,13 +58,17 @@ function storeWith(count: number): Store {
   return store
 }
 
-/** Restore a roster fully, returning the manager and every message it sends out. */
+/**
+ * Restore a roster and open every session, returning the manager and every
+ * message it sends out. Restored sessions come back asleep, so they are woken
+ * here — these tests are about output, which only exists once a session runs.
+ */
 function running(count: number): {
   manager: SessionManager
   sent: { id: string; data: string }[]
 } {
   const manager = new SessionManager(storeWith(count))
-  manager.restore()
+  for (const s of manager.restore()) manager.wake(s.id)
   vi.advanceTimersByTime(10_000)
   const sent: { id: string; data: string }[] = []
   manager.on('output', (msg: { id: string; data: string }) => sent.push(msg))
