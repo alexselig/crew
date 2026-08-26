@@ -224,24 +224,6 @@ button {
 }
 
 /* The way out of a filter that is hiding every session. */
-.roster__empty-action {
-  display: block;
-  margin: 10px auto 0;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.roster__empty-action:hover {
-  color: var(--text);
-  border-color: var(--line-strong, var(--line));
-}
-
 /* ---------- Session card (sidebar row) ---------- */
 .card {
   position: relative;
@@ -3762,21 +3744,6 @@ button {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-elev);
-}
-
-.roster__hidden {
-  margin: -4px 0 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-dim);
-  text-align: center;
-}
-
-.roster__hidden .roster__empty-action {
-  margin-top: 6px;
 }
 
 .roster__workspace-name {

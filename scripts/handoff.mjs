@@ -7,9 +7,14 @@
 // writes, the files touched, the commits made, the user's own last words — is
 // sitting in ~/.copilot/session-store.db. Reading it costs zero tokens.
 //
-// So we distil each conversation to a ~1-2k token brief on disk. A fresh agent
-// primed with the brief knows the project, the decisions and the next steps
-// without paying to relive the transcript.
+// So we distil each conversation to a brief on disk — a few thousand tokens
+// against a transcript's hundreds of thousands. The aim is to get as close to
+// the transcript as the budget allows, so the brief reproduces Copilot's own
+// checkpoint fields (overview, work done, technical details, key files, next
+// steps, history) rather than the overview alone, and quotes both sides of the
+// closing exchanges with the newest turns weighted heaviest. A fresh agent
+// primed with the brief knows the project, the decisions, what was actually
+// said and what remains, without paying to relive the transcript.
 //
 // Usage:
 //   node scripts/handoff.mjs                 # refresh every known session
@@ -21,6 +26,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 
 const DB = process.env.COPILOT_SESSION_DB || join(homedir(), '.copilot', 'session-store.db')
 const argv = process.argv.slice(2)
@@ -32,8 +38,51 @@ const OUT = flag('--out', join(homedir(), '.crew', 'handoffs'))
 const DAYS = Number(flag('--days', '0')) || 0
 const only = argv.filter((a) => /^[0-9a-f-]{36}$/i.test(a))
 
-/** Budget per section, in characters (~4 chars per token). */
-const BUDGET = { overview: 4500, turns: 1800, files: 900 }
+/** Budget per section, in characters (~4 chars per token).
+ *
+ * Sized against what the store actually holds rather than an arbitrary target.
+ * Copilot's own checkpoint fields average 1.0k (overview), 2.2k (work_done),
+ * 4.2k (technical_details), 4.2k (history) and 1.6k (next_steps) characters and
+ * peak around 13k, so these budgets carry the newest checkpoint essentially
+ * whole. That is the point: a checkpoint *is* the model's own compaction of the
+ * transcript, so reproducing it in full is the closest a brief can get to a
+ * replay while still costing a few thousand tokens instead of a million. */
+const BUDGET = {
+  summary: 900,
+  standing: 6000,
+  workDone: 6000,
+  technical: 9000,
+  keyFiles: 3500,
+  nextSteps: 4000,
+  history: 9000,
+  earlier: 900,
+  earlierTotal: 7000,
+  turns: 14000,
+  turnFloor: 320,
+  turnCeiling: 5000
+}
+
+/** How many trailing turns to quote, newest first. */
+const TURN_WINDOW = 14
+/** Each older turn gets this fraction of the one after it. The tail of a
+ *  conversation is what a successor actually needs; the middle is what the
+ *  checkpoints above already summarise. */
+const TURN_DECAY = 0.72
+
+/**
+ * Split a character budget across turns, newest-heaviest.
+ *
+ * Flat rationing was the old behaviour and it was the wrong shape: it spent as
+ * much on a turn from an hour ago as on the one that was interrupted, and
+ * clipped both to uselessness.
+ */
+export function rations(count, total) {
+  const weights = Array.from({ length: count }, (_, i) => TURN_DECAY ** i)
+  const sum = weights.reduce((a, b) => a + b, 0)
+  return weights.map((w) =>
+    Math.max(BUDGET.turnFloor, Math.min(BUDGET.turnCeiling, Math.round((w / sum) * total)))
+  )
+}
 
 function q(sql, params = []) {
   const out = execFileSync('sqlite3', ['-readonly', '-json', DB, sql], {
@@ -68,14 +117,18 @@ function sessions() {
 }
 
 function brief(s) {
+  // Every checkpoint column, not just the overview. history / work_done /
+  // technical_details / next_steps are where the substance lives, and dropping
+  // them was why briefs read as thin next to the conversations they replaced.
   const cps = q(
-    `select checkpoint_number, title, overview from checkpoints
-     where session_id='${esc(s.id)}' order by checkpoint_number`
+    `select checkpoint_number, title, overview, history, work_done,
+            technical_details, important_files, next_steps
+     from checkpoints where session_id='${esc(s.id)}' order by checkpoint_number`
   )
   const turns = q(
     `select user_message, assistant_response from turns
      where session_id='${esc(s.id)}' and coalesce(user_message,'') <> ''
-     order by turn_index desc limit 6`
+     order by turn_index desc limit ${TURN_WINDOW}`
   )
   const files = q(
     `select file_path, count(*) as n from session_files
@@ -90,8 +143,15 @@ function brief(s) {
 
   // The newest checkpoint is the most accurate picture of the end state; older
   // ones only matter for how we got there, so they get a much smaller ration.
-  const latest = cps.at(-1)?.overview || ''
-  const earlier = cps.slice(0, -1).map((c) => `- **${c.title}** — ${clip(c.overview, 260)}`)
+  const last = cps.at(-1) || {}
+  let spent = 0
+  const earlier = []
+  for (const c of cps.slice(0, -1).reverse()) {
+    const text = clip(c.overview, BUDGET.earlier)
+    if (spent + text.length > BUDGET.earlierTotal) break
+    spent += text.length
+    earlier.unshift(`- **${c.title}** — ${text}`)
+  }
 
   const L = []
   L.push('---')
@@ -100,25 +160,47 @@ function brief(s) {
   if (s.repository) L.push(`repository: ${s.repository}`)
   if (s.branch) L.push(`branch: ${s.branch}`)
   L.push(`turns: ${s.turn_count}`)
+  L.push(`checkpoints: ${cps.length}`)
   L.push(`lastUsed: ${s.updated_at}`)
   L.push(`generated: ${new Date().toISOString()}`)
   L.push('---', '')
   L.push(`# ${title}`, '')
   L.push(
-    '> Context brief rebuilt from the local Copilot session store. It replaces replaying',
+    '> Context brief rebuilt from the local Copilot session store — the agent\'s own',
+    '> compaction checkpoints plus the closing exchanges verbatim. It replaces replaying',
     '> the transcript. Treat it as the current state of this work.',
     ''
   )
 
   if (s.summary && s.summary !== title) L.push('## Summary', '', clip(s.summary, 700), '')
 
-  if (latest) L.push('## Where things stand', '', clip(latest, BUDGET.overview), '')
-  if (earlier.length) L.push('## How we got here', '', ...earlier, '')
+  const section = (heading, text, budget) => {
+    const body = clip(text, budget)
+    if (body) L.push(`## ${heading}`, '', body, '')
+  }
+
+  section('Where things stand', last.overview, BUDGET.standing)
+  section('What has been done', last.work_done, BUDGET.workDone)
+  section('Technical details', last.technical_details, BUDGET.technical)
+  section('Key files', last.important_files, BUDGET.keyFiles)
+  section('Next steps', last.next_steps, BUDGET.nextSteps)
+  section('How we got here', last.history, BUDGET.history)
+
+  if (earlier.length) L.push('## Earlier checkpoints', '', ...earlier, '')
 
   if (turns.length) {
-    L.push('## The last things I asked for', '')
-    for (const t of [...turns].reverse()) L.push(`- ${clip(t.user_message, BUDGET.turns / turns.length)}`)
-    L.push('')
+    // Both sides of the exchange, newest-heaviest. Quoting only what the user
+    // asked left a successor guessing what was answered — the half of the
+    // conversation that carries the decisions.
+    L.push('## How the conversation ended', '')
+    const budgets = rations(turns.length, BUDGET.turns)
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const t = turns[i]
+      const n = budgets[i]
+      L.push(`**Asked:** ${clip(t.user_message, n)}`, '')
+      const replied = clip(t.assistant_response, n)
+      if (replied) L.push(`**Replied:** ${replied}`, '')
+    }
   }
 
   if (files.length) {
@@ -139,6 +221,12 @@ function brief(s) {
   return { title, body: L.join('\n') }
 }
 
+// Only do the work when run as a script; importing this file (tests) must not
+// touch the session store or the handoff folder.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isMain) main()
+
+function main() {
 mkdirSync(OUT, { recursive: true })
 const all = sessions()
 const written = []
@@ -174,3 +262,4 @@ writeFileSync(join(OUT, 'INDEX.md'), idx.join('\n'))
 const chars = written.reduce((n, w) => n + w.chars, 0)
 console.log(`wrote ${written.length} briefs to ${OUT}`)
 console.log(`total ~${Math.round(chars / 4).toLocaleString()} tokens for the entire roster`)
+}

@@ -168,17 +168,27 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
               <span className="settings-row__text">
                 <span className="settings-row__label">Restored context</span>
                 <span className="settings-row__desc">
-                  How a restored session gets its memory back. Transcript replays the whole
-                  conversation — exact, but the cost grows with the log and a very long history
-                  cannot be replayed at all. Brief starts fresh from a saved summary (~1–2k tokens)
-                  and leaves the context window free for work. The full transcript is kept either way.
+                  How a restored session gets its memory back. Auto replays the whole conversation
+                  while it is short and switches to the summary once the history outgrows it — which
+                  is almost never, for most sessions. Transcript always replays: exact, but the cost
+                  grows with the log and a very long history cannot be replayed at all. Brief always
+                  starts fresh from a saved summary (~1–2k tokens). The full transcript is kept
+                  either way.
                 </span>
               </span>
               <div className="settings-seg" role="group" aria-label="Restored context mode">
                 <button
                   type="button"
-                  className={`settings-seg__opt ${settings.contextMode !== 'brief' ? 'is-on' : ''}`}
-                  aria-pressed={settings.contextMode !== 'brief'}
+                  className={`settings-seg__opt ${settings.contextMode === 'auto' ? 'is-on' : ''}`}
+                  aria-pressed={settings.contextMode === 'auto'}
+                  onClick={() => onToggle('contextMode', 'auto')}
+                >
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  className={`settings-seg__opt ${settings.contextMode === 'transcript' ? 'is-on' : ''}`}
+                  aria-pressed={settings.contextMode === 'transcript'}
                   onClick={() => onToggle('contextMode', 'transcript')}
                 >
                   Transcript

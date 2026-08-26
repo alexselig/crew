@@ -3,6 +3,32 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.12 — 2026-08-26
+
+### Added
+- **Restored context now adapts to the length of the conversation.** A new
+  "Auto" mode — the default — replays the whole transcript while a session's
+  history is short and only falls back to the summary once it has genuinely
+  outgrown the context window (2 MB of agent log; the median session is 0.1 MB,
+  so nearly everything comes back in full). Transcript and Brief remain
+  available if you want the old all-or-nothing behaviour. Stores set to Brief
+  are moved to Auto once, because always-Brief was costing short sessions their
+  real history too.
+
+### Changed
+- **Handoff briefs carry far more of the conversation.** They were built from a
+  single checkpoint field and the user's half of the last six exchanges. They now
+  reproduce every checkpoint field Copilot writes — what was done, technical
+  details, key files, next steps and how the work got here — and quote both sides
+  of the closing exchanges, weighted so the newest turns are near-verbatim.
+  Typical brief: ~930 tokens, up from ~370; the richest ~9.5k, against hundreds
+  of thousands for a replay.
+- **Trimmed the workspace-filter notice back to the count.** The sidebar no
+  longer carries a "Show all sessions" button or a line about hidden sessions —
+  the header count reading "1 OF 100" is enough to show a filter is on, and the
+  ✕ on the workspace chip and File ▸ Change Workspace ▸ All Sessions already
+  turn it off.
+
 ## 0.5.11 — 2026-08-26
 
 ### Fixed

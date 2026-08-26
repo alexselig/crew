@@ -101,7 +101,7 @@ export interface Settings {
    * brief (see scripts/handoff.mjs), which distils the same work to ~1-2k
    * tokens. The original id is kept as priorSessionId, so nothing is lost and
    * the full transcript is still one command away. */
-  contextMode: 'transcript' | 'brief'
+  contextMode: 'transcript' | 'brief' | 'auto'
   /** Warn when total spend reaches this many USD (0 = off). */
   budgetUsd: number
   /** Warn in the session footer before submitting more than this many *input*

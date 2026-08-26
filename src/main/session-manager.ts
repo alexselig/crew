@@ -6,7 +6,7 @@ import * as pty from 'node-pty'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { homedir } from 'node:os'
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   StateDetector,
   DEFAULT_DETECTION,
@@ -22,6 +22,7 @@ import { getPreset } from './presets'
 import { defaultShell } from './platform'
 import { pickCharacter, isCharacterId } from './characters'
 import { briefPathFor, primerFor, resolveContext } from './handoff'
+import { statSync } from 'node:fs'
 import {
   normalizeSetNames,
   addToSets,
@@ -105,6 +106,22 @@ export declare interface SessionManager {
     event: E,
     ...args: Parameters<SessionManagerEvents[E]>
   ): boolean
+}
+
+/**
+ * Size of an agent conversation's own event log, or 0 when there isn't one.
+ *
+ * This is the only honest measure of "how long is this history" available
+ * before relaunching: the log is what the agent would have to replay.
+ */
+function transcriptBytes(agentSessionId: string | undefined): number {
+  if (!agentSessionId) return 0
+  try {
+    return statSync(join(homedir(), '.copilot', 'session-state', agentSessionId, 'events.jsonl')).size
+  } catch {
+    // No log yet, or an agent that keeps none: a short history by definition.
+    return 0
+  }
 }
 
 export class SessionManager extends EventEmitter {
@@ -789,7 +806,9 @@ export class SessionManager extends EventEmitter {
       agentSessionId,
       resume: this.store.settings.resumeConversations,
       contextMode: this.store.settings.contextMode,
-      resumeArgs: getPreset(presetId)?.resumeArgs
+      resumeArgs: getPreset(presetId)?.resumeArgs,
+      transcriptBytes: transcriptBytes(agentSessionId),
+      hasBrief: briefPathFor(agentSessionId) != null
     })
   }
 

@@ -42,6 +42,17 @@ export function primerFor(briefPath: string): string {
   )
 }
 
+/**
+ * The transcript size at which 'auto' stops replaying and starts from a brief.
+ *
+ * Measured against the agent's own event log. Sized from the real distribution
+ * on this machine: the median session log is ~0.1 MB and the 95th percentile is
+ * ~5 MB, so 2 MB leaves the overwhelming majority of sessions resuming exactly
+ * as they were and catches only the handful whose history has genuinely
+ * outgrown a context window.
+ */
+export const AUTO_BRIEF_BYTES = 2 * 1024 * 1024
+
 export interface RestoreContext {
   agentSessionId?: string
   priorSessionId?: string
@@ -60,13 +71,25 @@ export interface RestoreContext {
 export function resolveContext(opts: {
   agentSessionId?: string
   resume: boolean
-  contextMode: 'transcript' | 'brief'
+  contextMode: 'transcript' | 'brief' | 'auto'
   resumeArgs?: string[]
+  /** Size of the agent's event log, for 'auto'. Undefined = unknown, treated as small. */
+  transcriptBytes?: number
+  /** Whether a handoff brief exists for this conversation. 'auto' will not
+   *  supersede without one, because that would restore nothing at all. */
+  hasBrief?: boolean
 }): RestoreContext {
-  const { agentSessionId, resume, contextMode, resumeArgs } = opts
+  const { agentSessionId, resume, contextMode, resumeArgs, transcriptBytes, hasBrief } = opts
   const supersede: RestoreContext = { agentSessionId: undefined, priorSessionId: agentSessionId, extraArgs: [] }
   if (!resume) return supersede
   if (contextMode === 'brief' && agentSessionId) return supersede
+  if (contextMode === 'auto' && agentSessionId) {
+    // Replay while the history is short enough to be worth replaying; hand over
+    // to the brief once it isn't. Without a brief there is nothing to hand over
+    // to, so a long transcript is still better than a blank agent.
+    const outgrown = (transcriptBytes ?? 0) >= AUTO_BRIEF_BYTES
+    if (outgrown && hasBrief) return supersede
+  }
   return { agentSessionId, priorSessionId: undefined, extraArgs: resumeArgs ?? [] }
 }
 

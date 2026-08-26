@@ -139,3 +139,36 @@ describe('store migration — seed built-in agents', () => {
     expect(store.getAgents().map((a) => a.id)).toEqual(['ag_x'])
   })
 })
+
+describe('store migration — contextMode brief → auto', () => {
+  const ID = '2026-08-context-mode-auto'
+
+  it('moves a store stuck on brief onto auto and records it', () => {
+    const path = tmpStorePath()
+    seed(path, { settings: { ...DEFAULT_SETTINGS, contextMode: 'brief' } })
+
+    const store = new Store(path)
+    expect(store.settings.contextMode).toBe('auto')
+
+    const persisted = JSON.parse(readFileSync(path, 'utf8'))
+    expect(persisted.settings.contextMode).toBe('auto')
+    expect(persisted.migrations).toContain(ID)
+  })
+
+  it('leaves transcript alone', () => {
+    const path = tmpStorePath()
+    seed(path, { settings: { ...DEFAULT_SETTINGS, contextMode: 'transcript' } })
+
+    expect(new Store(path).settings.contextMode).toBe('transcript')
+  })
+
+  it('does not re-run, so choosing brief again sticks', () => {
+    const path = tmpStorePath()
+    seed(path, {
+      settings: { ...DEFAULT_SETTINGS, contextMode: 'brief' },
+      migrations: [ID]
+    })
+
+    expect(new Store(path).settings.contextMode).toBe('brief')
+  })
+})

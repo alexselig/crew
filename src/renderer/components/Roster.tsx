@@ -68,8 +68,8 @@ interface Props {
   onSetTag: (id: string, tag: string) => void
   /** Active workspace filter (null = All), shown as a clearable indicator. */
   activeWorkspace?: string | null
-  /** Sessions the active workspace filter is hiding. Shown so a filtered roster
-   *  can never be mistaken for a lost one. */
+  /** Sessions the active workspace filter is hiding. Turns the header count into
+   *  "1 OF 100" so a filtered roster is never mistaken for a lost one. */
   hiddenByWorkspace?: number
   onClearWorkspace?: () => void
 }
@@ -379,21 +379,6 @@ export function Roster(props: Props): JSX.Element {
               </div>
             )}
 
-            {hiddenByWorkspace > 0 && (
-              // The filter surviving one session is the dangerous case: the
-              // roster looks present, just wrong, and the empty state below
-              // never fires. Say what is missing and offer the way back.
-              <div className="roster__hidden">
-                {hiddenByWorkspace} {hiddenByWorkspace === 1 ? 'session' : 'sessions'} hidden by
-                this workspace
-                {onClearWorkspace && (
-                  <button type="button" className="roster__empty-action" onClick={onClearWorkspace}>
-                    Show all sessions
-                  </button>
-                )}
-              </div>
-            )}
-
             <button type="button" className="btn btn--newsession" onClick={onNew}>
               ＋ New Session
             </button>
@@ -408,22 +393,7 @@ export function Roster(props: Props): JSX.Element {
             // roster full of them — and it reads as Crew having lost the lot.
             // Say which filter is responsible, and offer the way out.
             <div className="roster__empty">
-              {activeWorkspace ? (
-                <>
-                  No sessions in “{activeWorkspace}”.
-                  {onClearWorkspace && (
-                    <button
-                      type="button"
-                      className="roster__empty-action"
-                      onClick={onClearWorkspace}
-                    >
-                      Show all sessions
-                    </button>
-                  )}
-                </>
-              ) : (
-                'No sessions yet.'
-              )}
+              {activeWorkspace ? `No sessions in “${activeWorkspace}”.` : 'No sessions yet.'}
             </div>
           )
         ) : applyGrouping ? (

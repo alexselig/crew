@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { briefPathFor, primerFor, resolveContext } from '../src/main/handoff'
+import { briefPathFor, primerFor, resolveContext, AUTO_BRIEF_BYTES } from '../src/main/handoff'
 
 describe('handoff briefs', () => {
   let dir: string
@@ -81,5 +81,53 @@ describe('resolveContext', () => {
         const c = resolveContext({ agentSessionId: ID, resume, contextMode })
         expect([c.agentSessionId, c.priorSessionId].filter(Boolean)).toEqual([ID])
       }
+  })
+})
+
+describe('auto context mode', () => {
+  const ID = 'abc'
+  const args = ['--continue']
+  const auto = (transcriptBytes: number, hasBrief = true): ReturnType<typeof resolveContext> =>
+    resolveContext({
+      agentSessionId: ID,
+      resume: true,
+      contextMode: 'auto',
+      resumeArgs: args,
+      transcriptBytes,
+      hasBrief
+    })
+
+  it('replays the whole conversation while the history is short', () => {
+    const c = auto(64 * 1024)
+    expect(c.agentSessionId).toBe(ID)
+    expect(c.extraArgs).toEqual(args)
+  })
+
+  it('still replays right up to the threshold', () => {
+    expect(auto(AUTO_BRIEF_BYTES - 1).agentSessionId).toBe(ID)
+  })
+
+  it('switches to the brief once the history outgrows it', () => {
+    const c = auto(AUTO_BRIEF_BYTES)
+    expect(c.agentSessionId).toBeUndefined()
+    expect(c.priorSessionId).toBe(ID)
+    expect(c.extraArgs).toEqual([])
+  })
+
+  it('replays a huge history anyway when no brief exists', () => {
+    // Superseding without a brief restores nothing at all, which is strictly
+    // worse than a transcript that may not fit.
+    expect(auto(500 * 1024 * 1024, false).agentSessionId).toBe(ID)
+  })
+
+  it('treats an unmeasurable history as short', () => {
+    const c = resolveContext({ agentSessionId: ID, resume: true, contextMode: 'auto', resumeArgs: args })
+    expect(c.agentSessionId).toBe(ID)
+  })
+
+  it('still honours resume being switched off', () => {
+    const c = resolveContext({ agentSessionId: ID, resume: false, contextMode: 'auto', transcriptBytes: 1 })
+    expect(c.agentSessionId).toBeUndefined()
+    expect(c.priorSessionId).toBe(ID)
   })
 })

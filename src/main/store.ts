@@ -64,7 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   costMode: 'auto',
   aicPerUsd: 100,
   resumeConversations: true,
-  contextMode: 'transcript',
+  contextMode: 'auto',
   budgetUsd: 0,
   inputTokenWarn: 100000,
   captureTranscripts: false,
@@ -136,6 +136,17 @@ const MIGRATIONS: Array<{ id: string; apply: (d: StoreData) => void }> = [
           .map((n) => byName.get(n.trim().toLowerCase()))
           .filter((x): x is string => !!x)
       }
+    }
+  },
+  {
+    // Move stores stuck on all-or-nothing 'brief' onto 'auto'. Brief was the
+    // only escape from replaying a huge log, and it cost every *short* session
+    // its real history too — a two-line conversation came back as a summary.
+    // 'auto' keeps the transcript until it actually outgrows the context window,
+    // which is what picking 'brief' was really asking for.
+    id: '2026-08-context-mode-auto',
+    apply: (d) => {
+      if (d.settings.contextMode === 'brief') d.settings.contextMode = 'auto'
     }
   },
   {
