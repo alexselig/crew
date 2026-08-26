@@ -3,6 +3,21 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.4 — 2026-08-26
+
+### Added
+- **Dated store snapshots, so a pruned roster is recoverable days later.** The
+  roster is the only record of which agent conversation each session maps to,
+  and it was protected by nothing but a `.bak`/`.bak2` pair rotated on *every*
+  save. Because the store is rewritten on nearly every event, a bug that dropped
+  sessions destroyed all three copies within seconds — which is exactly what
+  happened to a 63-session roster that came back as 12, with every backup
+  already overwritten. Crew now writes a dated snapshot of the roster it loaded,
+  at most once a day, keeping the last 14 in `backups/` beside the store. The
+  snapshot is taken at startup before anything can overwrite it, and an empty
+  roster is never snapshotted — otherwise the damage would spend a retention
+  slot that should hold the last good copy.
+
 ## 0.5.3 — 2026-08-26
 
 ### Fixed

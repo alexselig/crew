@@ -5,8 +5,8 @@
 // Privacy: we persist ONLY labels, character map and settings — never terminal
 // output, prompts, env values, or secrets (see SPEC §11).
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, copyFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, copyFileSync, readdirSync, unlinkSync } from 'node:fs'
+import { dirname, join, basename } from 'node:path'
 import type { Settings, SessionSet, Agent } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
@@ -169,12 +169,23 @@ export function identityKey(presetId: string | null, cwd: string): string {
   return `${presetId ?? 'custom'}::${cwd}`
 }
 
+/** Where dated snapshots live, relative to the store file's directory. */
+const SNAPSHOT_DIR = 'backups'
+/** How many dated snapshots to keep — roughly two weeks of history. */
+const SNAPSHOT_KEEP = 14
+const SNAPSHOT_PREFIX = 'crew-store-'
+
 export class Store {
   private data: StoreData
 
   constructor(private readonly path: string) {
     const { data, migrated } = this.load()
     this.data = data
+    // Snapshot what we just loaded, before anything can overwrite it. The .bak
+    // rotation only survives two saves, and the store is rewritten on nearly
+    // every event — so a bug that prunes the roster destroys all three copies
+    // within seconds. A dated snapshot is the only thing that survives that.
+    this.snapshot()
     // A migration that changed persisted data must be written back immediately,
     // so it records as applied and never re-runs on the next launch.
     if (migrated) this.persist()
@@ -279,6 +290,72 @@ export class Store {
     } catch {
       /* best-effort */
     }
+  }
+
+  /** The directory holding dated snapshots. */
+  get snapshotDir(): string {
+    return join(dirname(this.path), SNAPSHOT_DIR)
+  }
+
+  /** Existing snapshots, oldest first. The filename carries the date, so a
+   * plain lexical sort is chronological. */
+  private snapshots(): string[] {
+    try {
+      return readdirSync(this.snapshotDir)
+        .filter((f) => f.startsWith(SNAPSHOT_PREFIX) && f.endsWith('.json'))
+        .sort()
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Write at most one dated snapshot per day, keeping the last SNAPSHOT_KEEP.
+   *
+   * Deliberately refuses to snapshot an empty roster: the failure this exists to
+   * catch is the roster being silently pruned, and snapshotting that state would
+   * spend a retention slot recording the damage instead of the last good copy.
+   *
+   * Best-effort — a failed snapshot must never stop the app from starting.
+   */
+  private snapshot(): void {
+    if (this.data.sessions.length === 0) return
+    try {
+      const day = new Date().toISOString().slice(0, 10)
+      const file = join(this.snapshotDir, `${SNAPSHOT_PREFIX}${day}.json`)
+      if (existsSync(file)) return
+      mkdirSync(this.snapshotDir, { recursive: true })
+      writeFileSync(file, JSON.stringify(this.data, null, 2))
+      for (const stale of this.snapshots().slice(0, -SNAPSHOT_KEEP)) {
+        try {
+          unlinkSync(join(this.snapshotDir, stale))
+        } catch {
+          /* best-effort */
+        }
+      }
+    } catch (err) {
+      console.warn('[crew] failed to snapshot store:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  /** Dated snapshots available to restore from, newest first, with the session
+   * count each one holds so a caller can tell a healthy roster from a pruned one. */
+  listSnapshots(): { file: string; day: string; sessions: number }[] {
+    const out: { file: string; day: string; sessions: number }[] = []
+    for (const name of this.snapshots().reverse()) {
+      const file = join(this.snapshotDir, name)
+      try {
+        const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<StoreData>
+        out.push({
+          file,
+          day: basename(name, '.json').slice(SNAPSHOT_PREFIX.length),
+          sessions: raw.sessions?.length ?? 0
+        })
+      } catch {
+        /* skip unreadable snapshots */
+      }
+    }
+    return out
   }
 
   getAssignment(key: string): CharacterAssignment | undefined {
