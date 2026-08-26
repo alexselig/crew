@@ -1,14 +1,24 @@
-// A renderer-side pool of terminal engines — one per session, kept alive for the
-// whole session lifetime so scrollback and PTY state survive tab switches. The
-// visible <CrewTerminal> imperatively (re)attaches the engine's DOM element;
-// output is written here regardless of whether the session is currently shown.
+// A renderer-side pool of terminal engines. One per session while the session is
+// in active rotation, so scrollback and PTY state survive tab switches; output is
+// written here regardless of whether the session is currently shown.
+//
+// The pool is BOUNDED (MAX_LIVE_ENGINES). A large roster of background agents
+// streams output forever — spinners, progress bars, TUI repaints — so an
+// unbounded pool kept sixty-odd emulators parsing and buffering for sessions
+// nobody was watching, which exhausted the renderer's memory and made Blink
+// abort ("Oilpan: Large allocation ... out of memory"). Beyond the cap a session
+// goes *dormant*: it keeps its OSC parse state, semantic blocks, typed
+// transcript and a bounded replay tail, but owns no emulator until someone looks
+// at it. See lru.ts for the retirement policy.
 //
 // Beyond rendering, the pool feeds the same PTY stream through the pure OSC
 // parser + block tracker (shared/), so every session accrues a semantic command
 // history (getBlocks) and navigable landmarks — the payoff of owning the
-// terminal layer. Parsing here (not in the engine) keeps blocks engine-agnostic.
+// terminal layer. Parsing here (not in the engine) keeps blocks engine-agnostic,
+// and is precisely why a dormant session loses no history.
 
 import { createXtermEngine } from './xterm-engine'
+import { selectEvictions } from './lru'
 import type { Disposable, EngineMarker, LinkProvider } from './engine'
 import { OscParser, type OscEvent } from '../../shared/osc'
 import { BlockTracker, type Block } from '../../shared/blocks'
@@ -18,13 +28,15 @@ import { findAssetPaths } from '../../shared/assets'
 import { previewToken } from '../preview-bus'
 import type { TranscriptBlock } from '../transcript/types'
 
-export interface Pooled {
-  engine: ReturnType<typeof createXtermEngine>
+/**
+ * Everything Crew knows about a session's terminal that is NOT the emulator:
+ * the OSC parse state, semantic blocks, the typed transcript, and a bounded
+ * tail of raw output. All of it is plain data, so it survives when the engine
+ * is retired and makes a retired session cheap to bring back.
+ */
+export interface Semantic {
   parser: OscParser
   blocks: BlockTracker
-  linkSub: Disposable
-  /** Landmark rows for jump-to-prompt: OSC 133 prompt starts + Enter submits. */
-  marks: EngineMarker[]
   /** True once the session emits any OSC 133 mark (shell integration active),
    *  which switches input highlighting from the coarse Enter fallback to the
    *  accurate, semantic prompt marks. */
@@ -35,14 +47,47 @@ export interface Pooled {
   lastInputLine: string
   /** Monotonic id source for transcript blocks. */
   txSeq: number
+  /** Recent raw output, replayed into a rebuilt engine so a retired session
+   *  still opens with context instead of a blank screen. Held as chunks (with
+   *  a running length) rather than one string — appending to a 64 KB string on
+   *  every PTY chunk, for every session, is itself a CPU sink. */
+  tailParts: string[]
+  tailLen: number
+  /** When a human last had this terminal on screen — drives retirement. Set by
+   *  touch() on mount, never by output (see lru.ts for why). */
+  lastUsed: number
 }
 
+export interface Pooled extends Semantic {
+  engine: ReturnType<typeof createXtermEngine>
+  linkSub: Disposable
+  /** Landmark rows for jump-to-prompt: OSC 133 prompt starts + Enter submits. */
+  marks: EngineMarker[]
+}
+
+// Live engines, capped by MAX_LIVE_ENGINES.
 const pool = new Map<string, Pooled>()
+// Sessions whose engine has been retired to bound memory. The session is very
+// much alive — output still parses into blocks and the transcript here — it
+// simply has no emulator until someone looks at it again.
+const dormant = new Map<string, Semantic>()
 // Ids of sessions whose engines have been disposed. A killed PTY can emit one
 // last chunk *after* the session left the roster; without this guard writeTo →
 // getPooled would recreate ("resurrect") a terminal that is never attached or
 // disposed again. Session ids are UUIDs (never reused), so this set is safe.
 const tombstones = new Set<string>()
+
+/**
+ * How many terminal emulators may exist at once. Everything above this is
+ * retired to `dormant`, which costs a session nothing user-visible beyond
+ * scrollback older than its replay tail. Well above the number of panes any
+ * grid layout shows, so ordinary use never retires anything; it only bites on
+ * the large rosters that were exhausting the renderer.
+ */
+export const MAX_LIVE_ENGINES = 12
+
+/** Raw output replayed into a rebuilt engine (~a few screens of context). */
+export const TAIL_LIMIT = 64 * 1024
 
 // Cap navigable landmarks per session; xterm also auto-disposes markers when
 // their row leaves scrollback, so this only bounds the array itself.
@@ -61,6 +106,78 @@ const PROMPT_ACCENT = '#E8A317'
 const OK_RULER = '#43b581'
 const ERR_RULER = '#e5484d'
 
+function newSemantic(): Semantic {
+  return {
+    parser: new OscParser(),
+    blocks: new BlockTracker(),
+    hasSemanticMarks: false,
+    transcript: [],
+    lastInputLine: '',
+    txSeq: 0,
+    tailParts: [],
+    tailLen: 0,
+    lastUsed: Date.now()
+  }
+}
+
+/** Append raw output to the bounded replay tail. */
+function pushTail(s: Semantic, data: string): void {
+  s.tailParts.push(data)
+  s.tailLen += data.length
+  while (s.tailLen > TAIL_LIMIT && s.tailParts.length > 1) {
+    s.tailLen -= s.tailParts.shift()!.length
+  }
+}
+
+/**
+ * Dispose a session's emulator but keep the session: its parse state, blocks,
+ * transcript and replay tail move to `dormant`, so output keeps accruing and
+ * reopening restores context. Markers are dropped — they anchor to rows in the
+ * buffer being destroyed.
+ */
+function retire(id: string): void {
+  const p = pool.get(id)
+  if (!p) return
+  try {
+    p.linkSub.dispose()
+    p.engine.dispose()
+  } catch {
+    /* already disposed */
+  }
+  pool.delete(id)
+  dormant.set(id, {
+    parser: p.parser,
+    blocks: p.blocks,
+    hasSemanticMarks: p.hasSemanticMarks,
+    transcript: p.transcript,
+    lastInputLine: p.lastInputLine,
+    txSeq: p.txSeq,
+    tailParts: p.tailParts,
+    tailLen: p.tailLen,
+    lastUsed: p.lastUsed
+  })
+}
+
+/** Retire least-recently-viewed unmounted engines until the pool fits the cap. */
+function enforceCap(): void {
+  const entries = [...pool.entries()].map(([id, p]) => ({
+    id,
+    lastUsed: p.lastUsed,
+    mounted: p.engine.mounted
+  }))
+  for (const id of selectEvictions(entries, MAX_LIVE_ENGINES)) retire(id)
+}
+
+/**
+ * Mark a session as just-viewed so it sorts last for retirement. Called when a
+ * terminal mounts; deliberately NOT called on write, because background agents
+ * stream output constantly and would otherwise all look "recently used".
+ */
+export function touch(id: string): void {
+  const p = pool.get(id)
+  if (p) p.lastUsed = Date.now()
+}
+
 export function getPooled(id: string): Pooled {
   let p = pool.get(id)
   if (!p) {
@@ -74,18 +191,17 @@ export function getPooled(id: string): Pooled {
       activate: (text) => void previewToken(id, text)
     }
     const linkSub = engine.registerLinkProvider(provider)
-    p = {
-      engine,
-      parser: new OscParser(),
-      blocks: new BlockTracker(),
-      linkSub,
-      marks: [],
-      hasSemanticMarks: false,
-      transcript: [],
-      lastInputLine: '',
-      txSeq: 0
-    }
+    // Reclaim the semantics of a previously retired session, so blocks and the
+    // transcript continue rather than restart.
+    const sem = dormant.get(id) ?? newSemantic()
+    dormant.delete(id)
+    sem.lastUsed = Date.now()
+    p = { ...sem, engine, linkSub, marks: [] }
     pool.set(id, p)
+    // Replay recent output straight into the engine — not through writeTo,
+    // which would re-parse it and duplicate blocks already recorded.
+    if (p.tailLen > 0) engine.write(p.tailParts.join(''))
+    enforceCap()
   }
   return p
 }
@@ -93,22 +209,50 @@ export function getPooled(id: string): Pooled {
 // Cap the typed transcript so a long session doesn't grow it without bound.
 const MAX_TX = 400
 
-function pushTx(p: Pooled, block: TranscriptBlock): void {
+function pushTx(p: Semantic, block: TranscriptBlock): void {
   p.transcript.push(block)
   if (p.transcript.length > MAX_TX) p.transcript.splice(0, p.transcript.length - MAX_TX)
 }
 
+/**
+ * Feed one PTY chunk through the semantic layer: replay tail, OSC parse, block
+ * tracking, and (only when an engine is live and mounted) visual decorations.
+ * Runs identically for live and dormant sessions, which is what lets a retired
+ * terminal keep an accurate transcript with no emulator attached.
+ */
+function ingest(s: Semantic, data: string, p: Pooled | null): void {
+  pushTail(s, data)
+  const now = Date.now()
+  for (const ev of s.parser.push(data)) {
+    s.blocks.apply(ev, now)
+    onBoundary(s, ev, now, p)
+  }
+}
+
 export function writeTo(id: string, data: string): void {
   if (tombstones.has(id)) return
-  // Create-on-demand so output for a not-yet-viewed session is buffered in the
-  // engine (preserving scrollback) rather than dropped.
-  const p = getPooled(id)
-  p.engine.write(data)
-  const now = Date.now()
-  for (const ev of p.parser.push(data)) {
-    p.blocks.apply(ev, now)
-    onBoundary(p, ev, now)
+  const live = pool.get(id)
+  if (live) {
+    live.engine.write(data)
+    ingest(live, data, live)
+    return
   }
+  let s = dormant.get(id)
+  if (!s && pool.size < MAX_LIVE_ENGINES) {
+    // Room to spare: give a not-yet-viewed session a real terminal so opening
+    // it is instant and its full scrollback is there.
+    const p = getPooled(id)
+    p.engine.write(data)
+    ingest(p, data, p)
+    return
+  }
+  // At the cap, output for an unviewed session accrues semantically only. This
+  // is the case that used to allocate a 63rd emulator and kill the renderer.
+  if (!s) {
+    s = newSemantic()
+    dormant.set(id, s)
+  }
+  ingest(s, data, null)
 }
 
 /** Renderer-agnostic buffer text for a session (empty if not pooled). Reads the
@@ -124,7 +268,7 @@ export function bufferText(id: string): string {
  */
 export function recordInput(id: string, line: string): void {
   const text = line.trim()
-  const p = pool.get(id)
+  const p = pool.get(id) ?? dormant.get(id)
   if (!p) return
   p.lastInputLine = text
   if (!text) return
@@ -133,30 +277,32 @@ export function recordInput(id: string, line: string): void {
 
 /** The typed session scrollback for the Transcript view (a copy). */
 export function getTranscript(id: string): TranscriptBlock[] {
-  return pool.get(id)?.transcript.slice() ?? []
+  return (pool.get(id) ?? dormant.get(id))?.transcript.slice() ?? []
 }
 
 /** React to semantic marks: build typed transcript blocks, highlight the
  *  prompt/input row accurately, keep navigation landmarks, and paint exit-code
  *  ruler ticks. Any mark also flips hasSemanticMarks so the coarse Enter
- *  fallback stands down for this session. */
-function onBoundary(p: Pooled, ev: OscEvent, now: number): void {
+ *  fallback stands down for this session. Decorations need a live, mounted
+ *  engine; the typed transcript does not, so a dormant session (p === null)
+ *  still records everything but the visuals. */
+function onBoundary(s: Semantic, ev: OscEvent, now: number, p: Pooled | null): void {
   if (ev.kind === 'prompt-start' || ev.kind === 'output-start' || ev.kind === 'command-end') {
-    p.hasSemanticMarks = true
+    s.hasSemanticMarks = true
   }
   // Typed transcript (independent of whether the terminal is currently mounted).
   if (ev.kind === 'command-end') {
-    pushTx(p, {
+    pushTx(s, {
       kind: 'tool',
-      id: `r${++p.txSeq}`,
-      command: p.lastInputLine || '(command)',
+      id: `r${++s.txSeq}`,
+      command: s.lastInputLine || '(command)',
       exitCode: ev.exitCode,
       durationMs: undefined,
       ts: now
     })
   }
   // Visual decorations require a mounted terminal.
-  if (!p.engine.mounted) return
+  if (!p || !p.engine.mounted) return
   if (ev.kind === 'prompt-start') {
     // The prompt line: highlight it (this is where the user's command is typed)
     // and record it as a jump target.
@@ -194,7 +340,7 @@ export function focusTerminal(id: string): void {
 
 /** Semantic command blocks accrued for a session (oldest first). */
 export function getBlocks(id: string): Block[] {
-  return pool.get(id)?.blocks.list() ?? []
+  return (pool.get(id) ?? dormant.get(id))?.blocks.list() ?? []
 }
 
 /**
@@ -251,5 +397,30 @@ export function disposePooled(id: string): void {
     }
     pool.delete(id)
   }
+  dormant.delete(id)
   tombstones.add(id)
+}
+
+/** Live engine count — the bounded resource. For tests and diagnostics. */
+export function liveEngineCount(): number {
+  return pool.size
+}
+
+/** Sessions kept semantically but without an emulator. For tests/diagnostics. */
+export function dormantCount(): number {
+  return dormant.size
+}
+
+/** Drop all pooled state. Tests only — production disposes per session. */
+export function resetPoolForTests(): void {
+  for (const id of [...pool.keys()]) {
+    try {
+      pool.get(id)!.engine.dispose()
+    } catch {
+      /* ignore */
+    }
+  }
+  pool.clear()
+  dormant.clear()
+  tombstones.clear()
 }
