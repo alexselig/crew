@@ -28,6 +28,9 @@ vi.mock('node-pty', () => ({ spawn: fakeSpawn, default: { spawn: fakeSpawn } }))
 import { SessionManager } from '../src/main/session-manager'
 import { Store, type PersistedSession } from '../src/main/store'
 
+// Mirrors RESTORE_BATCH_GAP_MS in session-manager.
+const RESTORE_GAP = 400
+
 function session(i: number): PersistedSession {
   return {
     id: `s${i}`,
@@ -101,6 +104,43 @@ describe('restoring a large roster', () => {
     vi.advanceTimersByTime(10_000)
 
     expect(spawned.length).toBe(atShutdown)
+  })
+
+  it('never prunes not-yet-spawned sessions from the saved roster', () => {
+    const store = storeWith(30)
+    const manager = new SessionManager(store)
+    manager.restore()
+
+    // A save fires on nearly every event, so one lands long before the last
+    // batch has spawned. It must not treat "not spawned yet" as "removed".
+    manager.disposeAll()
+
+    expect(store.getSessions()).toHaveLength(30)
+  })
+
+  it('keeps the whole roster when quit lands mid-restore', () => {
+    const store = storeWith(30)
+    const manager = new SessionManager(store)
+    manager.restore()
+    vi.advanceTimersByTime(RESTORE_GAP * 2)
+
+    manager.disposeAll()
+
+    expect(store.getSessions()).toHaveLength(30)
+  })
+
+  it('does not resurrect a session closed before its batch spawned', () => {
+    const store = storeWith(30)
+    const manager = new SessionManager(store)
+    manager.restore()
+
+    manager.close('s29')
+    vi.advanceTimersByTime(10_000)
+    manager.disposeAll()
+
+    const saved = store.getSessions().map((s) => s.id)
+    expect(saved).toHaveLength(29)
+    expect(saved).not.toContain('s29')
   })
 
   it('still restores a small roster immediately, with no batching delay', () => {

@@ -104,6 +104,11 @@ export class SessionManager extends EventEmitter {
   // Pending batches from restore(), so shutdown can cancel them instead of
   // spawning agents into a tearing-down app.
   private readonly restoreTimers = new Set<ReturnType<typeof setTimeout>>()
+  // Saved sessions that restore() has not spawned yet. They are NOT in
+  // `sessions` and so would be invisible to persistSessions() — which saves the
+  // live map — and a save triggered mid-restore (or a quit before the last
+  // batch lands) would silently prune them from the roster for good.
+  private pendingRestore: PersistedSession[] = []
 
   constructor(
     private readonly store: Store,
@@ -551,6 +556,9 @@ export class SessionManager extends EventEmitter {
   }
 
   close(id: string): void {
+    // Drop it from the restore queue too, or closing a session that hasn't been
+    // spawned yet would leave it pending and resurrect it on the next save.
+    this.pendingRestore = this.pendingRestore.filter((p) => p.id !== id)
     const m = this.sessions.get(id)
     if (!m) return
     if (m.proc) {
@@ -653,6 +661,12 @@ export class SessionManager extends EventEmitter {
         createdAt: m.info.createdAt,
         lastPromptAt: m.info.lastPromptAt
       }))
+    // Sessions restore() has queued but not spawned yet aren't in the map, so
+    // saving only the map would delete them from the roster permanently — a
+    // save fires on nearly every event, so this would happen within seconds of
+    // launch on any roster big enough to batch.
+    const live = new Set(list.map((s) => s.id))
+    for (const p of this.pendingRestore) if (!live.has(p.id)) list.push(p)
     this.store.saveSessions(list)
   }
 
@@ -699,7 +713,10 @@ export class SessionManager extends EventEmitter {
     const persisted = this.store.getSessions()
     const first = persisted.slice(0, RESTORE_BATCH).map((p) => this.restoreOne(p))
     const rest = persisted.slice(RESTORE_BATCH)
-    if (rest.length) this.scheduleRestore(rest)
+    if (rest.length) {
+      this.pendingRestore = [...rest]
+      this.scheduleRestore(rest)
+    }
     return first
   }
 
@@ -708,7 +725,11 @@ export class SessionManager extends EventEmitter {
     const timer = setTimeout(() => {
       this.restoreTimers.delete(timer)
       if (this.disposing) return
-      for (const p of queue.slice(0, RESTORE_BATCH)) {
+      const batch = queue.slice(0, RESTORE_BATCH)
+      for (const p of batch) {
+        // Skip anything the user closed while it was still queued — close()
+        // drops it from pendingRestore, and spawning it now would resurrect it.
+        if (!this.pendingRestore.some((q) => q.id === p.id)) continue
         try {
           this.restoreOne(p)
         } catch (err) {
@@ -720,6 +741,9 @@ export class SessionManager extends EventEmitter {
           )
         }
       }
+      // Only stop covering these once they are in the live map.
+      const done = new Set(batch.map((p) => p.id))
+      this.pendingRestore = this.pendingRestore.filter((p) => !done.has(p.id))
       this.emitRoster()
       const rest = queue.slice(RESTORE_BATCH)
       if (rest.length) this.scheduleRestore(rest)

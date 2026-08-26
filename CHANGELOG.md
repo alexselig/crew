@@ -3,6 +3,18 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.6 — 2026-08-26
+
+### Fixed
+- **Batched restore could prune the roster it was still restoring.** 0.5.5 began
+  re-launching saved sessions in batches, but `persistSessions()` saves the live
+  session map — and a queued session isn't in it yet. Because a save fires on
+  nearly every event, a 63-session roster was rewritten to 16 within seconds of
+  launch, deleting the rest permanently. Queued sessions are now persisted
+  alongside live ones until they spawn, closing a session that hasn't spawned
+  yet removes it from the queue instead of resurrecting it on the next save, and
+  a quit mid-restore keeps the whole roster.
+
 ## 0.5.5 — 2026-08-26
 
 ### Fixed
