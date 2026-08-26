@@ -3,6 +3,19 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.3
+
+### Fixed
+- **Flicker / unusable window: process-table exhaustion.** `resolveGithubUrl`
+  shelled out to `git remote get-url origin` on every call, and `GithubButton`
+  re-resolves on every mount *and* every `window.focus`. Across a restored
+  roster this reached ~2,000 concurrent `git` processes and hit the per-user
+  limit (`kern.maxprocperuid`), so new spawns failed with
+  `fork: Resource temporarily unavailable`. Measured 772 -> 5,496 processes in
+  40 seconds. Remotes are now memoised with a 30s TTL and concurrent callers
+  are de-duplicated onto a single in-flight lookup, so a burst of 200 callers
+  performs exactly one spawn.
+
 ## 0.5.2 — 2026-08-26
 
 **Sessions too large to replay can now come back.**
