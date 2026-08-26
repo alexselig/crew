@@ -3,6 +3,21 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.5 — 2026-08-26
+
+### Fixed
+- **Window-wide flicker on startup with a large roster: every saved session was
+  re-launched in one tick.** `restore()` spawned a PTY for every persisted
+  session in a single synchronous loop. Each one immediately streams its agent's
+  boot output into its own terminal engine, so a 63-session roster put 63
+  terminals' worth of output on the renderer in the same frame — measured at
+  534% CPU and 4.9 GB resident, which flickers the whole window until it catches
+  up. This is why the flicker got worse as the roster grew. Crew now restores in
+  batches of 4 with a short gap, returning the first batch immediately and
+  filling the rest in via roster events; queued batches are cancelled on quit so
+  shutdown never spawns agents into a closing app, and one session that fails to
+  restore no longer strands the ones queued behind it.
+
 ## 0.5.4 — 2026-08-26
 
 ### Added

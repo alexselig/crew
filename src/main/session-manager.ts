@@ -43,6 +43,12 @@ const EVENT_CAP = 2000
 // Poll agent autopilot state every ~1s (4 ticks) — cheap, since a session's
 // transcript / event log is only re-read when it actually changes.
 const AUTOPILOT_POLL_TICKS = 4
+// How many saved sessions to re-launch at once on startup, and the gap between
+// batches. Each session spawns a PTY that immediately streams its agent's boot
+// output into its own terminal engine, so restoring a large roster in one tick
+// saturates the renderer and flickers the whole window until it catches up.
+const RESTORE_BATCH = 4
+const RESTORE_BATCH_GAP_MS = 400
 
 interface Managed {
   info: SessionInfo
@@ -95,6 +101,9 @@ export class SessionManager extends EventEmitter {
   // Set during shutdown so PTY exit handlers don't overwrite the saved session
   // list with an empty one (which would defeat resume-on-next-launch).
   private disposing = false
+  // Pending batches from restore(), so shutdown can cancel them instead of
+  // spawning agents into a tearing-down app.
+  private readonly restoreTimers = new Set<ReturnType<typeof setTimeout>>()
 
   constructor(
     private readonly store: Store,
@@ -596,6 +605,10 @@ export class SessionManager extends EventEmitter {
     // Freeze persistence first: the kills below fire onExit handlers that would
     // otherwise save an empty session list and wipe the resume state.
     this.disposing = true
+    // Cancel any restore batches still queued, so shutdown doesn't spawn fresh
+    // agents into a tearing-down app.
+    for (const t of this.restoreTimers) clearTimeout(t)
+    this.restoreTimers.clear()
     for (const m of this.sessions.values()) {
       if (m.proc) {
         try {
@@ -672,29 +685,67 @@ export class SessionManager extends EventEmitter {
    * Re-launch the sessions saved from a previous run. A live agent process can't
    * literally be frozen, so this restores the workspace layout — same agent, cwd,
    * label and character — by spawning each session fresh. Call once on startup.
+   *
+   * Spawns in small batches rather than all at once. Every session brings up a
+   * PTY that immediately streams its agent's boot output into its own terminal
+   * engine; doing that for a whole roster in a single tick pegs the renderer and
+   * makes the entire window flicker while it catches up — and the bigger the
+   * roster, the longer it lasts. Batching keeps the UI responsive and lets the
+   * roster fill in visibly instead of freezing until it's done.
+   *
+   * Returns the first batch synchronously; the rest arrive via roster events.
    */
   restore(): SessionInfo[] {
     const persisted = this.store.getSessions()
-    return persisted.map((p) => {
-      const ctx = this.contextFor(p.agentSessionId ?? p.priorSessionId, p.presetId)
-      return this.create(
-        { presetId: p.presetId, command: p.command, args: p.args, cwd: p.cwd, label: p.label },
-        {
-          id: p.id,
-          agentSessionId: ctx.agentSessionId,
-          priorSessionId: ctx.priorSessionId,
-          characterId: p.characterId,
-          color: p.color ?? fallbackCharacterColor(p.id),
-          extraArgs: ctx.extraArgs,
-          tag: p.tag,
-          sets: p.sets,
-          workspaceIds: p.workspaceIds,
-          description: p.description,
-          createdAt: p.createdAt,
-          lastPromptAt: p.lastPromptAt
+    const first = persisted.slice(0, RESTORE_BATCH).map((p) => this.restoreOne(p))
+    const rest = persisted.slice(RESTORE_BATCH)
+    if (rest.length) this.scheduleRestore(rest)
+    return first
+  }
+
+  /** Spawn the next batch after a gap, then queue the one after it. */
+  private scheduleRestore(queue: PersistedSession[]): void {
+    const timer = setTimeout(() => {
+      this.restoreTimers.delete(timer)
+      if (this.disposing) return
+      for (const p of queue.slice(0, RESTORE_BATCH)) {
+        try {
+          this.restoreOne(p)
+        } catch (err) {
+          // One session that can't be restored (e.g. its cwd is gone) must not
+          // strand every session queued behind it.
+          console.warn(
+            `[crew] failed to restore session ${p.label}:`,
+            err instanceof Error ? err.message : err
+          )
         }
-      )
-    })
+      }
+      this.emitRoster()
+      const rest = queue.slice(RESTORE_BATCH)
+      if (rest.length) this.scheduleRestore(rest)
+    }, RESTORE_BATCH_GAP_MS)
+    this.restoreTimers.add(timer)
+  }
+
+  private restoreOne(p: PersistedSession): SessionInfo {
+    const ctx = this.contextFor(p.agentSessionId ?? p.priorSessionId, p.presetId)
+    return this.create(
+      { presetId: p.presetId, command: p.command, args: p.args, cwd: p.cwd, label: p.label },
+      {
+        id: p.id,
+        agentSessionId: ctx.agentSessionId,
+        priorSessionId: ctx.priorSessionId,
+        characterId: p.characterId,
+        color: p.color ?? fallbackCharacterColor(p.id),
+        extraArgs: ctx.extraArgs,
+        tag: p.tag,
+        sets: p.sets,
+        workspaceIds: p.workspaceIds,
+        description: p.description,
+        createdAt: p.createdAt,
+        lastPromptAt: p.lastPromptAt
+      }
+    )
   }
 
   /**
