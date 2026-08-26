@@ -375,7 +375,29 @@ export function Roster(props: Props): JSX.Element {
 
       <div className="roster__list">
         {roster.length === 0 ? (
-          !railed && <div className="roster__empty">No sessions yet.</div>
+          !railed && (
+            // "No sessions yet" is a lie when a workspace filter is hiding a
+            // roster full of them — and it reads as Crew having lost the lot.
+            // Say which filter is responsible, and offer the way out.
+            <div className="roster__empty">
+              {activeWorkspace ? (
+                <>
+                  No sessions in “{activeWorkspace}”.
+                  {onClearWorkspace && (
+                    <button
+                      type="button"
+                      className="roster__empty-action"
+                      onClick={onClearWorkspace}
+                    >
+                      Show all sessions
+                    </button>
+                  )}
+                </>
+              ) : (
+                'No sessions yet.'
+              )}
+            </div>
+          )
         ) : applyGrouping ? (
           groups.map((g) => (
             <div className="group" key={g.name}>

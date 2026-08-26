@@ -698,8 +698,8 @@ function registerIpc(): void {
     rebuildAppMenu()
     return sets
   })
-  ipcMain.handle(IPC.SETS_LAUNCH, (_e, name: string) => {
-    manager.launchSet(name)
+  ipcMain.handle(IPC.SETS_LAUNCH, (_e, p: { name: string; workspaceIds?: string[] }) => {
+    manager.launchSet(p.name, p.workspaceIds)
   })
   ipcMain.handle(IPC.SETS_DELETE, (_e, name: string) => {
     const sets = store.deleteSet(name)

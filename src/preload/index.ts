@@ -73,7 +73,7 @@ const api: CrewAPI = {
   updateSettings: (patch) => ipcRenderer.invoke(IPC.SETTINGS_UPDATE, patch),
   getSets: () => ipcRenderer.invoke(IPC.SETS_GET),
   saveSet: (name) => ipcRenderer.invoke(IPC.SETS_SAVE, name),
-  launchSet: (name) => ipcRenderer.invoke(IPC.SETS_LAUNCH, name),
+  launchSet: (name, workspaceIds) => ipcRenderer.invoke(IPC.SETS_LAUNCH, { name, workspaceIds }),
   deleteSet: (name) => ipcRenderer.invoke(IPC.SETS_DELETE, name),
 
   sendInput: (id, data) => ipcRenderer.send(IPC.SESSION_INPUT, { id, data }),

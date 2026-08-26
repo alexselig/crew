@@ -341,7 +341,7 @@ export function NewSessionModal({
                 sets={sets}
                 emptyText="None saved yet"
                 onLaunch={(name) => {
-                  void window.crew.launchSet(name)
+                  void window.crew.launchSet(name, [...selectedIds])
                   onCancel()
                 }}
                 onDelete={(name) => void window.crew.deleteSet(name).then(setSets)}

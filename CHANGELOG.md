@@ -3,6 +3,22 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.10 — 2026-08-26
+
+### Fixed
+- **"No sessions yet" when a workspace filter was hiding all of them.** With a
+  workspace open that contained none of your sessions, the sidebar reported an
+  empty roster — indistinguishable from Crew having lost your work. It now names
+  the workspace responsible and offers a "Show all sessions" way out.
+- **Resuming a saved set appeared to do nothing.** Resumed sessions joined no
+  workspace, so under an active filter they landed somewhere you weren't looking:
+  the click worked, the sessions were real, and none of them were on screen. A
+  resumed set now joins the workspace you're viewing, exactly as a new session
+  does.
+- **Resuming a set no longer boots every agent at once.** A set can be dozens of
+  sessions; starting them together was the same storm that restoring a roster
+  used to cause. Sets now come back asleep and start as you open them.
+
 ## 0.5.9 — 2026-08-26
 
 ### Fixed

@@ -841,7 +841,7 @@ export class SessionManager extends EventEmitter {
    * (e.g. --continue) when conversation resume is enabled, so relaunching a set
    * genuinely resumes its agents rather than starting them cold.
    */
-  launchSet(name: string): SessionInfo[] {
+  launchSet(name: string, workspaceIds?: string[]): SessionInfo[] {
     const set = this.store.sets.find((s) => s.name === name)
     if (!set) return []
     return set.sessions.map((d) => {
@@ -856,7 +856,16 @@ export class SessionManager extends EventEmitter {
           color: d.color,
           extraArgs: ctx.extraArgs.length ? ctx.extraArgs : undefined,
           tag: d.tag,
-          sets: d.sets
+          sets: d.sets,
+          // Join the workspace being viewed, exactly as a newly created session
+          // does. A set saved before workspaces existed belongs to none of them,
+          // so resuming it under a filter would drop 36 sessions somewhere the
+          // user isn't looking and read as nothing having happened.
+          workspaceIds: workspaceIds?.length ? workspaceIds : undefined,
+          // Asleep, like anything else coming back onto the roster: a set can be
+          // dozens of sessions, and booting them all at once is the storm that
+          // restore() no longer causes. They appear at once and start as opened.
+          defer: true
         }
       )
     })

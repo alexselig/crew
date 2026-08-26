@@ -220,6 +220,26 @@ button {
   color: var(--text-faint);
   text-align: center;
   padding: 32px 12px;
+  line-height: 1.5;
+}
+
+/* The way out of a filter that is hiding every session. */
+.roster__empty-action {
+  display: block;
+  margin: 10px auto 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.roster__empty-action:hover {
+  color: var(--text);
+  border-color: var(--line-strong, var(--line));
 }
 
 /* ---------- Session card (sidebar row) ---------- */

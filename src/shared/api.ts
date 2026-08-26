@@ -163,7 +163,12 @@ export interface CrewAPI {
   updateSettings(patch: Partial<Settings>): Promise<Settings>
   getSets(): Promise<SessionSet[]>
   saveSet(name: string): Promise<SessionSet[]>
-  launchSet(name: string): Promise<void>
+  /**
+   * Resume a saved set. `workspaceIds` is the workspace the user is currently
+   * looking at: without it the resumed sessions land outside the active filter
+   * and the click looks like it did nothing.
+   */
+  launchSet(name: string, workspaceIds?: string[]): Promise<void>
   deleteSet(name: string): Promise<SessionSet[]>
 
   // fire-and-forget (high-frequency)
