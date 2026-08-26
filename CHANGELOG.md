@@ -17,8 +17,16 @@ running and supervising multiple AI CLI agent sessions at a glance.
   a roster was worked through, and why restarting the app cleared it. Crew now
   enforces its own budget of 8 contexts, reclaims them from off-screen terminals
   (invisible — they aren't painting), and leaves a newly shown terminal on the
-  DOM renderer rather than evicting a visible one. A GPU-initiated context loss
-  now returns its slot to the budget instead of leaking it.
+  DOM renderer rather than evicting a visible one. Releasing a context also
+  calls `WEBGL_lose_context`: disposing the addon drops the canvas, but the GL
+  context itself lingers until the browser collects it, and Chromium counts
+  those against the cap — so a burst of mounts (opening grid view over a big
+  roster) could still overshoot. A GPU-initiated context loss now returns its
+  slot to the budget instead of leaking it.
+
+  Verified end-to-end in a real renderer (`test/e2e/webgl-budget.verify.mjs`):
+  walking a 24-session roster made Chromium force-lose a context **8 times**
+  before the fix, and **0 times** after.
 - **Flicker / unusable window: process-table exhaustion.** `resolveGithubUrl`
   shelled out to `git remote get-url origin` on every call, and `GithubButton`
   re-resolves on every mount *and* every `window.focus`. Across a restored

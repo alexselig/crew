@@ -108,6 +108,13 @@ export function _resetWebglBudget(): void {
 /** Test seam: the ceiling enforced on live WebGL contexts. */
 export const _MAX_WEBGL_CONTEXTS = MAX_WEBGL_CONTEXTS
 
+// Expose the live context count for e2e/inspection, as facade.ts does for
+// terminal text. Harmless in production (a pure read of a Set's size).
+;(
+  globalThis as { __crewWebglContexts?: () => number; __crewWebglBudget?: number }
+).__crewWebglContexts = _webglContextCount
+;(globalThis as { __crewWebglBudget?: number }).__crewWebglBudget = MAX_WEBGL_CONTEXTS
+
 /** Wraps an xterm IMarker as an engine-agnostic EngineMarker while retaining the
  *  underlying marker so decorate() can anchor to it. */
 class XtermMarker implements EngineMarker {
@@ -128,6 +135,7 @@ export class XtermEngine implements TerminalEngine {
   private readonly fitAddon = new FitAddon()
   private opened = false
   private webgl: WebglAddon | null = null
+  private webglCanvas: HTMLCanvasElement | null = null
   private linkActivator: (uri: string) => void = () => {}
   readonly capabilities: EngineCapabilities = { webgl: false, images: false }
 
@@ -199,7 +207,11 @@ export class XtermEngine implements TerminalEngine {
       // release ours so the terminal falls back to the DOM renderer and the
       // slot returns to the budget rather than leaking.
       webgl.onContextLoss(() => this.releaseWebgl())
+      const before = new Set(this.canvases())
       this.term.loadAddon(webgl)
+      // Remember the canvas the addon just created so releaseWebgl can hand the
+      // GL context back immediately (see there).
+      this.webglCanvas = this.canvases().find((c) => !before.has(c)) ?? null
       this.webgl = webgl
       accelerated.add(this)
       this.capabilities.webgl = true
@@ -208,10 +220,19 @@ export class XtermEngine implements TerminalEngine {
     }
   }
 
+  /** Canvases currently inside this terminal's element (the WebGL renderer adds
+   *  one; the DOM renderer adds none). */
+  private canvases(): HTMLCanvasElement[] {
+    const el = this.term.element
+    return el ? Array.from(el.querySelectorAll('canvas')) : []
+  }
+
   /** Give up this terminal's WebGL context (falls back to the DOM renderer). */
   releaseWebgl(): void {
     const webgl = this.webgl
+    const canvas = this.webglCanvas
     this.webgl = null
+    this.webglCanvas = null
     accelerated.delete(this)
     this.capabilities.webgl = false
     if (!webgl) return
@@ -219,6 +240,22 @@ export class XtermEngine implements TerminalEngine {
       webgl.dispose()
     } catch {
       /* already disposed (e.g. by context loss) */
+    }
+    // Disposing the addon drops the canvas, but the GL context itself is only
+    // reclaimed when the browser gets round to collecting it. Chromium counts
+    // those not-yet-collected contexts against its 16-context cap, so a burst of
+    // mounts (opening grid view over a big roster) could still overshoot and
+    // make it evict someone — the very flash we're removing. WEBGL_lose_context
+    // hands the context back synchronously, so our budget is the real ceiling.
+    if (!canvas) return
+    try {
+      const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl')) as
+        | WebGLRenderingContext
+        | WebGL2RenderingContext
+        | null
+      gl?.getExtension('WEBGL_lose_context')?.loseContext()
+    } catch {
+      /* context already gone */
     }
   }
 

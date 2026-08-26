@@ -36,7 +36,11 @@ const { FakeWebglAddon, FakeTerminal } = vi.hoisted(() => {
   }
 
   class FakeTerminal {
-    element: { parentElement: unknown; isConnected: boolean } | null = null
+    element: {
+      parentElement: unknown
+      isConnected: boolean
+      querySelectorAll: () => unknown[]
+    } | null = null
     textarea = null
     unicode = { activeVersion: '6' }
     buffer = { active: { type: 'normal', cursorY: 0, viewportY: 0, getLine: () => null } }
@@ -44,7 +48,11 @@ const { FakeWebglAddon, FakeTerminal } = vi.hoisted(() => {
     rows = 24
     loadAddon(): void {}
     open(host: { appendChild(el: unknown): void }): void {
-      const el = { parentElement: null as unknown, isConnected: false }
+      const el = {
+        parentElement: null as unknown,
+        isConnected: false,
+        querySelectorAll: () => [] as unknown[]
+      }
       this.element = el
       host.appendChild(el)
     }
@@ -74,6 +82,7 @@ const { FakeWebglAddon, FakeTerminal } = vi.hoisted(() => {
 interface FakeEl {
   parentElement: FakeHost | null
   isConnected: boolean
+  querySelectorAll: () => unknown[]
 }
 
 interface FakeHost {
