@@ -3,6 +3,20 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.9 — 2026-08-26
+
+### Fixed
+- **The window kept flickering because every keystroke of agent output was its
+  own message to the screen.** A terminal can produce output far faster than it
+  can be drawn, and Crew was forwarding each burst the instant it arrived — for
+  every session at once. At launch, when every restored agent replays its whole
+  conversation simultaneously, the display could not keep up and the backlog grew
+  until it exhausted memory and was restarted, repainting the window. Output is
+  now gathered per session and delivered in one piece 25 times a second, with a
+  cap on how much a single runaway session can hold: past it the oldest bytes are
+  dropped and the trim is marked in the transcript, so the newest output — the
+  part you are reading — always arrives.
+
 ## 0.5.8 — 2026-08-26
 
 ### Fixed

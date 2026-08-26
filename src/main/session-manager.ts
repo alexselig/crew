@@ -50,6 +50,27 @@ const AUTOPILOT_POLL_TICKS = 4
 const RESTORE_BATCH = 4
 const RESTORE_BATCH_GAP_MS = 400
 
+/**
+ * How often buffered PTY output is flushed to the renderer, and how much of a
+ * single session's backlog is kept when it outruns that.
+ *
+ * A PTY can emit far faster than a renderer can draw. Forwarding every chunk the
+ * moment it arrives means one IPC message per chunk per session: with a large
+ * roster — especially at startup, when every resumed agent replays its whole
+ * conversation at once — the renderer cannot drain the channel, and the
+ * undelivered strings pile up until it exhausts its memory and is killed.
+ * Rebuilding a dead renderer repaints the whole window, which is what the user
+ * sees as flicker.
+ *
+ * So output is coalesced per session and flushed on a timer: one message per
+ * session per interval, holding at most PENDING_CAP bytes. 40 ms is well under
+ * a frame's worth of latency for a human reading a terminal, and the cap is far
+ * more than a terminal can display in one flush — past it the OLDEST bytes are
+ * dropped, because what a burst-dumping session actually shows is its tail.
+ */
+const OUTPUT_FLUSH_MS = 40
+const PENDING_CAP = 512 * 1024
+
 interface Managed {
   info: SessionInfo
   proc: pty.IPty | null
@@ -109,6 +130,9 @@ export class SessionManager extends EventEmitter {
   // live map — and a save triggered mid-restore (or a quit before the last
   // batch lands) would silently prune them from the roster for good.
   private pendingRestore: PersistedSession[] = []
+  /** Per-session output waiting to be sent to the renderer (see OUTPUT_FLUSH_MS). */
+  private pendingOutput = new Map<string, { parts: string[]; len: number; dropped: boolean }>()
+  private flushTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(
     private readonly store: Store,
@@ -268,7 +292,10 @@ export class SessionManager extends EventEmitter {
       // Ignore any final flush that arrives after the session was closed/removed
       // (prevents resurrecting a disposed renderer terminal).
       if (!this.sessions.has(id)) return
-      this.emit('output', { id, data })
+      // Coalesced rather than emitted per chunk — see OUTPUT_FLUSH_MS. Everything
+      // below stays synchronous: detection, cost and transcript capture are cheap
+      // main-side work, and delaying them would delay state changes the user sees.
+      this.bufferOutput(id, data)
       managed.detector?.pushOutput(data, Date.now())
       const clean = stripAnsi(data)
       if (this.recorder && this.store.settings.captureTranscripts) this.recorder.append(id, clean)
@@ -559,6 +586,9 @@ export class SessionManager extends EventEmitter {
     // Drop it from the restore queue too, or closing a session that hasn't been
     // spawned yet would leave it pending and resurrect it on the next save.
     this.pendingRestore = this.pendingRestore.filter((p) => p.id !== id)
+    // Undelivered output for a session that is going away would arrive after the
+    // renderer disposed its terminal, resurrecting one that is never shown again.
+    this.pendingOutput.delete(id)
     const m = this.sessions.get(id)
     if (!m) return
     if (m.proc) {
@@ -605,6 +635,49 @@ export class SessionManager extends EventEmitter {
     return healed ? { ...healed.info } : { ...info, color }
   }
 
+  /**
+   * Queue a session's output for the renderer instead of sending it immediately.
+   * Keeps at most PENDING_CAP bytes per session, dropping the OLDEST first: a
+   * session dumping megabytes (a resumed agent replaying its conversation) can
+   * outrun any renderer, and what it ultimately displays is the tail.
+   */
+  private bufferOutput(id: string, data: string): void {
+    let buf = this.pendingOutput.get(id)
+    if (!buf) {
+      buf = { parts: [], len: 0, dropped: false }
+      this.pendingOutput.set(id, buf)
+    }
+    buf.parts.push(data)
+    buf.len += data.length
+    while (buf.len > PENDING_CAP && buf.parts.length > 1) {
+      buf.len -= buf.parts.shift()!.length
+      buf.dropped = true
+    }
+    if (!this.flushTimer) {
+      this.flushTimer = setInterval(() => this.flushOutput(), OUTPUT_FLUSH_MS)
+    }
+  }
+
+  /** Send each session's buffered output as a single message, then idle. */
+  private flushOutput(): void {
+    if (this.pendingOutput.size === 0) {
+      if (this.flushTimer) {
+        clearInterval(this.flushTimer)
+        this.flushTimer = null
+      }
+      return
+    }
+    for (const [id, buf] of this.pendingOutput) {
+      const data = buf.parts.join('')
+      this.pendingOutput.delete(id)
+      if (!data) continue
+      // Tell the reader when a burst outran the buffer, so a truncated screen is
+      // never silently passed off as the agent's actual output.
+      const notice = buf.dropped ? '\r\n\x1b[2m… earlier output trimmed …\x1b[0m\r\n' : ''
+      this.emit('output', { id, data: notice + data })
+    }
+  }
+
   disposeAll(): void {
     // Capture the freshest state (e.g. a lastPromptAt stamped since the last
     // persist-triggering action) while sessions are still active — before we
@@ -617,6 +690,12 @@ export class SessionManager extends EventEmitter {
     // agents into a tearing-down app.
     for (const t of this.restoreTimers) clearTimeout(t)
     this.restoreTimers.clear()
+    // Deliver whatever is buffered before the window goes away, then stop.
+    this.flushOutput()
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer)
+      this.flushTimer = null
+    }
     for (const m of this.sessions.values()) {
       if (m.proc) {
         try {
