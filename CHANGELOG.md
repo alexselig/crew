@@ -3,6 +3,30 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.5.1 — 2026-08-25
+
+**Fix: a crashing agent could permanently delete its own session.**
+
+### Fixed — session loss when agents die
+- Crew saved only sessions that were still **active**, and it re-saved on every
+  process exit. So when an agent died, its session was erased from the saved
+  roster — permanently, with no way back.
+- This turned a passing outage into real data loss. An expired MCP OAuth token
+  started returning 401 to every Copilot launch; each restored agent died on
+  startup, and each death rewrote the roster without it. A 46-session roster
+  shrank to 12 over a few relaunches, and the spawn/die/respawn churn showed up
+  as a flickering window.
+- Status is temporary; being on the roster is not. Crew now saves every session
+  it's tracking, whatever state it's in. Closing a session still removes it — 
+  that path was always separate.
+
+### Fixed — the roster is now backed up
+- `crew-store.json` is the only record of which conversation each session belongs
+  to, and it's rewritten constantly. It now rotates to `.bak` and `.bak2` on each
+  save.
+- If the file is ever unreadable, Crew recovers from the most recent good backup
+  instead of quietly starting with an empty roster.
+
 ## 0.5.0 — 2026-08-18
 
 **Manage workspaces, on-call specialist agents, and App-pane fixes.**
