@@ -256,6 +256,10 @@ for (const s of all) {
   if (!s.turn_count) continue
   const { title, body } = brief(s)
   const name = `${slug(title)}--${s.id.slice(0, 8)}.md`
+  const suffix = `--${s.id.slice(0, 8)}.md`
+  for (const existing of readdirSync(OUT)) {
+    if (existing !== name && existing.endsWith(suffix)) unlinkSync(join(OUT, existing))
+  }
   writeFileSync(join(OUT, name), body)
   written.push({ name, title, id: s.id, chars: body.length, updated: s.updated_at, cwd: s.cwd })
 }

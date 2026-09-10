@@ -82,9 +82,11 @@ export function resolveContext(opts: {
 }): RestoreContext {
   const { agentSessionId, priorSessionId, resume, contextMode, resumeArgs, transcriptBytes, hasBrief } = opts
   const knownSessionId = agentSessionId ?? priorSessionId
+  const currentHasContext = agentSessionId !== undefined && ((transcriptBytes ?? 0) > 0 || hasBrief === true)
+  const handoffSourceId = currentHasContext ? agentSessionId : priorSessionId ?? agentSessionId
   const supersede: RestoreContext = {
     agentSessionId: undefined,
-    priorSessionId: knownSessionId,
+    priorSessionId: handoffSourceId,
     extraArgs: []
   }
   if (!resume) return supersede

@@ -251,10 +251,44 @@ function scanEvents(
   needle?: string
 ): void {
   let pending = ''
+  let pendingDepth = 0
+  let pendingInString = false
+  let pendingEscape = false
+  let pendingStarted = false
+
+  const resetPendingState = (): void => {
+    pendingDepth = 0
+    pendingInString = false
+    pendingEscape = false
+    pendingStarted = false
+  }
+
+  const appendPending = (chunk: string): boolean => {
+    for (let i = 0; i < chunk.length; i++) {
+      const c = chunk[i]
+      if (pendingInString) {
+        if (pendingEscape) pendingEscape = false
+        else if (c === '\\') pendingEscape = true
+        else if (c === '"') pendingInString = false
+        continue
+      }
+      if (c === '"') pendingInString = true
+      else if (c === '{') {
+        pendingStarted = true
+        pendingDepth++
+      } else if (c === '}' && pendingDepth > 0) {
+        pendingDepth--
+        if (pendingStarted && pendingDepth === 0) return true
+      }
+    }
+    return false
+  }
+
   const salvage = (): void => {
     if (!pending) return
     const buffered = pending
     pending = ''
+    resetPendingState()
     for (const obj of splitObjects(buffered)) {
       const ev = tryParse(obj)
       if (ev) onEvent(ev)
@@ -282,6 +316,7 @@ function scanEvents(
         continue
       }
       pending = raw
+      if (appendPending(raw)) salvage()
       continue
     }
     // Already recovering. A line that parses on its own is a new record, which
@@ -294,11 +329,12 @@ function scanEvents(
       continue
     }
     pending += '\n' + raw
-    const joined = tryParse(pending.trim())
-    if (joined) {
-      onEvent(joined)
+    if (appendPending('\n' + raw)) {
+      const joined = tryParse(pending.trim())
+      if (joined) onEvent(joined)
+      else salvage()
       pending = ''
-      continue
+      resetPendingState()
     }
     if (pending.length > MAX_PENDING) salvage()
   }

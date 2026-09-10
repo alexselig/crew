@@ -312,6 +312,19 @@ describe('parseCopilotEvents', () => {
     expect(bs.map((b) => (b.kind === 'user' ? b.text : ''))).toEqual(['survivor', 'also here'])
   })
 
+  it('recovers a large multiline record without quadratic rescanning', () => {
+    const content = 'x'.repeat(512 * 1024)
+    const wrapped = content.match(/.{1,512}/g)?.join('\n') ?? content
+    const jsonl = line('user.message', { content }).replace(content, wrapped)
+    const started = performance.now()
+
+    const blocks = parseCopilotEvents(jsonl, { maxText: content.length + 2048 })
+
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].kind === 'user' && blocks[0].text.replace(/\n/g, '')).toBe(content)
+  })
+
   it('joins an assistant message split into chunks', () => {
     const jsonl = [
       line('assistant.message', { messageId: 'm1', content: 'Half one ', chunkIndex: 0, chunkCount: 2 }),

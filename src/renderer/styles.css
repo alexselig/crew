@@ -5833,7 +5833,7 @@ button.grid-topbar__wordmark:hover {
    at rest, matching how the nav cards reveal their actions. */
 .agent-row__edit {
   flex: none;
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
@@ -5845,10 +5845,14 @@ button.grid-topbar__wordmark:hover {
   background: transparent;
   color: var(--text-dim, var(--text));
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
 }
 .agent-row:hover .agent-row__edit,
+.agent-row:focus-within .agent-row__edit,
 .agent-row__edit:focus-visible {
-  display: inline-flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 .agent-row__edit:hover {
   background: rgba(242, 241, 234, 0.1);
