@@ -332,6 +332,7 @@ export function App(): JSX.Element {
         runs={c.runs}
         onInvokeAgent={(id) => setInvokeAgentId(id)}
         onAddAgent={() => c.setEditingAgent('new')}
+        onEditAgent={(id) => c.setEditingAgent(id)}
         showSpend={c.settings?.showSpend ?? true}
         showCredits={c.settings?.showCredits ?? false}
         budgetUsd={c.settings?.budgetUsd ?? 0}

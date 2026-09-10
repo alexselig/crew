@@ -51,6 +51,7 @@ interface Props {
   runs: Record<string, AgentRun>
   onInvokeAgent: (agentId: string) => void
   onAddAgent: () => void
+  onEditAgent: (agentId: string) => void
   showSpend: boolean
   showCredits: boolean
   budgetUsd: number
@@ -109,6 +110,7 @@ export function Roster(props: Props): JSX.Element {
     runs,
     onInvokeAgent,
     onAddAgent,
+    onEditAgent,
     showSpend,
     showCredits,
     budgetUsd,
@@ -419,7 +421,7 @@ export function Roster(props: Props): JSX.Element {
           renderBucket(roster, '__all__')
         )}
 
-        <AgentShelf agents={agents} runs={runs} railed={railed} onInvoke={onInvokeAgent} onAddAgent={onAddAgent} />
+        <AgentShelf agents={agents} runs={runs} railed={railed} onInvoke={onInvokeAgent} onAddAgent={onAddAgent} onEditAgent={onEditAgent} />
       </div>
 
       <div className="roster__toolbar">

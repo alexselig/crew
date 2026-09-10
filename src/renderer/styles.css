@@ -5808,8 +5808,18 @@ button.grid-topbar__wordmark:hover {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
   width: 100%;
+  border-radius: var(--radius-sm);
+}
+.agent-row:hover {
+  background: var(--bg-elev);
+}
+.agent-row__main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
   padding: 6px 8px;
   border: none;
   border-radius: var(--radius-sm);
@@ -5819,8 +5829,31 @@ button.grid-topbar__wordmark:hover {
   text-align: left;
   cursor: pointer;
 }
-.agent-row:hover {
-  background: var(--bg-elev);
+/* The pencil only appears on hover (or keyboard focus) so the shelf stays quiet
+   at rest, matching how the nav cards reveal their actions. */
+.agent-row__edit {
+  flex: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim, var(--text));
+  cursor: pointer;
+}
+.agent-row:hover .agent-row__edit,
+.agent-row__edit:focus-visible {
+  display: inline-flex;
+}
+.agent-row__edit:hover {
+  background: rgba(242, 241, 234, 0.1);
+  border-color: var(--border);
+  color: var(--text);
 }
 .agent-row__icon {
   flex: none;
@@ -5832,13 +5865,15 @@ button.grid-topbar__wordmark:hover {
   border-radius: 6px;
   background: var(--bg-elev-2);
 }
+/* Sized to match .card__name so an agent reads as a peer of a session. */
 .agent-row__name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: 16px;
+  font-weight: 800;
 }
 .agent-row__write {
   flex: none;

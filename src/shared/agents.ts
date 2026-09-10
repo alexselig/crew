@@ -109,11 +109,15 @@ export function validateAgent(a: Partial<Agent>): string | null {
 }
 
 export function upsertAgent(list: readonly Agent[], a: Agent): Agent[] {
-  const exists = list.some((x) => x.id === a.id)
-  return exists ? list.map((x) => (x.id === a.id ? a : x)) : [...list, a]
+  const existing = list.find((x) => x.id === a.id)
+  if (existing?.builtin) {
+    return [...list, { ...a, id: makeAgentId(), builtin: false }]
+  }
+  const agent = { ...a, builtin: false }
+  return existing ? list.map((x) => (x.id === agent.id ? agent : x)) : [...list, agent]
 }
 export function deleteAgent(list: readonly Agent[], id: string): Agent[] {
-  return list.filter((x) => x.id !== id)
+  return list.filter((x) => x.id !== id || x.builtin)
 }
 export function reorderAgents(list: readonly Agent[], orderedIds: readonly string[]): Agent[] {
   const rank = new Map(orderedIds.map((id, i) => [id, i]))

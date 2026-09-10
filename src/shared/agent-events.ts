@@ -12,6 +12,22 @@
 // The block shapes intentionally mirror src/renderer/transcript/types.ts so the
 // renderer can consume the IPC result directly as TranscriptBlock[]. A
 // compile-time assignability check in TranscriptPane guards against drift.
+//
+// READING AN UNSPECIFIED FORMAT. GitHub documents that session data lives in
+// ~/.copilot/session-state, but documents no field of it and promises no
+// stability; the CLI's bundled schemas/session-events.schema.json is the closest
+// thing to a contract, and the CLI is known to violate it. So this parser treats
+// every field as optional, ignores unknown event types, and is written against
+// these known defects rather than against the happy path:
+//
+//   #4098 / #2649  the log is opened/appended/closed per event with no
+//                  serialisation, so records get concatenated onto one line,
+//                  cut in half, or written with raw unescaped newlines
+//   #4269          assistant.message.content can be null despite being declared
+//                  a required string
+//   #3520 / #2000  events omit fields the schema marks required
+//
+// Anything unreadable costs its own block, never the rest of the file.
 
 export interface AgentUserBlock {
   kind: 'user'
@@ -134,6 +150,161 @@ function clip(s: string, n: number): string {
   return s.slice(0, n) + `\n… (${s.length - n} more chars)`
 }
 
+/**
+ * Split a chunk into balanced top-level JSON objects, ignoring braces that sit
+ * inside strings.
+ *
+ * The CLI opens/appends/closes the log per event with no serialisation, so
+ * concurrent writers can concatenate two records onto one physical line or cut
+ * one in half (github/copilot-cli#4098, #2649). A plain per-line JSON.parse
+ * drops every event in that line — silently, and usually right where a session
+ * got interesting. This recovers whatever is intact.
+ */
+function splitObjects(chunk: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let start = -1
+  let inStr = false
+  let esc = false
+  for (let i = 0; i < chunk.length; i++) {
+    const c = chunk[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') inStr = true
+    else if (c === '{') {
+      if (depth === 0) start = i
+      depth++
+    } else if (c === '}') {
+      if (depth > 0) depth--
+      if (depth === 0 && start >= 0) {
+        out.push(chunk.slice(start, i + 1))
+        start = -1
+      }
+    }
+  }
+  return out
+}
+
+/** Stop accumulating a malformed run once it exceeds this; beyond it we salvage
+ *  what parses and move on rather than growing a string without bound. */
+const MAX_PENDING = 4 * 1024 * 1024
+
+/**
+ * Escape raw control characters that appear inside JSON string literals.
+ *
+ * A tool result with embedded newlines can be written into the log unescaped
+ * (github/copilot-cli#2649), which makes the record invalid JSON and splits it
+ * across physical lines. Re-escaping recovers it; text outside strings is left
+ * alone so this can never change a document's structure.
+ */
+function escapeRawControls(chunk: string): string {
+  let out = ''
+  let inStr = false
+  let esc = false
+  for (let i = 0; i < chunk.length; i++) {
+    const c = chunk[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (c === '\\') esc = true
+      else if (c === '"') inStr = false
+      if (inStr && c.charCodeAt(0) < 0x20) {
+        out += c === '\n' ? '\\n' : c === '\r' ? '\\r' : c === '\t' ? '\\t' : ''
+        continue
+      }
+    } else if (c === '"') inStr = true
+    out += c
+  }
+  return out
+}
+
+/** Parse one record, repairing raw control characters if a strict parse fails.
+ *  Returns null when nothing usable can be recovered. */
+function tryParse(raw: string): Record<string, unknown> | null {
+  try {
+    const ev: unknown = JSON.parse(raw)
+    return isRecord(ev) ? ev : null
+  } catch {
+    /* try the repair below */
+  }
+  try {
+    const ev: unknown = JSON.parse(escapeRawControls(raw))
+    return isRecord(ev) ? ev : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Walk a JSONL log, tolerating the malformed records the CLI is known to write.
+ *
+ * The intact-line path is unchanged (split + JSON.parse); recovery only costs
+ * anything once a line has actually failed. `needle` lets a caller skip lines it
+ * cannot care about without paying for a parse.
+ */
+function scanEvents(
+  text: string,
+  onEvent: (ev: Record<string, unknown>) => void,
+  needle?: string
+): void {
+  let pending = ''
+  const salvage = (): void => {
+    if (!pending) return
+    const buffered = pending
+    pending = ''
+    for (const obj of splitObjects(buffered)) {
+      const ev = tryParse(obj)
+      if (ev) onEvent(ev)
+    }
+  }
+
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    if (!pending) {
+      if (needle !== undefined && line.indexOf(needle) === -1) continue
+      const ev = tryParse(line)
+      if (ev) {
+        onEvent(ev)
+        continue
+      }
+      // Two or more balanced objects on one line: concatenated writes. Emitting
+      // them straight away keeps a corrupt line from swallowing its neighbours.
+      const parts = splitObjects(line)
+      if (parts.length > 1) {
+        for (const p of parts) {
+          const part = tryParse(p)
+          if (part) onEvent(part)
+        }
+        continue
+      }
+      pending = raw
+      continue
+    }
+    // Already recovering. A line that parses on its own is a new record, which
+    // means what we buffered was unrecoverable garbage — salvage what we can
+    // from it and carry on, rather than letting it swallow its neighbours.
+    const standalone = tryParse(line)
+    if (standalone) {
+      salvage()
+      onEvent(standalone)
+      continue
+    }
+    pending += '\n' + raw
+    const joined = tryParse(pending.trim())
+    if (joined) {
+      onEvent(joined)
+      pending = ''
+      continue
+    }
+    if (pending.length > MAX_PENDING) salvage()
+  }
+  salvage()
+}
+
 /** Parse "Image file at path /tmp/x.png" → "/tmp/x.png". */
 function pathFromDescription(desc: string | undefined): string | undefined {
   if (!desc) return undefined
@@ -179,39 +350,35 @@ interface ImageAsset {
  */
 export function parseCopilotEvents(text: string, opts?: ParseOptions): AgentBlock[] {
   const o = { ...DEFAULTS, ...(opts ?? {}) }
-  const lines = text.split('\n')
 
   // Pass 1: index binary image assets by assetId (the bytes live in
   // session.binary_asset; tool results reference them by id).
   const assets = new Map<string, ImageAsset>()
-  for (const line of lines) {
-    const t = line.trim()
-    if (!t || t.indexOf('binary_asset') === -1) continue
-    let ev: unknown
-    try {
-      ev = JSON.parse(t)
-    } catch {
-      continue
-    }
-    if (!isRecord(ev) || ev['type'] !== 'session.binary_asset') continue
-    const d = rec(ev, 'data')
-    if (!d) continue
-    const mimeType = str(d, 'mimeType') ?? ''
-    if (!mimeType.startsWith('image/')) continue
-    const assetId = str(d, 'assetId')
-    if (!assetId) continue
-    assets.set(assetId, {
-      mimeType,
-      data: str(d, 'data'),
-      byteLength: num(d, 'byteLength'),
-      path: pathFromDescription(str(d, 'description'))
-    })
-  }
+  scanEvents(
+    text,
+    (ev) => {
+      if (ev['type'] !== 'session.binary_asset') return
+      const d = rec(ev, 'data')
+      if (!d) return
+      const mimeType = str(d, 'mimeType') ?? ''
+      if (!mimeType.startsWith('image/')) return
+      const assetId = str(d, 'assetId')
+      if (!assetId) return
+      assets.set(assetId, {
+        mimeType,
+        data: str(d, 'data')?.replace(/\s/g, ''),
+        byteLength: num(d, 'byteLength'),
+        path: pathFromDescription(str(d, 'description'))
+      })
+    },
+    'binary_asset'
+  )
 
   // Pass 2: build blocks in order.
   const blocks: AgentBlock[] = []
   const toolById = new Map<string, AgentToolBlock>()
   const permById = new Map<string, AgentPermissionBlock>()
+  const agentByMessage = new Map<string, AgentTextBlock>()
   const emittedAssets = new Set<string>()
   const emittedSrc = new Set<string>()
   let inlineBudget = o.maxInlineImageBytes
@@ -232,17 +399,12 @@ export function parseCopilotEvents(text: string, opts?: ParseOptions): AgentBloc
     blocks.push({ kind: 'image', id, src, alt: caption, caption, ts })
   }
 
-  for (const line of lines) {
-    const t = line.trim()
-    if (!t) continue
-    let ev: unknown
-    try {
-      ev = JSON.parse(t)
-    } catch {
-      continue
-    }
-    if (!isRecord(ev)) continue
+  scanEvents(text, (ev) => {
     const type = str(ev, 'type')
+    // The undeclared model.* family (a raw routing/debug trace, added in
+    // 1.0.81-8) carries nothing we render, and model.messages_snapshot repeats
+    // the whole conversation. Nothing below consumes it, so drop it early.
+    if (type && type.startsWith('model.')) return
     const id = str(ev, 'id') ?? `e${blocks.length}`
     const ts = toTs(ev['timestamp'])
     const d = rec(ev, 'data') ?? {}
@@ -265,8 +427,23 @@ export function parseCopilotEvents(text: string, opts?: ParseOptions): AgentBloc
         if (reasoning) {
           blocks.push({ kind: 'thinking', id: `t:${id}`, body: clip(reasoning, o.maxText), ts })
         }
-        const content = (str(d, 'content') ?? '').trim()
-        if (content) blocks.push({ kind: 'agent', id: `a:${id}`, text: clip(content, o.maxText), ts })
+        // A long answer can arrive split across chunkCount records sharing one
+        // messageId. Appending to the block we already emitted keeps it one
+        // message instead of a run of fragments — and a chunk's edges must not
+        // be trimmed, or the join eats the space between them.
+        const raw = str(d, 'content') ?? ''
+        const messageId = str(d, 'messageId')
+        const chunked = messageId !== undefined && num(d, 'chunkCount') !== undefined
+        const prior = chunked ? agentByMessage.get(messageId) : undefined
+        if (prior) {
+          prior.text = clip(prior.text + raw, o.maxText)
+          break
+        }
+        const content = chunked ? raw.trimStart() : raw.trim()
+        if (!content) break
+        const block: AgentTextBlock = { kind: 'agent', id: `a:${id}`, text: clip(content, o.maxText), ts }
+        if (chunked) agentByMessage.set(messageId, block)
+        blocks.push(block)
         break
       }
       case 'tool.execution_start': {
@@ -287,9 +464,19 @@ export function parseCopilotEvents(text: string, opts?: ParseOptions): AgentBloc
         const block = callId ? toolById.get(callId) : undefined
         const result = rec(d, 'result')
         if (block) {
-          block.exitCode = d['success'] === false ? 1 : 0
-          const out = result ? str(result, 'content') : undefined
-          if (out) block.output = clip(out.trim(), o.maxText)
+          const failed = d['success'] === false
+          block.exitCode = failed ? 1 : 0
+          // `result` is only populated on success; a failure puts its message in
+          // a sibling `error` object. Reading result.content alone rendered every
+          // failed run as an empty block — exactly the run you need to read.
+          // On success prefer `detailedContent`, the schema's display form: for
+          // an edit that is the diff, where `content` is the whole new file.
+          const out = failed
+            ? str(rec(d, 'error') ?? {}, 'message')
+            : result
+              ? str(result, 'detailedContent') ?? str(result, 'content')
+              : undefined
+          if (out && out.trim()) block.output = clip(out.trim(), o.maxText)
           if (ts && block.ts) block.durationMs = Math.max(0, ts - block.ts)
         }
         // Inline any images the tool returned to the agent.
@@ -332,14 +519,22 @@ export function parseCopilotEvents(text: string, opts?: ParseOptions): AgentBloc
         const block = key ? permById.get(key) : undefined
         if (block) {
           const kind = (rec(d, 'result') && str(rec(d, 'result') as Record<string, unknown>, 'kind')) || ''
-          block.resolution = /den|reject|no/i.test(kind) ? 'deny' : /always/i.test(kind) ? 'always' : 'once'
+          // Real vocabulary: approved | approved-for-location | denied-… .
+          // "for-location" is the session-wide grant, i.e. always; nothing the
+          // CLI writes contains the word "always", so matching on it alone
+          // labelled every standing approval as a one-off.
+          block.resolution = /den|reject/i.test(kind)
+            ? 'deny'
+            : /always|for-location|for-session/i.test(kind)
+              ? 'always'
+              : 'once'
         }
         break
       }
       default:
         break
     }
-  }
+  })
 
   return blocks.length > o.maxBlocks ? blocks.slice(blocks.length - o.maxBlocks) : blocks
 }

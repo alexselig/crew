@@ -78,6 +78,51 @@ describe('parseCopilotEvents', () => {
     expect(b.kind === 'tool' && b.exitCode).toBe(1)
   })
 
+  // A failure carries no `result` at all — the message sits in a sibling
+  // `error` object (github/copilot-cli's own session-events schema: result is
+  // populated "on success", error "when the tool execution failed"). Reading
+  // result.content alone rendered every failed run as an empty block.
+  it('shows a failed tool run its error message', () => {
+    const callId = 'c3'
+    const jsonl = [
+      line('tool.execution_start', { toolCallId: callId, toolName: 'bash', arguments: { command: 'rg x' } }),
+      line('tool.execution_complete', {
+        toolCallId: callId,
+        success: false,
+        error: { message: 'rg: /x: Operation not permitted (os error 1)', code: 'EPERM' }
+      })
+    ].join('\n')
+    const [b] = parseCopilotEvents(jsonl)
+    expect(b.kind === 'tool' && b.exitCode).toBe(1)
+    expect(b.kind === 'tool' && b.output).toBe('rg: /x: Operation not permitted (os error 1)')
+  })
+
+  // detailedContent is the schema's display form: for an edit it is the diff,
+  // where content is the whole new file.
+  it('prefers detailedContent over content for a successful run', () => {
+    const callId = 'c4'
+    const jsonl = [
+      line('tool.execution_start', { toolCallId: callId, toolName: 'edit', arguments: { path: '/tmp/a.ts' } }),
+      line('tool.execution_complete', {
+        toolCallId: callId,
+        success: true,
+        result: { content: 'the entire new file body', detailedContent: 'diff --git a/tmp/a.ts b/tmp/a.ts' }
+      })
+    ].join('\n')
+    const [b] = parseCopilotEvents(jsonl)
+    expect(b.kind === 'tool' && b.output).toBe('diff --git a/tmp/a.ts b/tmp/a.ts')
+  })
+
+  it('falls back to content when detailedContent is absent', () => {
+    const callId = 'c5'
+    const jsonl = [
+      line('tool.execution_start', { toolCallId: callId, toolName: 'bash', arguments: { command: 'ls' } }),
+      line('tool.execution_complete', { toolCallId: callId, success: true, result: { content: 'a\nb' } })
+    ].join('\n')
+    const [b] = parseCopilotEvents(jsonl)
+    expect(b.kind === 'tool' && b.output).toBe('a\nb')
+  })
+
   it('labels a non-shell tool from its name + path argument', () => {
     const jsonl = line('tool.execution_start', {
       toolCallId: 'v1',
@@ -139,6 +184,35 @@ describe('parseCopilotEvents', () => {
     expect(img && img.kind === 'image' && img.src).toBe('file:///tmp/huge.png')
   })
 
+  it('recovers a binary image asset split across physical lines', () => {
+    const assetId = 'split-image'
+    const asset = line('session.binary_asset', {
+      assetId,
+      type: 'image',
+      mimeType: 'image/png',
+      byteLength: 1024,
+      data: PNG,
+      description: 'Image file at path /tmp/split.png'
+    }).replace(`"data":"${PNG}"`, `"data":"${PNG.slice(0, 8)}\n${PNG.slice(8)}"`)
+    const jsonl = [
+      asset,
+      line('tool.execution_complete', {
+        toolCallId: 'split-tool',
+        success: true,
+        result: {
+          content: 'viewed image',
+          binaryResultsForLlm: [{ type: 'image', assetId, mimeType: 'image/png', byteLength: 1024 }]
+        }
+      })
+    ].join('\n')
+
+    const image = parseCopilotEvents(jsonl).find((b) => b.kind === 'image')
+
+    expect(image && image.kind === 'image' && image.src).toBe(
+      `data:image/png;base64,${PNG.slice(0, 8)}${PNG.slice(8)}`
+    )
+  })
+
   it('inlines a user image attachment as file://', () => {
     const jsonl = line('user.message', {
       content: 'look at this',
@@ -196,10 +270,66 @@ describe('parseCopilotEvents', () => {
     expect(b.kind === 'permission' && b.resolution).toBe('deny')
   })
 
+  it('marks a session-wide approval as always, not once', () => {
+    const jsonl = [
+      line('permission.requested', { requestId: 'r3', permissionRequest: { intention: 'git status', toolCallId: 't' } }),
+      line('permission.completed', { requestId: 'r3', result: { kind: 'approved-for-location' } })
+    ].join('\n')
+    const [b] = parseCopilotEvents(jsonl)
+    expect(b.kind === 'permission' && b.resolution).toBe('always')
+  })
+
   it('skips malformed and blank lines without throwing', () => {
     const jsonl = ['', 'not json', '{bad', line('user.message', { content: 'hi' }), '   '].join('\n')
     const bs = parseCopilotEvents(jsonl)
     expect(kinds(bs)).toEqual(['user'])
+  })
+
+  // The CLI opens/appends/closes the log per event with no serialisation, so
+  // concurrent writers can concatenate two records onto one line or split one
+  // across several (github/copilot-cli#4098, #2649). A per-line JSON.parse
+  // dropped every event involved, silently.
+  it('recovers two events concatenated onto one line', () => {
+    const jsonl = line('user.message', { content: 'first' }) + line('user.message', { content: 'second' })
+    const bs = parseCopilotEvents(jsonl)
+    expect(kinds(bs)).toEqual(['user', 'user'])
+    expect(bs.map((b) => (b.kind === 'user' ? b.text : ''))).toEqual(['first', 'second'])
+  })
+
+  it('recovers an event split across physical lines', () => {
+    const jsonl = line('user.message', { content: 'a\nb' }).replace('\\n', '\n')
+    const bs = parseCopilotEvents(jsonl)
+    expect(kinds(bs)).toEqual(['user'])
+  })
+
+  it('does not let a corrupt line swallow the events after it', () => {
+    const jsonl = [
+      '{"type":"user.message","data":{"content":"trunc',
+      line('user.message', { content: 'survivor' }),
+      line('user.message', { content: 'also here' })
+    ].join('\n')
+    const bs = parseCopilotEvents(jsonl)
+    expect(bs.map((b) => (b.kind === 'user' ? b.text : ''))).toEqual(['survivor', 'also here'])
+  })
+
+  it('joins an assistant message split into chunks', () => {
+    const jsonl = [
+      line('assistant.message', { messageId: 'm1', content: 'Half one ', chunkIndex: 0, chunkCount: 2 }),
+      line('assistant.message', { messageId: 'm1', content: 'and half two.', chunkIndex: 1, chunkCount: 2 })
+    ].join('\n')
+    const bs = parseCopilotEvents(jsonl)
+    expect(kinds(bs)).toEqual(['agent'])
+    expect(bs[0].kind === 'agent' && bs[0].text).toBe('Half one and half two.')
+  })
+
+  it('ignores the undeclared model.* trace family', () => {
+    const jsonl = [
+      line('model.turn_started', { kind: 'turn_started' }),
+      line('model.messages_snapshot', { kind: 'messages_snapshot', messages: [{ role: 'user', content: 'x' }] }),
+      line('model.message', { kind: 'message', content: 'internal' }),
+      line('user.message', { content: 'real' })
+    ].join('\n')
+    expect(kinds(parseCopilotEvents(jsonl))).toEqual(['user'])
   })
 
   it('ignores system, session, and turn bookkeeping events', () => {

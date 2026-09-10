@@ -88,4 +88,21 @@ describe('validate/crud', () => {
       ['ag_a', 1]
     ])
   })
+
+  it('forks rather than overwriting a built-in agent', () => {
+    const builtin = BUILTIN_AGENTS[0]
+    const next = upsertAgent([builtin], { ...builtin, persona: 'Changed', builtin: true })
+
+    expect(next).toHaveLength(2)
+    expect(next.find((a) => a.id === builtin.id)?.persona).toBe(builtin.persona)
+    expect(next.find((a) => a.id !== builtin.id)).toMatchObject({
+      persona: 'Changed',
+      builtin: false
+    })
+  })
+
+  it('does not delete a built-in agent', () => {
+    const builtin = BUILTIN_AGENTS[0]
+    expect(deleteAgent([builtin], builtin.id)).toEqual([builtin])
+  })
 })

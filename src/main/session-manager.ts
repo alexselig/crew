@@ -800,10 +800,12 @@ export class SessionManager extends EventEmitter {
    */
   private contextFor(
     agentSessionId: string | undefined,
+    priorSessionId: string | undefined,
     presetId: string | null
   ): { agentSessionId?: string; priorSessionId?: string; extraArgs: string[] } {
     return resolveContext({
       agentSessionId,
+      priorSessionId,
       resume: this.store.settings.resumeConversations,
       contextMode: this.store.settings.contextMode,
       resumeArgs: getPreset(presetId)?.resumeArgs,
@@ -833,7 +835,7 @@ export class SessionManager extends EventEmitter {
   }
 
   private restoreOne(p: PersistedSession): SessionInfo {
-    const ctx = this.contextFor(p.agentSessionId ?? p.priorSessionId, p.presetId)
+    const ctx = this.contextFor(p.agentSessionId, p.priorSessionId, p.presetId)
     return this.create(
       { presetId: p.presetId, command: p.command, args: p.args, cwd: p.cwd, label: p.label },
       {
@@ -864,7 +866,7 @@ export class SessionManager extends EventEmitter {
     const set = this.store.sets.find((s) => s.name === name)
     if (!set) return []
     return set.sessions.map((d) => {
-      const ctx = this.contextFor(d.agentSessionId, d.presetId)
+      const ctx = this.contextFor(d.agentSessionId, d.priorSessionId, d.presetId)
       return this.create(
         { presetId: d.presetId, command: d.command, args: d.args, cwd: d.cwd, label: d.label },
         {

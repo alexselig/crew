@@ -70,6 +70,7 @@ export interface RestoreContext {
  */
 export function resolveContext(opts: {
   agentSessionId?: string
+  priorSessionId?: string
   resume: boolean
   contextMode: 'transcript' | 'brief' | 'auto'
   resumeArgs?: string[]
@@ -79,17 +80,25 @@ export function resolveContext(opts: {
    *  supersede without one, because that would restore nothing at all. */
   hasBrief?: boolean
 }): RestoreContext {
-  const { agentSessionId, resume, contextMode, resumeArgs, transcriptBytes, hasBrief } = opts
-  const supersede: RestoreContext = { agentSessionId: undefined, priorSessionId: agentSessionId, extraArgs: [] }
+  const { agentSessionId, priorSessionId, resume, contextMode, resumeArgs, transcriptBytes, hasBrief } = opts
+  const knownSessionId = agentSessionId ?? priorSessionId
+  const supersede: RestoreContext = {
+    agentSessionId: undefined,
+    priorSessionId: knownSessionId,
+    extraArgs: []
+  }
   if (!resume) return supersede
-  if (contextMode === 'brief' && agentSessionId) return supersede
-  if (contextMode === 'auto' && agentSessionId) {
+  if (contextMode === 'brief' && knownSessionId) return supersede
+  if (contextMode === 'auto' && knownSessionId) {
     // Replay while the history is short enough to be worth replaying; hand over
     // to the brief once it isn't. Without a brief there is nothing to hand over
     // to, so a long transcript is still better than a blank agent.
     const outgrown = (transcriptBytes ?? 0) >= AUTO_BRIEF_BYTES
     if (outgrown && hasBrief) return supersede
   }
-  return { agentSessionId, priorSessionId: undefined, extraArgs: resumeArgs ?? [] }
+  return {
+    agentSessionId: knownSessionId,
+    priorSessionId: agentSessionId ? priorSessionId : undefined,
+    extraArgs: resumeArgs ?? []
+  }
 }
-

@@ -3,6 +3,66 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## Unreleased
+
+### Added
+- **Agents can be opened and read from the shelf.** Hovering an agent in the
+  Agents shelf now reveals a pencil; clicking it opens that agent so you can
+  read its prompt and edit it, instead of only being able to run it. Built-in
+  agents were previously read-only in the editor with every field greyed out —
+  their fields are now editable and saving forks them into your own copy, so
+  the shipped agent is still preserved.
+
+### Changed
+- **Agent names are sized like session names.** They were 12.5px against the
+  roster's 16px, which made a specialist read as a footnote rather than a peer
+  of the sessions above it.
+- **The transcript parser ignores the `model.*` event family.** An undeclared
+  internal trace added in CLI 1.0.81-8; `model.messages_snapshot` repeats the
+  entire conversation on one line, so skipping it early is free speed.
+
+### Fixed
+- **A failed tool run shows what went wrong again.** Copilot CLI puts a failure's
+  message in a sibling `error` field, not in `result` — Crew only read `result`,
+  so every failed run rendered as a red block with nothing in it. In one real
+  session on this machine that was 214 of 1,795 runs, silently blank: precisely
+  the runs worth reading. Now 0.
+- **Edits render as a diff, not a wall of file.** A tool result carries both the
+  model-facing `content` and a `detailedContent` meant for display; for an edit
+  the first is the entire new file and the second is the diff. Crew showed the
+  former. 371 blocks in one session were a full-file dump where a diff belonged.
+- **A corrupt line no longer takes the rest of the transcript with it.** Copilot
+  CLI opens, appends and closes the log per event with no serialisation, so
+  records get concatenated onto one line, cut in half, or written with raw
+  unescaped newlines (copilot-cli#4098, #2649, #2012). Crew parsed strictly per
+  line and dropped whatever it could not read — including, sometimes, the good
+  event that followed. It now recovers concatenated and split records, repairs
+  raw control characters, and confines an unreadable record to itself.
+- **A standing approval reads as "always" instead of "once".** The resolution was
+  matched against the word "always", which the CLI never writes — its vocabulary
+  is `approved-for-location`. Every session-wide grant was mislabelled.
+- **A chunked answer is one message again.** Long replies can arrive split across
+  records sharing a `messageId`; they were drawn as a run of fragments.
+- **Briefs are refreshed for the sessions you actually use.** `handoff.mjs` ranked
+  and filtered on `sessions.updated_at`, which Copilot CLI writes once at
+  creation and never bumps (copilot-cli#2192, open since March, reproduced here:
+  26 of 26 recent sessions stale, one by 13 days). `--days 7` found 9 sessions
+  where it should have found 14 — and the 5 it skipped included the two most
+  active on the machine. Recency now comes from the newest turn. Sessions whose
+  `cwd` the CLI left NULL (copilot-cli#2655) are no longer dropped either.
+- **A handoff keeps its original conversation link across every restart.** A
+  fresh successor previously retained the old conversation for one launch, then
+  discarded that lineage on the next asleep restore. Saved sets dropped it too.
+  Crew now persists both the current agent session and its handoff source until
+  a later conversation genuinely supersedes it.
+- **Refreshing one handoff no longer deletes all the others.** The documented
+  single-session and `--days` commands built a partial result, then treated it
+  as the complete roster and removed every brief outside that scope. Cleanup and
+  index replacement now run only for an unfiltered full rebuild.
+- **Built-in agents are protected below the UI.** Saving edits still forks a
+  built-in into a custom agent, and now the shared persistence path also refuses
+  to overwrite or delete the shipped original.
+
 ## 0.5.13 — 2026-08-26
 
 ### Added

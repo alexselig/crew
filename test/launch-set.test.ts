@@ -27,6 +27,7 @@ vi.mock('node-pty', () => ({ spawn: fakeSpawn, default: { spawn: fakeSpawn } }))
 
 import { SessionManager } from '../src/main/session-manager'
 import { Store } from '../src/main/store'
+import type { SessionSet } from '../src/shared/types'
 
 function storeWithSet(count: number): Store {
   const path = join(mkdtempSync(join(tmpdir(), 'crew-sets-')), 'store.json')
@@ -101,6 +102,32 @@ describe('resuming a saved set', () => {
     manager.launchSet('Recovered')
 
     expect(manager.roster().every((s) => (s.workspaceIds ?? []).length === 0)).toBe(true)
+
+    manager.disposeAll()
+  })
+
+  it('preserves a saved session handoff lineage', () => {
+    const store = storeWithSet(0)
+    store.upsertSet({
+      name: 'Recovered',
+      sessions: [{
+        presetId: 'copilot-cli',
+        command: 'copilot',
+        args: [],
+        cwd: tmpdir(),
+        label: 'Recovered',
+        id: 'r0',
+        agentSessionId: 'fresh-successor',
+        priorSessionId: 'original-conversation',
+        characterId: 'lion'
+      }]
+    } as SessionSet)
+    const manager = new SessionManager(store)
+
+    const [restored] = manager.launchSet('Recovered')
+
+    expect(restored.agentSessionId).toBe('fresh-successor')
+    expect(restored.priorSessionId).toBe('original-conversation')
 
     manager.disposeAll()
   })
