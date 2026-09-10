@@ -154,6 +154,67 @@ describe('restoring a large roster', () => {
     expect(store.getSessions()).toHaveLength(30)
   })
 
+  it('preserves the original conversation lineage across repeated asleep restores', () => {
+    const store = storeWith(1)
+    store.saveSessions([
+      {
+        ...session(0),
+        agentSessionId: 'fresh-successor',
+        priorSessionId: 'original-conversation'
+      }
+    ])
+
+    const first = new SessionManager(store)
+    first.restore()
+    first.disposeAll()
+
+    const second = new SessionManager(store)
+    const [restored] = second.restore()
+
+    expect(restored.agentSessionId).toBe('fresh-successor')
+    expect(restored.priorSessionId).toBe('original-conversation')
+
+    second.disposeAll()
+  })
+
+  it('keeps the original brief source across repeated brief-mode restores', () => {
+    const store = storeWith(1)
+    store.updateSettings({ contextMode: 'brief' })
+    store.saveSessions([
+      {
+        ...session(0),
+        agentSessionId: 'empty-successor',
+        priorSessionId: 'original-conversation'
+      }
+    ])
+
+    const manager = new SessionManager(store)
+    const [restored] = manager.restore()
+
+    expect(restored.priorSessionId).toBe('original-conversation')
+
+    manager.disposeAll()
+  })
+
+  it('keeps the original brief source when conversation resume is disabled', () => {
+    const store = storeWith(1)
+    store.updateSettings({ resumeConversations: false })
+    store.saveSessions([
+      {
+        ...session(0),
+        agentSessionId: 'empty-successor',
+        priorSessionId: 'original-conversation'
+      }
+    ])
+
+    const manager = new SessionManager(store)
+    const [restored] = manager.restore()
+
+    expect(restored.priorSessionId).toBe('original-conversation')
+
+    manager.disposeAll()
+  })
+
   it('keeps the whole roster when quit lands mid-restore', () => {
     const store = storeWith(30)
     const manager = new SessionManager(store)

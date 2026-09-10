@@ -39,7 +39,9 @@ export function AgentEditor({ agent, presets, onSave, onDelete, onClose }: Props
   const save = (asCopy = false): void => {
     const draft: Agent = {
       id: !agent || asCopy ? makeAgentId() : agent.id,
-      name: asCopy ? `${name} copy` : name,
+      // A built-in is never overwritten: it forks. Only auto-suffix the name
+      // when it is still the built-in's own, so a renamed fork keeps its name.
+      name: asCopy && name === agent?.name ? `${name} copy` : name,
       icon,
       color,
       base,
@@ -62,16 +64,21 @@ export function AgentEditor({ agent, presets, onSave, onDelete, onClose }: Props
     <div className="modal-overlay" onMouseDown={onClose}>
       <form className="modal modal--agent" onMouseDown={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); save(isBuiltin) }}>
         <h2 className="modal__title">{agent ? (isBuiltin ? `${agent.name} (built-in)` : 'Edit agent') : 'New agent'}</h2>
+        {isBuiltin && (
+          <p className="modal__hint">
+            Built-in agents can’t be overwritten. Review the prompt below and edit freely — saving keeps the original and creates your own copy.
+          </p>
+        )}
 
         <label className="field">
           <span className="field__label">Name</span>
-          <input className="field__input" value={name} onChange={(e) => setName(e.target.value)} disabled={isBuiltin} autoFocus />
+          <input className="field__input" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </label>
 
         <div className="field field--row">
           <label className="field">
             <span className="field__label">Base</span>
-            <select className="field__input" value={base} onChange={(e) => setBase(e.target.value)} disabled={isBuiltin}>
+            <select className="field__input" value={base} onChange={(e) => setBase(e.target.value)}>
               {bases.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -79,13 +86,13 @@ export function AgentEditor({ agent, presets, onSave, onDelete, onClose }: Props
           </label>
           <label className="field">
             <span className="field__label">Icon</span>
-            <select className="field__input" value={icon} onChange={(e) => setIcon(e.target.value)} disabled={isBuiltin}>
+            <select className="field__input" value={icon} onChange={(e) => setIcon(e.target.value)}>
               {ICONS.map((i) => (<option key={i} value={i}>{i}</option>))}
             </select>
           </label>
           <label className="field">
             <span className="field__label">Color</span>
-            <select className="field__input" value={color} onChange={(e) => setColor(e.target.value)} disabled={isBuiltin}>
+            <select className="field__input" value={color} onChange={(e) => setColor(e.target.value)}>
               {COLORS.map((c) => (<option key={c} value={c}>{c}</option>))}
             </select>
           </label>
@@ -93,20 +100,20 @@ export function AgentEditor({ agent, presets, onSave, onDelete, onClose }: Props
 
         <label className="field">
           <span className="field__label">Persona (system prompt)</span>
-          <textarea className="field__input" rows={5} value={persona} onChange={(e) => setPersona(e.target.value)} disabled={isBuiltin}
+          <textarea className="field__input" rows={9} value={persona} onChange={(e) => setPersona(e.target.value)}
             placeholder="You are a … Inspect the code in this working directory (read only) and report …" />
         </label>
 
         <div className="field field--row">
           <label className="field">
             <span className="field__label">Context</span>
-            <select className="field__input" value={contextMode} onChange={(e) => setContextMode(e.target.value as Agent['contextMode'])} disabled={isBuiltin}>
+            <select className="field__input" value={contextMode} onChange={(e) => setContextMode(e.target.value as Agent['contextMode'])}>
               <option value="cwd">Working folder</option>
               <option value="cwd+transcript">Folder + recent transcript</option>
             </select>
           </label>
           <label className="field field--check">
-            <input type="checkbox" checked={writes} onChange={(e) => setWrites(e.target.checked)} disabled={isBuiltin} />
+            <input type="checkbox" checked={writes} onChange={(e) => setWrites(e.target.checked)} />
             <span>Can edit files (autonomous)</span>
           </label>
         </div>

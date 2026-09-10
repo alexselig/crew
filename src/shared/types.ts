@@ -247,6 +247,7 @@ export interface SessionSet {
     /** Preserved so resuming a set restores the same agent conversation + look. */
     id?: string
     agentSessionId?: string
+    priorSessionId?: string
     characterId?: string
     color?: string
     tag?: string

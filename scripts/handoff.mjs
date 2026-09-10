@@ -106,14 +106,35 @@ const slug = (s) =>
     .slice(0, 48) || 'session'
 
 function sessions() {
-  let where = "where s.cwd is not null"
+  // Recency comes from the newest turn, not sessions.updated_at.
+  // github/copilot-cli#2192: updated_at is written once at session creation and
+  // never bumped as turns are added — every multi-turn session here is stale by
+  // it, one by 13 days. Filtering or sorting on it meant the sessions being
+  // worked on hardest were the ones whose briefs stopped being refreshed.
+  //
+  // cwd is deliberately not required either: copilot-cli#2655 leaves it NULL on
+  // sessions started while its git probes race, and dropping those sessions
+  // silently lost their briefs. The brief simply omits the line when unknown.
+  let where = 'where 1=1'
   if (only.length) where += ` and s.id in (${only.map((i) => `'${esc(i)}'`).join(',')})`
-  else if (DAYS) where += ` and s.updated_at >= datetime('now','-${DAYS} days')`
+  else if (DAYS) {
+    // The store writes ISO ('…T…Z'); datetime() yields 'YYYY-MM-DD HH:MM:SS'.
+    // Normalise before comparing so the two are actually comparable as strings.
+    where +=
+      ` and replace(replace(coalesce(t.last_turn_at, s.updated_at),'T',' '),'Z','')` +
+      ` >= datetime('now','-${DAYS} days')`
+  }
   return q(`
-    select s.id, s.cwd, s.repository, s.branch, s.summary, s.created_at, s.updated_at,
-           (select count(*) from turns t where t.session_id = s.id) as turn_count
-    from sessions s ${where}
-    order by s.updated_at desc`)
+    select s.id, s.cwd, s.repository, s.branch, s.summary, s.created_at,
+           coalesce(t.last_turn_at, s.updated_at) as updated_at,
+           coalesce(t.turn_count, 0) as turn_count
+    from sessions s
+    left join (
+      select session_id, count(*) as turn_count, max(timestamp) as last_turn_at
+      from turns group by session_id
+    ) t on t.session_id = s.id
+    ${where}
+    order by coalesce(t.last_turn_at, s.updated_at) desc`)
 }
 
 function brief(s) {
@@ -156,7 +177,7 @@ function brief(s) {
   const L = []
   L.push('---')
   L.push(`agentSessionId: ${s.id}`)
-  L.push(`cwd: ${s.cwd}`)
+  if (s.cwd) L.push(`cwd: ${s.cwd}`)
   if (s.repository) L.push(`repository: ${s.repository}`)
   if (s.branch) L.push(`branch: ${s.branch}`)
   L.push(`turns: ${s.turn_count}`)
@@ -235,31 +256,39 @@ for (const s of all) {
   if (!s.turn_count) continue
   const { title, body } = brief(s)
   const name = `${slug(title)}--${s.id.slice(0, 8)}.md`
+  const suffix = `--${s.id.slice(0, 8)}.md`
+  for (const existing of readdirSync(OUT)) {
+    if (existing !== name && existing.endsWith(suffix)) unlinkSync(join(OUT, existing))
+  }
   writeFileSync(join(OUT, name), body)
   written.push({ name, title, id: s.id, chars: body.length, updated: s.updated_at, cwd: s.cwd })
 }
 
-// Drop briefs for sessions that no longer exist, so the folder stays truthful.
-const keep = new Set(written.map((w) => w.name).concat(['INDEX.md']))
-for (const f of readdirSync(OUT)) {
-  if (f.endsWith('.md') && !keep.has(f)) unlinkSync(join(OUT, f))
-}
-
 written.sort((a, b) => String(b.updated).localeCompare(String(a.updated)))
-const idx = [
-  '# Session handoffs',
-  '',
-  `${written.length} briefs, regenerated ${new Date().toISOString()}.`,
-  'Each replaces a full transcript replay. Point a fresh agent at one to pick up the work.',
-  '',
-  '| Last used | Brief | Tokens (approx) |',
-  '| --- | --- | --- |',
-  ...written.map((w) => `| ${String(w.updated).slice(0, 10)} | [${w.title}](./${w.name}) | ~${Math.round(w.chars / 4)} |`),
-  '',
-]
-writeFileSync(join(OUT, 'INDEX.md'), idx.join('\n'))
+const fullRebuild = only.length === 0 && DAYS === 0
+if (fullRebuild) {
+  // Only a full rebuild knows the complete live set. A scoped refresh must not
+  // delete unrelated briefs or replace the index with its partial result.
+  const keep = new Set(written.map((w) => w.name).concat(['INDEX.md']))
+  for (const f of readdirSync(OUT)) {
+    if (f.endsWith('.md') && !keep.has(f)) unlinkSync(join(OUT, f))
+  }
+
+  const idx = [
+    '# Session handoffs',
+    '',
+    `${written.length} briefs, regenerated ${new Date().toISOString()}.`,
+    'Each replaces a full transcript replay. Point a fresh agent at one to pick up the work.',
+    '',
+    '| Last used | Brief | Tokens (approx) |',
+    '| --- | --- | --- |',
+    ...written.map((w) => `| ${String(w.updated).slice(0, 10)} | [${w.title}](./${w.name}) | ~${Math.round(w.chars / 4)} |`),
+    '',
+  ]
+  writeFileSync(join(OUT, 'INDEX.md'), idx.join('\n'))
+}
 
 const chars = written.reduce((n, w) => n + w.chars, 0)
 console.log(`wrote ${written.length} briefs to ${OUT}`)
-console.log(`total ~${Math.round(chars / 4).toLocaleString()} tokens for the entire roster`)
+console.log(`total ~${Math.round(chars / 4).toLocaleString()} tokens for ${fullRebuild ? 'the entire roster' : 'this refresh'}`)
 }

@@ -686,6 +686,7 @@ function registerIpc(): void {
         label: s.label,
         id: s.id,
         agentSessionId: s.agentSessionId,
+        priorSessionId: s.priorSessionId,
         characterId: s.characterId,
         color: s.color,
         tag: s.tag,

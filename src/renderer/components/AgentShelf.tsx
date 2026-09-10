@@ -7,11 +7,12 @@ interface Props {
   railed: boolean
   onInvoke: (agentId: string) => void
   onAddAgent: () => void
+  onEditAgent: (agentId: string) => void
 }
 
 /** The "Agents" shelf pinned at the bottom of the nav — a list of on-call
  *  specialists you invoke against a session, visually distinct from the roster. */
-export function AgentShelf({ agents, runs, railed, onInvoke, onAddAgent }: Props): JSX.Element | null {
+export function AgentShelf({ agents, runs, railed, onInvoke, onAddAgent, onEditAgent }: Props): JSX.Element | null {
   if (agents.length === 0 && railed) return null
   const isRunning = (id: string): boolean =>
     Object.values(runs).some((r) => r.agentId === id && r.status === 'running')
@@ -29,7 +30,14 @@ export function AgentShelf({ agents, runs, railed, onInvoke, onAddAgent }: Props
       )}
       <div className="agent-shelf__list">
         {ordered.map((a) => (
-          <AgentRow key={a.id} agent={a} running={isRunning(a.id)} railed={railed} onInvoke={() => onInvoke(a.id)} />
+          <AgentRow
+            key={a.id}
+            agent={a}
+            running={isRunning(a.id)}
+            railed={railed}
+            onInvoke={() => onInvoke(a.id)}
+            onEdit={() => onEditAgent(a.id)}
+          />
         ))}
       </div>
     </section>
