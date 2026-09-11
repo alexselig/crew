@@ -9,7 +9,8 @@ never lose track of which one needs input. Crew **owns the PTYs**, so it sees th
 full output stream and can reliably tell *working* from *waiting-for-you* — then
 surfaces a menu-bar badge with a count and a native notification.
 
-100% local. No network, no telemetry, no session content leaves your machine.
+Crew keeps its roster and captured transcripts on disk. Agent CLIs, update
+checks, and links you open can use the network.
 
 ## Install
 
@@ -35,8 +36,9 @@ releases are signed + notarized.
 - New Copilot sessions default to **GPT-6 Astra** (`gpt-6-astra`). The **Model**
   dropdown reads supported choices from your installed CLI (`copilot completion
   bash`), not a hard-coded catalog. Account access remains subject to Copilot.
-  The selected model is saved with the session and retained on restore and
-  duplication; existing sessions are not switched to Astra.
+  The initial model choice is saved for new conversations and duplication.
+  Native resume honors Copilot's persisted selection, including later `/model`
+  changes; existing conversations are not switched back to their launch model.
 - New sessions use the selected session's working directory (or home when none
   is selected), with the directory visible beside the agent/model controls.
 - Embedded **xterm.js** terminal per session — full interaction in-app,
@@ -50,6 +52,10 @@ releases are signed + notarized.
 - **State detection** (`WORKING` / `WAITING_INPUT` / `WAITING_APPROVAL` / …) via
   output quiescence, prompt/approval regexes, and a debounced silence fallback,
   guarded against false red dots during post-input think-time.
+- **Copilot autopilot indicator** follows the CLI's persisted mode, including
+  resumed sessions, and refreshes about once a second while running. Complete
+  mode events are read asynchronously; split writes and large tool output do
+  not discard mode changes. Sleeping/exited sessions are not shown as autonomous.
 - Per-session **unique character** + **editable label**, persisted by
   `preset + cwd` so relaunching a job reuses its identity.
 - **App preview pane** — when a session is building a web app, an **App** tab
@@ -104,8 +110,34 @@ Notes on the trade-off:
   the filename prefix. Missing/ambiguous briefs never silently replace native
   context with an empty conversation. Existing native conversations are not
   repeatedly primed with their predecessor's brief.
+- Changing an unstarted brief successor to **Transcript** resumes its original
+  conversation rather than opening an empty successor. Retrying a failed launch
+  preserves its conversation IDs and reloads the brief when available.
+- Older roster entries without a recorded provider ID retain the CLI's
+  `--continue` fallback, with a warning to verify the selected conversation.
+  Crew cannot guarantee which historical conversation an ID-less entry belongs to.
 - Optional initial prompts for new Copilot sessions use the same native startup
   flag instead of a timer typing into a terminal that may not be ready.
+
+## Storage safety
+
+Roster saves use flushed temporary files and atomic replacement, with rotated
+backups and dated snapshots. Unix builds also flush directory entries. Recovery
+validates saved data and tries backups even when the primary file is missing;
+unrecoverable or inaccessible stores are protected from being overwritten by an
+empty roster. Startup publishes the complete restored roster in one batch,
+never a partially restored prefix.
+
+Optional text capture retains buffered output after write failures and tracks
+partial writes so retries do not duplicate bytes. Storage failures produce native
+warnings; affected terminal output is paused until capture flushes successfully.
+Roster changes that could not be saved remain in memory and retry on subsequent
+saves. **Do not quit while storage errors remain unresolved.**
+
+These are failure safeguards, not a zero-loss guarantee. Unsaved memory cannot
+survive process termination, Windows does not get Unix directory flushing, and
+same-disk backups do not protect against disk loss. Text capture is not an archive
+of provider events, attachments, or exact terminal state.
 
 The durable session vault described in
 [`docs/superpowers/specs/2026-09-11-session-preservation-design.md`](docs/superpowers/specs/2026-09-11-session-preservation-design.md)

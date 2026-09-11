@@ -18,6 +18,7 @@
 // truncates at narrow widths). "autopilot" is the only autonomous mode.
 
 import { readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
+import { open, type FileHandle } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { basename } from 'node:path'
@@ -31,8 +32,8 @@ const AUTOPILOT_MODES = new Set(['acceptEdits', 'bypassPermissions'])
 /** How much of the transcript tail to scan for the latest permissionMode. */
 const TAIL_BYTES = 512 * 1024
 const PERMISSION_MODE_RE = /"permissionMode":"([a-zA-Z]+)"/g
-/** Copilot's session.mode_changed events carry the new mode in `newMode`. */
-const COPILOT_MODE_RE = /"session\.mode_changed"[^\n]*?"newMode":"([a-zA-Z]+)"/g
+const COPILOT_MODES = new Set(['interactive', 'plan', 'autopilot'])
+const MAX_MODE_RECORD_BYTES = 64 * 1024
 
 /** True for sessions launched as Claude Code (the only agent with these transcripts). */
 export function isClaudeSession(info: Pick<SessionInfo, 'presetId' | 'command'>): boolean {
@@ -51,11 +52,24 @@ export function copilotEventsPath(agentSessionId: string, baseDir: string = COPI
 
 /** The last `newMode` from session.mode_changed events in a chunk of log text, or null. */
 export function latestCopilotMode(text: string): string | null {
-  COPILOT_MODE_RE.lastIndex = 0
-  let last: string | null = null
-  let m: RegExpExecArray | null
-  while ((m = COPILOT_MODE_RE.exec(text)) !== null) last = m[1]
-  return last
+  const lines = text.split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const mode = copilotModeRecord(lines[i])
+    if (mode) return mode
+  }
+  return null
+}
+
+function copilotModeRecord(line: string): string | null {
+  if (!line.includes('session.mode_changed') || line.length > MAX_MODE_RECORD_BYTES) return null
+  try {
+    const event = JSON.parse(line)
+    const mode = event?.data?.newMode
+    return event?.type === 'session.mode_changed' && COPILOT_MODES.has(mode) ? mode : null
+  } catch {
+    // A torn or malformed JSONL record is not an authoritative mode change.
+    return null
+  }
 }
 
 /** True when a Copilot mode string means the agent runs autonomously. */
@@ -166,71 +180,155 @@ export class AutopilotWatcher {
   }
 }
 
-/** Read a byte range [start, end) of a file as utf8. */
-function readRange(path: string, start: number, end: number): string {
-  const len = end - start
-  if (len <= 0) return ''
-  const fd = openSync(path, 'r')
-  try {
-    const buf = Buffer.allocUnsafe(len)
-    const read = readSync(fd, buf, 0, len, start)
-    return buf.toString('utf8', 0, read)
-  } finally {
-    closeSync(fd)
+async function readBlock(file: FileHandle, start: number, end: number): Promise<Buffer> {
+  const buffer = Buffer.allocUnsafe(end - start)
+  let offset = 0
+  while (offset < buffer.length) {
+    const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, start + offset)
+    if (!bytesRead) throw new Error('Copilot event log changed while reading; retrying next poll')
+    offset += bytesRead
   }
+  return buffer
 }
 
 interface CopilotCached {
   path: string
-  /** Byte offset up to which we've already scanned this log. */
+  ino: number
+  dev: number
+  mtimeMs: number
   offset: number
   mode: string | null
+  pending: Buffer
+  skipping: boolean
 }
 
 /**
- * Polls Copilot event logs to tell whether a session is on autopilot. Keyed by
- * Crew session id; resolves the log via the agent's session UUID.
- *
- * Copilot always launches interactive (Crew never passes --autopilot), so the
- * first time we see a session we assume "interactive" and remember the log's
- * current end offset WITHOUT scanning its (possibly 100MB+) history. Each later
- * poll reads only the bytes appended since last time and applies the newest
- * session.mode_changed found there — so a Shift+Tab is caught within ~1s at any
- * terminal width, and a resumed session correctly starts interactive again.
+ * Resume preserves Copilot's mode. Find the latest complete mode record on first
+ * sight, then follow appends, retaining incomplete records between polls. Reads
+ * are asynchronous and bounded so large agent/tool output cannot freeze the UI.
  */
 export class CopilotAutopilotWatcher {
   private readonly cache = new Map<string, CopilotCached>()
+  private readonly jobs = new Map<string, { path: string; result: Promise<boolean> }>()
+  private readonly warned = new Set<string>()
 
   /** @param stateDir base dir for Copilot session state (override in tests). */
   constructor(private readonly stateDir: string = COPILOT_STATE_DIR) {}
 
   /** Current autopilot state for a Copilot session with the given agent UUID. */
-  isAutopilot(sessionId: string, agentSessionId: string | undefined): boolean {
-    if (!agentSessionId) return false
+  isAutopilot(sessionId: string, agentSessionId: string | undefined): Promise<boolean> {
+    if (!agentSessionId) {
+      this.forget(sessionId)
+      return Promise.resolve(false)
+    }
     const path = copilotEventsPath(agentSessionId, this.stateDir)
-    let size: number
-    try {
-      size = statSync(path).size
-    } catch {
-      // No log yet (session still starting) — interactive, don't cache.
-      return false
-    }
+    const existing = this.jobs.get(sessionId)
+    if (existing?.path === path) return existing.result
+    const job = { path, result: Promise.resolve(false) }
+    this.jobs.set(sessionId, job)
+    const current = (): boolean => this.jobs.get(sessionId) === job
+    job.result = this.refresh(sessionId, path, current).finally(() => {
+      if (current()) this.jobs.delete(sessionId)
+    })
+    return job.result
+  }
+
+  private async refresh(sessionId: string, path: string, current: () => boolean): Promise<boolean> {
     const prev = this.cache.get(sessionId)
-    if (!prev || prev.path !== path || size < prev.offset) {
-      // First sight (or the log was truncated/rotated): assume the launch mode
-      // and start watching from the current end — never scan the huge history.
-      this.cache.set(sessionId, { path, offset: size, mode: 'interactive' })
-      return false
+    let file: FileHandle | undefined
+    try {
+      file = await open(path, 'r')
+      const st = await file.stat()
+      const reset = !prev || prev.path !== path || prev.ino !== st.ino || prev.dev !== st.dev ||
+        st.size < prev.offset || (st.size === prev.offset && st.mtimeMs !== prev.mtimeMs)
+      let next: CopilotCached
+      if (reset) {
+        next = {
+          path, ino: st.ino, dev: st.dev, mtimeMs: st.mtimeMs,
+          offset: st.size, mode: null, pending: Buffer.alloc(0), skipping: false
+        }
+        await this.readInitial(file, next, current)
+      } else {
+        next = { ...prev, mtimeMs: st.mtimeMs }
+        while (next.offset < st.size && current()) {
+          const chunk = await readBlock(file, next.offset, Math.min(st.size, next.offset + TAIL_BYTES))
+          this.consume(next, chunk)
+          next.offset += chunk.length
+        }
+      }
+      if (current()) {
+        this.cache.set(sessionId, next)
+        this.warned.delete(sessionId)
+      }
+      return isCopilotAutopilotMode(next.mode)
+    } catch (error) {
+      const missing = error instanceof Error && 'code' in error && error.code === 'ENOENT'
+      if (!missing && current() && !this.warned.has(sessionId)) {
+        console.warn(`[autopilot] Cannot read mode for ${sessionId}; retaining last known state:`, error)
+        this.warned.add(sessionId)
+      }
+      return prev?.path === path && isCopilotAutopilotMode(prev.mode)
+    } finally {
+      await file?.close()
     }
-    if (size === prev.offset) return isCopilotAutopilotMode(prev.mode)
-    // Scan only the newly-appended bytes for the latest mode change.
-    const mode = latestCopilotMode(readRange(path, prev.offset, size)) ?? prev.mode
-    this.cache.set(sessionId, { path, offset: size, mode })
-    return isCopilotAutopilotMode(mode)
+  }
+
+  private async readInitial(file: FileHandle, state: CopilotCached, current: () => boolean): Promise<void> {
+    let end = state.offset
+    let suffix: Buffer = Buffer.alloc(0)
+    let skipLast = true
+    while (end > 0 && current()) {
+      const start = Math.max(0, end - TAIL_BYTES)
+      const block = await readBlock(file, start, end)
+      if (end === state.offset) {
+        const newline = block.lastIndexOf(10)
+        const tail = block.subarray(newline + 1)
+        state.skipping = tail.length > MAX_MODE_RECORD_BYTES || (start > 0 && newline === -1)
+        state.pending = state.skipping ? Buffer.alloc(0) : Buffer.from(tail)
+      }
+      const data = Buffer.concat([block, suffix])
+      let lineEnd = data.length
+      for (let newline = data.lastIndexOf(10); newline >= 0; newline = data.lastIndexOf(10, newline - 1)) {
+        if (!skipLast && lineEnd - newline <= MAX_MODE_RECORD_BYTES) {
+          state.mode = copilotModeRecord(data.toString('utf8', newline + 1, lineEnd))
+          if (state.mode) return
+        }
+        skipLast = false
+        lineEnd = newline
+        if (newline === 0) break
+      }
+      if (start === 0 && !skipLast && lineEnd <= MAX_MODE_RECORD_BYTES) {
+        state.mode = copilotModeRecord(data.toString('utf8', 0, lineEnd))
+      }
+      suffix = lineEnd <= MAX_MODE_RECORD_BYTES ? Buffer.from(data.subarray(0, lineEnd)) : Buffer.alloc(0)
+      skipLast ||= lineEnd > MAX_MODE_RECORD_BYTES
+      end = start
+    }
+  }
+
+  private consume(state: CopilotCached, chunk: Buffer): void {
+    if (state.skipping) {
+      const newline = chunk.indexOf(10)
+      if (newline === -1) return
+      chunk = chunk.subarray(newline + 1)
+      state.skipping = false
+    }
+    const data = Buffer.concat([state.pending, chunk])
+    let start = 0
+    for (let newline = data.indexOf(10); newline >= 0; newline = data.indexOf(10, start)) {
+      if (newline - start <= MAX_MODE_RECORD_BYTES) {
+        state.mode = copilotModeRecord(data.toString('utf8', start, newline)) ?? state.mode
+      }
+      start = newline + 1
+    }
+    state.skipping = data.length - start > MAX_MODE_RECORD_BYTES
+    state.pending = state.skipping ? Buffer.alloc(0) : Buffer.from(data.subarray(start))
   }
 
   /** Drop cached state for a closed session. */
   forget(sessionId: string): void {
     this.cache.delete(sessionId)
+    this.jobs.delete(sessionId)
+    this.warned.delete(sessionId)
   }
 }

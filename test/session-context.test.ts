@@ -105,8 +105,32 @@ describe('automatic context loading', () => {
     store.updateSettings({ contextMode: 'transcript' })
     const [restored] = manager.restore()
     manager.wake(restored.id)
-    expect(spawn.mock.calls[0][1]).toContain('--session-id=empty-successor')
+    expect(spawn.mock.calls[0][1]).toContain('--session-id=original')
     expect(spawn.mock.calls[0][1]).not.toContain('--interactive')
+    expect(store.getSessions()[0].agentSessionId).toBe('original')
+  })
+
+  it('resumes the original transcript when context settings change before wake', () => {
+    saved()
+    store.updateSettings({ contextMode: 'brief' })
+    const [restored] = manager.restore()
+    expect(restored.agentSessionId).not.toBe('original')
+    store.updateSettings({ contextMode: 'transcript' })
+    manager.wake(restored.id)
+    expect(spawn.mock.calls[0][1]).toContain('--session-id=original')
+    expect(spawn.mock.calls[0][1]).not.toContain('--interactive')
+    expect(store.getSessions()[0].agentSessionId).toBe('original')
+  })
+
+  it.each(['auto', 'transcript'] as const)('retains native continuation for an ID-less legacy %s restore', (contextMode) => {
+    saved({ agentSessionId: undefined })
+    store.updateSettings({ contextMode })
+    const [restored] = manager.restore()
+    manager.wake(restored.id)
+    const args: string[] = spawn.mock.calls[0][1]
+    expect(args).toContain('--continue')
+    expect(args.some((arg) => arg.startsWith('--session-id'))).toBe(false)
+    expect(store.getSessions()[0].agentSessionId).toBeUndefined()
   })
 
   it('reports a brief disappearing after restore rather than launching blank context', () => {
@@ -118,6 +142,23 @@ describe('automatic context loading', () => {
     expect(spawn).not.toHaveBeenCalled()
     expect(manager.roster()[0].state).toBe('ERROR')
     expect(manager.roster()[0].errorMessage).toContain('brief is missing')
+  })
+
+  it('retries a failed context launch without discarding either recovery ID', () => {
+    saved()
+    store.updateSettings({ contextMode: 'brief' })
+    const [restored] = manager.restore()
+    briefPath.mockReturnValue(null)
+    manager.wake(restored.id)
+    expect(manager.roster()[0].status).toBe('error')
+    briefPath.mockImplementation((id) => id === 'original' ? '/tmp/context brief.md' : null)
+    const retried = manager.restart(restored.id)
+    expect(retried).toMatchObject({ id: restored.id, agentSessionId: restored.agentSessionId, priorSessionId: 'original' })
+    expect(retried?.errorMessage).toBeUndefined()
+    expect(retried?.exitCode).toBeNull()
+    expect(spawn.mock.calls[0][1]).toContain('--interactive')
+    expect(spawn.mock.calls[0][1]).toContain(`--session-id=${restored.agentSessionId}`)
+    expect(store.getSessions()[0]).toMatchObject({ agentSessionId: restored.agentSessionId, priorSessionId: 'original' })
   })
 
   it('respects disabled context restore', () => {
@@ -170,5 +211,16 @@ describe('creation model defaults', () => {
       presetId: 'copilot-cli', command: 'copilot', args: ['--model', 'gpt-5.5'], cwd: dir
     })
     expect(manager.duplicateSession(created.id, null)?.args).toEqual(['--model', 'gpt-5.5'])
+  })
+
+  it('does not overwrite a native /model choice with the original launch model', () => {
+    saved({ args: ['--model=gpt-5.5', '--banner'] })
+    historySize.bytes = 9000
+    const [restored] = manager.restore()
+    manager.wake(restored.id)
+    const launch: string[] = spawn.mock.calls[0][1]
+    expect(launch.some((arg) => arg === '--model' || arg.startsWith('--model='))).toBe(false)
+    expect(launch).toContain('--banner')
+    expect(store.getSessions()[0].args).toEqual(['--model=gpt-5.5', '--banner'])
   })
 })

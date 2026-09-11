@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -70,6 +70,12 @@ describe('latestCopilotMode', () => {
   it('is not fooled by newMode in unrelated events', () => {
     expect(latestCopilotMode('{"type":"other","data":{"newMode":"autopilot"}}')).toBeNull()
   })
+
+  it('accepts JSON whitespace and rejects nested lookalike events', () => {
+    expect(latestCopilotMode('{ "type": "session.mode_changed", "data": { "newMode": "autopilot" } }')).toBe('autopilot')
+    expect(latestCopilotMode('{"type":"tool.execution_complete","data":{"type":"session.mode_changed","newMode":"autopilot"}}')).toBeNull()
+    expect(latestCopilotMode(line('unknown-mode'))).toBeNull()
+  })
 })
 
 describe('isCopilotAutopilotMode', () => {
@@ -105,53 +111,121 @@ describe('CopilotAutopilotWatcher', () => {
   const mode = (m: string, p = 'interactive'): string =>
     `{"type":"session.mode_changed","data":{"previousMode":"${p}","newMode":"${m}"}}`
 
-  it('is false when the session has no event log yet', () => {
+  it('is false when the session has no event log yet', async () => {
     const stateDir = mkdtempSync(join(tmpdir(), 'crew-copilot-'))
     dirs.push(stateDir)
     const w = new CopilotAutopilotWatcher(stateDir)
-    expect(w.isAutopilot('s1', 'missing-uuid')).toBe(false)
+    expect(await w.isAutopilot('s1', 'missing-uuid')).toBe(false)
   })
 
-  it('is false when agentSessionId is undefined', () => {
+  it('is false when agentSessionId is undefined', async () => {
     const w = new CopilotAutopilotWatcher()
-    expect(w.isAutopilot('s1', undefined)).toBe(false)
+    expect(await w.isAutopilot('s1', undefined)).toBe(false)
   })
 
-  it('assumes interactive on first sight, ignoring pre-existing history', () => {
-    // A session resumed by Crew launches interactive even if its log ends in an
-    // autopilot line from a previous run — first sight must not report autopilot.
+  it('restores the persisted mode on first sight, including resumed sessions', async () => {
+    // Copilot help config: resumed sessions retain their own persisted mode.
     const { stateDir, id, write } = setup()
     write([mode('autopilot')])
     const w = new CopilotAutopilotWatcher(stateDir)
-    expect(w.isAutopilot('s1', id)).toBe(false)
+    expect(await w.isAutopilot('s1', id)).toBe(true)
   })
 
-  it('flips to autopilot when a mode change is APPENDED after watching starts', () => {
+  it('flips to autopilot when a mode change is APPENDED after watching starts', async () => {
     const { stateDir, id, write } = setup()
     write(['{"type":"session.start","data":{}}'])
     const w = new CopilotAutopilotWatcher(stateDir)
-    expect(w.isAutopilot('s1', id)).toBe(false)
+    expect(await w.isAutopilot('s1', id)).toBe(false)
     write(['{"type":"session.start","data":{}}', mode('autopilot')])
-    expect(w.isAutopilot('s1', id)).toBe(true)
+    expect(await w.isAutopilot('s1', id)).toBe(true)
     // …and back off.
     write(['{"type":"session.start","data":{}}', mode('autopilot'), mode('interactive', 'autopilot')])
-    expect(w.isAutopilot('s1', id)).toBe(false)
+    expect(await w.isAutopilot('s1', id)).toBe(false)
   })
 
-  it('keeps the last known mode when appended output has no mode-change line', () => {
+  it('keeps the last known mode when appended output has no mode-change line', async () => {
     const { stateDir, id, write } = setup()
     write(['{"type":"session.start","data":{}}'])
     const w = new CopilotAutopilotWatcher(stateDir)
-    w.isAutopilot('s1', id)
+    await w.isAutopilot('s1', id)
     write(['{"type":"session.start","data":{}}', mode('autopilot')])
-    expect(w.isAutopilot('s1', id)).toBe(true)
+    expect(await w.isAutopilot('s1', id)).toBe(true)
     write(['{"type":"session.start","data":{}}', mode('autopilot'), '{"type":"assistant.message","data":{}}'])
-    expect(w.isAutopilot('s1', id)).toBe(true)
+    expect(await w.isAutopilot('s1', id)).toBe(true)
   })
 
   it('forget() drops cached state without throwing', () => {
     const w = new CopilotAutopilotWatcher()
     expect(() => w.forget('nope')).not.toThrow()
+  })
+
+  it('detects autopilot when the log first appears after a missing-file poll', async () => {
+    const { stateDir, id, write } = setup()
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(await w.isAutopilot('s1', id)).toBe(false)
+    write(['{"type":"session.start","data":{}}', mode('autopilot')])
+    expect(await w.isAutopilot('s1', id)).toBe(true)
+  })
+
+  it('does not lose a mode event split across filesystem writes', async () => {
+    const { stateDir, id, path, write } = setup()
+    write(['{"type":"session.start","data":{}}'])
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(await w.isAutopilot('s1', id)).toBe(false)
+    const event = mode('autopilot')
+    const split = event.indexOf('newMode')
+    appendFileSync(path, event.slice(0, split))
+    expect(await w.isAutopilot('s1', id)).toBe(false)
+    appendFileSync(path, event.slice(split) + '\n')
+    expect(await w.isAutopilot('s1', id)).toBe(true)
+  })
+
+  it('does not mistake a partial mode event for a committed change', async () => {
+    const { stateDir, id, path, write } = setup()
+    write([mode('autopilot')])
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(await w.isAutopilot('s1', id)).toBe(true)
+    const event = mode('interactive', 'autopilot')
+    appendFileSync(path, event.slice(0, -2))
+    expect(await w.isAutopilot('s1', id)).toBe(true)
+    appendFileSync(path, event.slice(-2) + '\n')
+    expect(await w.isAutopilot('s1', id)).toBe(false)
+  })
+
+  it('finds an enabled mode older than a large assistant turn', async () => {
+    const { stateDir, id, write } = setup()
+    write([mode('autopilot'), JSON.stringify({ type: 'assistant.message', data: { content: 'x'.repeat(2 * 1024 * 1024) } })])
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(await w.isAutopilot('s1', id)).toBe(true)
+  })
+
+  it('reads mode changes after oversized partial output without retaining the output', async () => {
+    const { stateDir, id, path, write } = setup()
+    write(['{"type":"session.start","data":{}}'])
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(await w.isAutopilot('s1', id)).toBe(false)
+    appendFileSync(path, '{"type":"assistant.message","data":{"content":"' + 'x'.repeat(2 * 1024 * 1024))
+    expect(await w.isAutopilot('s1', id)).toBe(false)
+    appendFileSync(path, '"}}\n' + mode('autopilot') + '\n')
+    expect(await w.isAutopilot('s1', id)).toBe(true)
+  })
+
+  it('re-reads replacement files even if they have the same size', async () => {
+    const { stateDir, id, path, write } = setup()
+    write([mode('autopilot', 'interactive')])
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(await w.isAutopilot('s1', id)).toBe(true)
+    writeFileSync(path + '.new', mode('interactive', 'autopilot') + '\n')
+    renameSync(path + '.new', path)
+    expect(await w.isAutopilot('s1', id)).toBe(false)
+  })
+
+  it('scopes cached modes to the provider session ID', async () => {
+    const { stateDir, id, write } = setup()
+    write([mode('autopilot')])
+    const w = new CopilotAutopilotWatcher(stateDir)
+    expect(await w.isAutopilot('s1', id)).toBe(true)
+    expect(await w.isAutopilot('s1', 'different-session')).toBe(false)
   })
 })
 

@@ -7,6 +7,10 @@ export interface CopilotModelCatalog {
 }
 
 export function withCopilotModel(args: string[], model: string): string[] {
+  return [...withoutCopilotModel(args), '--model', model]
+}
+
+export function withoutCopilotModel(args: string[]): string[] {
   const next: string[] = []
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--model') {
@@ -15,5 +19,5 @@ export function withCopilotModel(args: string[], model: string): string[] {
       next.push(args[i])
     }
   }
-  return [...next, '--model', model]
+  return next
 }

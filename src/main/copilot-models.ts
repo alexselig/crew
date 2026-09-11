@@ -16,7 +16,12 @@ export function parseCopilotModels(completion: string): string[] {
 
 function readCompletion(): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('copilot', ['completion', 'bash'], {
+    // Windows npm installs expose a .cmd shim. Only this fixed command enters cmd;
+    // model choices and other user input are never interpolated into a shell.
+    const windows = process.platform === 'win32'
+    const file = windows ? process.env.ComSpec || 'cmd.exe' : 'copilot'
+    const args = windows ? ['/d', '/s', '/c', 'copilot completion bash'] : ['completion', 'bash']
+    execFile(file, args, {
       encoding: 'utf8',
       timeout: 10_000,
       maxBuffer: 1024 * 1024,

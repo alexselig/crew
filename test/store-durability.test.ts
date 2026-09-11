@@ -1,13 +1,19 @@
-import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../src/main/store'
 import type { PersistedSession } from '../src/main/store'
 
+const temporaryDirs: string[] = []
 function tmpStorePath(): string {
-  return join(mkdtempSync(join(tmpdir(), 'crew-durability-')), 'store.json')
+  const dir = mkdtempSync(join(tmpdir(), 'crew-durability-'))
+  temporaryDirs.push(dir)
+  return join(dir, 'store.json')
 }
+afterEach(() => {
+  for (const dir of temporaryDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
 
 function session(id: string, label: string): PersistedSession {
   return {
@@ -76,13 +82,17 @@ describe('store durability — recovery from a corrupt roster', () => {
     expect(existsSync(path)).toBe(true)
   })
 
-  it('still starts clean when there is no backup to fall back on', () => {
+  it('reports an irrecoverable store and disables saves instead of silently starting clean', () => {
     const path = tmpStorePath()
     writeFileSync(path, 'not json at all')
 
-    const store = new Store(path)
+    const errors = vi.fn()
+    const store = new Store(path, errors)
 
     expect(store.getSessions()).toEqual([])
+    store.saveSessions([session('a', 'Unsaved')])
+    expect(readFileSync(path, 'utf8')).toBe('not json at all')
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('saving is disabled'))
   })
 })
 

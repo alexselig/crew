@@ -5,7 +5,8 @@ import { Transcript } from '../transcript'
 import type { TranscriptBlock, PermissionResolution } from '../transcript'
 import type { AgentBlock } from '../../shared/agent-events'
 import { DEMO_BLOCKS_DEBUG } from '../transcript/fixtures'
-import { getTranscript } from '../terminal/facade'
+import { getTranscript, recordInput } from '../terminal/facade'
+import { meterInput } from '../input-meter'
 import './TranscriptPane.css'
 
 // Compile-time guard: the shared parser's blocks are rendered directly as the
@@ -28,6 +29,9 @@ function Composer({ sessionId }: { sessionId: string }): JSX.Element {
     const text = draft.replace(/\s+$/, '')
     if (!text) return
     window.crew.sendInput(sessionId, `${text}\r`)
+    recordInput(sessionId, text)
+    // This is a submit, not an unsent multiline paste.
+    meterInput(sessionId, '\r')
     setDraft('')
     // Reset the auto-grown height after clearing.
     const ta = taRef.current
