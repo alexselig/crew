@@ -84,6 +84,11 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     executable('gh', `
   case "$1 $2" in
     'auth token') echo fixture-token ;;
+    'api graphql')
+      if [ "$CREW_TEST_MODE" = api-error ]; then echo 'Lookup unavailable' >&2; exit 1; fi
+      if [ "$CREW_TEST_MODE" != missing ] || [ -f created.marker ]; then echo 123; fi ;;
+    'api repos/alexselig/crew/releases/tags/'*)
+      echo '{"message":"Not Found"}'; exit 1 ;;
     api*)
       if [ "$CREW_TEST_MODE" = missing ] && [ ! -f created.marker ]; then
         echo '{"message":"Not Found"}'; exit 1
@@ -135,6 +140,13 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     it('refuses a tag that differs from the package version', () => {
       const { dir, run } = publisherFixture()
       expect(run(false, 'v0.5.14').status).not.toBe(0)
+      expect(existsSync(join(dir, 'uploaded.marker'))).toBe(false)
+    })
+
+    it('does not treat a failed draft lookup as an absent release', () => {
+      const { dir, run } = publisherFixture('api-error')
+      expect(run().status).not.toBe(0)
+      expect(existsSync(join(dir, 'created.marker'))).toBe(false)
       expect(existsSync(join(dir, 'uploaded.marker'))).toBe(false)
     })
 
