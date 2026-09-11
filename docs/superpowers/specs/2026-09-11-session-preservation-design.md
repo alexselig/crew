@@ -39,6 +39,42 @@ handoffs, not a claim that every unrelated Crew feature has been audited.
 | Restore is lazy and preserves current/prior provider IDs. | `src/main/session-manager.ts:801-854`; `test/restore-lazy.test.ts:159-253` | Keep lazy restore, but extend lineage beyond one prior ID. |
 | Install scripts replace the application bundle; in-app updates are notification-only. | `install.sh:54-69`; `install-crew.sh:27-45`; `src/main/updater.ts:20-62` | Data durability must not depend on retaining the old application bundle. |
 
+Additional bounded follow-up findings:
+
+- Installers already poll for exit for up to 15 seconds and abort if Crew remains
+  running (`install.sh:52-60`; `install-crew.sh:27-31`). Preserve this safeguard.
+  The remaining replacement gap is deleting the old bundle before copying the
+  new one (`install.sh:64-65`; `install-crew.sh:41`), not an absent quit check.
+- Teardown disposes/flushes recording before disposing session producers
+  (`src/main/index.ts:470-475`; `src/main/transcripts.ts:72-79`). The new protocol
+  must account for final output after that initial flush.
+- Migration persistence uses ordinary rotating backups, not a dedicated
+  immutable pre-migration snapshot (`src/main/store.ts:193-203,271-299`).
+- The inspected snapshot API lists dated backups, but has no corresponding
+  snapshot-restore IPC/UI flow (`src/main/store.ts:352-366`).
+- Handoffs include both sides of only the last 14 turns, with a combined
+  14,000-character tail budget; touched files are limited to 12 paths and
+  references to 8 entries (`scripts/handoff.mjs:66-83,147-155,216-236`).
+  Tool results are not preserved as structured records, pending work appears
+  only through checkpoint text, and attachments are not captured as objects.
+- The existing handoff generator is Copilot-specific; launching/resuming Claude,
+  shells, or custom commands does not give those sessions equivalent brief
+  coverage (`scripts/handoff.mjs:1-6`; `src/main/presets.ts:17-58`).
+- The optional recorder clears each buffered chunk even if `appendFileSync`
+  fails; it also strips ANSI and flushes on a 1.5-second timer
+  (`src/main/transcripts.ts:1-43`). This is a concrete data-loss path on write
+  failure, not just a theoretical corruption concern.
+- Closing a session removes its map entry and persists the remaining roster;
+  the existing `archiveSession()` instead clears workspace membership while
+  leaving the session running (`src/main/session-manager.ts:500-506,634-650,758-785`).
+  Neither behavior is a durable closed-session archive.
+- Renderer delivery coalesces output every 40 ms and drops oldest pending output
+  past its 512 KiB cap (`src/main/session-manager.ts:1-120`). This is a display
+  limit, not an acceptable preservation limit.
+- The transcript view reads provider files in place and may inline referenced
+  images in memory, subject to a 3 MiB per-image and 6 MiB total image budget
+  (`src/main/agent-transcript.ts:46-77`). This does not persist those attachments.
+
 Existing tests cover corruption fallback, migration idempotence, snapshot
 retention, lazy restore, lineage, handoff selection, and generated-brief cleanup.
 They do not establish end-to-end power-loss, reinstall, archive-integrity, or
@@ -184,6 +220,10 @@ barrier, with a proposed batching window of at most 50 ms under healthy storage.
 Treat this as a latency target, not proof of fsync latency. If a user explicitly
 chooses to continue after capture fails, show **Not preserved** persistently;
 never silently revert to a best-effort recorder.
+Capture before renderer coalescing, pending-output truncation, ANSI stripping,
+or image-display budgets. Those presentation optimizations must not change the
+originals. Keep failed writes pending for explicit retry/recovery; do not clear
+their buffers and report a successful flush.
 
 Bound ingress memory. When persistence cannot keep up, stop accepting new
 session launches and apply supported stream backpressure. Do not claim that
@@ -247,6 +287,9 @@ Close becomes **Archive session**, not history deletion. Explicit permanent
 deletion is a separate confirmed operation identifying all branches/artifacts
 and any shared-object reference effects. Do not add automatic permanent deletion
 in this release. Existing historical losses cannot be retroactively repaired.
+Keep process shutdown and workspace removal distinct: the new archive action
+stops a running session only after the existing confirmation and capture barrier.
+Rename the old workspace-only archive action to **Remove from workspaces**.
 
 ## 7. Provider adapters and restart semantics
 
@@ -426,6 +469,7 @@ kill their Crew instance, reinstall their app, or mutate real session data.
 | Exact archive recovery | Generated binary, Unicode, ANSI, long-record, and artifact fixtures round-trip byte-for-byte by hash. |
 | Crash consistency | Kill an isolated writer at every journal/object/catalog publication boundary; recover every acknowledged item exactly once. |
 | Honest capture status | Uncommitted/pending source data is never labeled preserved; ENOSPC/EACCES/fsync failures remain visible and block false success. |
+| Capture before display limits | Output bursts beyond the 512 KiB renderer cap, ANSI records, and over-budget display images remain exact in the archive. |
 | Import consistency | Concurrent append, partial JSONL record, source rotation/truncation, database WAL activity, and retry cannot silently drop/duplicate records. |
 | Identity | Same cwd/preset, same eight-character ID prefix, multiple branches, rename, archive, and repeated asleep restore preserve distinct identities. |
 | Retention | Exercise exact limits and one-byte-over boundaries; only representation changes, with identical original hashes and record counts. |
