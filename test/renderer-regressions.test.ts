@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { chromium, type Browser } from 'playwright'
-import { createServer, type ViteDevServer } from 'vite'
+import { createServer, optimizeDeps, resolveConfig, type InlineConfig, type ViteDevServer } from 'vite'
 import { mkdirSync, rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import './fixtures/renderer-regression-types'
@@ -13,7 +13,7 @@ const fixture = '/src/renderer/__tests__/renderer-regressions.tsx'
 
 beforeAll(async () => {
   mkdirSync(artifacts, { recursive: true })
-  server = await createServer({
+  const config: InlineConfig = {
     configFile: false,
     root: process.cwd(),
     cacheDir: `${artifacts}/vite`,
@@ -43,7 +43,10 @@ beforeAll(async () => {
         })
       }
     }]
-  })
+  }
+  // Finish cold dependency optimization before a test page can receive a reload.
+  await optimizeDeps(await resolveConfig(config, 'serve'))
+  server = await createServer(config)
   await server.listen()
   const address = server.httpServer!.address()
   if (!address || typeof address === 'string') throw new Error('No test server address')
