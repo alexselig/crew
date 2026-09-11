@@ -34,6 +34,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install test prerequisites
+        shell: pwsh
+        run: |
+          choco install sqlite --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "SQLite test dependency installation failed." }
+          npx --no-install playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw "Chromium test dependency installation failed." }
+
       - name: Typecheck and test
         run: npm run typecheck; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm test
 

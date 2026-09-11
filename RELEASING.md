@@ -89,6 +89,9 @@ The tag triggers **Build Windows**, which runs typechecks/tests, builds the
 installer and portable ZIP, checks the packaged native PTY, and attaches assets
 only to the matching draft. A manual workflow run with a tag checks out that
 tag; a blank tag builds workflow artifacts without publishing.
+The test job installs SQLite and Playwright's Chromium; neither is bundled into
+the app. POSIX permission-bit assertions run only on Unix, while all platforms
+check that atomic writes request restrictive permissions.
 
 ## Verify and publish the complete release
 

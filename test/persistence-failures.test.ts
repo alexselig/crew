@@ -7,6 +7,7 @@ vi.mock('node:fs', async (original) => {
   const actual = await original<typeof import('node:fs')>()
   return {
     ...actual,
+    openSync: vi.fn(actual.openSync),
     writeFileSync: vi.fn(actual.writeFileSync),
     renameSync: vi.fn(actual.renameSync),
     writeSync: vi.fn(actual.writeSync),
@@ -29,6 +30,7 @@ const session = {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(fs.openSync).mockImplementation(actualFs.openSync)
   vi.mocked(fs.writeFileSync).mockImplementation(actualFs.writeFileSync)
   vi.mocked(fs.renameSync).mockImplementation(actualFs.renameSync)
   vi.mocked(fs.writeSync).mockImplementation(actualFs.writeSync)
@@ -60,7 +62,8 @@ describe('atomic publication', () => {
       expect(typeof source).toBe('string')
       const temporary = String(source)
       expect(temporary.startsWith(join(dir, '.store.json.'))).toBe(true)
-      expect(fs.statSync(temporary).mode & 0o777).toBe(0o600)
+      expect(fs.openSync).toHaveBeenCalledWith(temporary, 'wx', 0o600)
+      if (process.platform !== 'win32') expect(fs.statSync(temporary).mode & 0o777).toBe(0o600)
       expect(fileFlushes).toBe(temporaries.length + 1)
       temporaries.push(temporary)
       actualFs.renameSync(source, target)
