@@ -37,6 +37,12 @@ running and supervising multiple AI CLI agent sessions at a glance.
 - **Preview navigation stays inside the local-app boundary.** Browser and asset
   opening failures are surfaced rather than disappearing.
 - **Windows model discovery supports npm command shims.**
+- **macOS updates select the correct Apple Silicon or Intel download.** The
+  installer verifies the release version, signing team, notarization, and active
+  native binaries before quitting Crew. Replacement is staged beside the old app
+  and rolled back if launch cannot be confirmed; session data is never deleted.
+- **Releases stay drafts until every platform is ready.** Signing rejects stale
+  or mismatched bundles, and publication verifies all downloads and stable aliases.
 
 ### Preservation limits
 - The lossless session vault remains planned, not implemented. Buffered changes

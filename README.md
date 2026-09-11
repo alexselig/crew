@@ -14,16 +14,28 @@ checks, and links you open can use the network.
 
 ## Install
 
-Crew is **signed & notarized by Apple**, so it opens with no security warnings on
-macOS (Apple Silicon, arm64).
+macOS builds are **Developer ID signed and notarized by Apple**, for both
+Apple Silicon and Intel.
 
 ```bash
 curl -fsSL https://github.com/alexselig/crew/releases/latest/download/install.sh | bash
 ```
 
-Or download **`Crew-<version>-arm64.dmg`** from the
+Or download **`Crew-<version>-arm64.dmg`** (Apple Silicon) or
+**`Crew-<version>-x64.dmg`** (Intel) from the
 [latest release](https://github.com/alexselig/crew/releases/latest) and drag Crew
 into Applications.
+
+The installer verifies the download before quitting Crew, stages replacement on
+the same volume, and restores the previous app if launch cannot be confirmed.
+It does not delete session data or remove Gatekeeper protection. Launch
+confirmation checks process presence, not full application health. A power loss
+or forced installer termination may require manual recovery: inspect the hidden
+`.crew-install.*` staging directories beside the app for `previous.app` before
+removing a leftover `.crew-install.lock` or any backup.
+
+On Windows, download **`Crew-Setup.exe`** from the same release. Windows builds
+are currently unsigned, so SmartScreen may display a warning.
 
 Maintainers: see [`RELEASING.md`](./RELEASING.md) for the full release flow
 (`scripts/publish.sh`) and [`MACOS-SIGNING.md`](./MACOS-SIGNING.md) for how
