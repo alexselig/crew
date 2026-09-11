@@ -38,16 +38,33 @@ VERSION="$(node -p "require('./package.json').version")"
 # dist/mac-arm64/ and x64 to dist/mac/. Override the app path with CREW_APP if needed.
 ARCH="${CREW_ARCH:-arm64}"
 if [ "$ARCH" = "x64" ] || [ "$ARCH" = "intel" ]; then
+  ARCH=x64
+  MACH_ARCH=x86_64
   APP="${CREW_APP:-dist/mac/Crew.app}"
   ZIP="dist/Crew-${VERSION}-x64-mac.zip"
   DMG="dist/Crew-${VERSION}-x64.dmg"
-else
+elif [ "$ARCH" = "arm64" ]; then
+  MACH_ARCH=arm64
   APP="${CREW_APP:-dist/mac-arm64/Crew.app}"
   ZIP="dist/Crew-${VERSION}-arm64-mac.zip"
   DMG="dist/Crew-${VERSION}-arm64.dmg"
+else
+  echo "ERROR: unsupported architecture: $ARCH" >&2
+  exit 1
 fi
 
 [ -d "$APP" ] || { echo "ERROR: $APP not found — run 'npm run build && npx electron-builder --mac --dir' first." >&2; exit 1; }
+APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")"
+[ "$APP_VERSION" = "$VERSION" ] || { echo "ERROR: bundle version $APP_VERSION does not match package version $VERSION." >&2; exit 1; }
+[ "$APP_ID" = "com.alexselig.crew" ] || { echo "ERROR: unexpected bundle identifier: $APP_ID" >&2; exit 1; }
+APP_ARCHS="$(lipo -archs "$APP/Contents/MacOS/Crew")"
+case " $APP_ARCHS " in
+  *" $MACH_ARCH "*) ;;
+  *) echo "ERROR: bundle architecture $APP_ARCHS does not include $MACH_ARCH." >&2; exit 1 ;;
+esac
+mkdir -p dist
+NOTARY_ZIP="dist/.crew-notarize-${ARCH}.zip"
 
 echo "==> Signing $APP"
 echo "    identity: $IDENTITY"
@@ -56,6 +73,7 @@ echo "    identity: $IDENTITY"
 # the Electron frameworks/helpers and applies Chromium's per-helper entitlements.
 NP=()
 while IFS= read -r f; do NP+=("$f"); done < <(find "$APP/Contents/Resources/app.asar.unpacked/node_modules/node-pty" \( -name "*.node" -o -name "spawn-helper" \) ! -path "*win32*" 2>/dev/null || true)
+[ "${#NP[@]}" -gt 0 ] || { echo "ERROR: packaged node-pty native binaries are missing." >&2; exit 1; }
 # Apple's timestamp server (timestamp.apple.com) intermittently drops individual
 # requests, and signing an Electron app makes hundreds of them — a single blip
 # ("A timestamp was expected but was not found") fails the whole pass. codesign
@@ -75,9 +93,9 @@ done
 codesign --verify --deep --strict "$APP"
 
 echo "==> Notarizing app (Apple, ~1-5 min)"
-ditto -c -k --keepParent "$APP" "dist/.crew-notarize.zip"
-xcrun notarytool submit "dist/.crew-notarize.zip" --keychain-profile "$PROFILE" --wait
-rm -f "dist/.crew-notarize.zip"
+ditto -c -k --keepParent "$APP" "$NOTARY_ZIP"
+xcrun notarytool submit "$NOTARY_ZIP" --keychain-profile "$PROFILE" --wait
+rm -f "$NOTARY_ZIP"
 xcrun stapler staple "$APP"
 spctl -a -vvv -t exec "$APP"
 
@@ -90,11 +108,17 @@ ditto "$APP" "$STAGE/Crew.app"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "Crew" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"
+signed=0
 for attempt in 1 2 3 4 5; do
-  codesign --force --sign "$IDENTITY" --timestamp "$DMG" && break
+  if codesign --force --sign "$IDENTITY" --timestamp "$DMG"; then
+    signed=1
+    break
+  fi
   echo "    dmg sign attempt $attempt failed (transient timestamp blip) — retrying in 15s…" >&2
   sleep 15
 done
+[ "$signed" = "1" ] || { echo "ERROR: DMG signing failed after 5 attempts." >&2; exit 1; }
+codesign --verify --strict "$DMG"
 xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
 xcrun stapler staple "$DMG"
 spctl -a -vvv -t open --context context:primary-signature "$DMG"

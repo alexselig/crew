@@ -1,77 +1,116 @@
-# Releasing Crew (macOS)
+# Releasing Crew
 
-The learned, working release flow for this machine. Crew ships **signed +
-notarized** so downloads open with no Gatekeeper warning and survive Microsoft
-Defender on managed Macs. Background + why the usual `electron-builder` notarize
-path doesn't work here: [`MACOS-SIGNING.md`](./MACOS-SIGNING.md).
+Ship Apple Silicon, Intel, and Windows together. macOS apps are Developer ID
+signed, notarized, and stapled; Windows builds are currently unsigned and may
+show SmartScreen warnings. Publishing does not install or restart Crew.
 
 ## One-time prerequisites
-- **Developer ID Application** cert in your login keychain
-  (Xcode ▸ Settings ▸ Accounts ▸ Manage Certificates ▸ **+** ▸ *Developer ID Application*).
-  Confirm: `security find-identity -v -p codesigning` shows `Developer ID Application: Aaron Selig (42KAR3VVM7)`.
-- **Notary credentials** stored as a profile (app-specific password from appleid.apple.com):
+
+- Developer ID Application certificate in the login keychain. Verify with
+  `security find-identity -v -p codesigning`.
+- Apple notarization credentials stored in the `crew-notary` keychain profile:
   ```bash
-  xcrun notarytool store-credentials "crew-notary" \
-    --apple-id "alex.selig@gmail.com" --team-id "42KAR3VVM7" --password "xxxx-xxxx-xxxx-xxxx"
+  xcrun notarytool store-credentials crew-notary \
+    --apple-id "you@example.com" --team-id "42KAR3VVM7"
   ```
-- `gh` reachable with the personal **`alexselig`** account (`gh auth token --user alexselig`);
-  the corporate account can't push/publish to personal repos.
+  Supply the app-specific password through the prompt, not a committed file.
+- Personal GitHub account `alexselig` available through `gh auth`.
+- Rosetta for testing the Intel app on Apple Silicon.
 
-## Release steps
-1. **Bump** `version` in `package.json` and add a `CHANGELOG.md` entry.
-2. **Verify + build** the unsigned app bundle:
-   ```bash
-   npm run typecheck && npm test && npm run build
-   npx electron-builder --mac --dir     # -> dist/mac-arm64/Crew.app
-   ```
-   > If `node_modules/electron` was deleted by Defender, restore it first with
-   > `npm install` (it comes back as unsigned/ad-hoc — that's fine; we re-sign it).
-3. **Sign + notarize + publish** (one command):
-   ```bash
-   bash scripts/publish.sh              # tag defaults to v<version>
-   ```
-   This runs `scripts/sign-notarize.sh` (Developer ID sign → notarize → staple →
-   package notarized `Crew-<ver>-arm64-mac.zip` + `Crew-<ver>-arm64.dmg`), then
-   creates/updates the GitHub release and uploads the zip, dmg, and `install.sh`.
-   - Just sign locally (no publish): `bash scripts/sign-notarize.sh`
-   - Re-upload existing notarized artifacts: `CREW_SKIP_SIGN=1 bash scripts/publish.sh`
+## Prepare and merge
 
-   **Intel (x86_64) build** — ship alongside Apple Silicon so Intel Macs
-   (e.g. 2018–2020) can run Crew natively. On the same Apple Silicon machine:
+1. Bump both package files with `npm version <version> --no-git-tag-version`,
+   update `CHANGELOG.md`, and finish the release review.
+2. Run `npm run typecheck && npm test && npm run build`, then the isolated
+   Electron checks in `test/e2e/`. Never replace the installed app for testing.
+3. Commit, push, and merge the release PR through the normal repository workflow.
+   Check out the merged `main` commit. The publisher rejects a dirty tree,
+   a tag/version mismatch, or a HEAD different from remote `main`.
    ```bash
-   npx electron-builder --mac --x64 --dir      # -> dist/mac/Crew.app (x86_64)
-   lipo -archs dist/mac/Crew.app/Contents/MacOS/Crew   # sanity: should say x86_64
-   CREW_ARCH=x64 bash scripts/sign-notarize.sh  # -> Crew-<ver>-x64-mac.zip (signed+notarized)
-   ```
-   Then upload the zip and refresh the site's stable aliases:
-   ```bash
-   export GH_TOKEN=$(gh auth token --user alexselig)
-   cp dist/Crew-<ver>-arm64-mac.zip dist/Crew-AppleSilicon.zip   # stable macOS aliases the
-   cp dist/Crew-<ver>-x64-mac.zip    dist/Crew-Intel.zip         # site links to
-   gh release upload v<version> dist/Crew-<ver>-x64-mac.zip dist/Crew-AppleSilicon.zip dist/Crew-Intel.zip --repo alexselig/crew --clobber
-   ```
-   > Note: `electron-builder --mac --x64` cross-compiles node-pty to x86_64. Avoid
-   > `--universal` — merging the two arches trips over node-pty's per-arch native
-   > binaries; two separate arch builds is the reliable path. Restore the arm64
-   > node-pty for local dev afterward with `npm run rebuild:native`.
-
-4. **Commit + push** the version/CHANGELOG/code changes (personal token):
-   ```bash
-   export TK=$(gh auth token --user alexselig)
-   git -c credential.helper= \
-       -c credential.helper='!f(){ echo username=alexselig; echo "password=$TK"; }; f' \
-       push origin main
+   export GH_TOKEN="$(gh auth token --user alexselig)"
+   git -c credential.helper= -c credential.helper='!gh auth git-credential' push
    ```
 
-## Verify a release
+## Build, sign, and test both macOS architectures
+
 ```bash
-# a fresh download is notarized:
-curl -fsSL -o /tmp/crew.zip "https://github.com/alexselig/crew/releases/latest/download/Crew-<ver>-arm64-mac.zip"
-ditto -x -k /tmp/crew.zip /tmp/crewv && spctl -a -vvv -t exec /tmp/crewv/Crew.app
-#   -> accepted, source=Notarized Developer ID
+npm run build
+npx electron-builder --mac --arm64 --dir
+bash scripts/sign-notarize.sh
 ```
 
-Users install with:
+Build Intel with `npx electron-builder --mac --x64 --dir`, then
+`CREW_ARCH=x64 bash scripts/sign-notarize.sh`. Prefer a separate checkout and
+dependency directory for Intel: packaging rebuilds node-pty for the target
+architecture and can otherwise break a running development environment.
+Do not use a universal bundle; node-pty is packaged per architecture.
+
+`CREW_APP` selects a prebuilt bundle outside the default output directory.
+Signing checks the bundle ID, version, target architecture, and presence of
+native PTY binaries before signing. The two architectures use distinct
+notarization archives. See [MACOS-SIGNING.md](./MACOS-SIGNING.md) for background.
+
+Test each actual packaged native module with the corresponding Electron:
+
+```bash
+ELECTRON_RUN_AS_NODE=1 dist/mac-arm64/Crew.app/Contents/MacOS/Crew \
+  scripts/smoke-packaged-pty.cjs \
+  "$PWD/dist/mac-arm64/Crew.app/Contents/Resources/app.asar"
+```
+
+Repeat against `dist/mac/Crew.app` for Intel. This starts a harmless shell,
+checks its PTY output/exit, and never loads Crew's UI or session store.
+Verify fresh ZIP extractions as well as the build directory:
+`codesign --verify --deep --strict`, `xcrun stapler validate`, and `spctl -a -t exec`.
+Check the extracted bundle version and CPU architecture.
+
+## Stage a draft before pushing the tag
+
+Put both signed ZIP/DMG pairs in the release checkout's `dist/`, then:
+
+```bash
+CREW_SKIP_SIGN=1 bash scripts/publish.sh
+```
+
+This creates a **draft** targeting the exact HEAD, uploads both macOS
+architectures and stable aliases, and checks their uploaded SHA-256 digests.
+Without `CREW_SKIP_SIGN=1`, it signs both prebuilt bundles first.
+An existing public release or a draft targeting another commit is never changed.
+
+After staging, create and push the matching tag:
+
+```bash
+TAG="v$(node -p "require('./package.json').version")"
+git tag "$TAG"
+git -c credential.helper= -c credential.helper='!gh auth git-credential' push origin "$TAG"
+```
+
+The tag triggers **Build Windows**, which runs typechecks/tests, builds the
+installer and portable ZIP, checks the packaged native PTY, and attaches assets
+only to the matching draft. A manual workflow run with a tag checks out that
+tag; a blank tag builds workflow artifacts without publishing.
+
+## Verify and publish the complete release
+
+Add the final release notes to the draft and wait for Build Windows to succeed:
+
+```bash
+CREW_SKIP_SIGN=1 CREW_PUBLISH=1 bash scripts/publish.sh
+```
+
+The final gate requires matching local/remote tags and a successful Windows run
+at the release commit. It downloads and verifies all eleven required assets and
+their stable aliases before publishing the draft as latest. Failed uploads,
+missing platforms, mismatched hashes, or failed verification stop publication.
+The public stable download URLs are checked afterward.
+
+Required assets are versioned arm64/x64 ZIPs and DMGs, the versioned Windows
+installer/ZIP, `Crew-AppleSilicon.zip`, `Crew-Intel.zip`, `Crew-arm64.dmg`,
+`Crew-Setup.exe`, and `install.sh`. Never expose a partial release as latest or
+silently replace assets on an existing public release; use a new version.
+
+Users can install the latest notarized macOS build with:
+
 ```bash
 curl -fsSL https://github.com/alexselig/crew/releases/latest/download/install.sh | bash
 ```

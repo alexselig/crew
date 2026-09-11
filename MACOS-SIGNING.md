@@ -16,7 +16,9 @@ bash scripts/sign-notarize.sh
 It signs the prebuilt app (Developer ID + hardened runtime + Chromium per-helper
 entitlements, incl. the native `node-pty` binaries), notarizes + staples it, and
 produces a notarized `dist/Crew-<ver>-arm64-mac.zip` and `dist/Crew-<ver>-arm64.dmg`.
-Then upload them to the release with `gh release upload <tag> ... --clobber`.
+Repeat for Intel with `CREW_ARCH=x64` and follow the draft-first, complete-platform
+publication flow in [RELEASING.md](./RELEASING.md). The signing script rejects a
+bundle with the wrong version, bundle ID, or architecture before signing it.
 
 > **Why not `electron-builder`'s built-in notarize?** On this MDM-managed Mac the
 > corporate npm proxy serves an *unsigned* Electron and Microsoft Defender deletes
@@ -37,27 +39,13 @@ runs locally but trips that wall on download. Two ways to ship a clean app follo
 
 ---
 
-## Option A — Free, no Apple account (what ships today)
+## Historical unsigned distribution (no longer supported)
 
-Distribute via the one-command installer, which downloads with `curl` (curl does
-**not** set the `com.apple.quarantine` flag a browser would) and strips quarantine
-defensively:
-
-```bash
-curl -fsSL https://github.com/alexselig/crew/releases/latest/download/install.sh | bash
-```
-
-The app is unchanged; only the *delivery* avoids the quarantine flag, so Gatekeeper
-never blocks it. Anyone who instead double-clicks the `.dmg` from a browser can
-clear it manually once:
-
-```bash
-xattr -cr /Applications/Crew.app   # after dragging Crew into Applications
-```
-
-> On modern macOS the "malware" verdict suppresses the right-click ▸ Open and the
-> System Settings ▸ "Open Anyway" shortcuts, so the `xattr` command (or the
-> installer) is the reliable fix.
+Early releases avoided quarantine rather than notarizing the application.
+That is not the current installation or release policy. The installer now
+requires the expected Developer ID, architecture, version, and notarization
+before replacing the installed app. It does not remove quarantine or bypass
+Gatekeeper. Investigate a verification failure instead of stripping protection.
 
 ---
 
@@ -84,8 +72,8 @@ to allow the bundle id `com.alexselig.crew`.
 
 ## Option B — Real fix: Developer ID + notarization ($99/yr)
 
-This makes a **browser download open with zero warnings** for everyone. One-time
-setup, then `npm run dist` signs + notarizes automatically.
+This is the current distribution model. After one-time setup, use
+`scripts/sign-notarize.sh`; `npm run dist` alone does not notarize the app.
 
 ### 1. Enroll & get a certificate
 1. Join the **Apple Developer Program**: https://developer.apple.com/programs/enroll/ ($99/yr).
@@ -140,12 +128,14 @@ spctl -a -vvv -t exec dist/mac-arm64/Crew.app
 #   → "accepted"  source=Notarized Developer ID
 stapler validate dist/mac-arm64/Crew.app
 ```
-Then publish the `dmg`/`zip` as usual. Notarized downloads open with no prompt, so
-the `install.sh` workaround becomes optional.
+The configuration above is an alternative for unmanaged environments, not the
+checked-in setup. This repository intentionally keeps `identity: null` and uses
+the separate signing script. Publish through the draft-first flow in
+[RELEASING.md](./RELEASING.md).
 
 ---
 
 ## Why not just re-sign ad-hoc?
 Re-signing ad-hoc does **not** change the verdict — Gatekeeper blocks *quarantined,
 un-notarized* apps regardless of how clean the ad-hoc signature is. Only Apple
-notarization (Option B) or avoiding the quarantine flag (Option A) removes the wall.
+notarization is supported for Crew releases; do not bypass quarantine.
