@@ -76,6 +76,8 @@ This creates a **draft** targeting the exact HEAD, uploads both macOS
 architectures and stable aliases, and checks their uploaded SHA-256 digests.
 Without `CREW_SKIP_SIGN=1`, it signs both prebuilt bundles first.
 An existing public release or a draft targeting another commit is never changed.
+Draft metadata is resolved by stable release ID: GitHub's REST tag endpoint does
+not expose drafts. Lookup failures stop the script rather than implying absence.
 
 After staging, create and push the matching tag:
 

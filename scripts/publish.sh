@@ -36,7 +36,17 @@ export GH_TOKEN
 REMOTE_MAIN="$(git ls-remote origin refs/heads/main | cut -f1)"
 [ "$REMOTE_MAIN" = "$COMMIT" ] || { echo "ERROR: HEAD must be the pushed main release commit." >&2; exit 1; }
 
-if RELEASE="$(gh api "repos/$REPO/releases/tags/$TAG" 2>/dev/null)"; then
+release_id() {
+  # REST lookup by tag excludes drafts; resolve their stable database ID first.
+  gh api graphql -f query='query($owner: String!, $name: String!, $tag: String!) {
+    repository(owner: $owner, name: $name) { release(tagName: $tag) { databaseId } }
+  }' -f owner="${REPO%/*}" -f name="${REPO#*/}" -f tag="$TAG" \
+    --jq '.data.repository.release.databaseId // empty'
+}
+RELEASE_ID="$(release_id)"
+RELEASE=""
+if [ -n "$RELEASE_ID" ]; then
+  RELEASE="$(gh api "repos/$REPO/releases/$RELEASE_ID")"
   node -e '
     const r = JSON.parse(process.argv[1])
     if (!r.draft || r.target_commitish !== process.argv[2]) {
@@ -44,8 +54,6 @@ if RELEASE="$(gh api "repos/$REPO/releases/tags/$TAG" 2>/dev/null)"; then
       process.exit(1)
     }
   ' "$RELEASE" "$COMMIT"
-else
-  RELEASE=""
 fi
 
 if [ "${CREW_SKIP_SIGN:-0}" != "1" ]; then
@@ -68,9 +76,11 @@ if [ -z "$RELEASE" ]; then
   echo "==> Creating draft $TAG at $COMMIT"
   gh release create "$TAG" --repo "$REPO" --draft --target "$COMMIT" --title "Crew $TAG" \
     --notes "Crew $TAG. See CHANGELOG.md for changes. macOS builds are signed and notarized; Windows builds are unsigned."
+  RELEASE_ID="$(release_id)"
+  [ -n "$RELEASE_ID" ] || { echo "ERROR: the created draft could not be resolved." >&2; exit 1; }
 fi
 gh release upload "$TAG" "${ASSETS[@]}" --repo "$REPO" --clobber
-RELEASE="$(gh api "repos/$REPO/releases/tags/$TAG")"
+RELEASE="$(gh api "repos/$REPO/releases/$RELEASE_ID")"
 
 # GitHub provides a SHA-256 digest for uploaded release assets.
 node - "$RELEASE" "${ASSETS[@]}" <<'NODE'
