@@ -1,14 +1,20 @@
-import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { afterEach, describe, it, expect } from 'vitest'
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store, DEFAULT_SETTINGS } from '../src/main/store'
 
 const MIGRATION_ID = '2026-07-stale-hide-72h'
 
+const temporaryDirs: string[] = []
 function tmpStorePath(): string {
-  return join(mkdtempSync(join(tmpdir(), 'crew-store-')), 'store.json')
+  const dir = mkdtempSync(join(tmpdir(), 'crew-store-'))
+  temporaryDirs.push(dir)
+  return join(dir, 'store.json')
 }
+afterEach(() => {
+  for (const dir of temporaryDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
 
 /** Seed a store file with a partial settings object (merged over defaults). */
 function seed(path: string, data: Record<string, unknown>): void {

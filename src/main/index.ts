@@ -16,7 +16,6 @@ import { SessionManager } from './session-manager'
 import { ensureCrewHookDir } from './crew-hook'
 import { AssetWatchers } from './assets'
 import { assetMime } from '../shared/assets'
-import { isLoopbackHttp } from '../shared/detection'
 import { CrewTray } from './tray'
 import { isMac } from './platform'
 import { Store } from './store'
@@ -47,6 +46,8 @@ import {
 } from '../shared/agents'
 import type { Agent, AgentRun } from '../shared/types'
 import { CHARACTERS } from './characters'
+import { listCopilotModels } from './copilot-models'
+import { BoundedErrorReporter, createShellActions, installPreviewBoundary } from './main-boundaries'
 
 let tray: CrewTray | null = null
 let manager: SessionManager
@@ -56,6 +57,24 @@ let recorder: TranscriptRecorder
 let assets: AssetWatchers
 let isQuitting = false
 let sessionsRestored = false
+const errorReporter = new BoundedErrorReporter(
+  (detail) => dialog.showMessageBox({
+    type: 'warning',
+    title: 'Crew needs attention',
+    message: 'Crew needs your attention.',
+    detail,
+    buttons: ['OK']
+  }),
+  (detail) => dialog.showErrorBox('Crew needs attention', detail)
+)
+const shellActions = createShellActions(shell, (path) => assets?.has(path) ?? false,
+  (key, detail) => errorReporter.report(key, detail))
+
+function reportStorageError(message: string): void {
+  errorReporter.report(isQuitting ? 'storage-shutdown' : 'storage',
+    'Some changes or transcript output may still only be in memory. Free disk space or restore folder access. ' +
+    'Avoid quitting until saving recovers; a recovery warning does not necessarily mean data was lost.\n\n' + message)
+}
 // Active workspace filter shown in the "Change Workspace" menu — a workspace
 // **id** (not name), or null = "All Sessions". Held app-wide (mirrors the focused
 // window's filter) so the menu can show a radio checkmark; the renderer persists
@@ -213,37 +232,19 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
   w.on('ready-to-show', () => {
     w.show()
     w.focus()
+    errorReporter.setReady()
   })
 
   // Harden every <webview> the renderer attaches (the "App" pane): strip node,
   // pin an isolated partition, and only allow loopback http(s) sources — a
   // session's app is always a local dev server, never an arbitrary site.
-  w.webContents.on('will-attach-webview', (_e, prefs, params) => {
-    delete (prefs as { preload?: string }).preload
-    prefs.nodeIntegration = false
-    prefs.contextIsolation = true
-    params.partition = 'persist:crewapp'
-    if (!isLoopbackHttp(params.src)) {
-      // Refuse to attach a webview pointed anywhere but a local dev server.
-      params.src = 'about:blank'
-    }
-  })
-
-  // Route popups / target=_blank links from inside a previewed app to the
-  // user's default browser (the guest has its own webContents, separate from
-  // the host window's handler below).
-  w.webContents.on('did-attach-webview', (_e, guest) => {
-    guest.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
-      return { action: 'deny' }
-    })
-  })
+  installPreviewBoundary(w.webContents, (url) => { void shellActions.openExternal(url) })
 
   // Links opened from inside the app — terminal OSC 8 hyperlinks, any
   // window.open, or a stray external navigation — go to the user's default
   // browser instead of spawning an in-app Electron window ("webview dialog").
   w.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+    if (/^https?:\/\//i.test(url)) void shellActions.openExternal(url)
     return { action: 'deny' }
   })
   w.webContents.on('will-navigate', (e, url) => {
@@ -255,7 +256,7 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
     }
     if (external) {
       e.preventDefault()
-      if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+      if (/^https?:\/\//i.test(url)) void shellActions.openExternal(url)
     }
   })
 
@@ -467,12 +468,24 @@ function quitConfirmDisabled(): boolean {
  * optional-chained because a redundant second instance never built them. */
 function teardown(): void {
   crashLog('quit', 'tearing down')
-  recorder?.dispose()
-  manager?.disposeAll()
-  agentRunner?.disposeAll()
-  assets?.disposeAll()
-  stopAllServers()
-  tray?.destroy()
+  // Stop producers before the final flush. This does not wait for process-tail
+  // output after termination; exact tail archival needs a separate lifecycle.
+  const steps = [
+    () => manager?.disposeAll(),
+    () => agentRunner?.disposeAll(),
+    () => assets?.disposeAll(),
+    () => stopAllServers(),
+    () => recorder?.dispose(),
+    () => tray?.destroy()
+  ]
+  for (const step of steps) {
+    try {
+      step()
+    } catch (error) {
+      reportStorageError(`Shutdown could not finish an operation: ${String(error)}`)
+    }
+  }
+  errorReporter.flushForShutdown()
 }
 
 /** Commit to quitting: flips isQuitting so the window-close handler stops
@@ -648,6 +661,7 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.ROSTER_GET, () => manager.roster())
   ipcMain.handle(IPC.PRESETS_GET, () => builtinPresets())
+  ipcMain.handle(IPC.COPILOT_MODELS_LIST, () => listCopilotModels())
   ipcMain.handle(IPC.CHARACTERS_GET, () => CHARACTERS)
   ipcMain.handle(IPC.HOME_DIR_GET, () => homedir())
   ipcMain.handle(IPC.AGENTS_DETECT, (): AgentStatus[] =>
@@ -712,12 +726,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.EVENTS_GET, () => manager.getEvents())
   ipcMain.handle(IPC.ASSETS_LIST, (_e, id: string) => assets.list(id))
   // Both act only on paths the watcher currently knows — no arbitrary FS access.
-  ipcMain.handle(IPC.ASSET_REVEAL, (_e, path: string) => {
-    if (assets.has(path)) shell.showItemInFolder(path)
-  })
-  ipcMain.handle(IPC.ASSET_OPEN, async (_e, path: string) => {
-    if (assets.has(path)) await shell.openPath(path)
-  })
+  ipcMain.handle(IPC.ASSET_REVEAL, (_e, path: string) => shellActions.revealAsset(path))
+  ipcMain.handle(IPC.ASSET_OPEN, (_e, path: string) => shellActions.openAsset(path))
   // A path token the agent printed and the user clicked: resolve it against
   // the session cwd and (if it's a real previewable file) allowlist + return it.
   ipcMain.handle(IPC.ASSET_RESOLVE, (_e, p: { id: string; token: string }) => {
@@ -775,9 +785,7 @@ function registerIpc(): void {
   // Manual "check for updates" (the app also checks in the background on launch).
   ipcMain.handle(IPC.UPDATE_CHECK, () => checkForUpdate())
   // Open an external http(s) URL (GitHub / live demo) in the default browser.
-  ipcMain.handle(IPC.OPEN_EXTERNAL, (_e, url: string) => {
-    if (typeof url === 'string' && /^https?:\/\//.test(url)) void shell.openExternal(url)
-  })
+  ipcMain.handle(IPC.OPEN_EXTERNAL, (_e, url: string) => shellActions.openExternal(url))
   // Resolve a session's GitHub repo URL (its origin remote) for the header button.
   ipcMain.handle(IPC.GITHUB_URL, (_e, cwd: string) => resolveGithubUrl(cwd))
   // Recent git commits across the open sessions' working dirs, for the Activity feed.
@@ -924,8 +932,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
   hydrateShellPath()
-  store = new Store(join(app.getPath('userData'), 'crew-store.json'))
-  recorder = new TranscriptRecorder(join(app.getPath('userData'), 'transcripts'))
+  store = new Store(join(app.getPath('userData'), 'crew-store.json'), reportStorageError)
+  recorder = new TranscriptRecorder(join(app.getPath('userData'), 'transcripts'), reportStorageError)
   manager = new SessionManager(store, recorder, ensureCrewHookDir(app.getPath('userData')))
   agentRunner = new AgentRunner((baseId) => {
     const p = getPreset(baseId)

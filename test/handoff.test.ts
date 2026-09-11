@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { briefPathFor, primerFor, resolveContext, AUTO_BRIEF_BYTES } from '../src/main/handoff'
+import { briefPathFor, primerFor, resolveContext } from '../src/main/handoff'
 
 describe('handoff briefs', () => {
   let dir: string
@@ -14,7 +14,7 @@ describe('handoff briefs', () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
   it('finds a brief by the id suffix, whatever the slug says', () => {
-    writeFileSync(join(dir, 'fix-icon-positioning-bug--2ac8d4b6.md'), '# brief')
+    writeFileSync(join(dir, 'fix-icon-positioning-bug--2ac8d4b6.md'), `---\nagentSessionId: ${id}\n---\n# brief`)
     expect(briefPathFor(id, dir)).toBe(join(dir, 'fix-icon-positioning-bug--2ac8d4b6.md'))
   })
 
@@ -37,11 +37,27 @@ describe('handoff briefs', () => {
     expect(briefPathFor(id, dir)).toBeNull()
   })
 
-  it('primes on a single line so it is typed, never submitted', () => {
+  it('loads historical context without authorizing execution of old tasks', () => {
     const primer = primerFor('/tmp/brief.md')
     expect(primer).toContain('/tmp/brief.md')
     expect(primer).not.toContain('\n')
     expect(primer).not.toContain('\r')
+    expect(primer).toContain('wait for my next instruction')
+    expect(primer).not.toContain('continue from there')
+  })
+
+  it('rejects a brief whose full ID does not match despite the filename prefix', () => {
+    writeFileSync(join(dir, 'collision--2ac8d4b6.md'), '---\nagentSessionId: 2ac8d4b6-different\n---\n# Wrong')
+    expect(briefPathFor(id, dir)).toBeNull()
+  })
+
+  it('rejects unverified legacy briefs and ambiguous matches', () => {
+    writeFileSync(join(dir, 'legacy--2ac8d4b6.md'), '# No identity')
+    expect(briefPathFor(id, dir)).toBeNull()
+    const content = `---\nagentSessionId: ${id}\n---\n# Brief`
+    writeFileSync(join(dir, 'first--2ac8d4b6.md'), content)
+    writeFileSync(join(dir, 'second--2ac8d4b6.md'), content)
+    expect(briefPathFor(id, dir)).toBeNull()
   })
 })
 
@@ -56,7 +72,7 @@ describe('resolveContext', () => {
   })
 
   it('supersedes with a fresh agent in brief mode, keeping the old id', () => {
-    const c = resolveContext({ agentSessionId: ID, resume: true, contextMode: 'brief', resumeArgs: args })
+    const c = resolveContext({ agentSessionId: ID, resume: true, contextMode: 'brief', resumeArgs: args, hasBrief: true })
     expect(c.agentSessionId).toBeUndefined()
     expect(c.priorSessionId).toBe(ID)
     // Replay flags would drag the transcript back in and defeat the point.
@@ -103,15 +119,27 @@ describe('auto context mode', () => {
     expect(c.extraArgs).toEqual(args)
   })
 
-  it('still replays right up to the threshold', () => {
-    expect(auto(AUTO_BRIEF_BYTES - 1).agentSessionId).toBe(ID)
+  it('does not infer a context limit from physical event-log bytes', () => {
+    expect(auto(2 * 1024 * 1024 - 1).agentSessionId).toBe(ID)
   })
 
-  it('switches to the brief once the history outgrows it', () => {
-    const c = auto(AUTO_BRIEF_BYTES)
-    expect(c.agentSessionId).toBeUndefined()
-    expect(c.priorSessionId).toBe(ID)
-    expect(c.extraArgs).toEqual([])
+  it('prefers native resume even for a large log with a brief', () => {
+    const c = auto(500 * 1024 * 1024)
+    expect(c.agentSessionId).toBe(ID)
+    expect(c.extraArgs).toEqual(args)
+  })
+
+  it('does not discard context when explicit brief mode has no verified brief', () => {
+    const c = resolveContext({ agentSessionId: ID, resume: true, contextMode: 'brief', hasBrief: false, resumeArgs: args })
+    expect(c.agentSessionId).toBe(ID)
+  })
+
+  it('does not supersede an unreadable current history with an older brief', () => {
+    const c = resolveContext({
+      agentSessionId: 'current', priorSessionId: 'older',
+      resume: true, contextMode: 'brief', hasBrief: false, hasPriorBrief: true
+    })
+    expect(c.agentSessionId).toBe('current')
   })
 
   it('replays a huge history anyway when no brief exists', () => {

@@ -6,7 +6,7 @@ import * as pty from 'node-pty'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import {
   StateDetector,
   DEFAULT_DETECTION,
@@ -36,6 +36,7 @@ import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
 import { AutopilotWatcher, CopilotAutopilotWatcher, isClaudeSession, isCopilotSession } from './autopilot'
 import { crewHookFor } from './crew-hook'
+import { DEFAULT_COPILOT_MODEL, withCopilotModel, withoutCopilotModel } from '../shared/copilot-models'
 
 const TICK_MS = 250
 const DEFAULT_COLS = 100
@@ -83,8 +84,6 @@ interface Managed {
   credits: CostParser
   cols: number
   rows: number
-  /** Handoff primer waiting to be typed once the agent shows its first prompt. */
-  pendingPrimer?: string
 }
 
 export interface Transition {
@@ -111,16 +110,17 @@ export declare interface SessionManager {
 /**
  * Size of an agent conversation's own event log, or 0 when there isn't one.
  *
- * This is the only honest measure of "how long is this history" available
- * before relaunching: the log is what the agent would have to replay.
+ * Only used to distinguish a not-yet-started successor from an existing
+ * conversation. This is not a measure of the provider's token/context budget.
  */
-function transcriptBytes(agentSessionId: string | undefined): number {
+function transcriptBytes(agentSessionId: string | undefined): number | undefined {
   if (!agentSessionId) return 0
   try {
     return statSync(join(homedir(), '.copilot', 'session-state', agentSessionId, 'events.jsonl')).size
-  } catch {
-    // No log yet, or an agent that keeps none: a short history by definition.
-    return 0
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+    console.warn('[crew] Could not inspect conversation history:', error)
+    return undefined
   }
 }
 
@@ -138,13 +138,44 @@ export class SessionManager extends EventEmitter {
   // its transcript; Copilot's "autopilot" mode from its session event log.
   private readonly autopilot = new AutopilotWatcher()
   private readonly copilotAutopilot = new CopilotAutopilotWatcher()
+  private readonly autopilotPending = new Set<Managed>()
   private autopilotTick = 0
   // Set during shutdown so PTY exit handlers don't overwrite the saved session
   // list with an empty one (which would defeat resume-on-next-launch).
   private disposing = false
+  private restoring = false
   /** Per-session output waiting to be sent to the renderer (see OUTPUT_FLUSH_MS). */
   private pendingOutput = new Map<string, { parts: string[]; len: number; dropped: boolean }>()
   private flushTimer: ReturnType<typeof setInterval> | null = null
+  private readonly recordingPaused = new Map<string, pty.IPty>()
+
+  private readonly onRecordingBlocked = (id: string): void => {
+    const m = this.sessions.get(id)
+    if (!m?.proc || m.info.status !== 'active' || this.recordingPaused.has(id)) return
+    try {
+      m.proc.pause()
+      this.recordingPaused.set(id, m.proc)
+      this.bufferOutput(id, '\r\n[Crew] Terminal output paused: transcript storage is unavailable. Free disk space or restore folder access; capture will retry automatically.\r\n')
+    } catch (error) {
+      console.warn(`[crew] Could not pause terminal output for ${id}:`, error)
+      this.bufferOutput(id, `\r\n[Crew] Could not pause terminal output after a storage failure: ${error instanceof Error ? error.message : String(error)}\r\n`)
+    }
+  }
+
+  private readonly onRecordingDrained = (id: string): void => {
+    const proc = this.recordingPaused.get(id)
+    if (!proc) return
+    this.recordingPaused.delete(id)
+    const m = this.sessions.get(id)
+    if (this.disposing || m?.proc !== proc || m.info.status !== 'active') return
+    try {
+      proc.resume()
+      this.bufferOutput(id, '\r\n[Crew] Transcript storage recovered; terminal output resumed.\r\n')
+    } catch (error) {
+      console.warn(`[crew] Could not resume terminal output for ${id}:`, error)
+      this.bufferOutput(id, `\r\n[Crew] Storage recovered, but terminal output could not resume: ${error instanceof Error ? error.message : String(error)}\r\n`)
+    }
+  }
 
   constructor(
     private readonly store: Store,
@@ -153,6 +184,8 @@ export class SessionManager extends EventEmitter {
     private readonly crewHookDir?: string
   ) {
     super()
+    this.recorder?.on('blocked', this.onRecordingBlocked)
+    this.recorder?.on('drained', this.onRecordingDrained)
   }
 
   roster(): SessionInfo[] {
@@ -165,13 +198,18 @@ export class SessionManager extends EventEmitter {
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || defaultShell()
-    const args = req.args && req.args.length ? req.args : preset?.args ?? []
+    const baseArgs = req.args && req.args.length ? req.args : preset?.args ?? []
+    const copilot = req.presetId === 'copilot-cli'
+    const args = copilot && !restore && !baseArgs.some((arg) => arg === '--model' || arg.startsWith('--model='))
+      ? withCopilotModel(baseArgs, DEFAULT_COPILOT_MODEL)
+      : [...baseArgs]
     const cwd = req.cwd || homedir() || process.cwd()
     const id = restore?.id ?? randomUUID()
     // The agent's own session UUID: reused when resuming (so we reattach the same
     // conversation), freshly minted otherwise. Passed via the preset's
     // sessionIdFlag (e.g. Copilot's --session-id=).
-    const agentSessionId = restore?.agentSessionId ?? randomUUID()
+    const legacyResume = restore && !restore.agentSessionId && !restore.priorSessionId && Boolean(restore.extraArgs?.length)
+    const agentSessionId = legacyResume ? undefined : restore?.agentSessionId ?? randomUUID()
     const now = Date.now()
 
     const key = identityKey(req.presetId, cwd)
@@ -247,12 +285,6 @@ export class SessionManager extends EventEmitter {
 
     const detector = new StateDetector(now, cfg, (state, reason) => this.onState(id, state, reason))
     const managed: Managed = { info, proc: null, detector: null, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
-    // A session superseding an older conversation carries its brief instead of
-    // the transcript. Hold the primer until the agent is actually at a prompt —
-    // typing into a TUI that hasn't drawn one yet just loses the keystrokes.
-    const brief = briefPathFor(restore?.priorSessionId)
-    if (brief) managed.pendingPrimer = primerFor(brief)
-
     const start = (): void => {
     let proc: pty.IPty
     try {
@@ -263,9 +295,33 @@ export class SessionManager extends EventEmitter {
       // captured. Other agents (Claude) just get their resume args.
       let idArgs: string[] = []
       let resumeExtra = restore?.extraArgs ?? []
-      if (preset?.sessionIdFlag && (restore?.agentSessionId || !restore)) {
-        idArgs = [preset.sessionIdFlag + agentSessionId]
+      if (copilot && restore && this.store.settings.resumeConversations &&
+          this.store.settings.contextMode === 'transcript' && info.priorSessionId &&
+          transcriptBytes(info.agentSessionId) === 0) {
+        info.agentSessionId = info.priorSessionId
+        info.priorSessionId = undefined
+      }
+      if (preset?.sessionIdFlag && info.agentSessionId) {
+        idArgs = [preset.sessionIdFlag + info.agentSessionId]
         resumeExtra = []
+      }
+      const needsBrief = copilot && this.store.settings.resumeConversations &&
+        this.store.settings.contextMode !== 'transcript' && info.priorSessionId &&
+        transcriptBytes(info.agentSessionId) === 0
+      const brief = needsBrief ? briefPathFor(info.priorSessionId) : null
+      if (needsBrief && !brief) {
+        throw new Error(`Saved context brief is missing or ambiguous. Both conversation IDs are preserved. Regenerate the brief or resume the original with copilot --resume=${info.priorSessionId}.`)
+      }
+      const prompt = brief ? primerFor(brief) : req.initialPrompt
+      const contextArgs = copilot && prompt
+        ? [...(brief ? ['--add-dir', dirname(brief)] : []), '--interactive', prompt]
+        : []
+      if (copilot && restore && this.store.settings.resumeConversations &&
+          this.store.settings.contextMode === 'brief' && !brief) {
+        this.emit('output', { id, data: '\r\n[Crew] No verified brief for this conversation; resuming native context instead.\r\n' })
+      }
+      if (copilot && legacyResume) {
+        this.emit('output', { id, data: '\r\n[Crew] This legacy entry has no recorded conversation ID. Copilot will use --continue; verify that it selects the intended conversation.\r\n' })
       }
       // Enhanced Terminal: install OSC 133 shell integration for the Shell
       // preset so command blocks / jump-to-prompt / exit-code marks work. Opt-in
@@ -275,7 +331,10 @@ export class SessionManager extends EventEmitter {
         this.store.settings.enhancedTerminal && req.presetId === 'shell' && this.crewHookDir
           ? crewHookFor(command, this.crewHookDir)
           : null
-      const spawnArgs = [...args, ...idArgs, ...resumeExtra, ...(hook?.extraArgs ?? [])]
+      const nativeModel = copilot && restore && !brief &&
+        (legacyResume || transcriptBytes(info.agentSessionId) !== 0)
+      const launchArgs = nativeModel ? withoutCopilotModel(args) : args
+      const spawnArgs = [...launchArgs, ...idArgs, ...resumeExtra, ...(hook?.extraArgs ?? []), ...contextArgs]
       proc = pty.spawn(command, spawnArgs, {
         name: 'xterm-256color',
         cols: DEFAULT_COLS,
@@ -299,6 +358,8 @@ export class SessionManager extends EventEmitter {
     }
 
     info.pid = proc.pid
+    info.exitCode = null
+    info.errorMessage = undefined
     info.state = 'STARTING'
     info.status = 'active'
     info.stateChangedAt = Date.now()
@@ -336,6 +397,10 @@ export class SessionManager extends EventEmitter {
       const errored = Boolean(exitCode) || Boolean(signal)
       managed.info.exitCode = exitCode
       managed.info.status = errored ? 'error' : 'exited'
+      managed.info.autopilot = false
+      this.recordingPaused.delete(id)
+      this.autopilot.forget(id)
+      this.copilotAutopilot.forget(id)
       if (errored && !managed.info.errorMessage) {
         managed.info.errorMessage = signal
           ? `${managed.info.command} was terminated by signal ${signal}`
@@ -346,7 +411,7 @@ export class SessionManager extends EventEmitter {
       this.persistSessions()
     })
 
-    if (req.initialPrompt && req.initialPrompt.length) {
+    if (!copilot && req.initialPrompt && req.initialPrompt.length) {
       const text = req.initialPrompt
       // Give the agent a beat to draw its input UI before we type into it.
       setTimeout(() => {
@@ -635,6 +700,7 @@ export class SessionManager extends EventEmitter {
     // Undelivered output for a session that is going away would arrive after the
     // renderer disposed its terminal, resurrecting one that is never shown again.
     this.pendingOutput.delete(id)
+    this.recordingPaused.delete(id)
     const m = this.sessions.get(id)
     if (!m) return
     if (m.proc) {
@@ -655,6 +721,10 @@ export class SessionManager extends EventEmitter {
   restart(id: string): SessionInfo | null {
     const m = this.sessions.get(id)
     if (!m) return null
+    if (m.info.status === 'error' && !m.proc && m.start) {
+      m.start()
+      return { ...m.info }
+    }
     const req: CreateSessionRequest = {
       presetId: m.info.presetId,
       command: m.info.command,
@@ -732,6 +802,9 @@ export class SessionManager extends EventEmitter {
     // Freeze persistence first: the kills below fire onExit handlers that would
     // otherwise save an empty session list and wipe the resume state.
     this.disposing = true
+    this.recorder?.off('blocked', this.onRecordingBlocked)
+    this.recorder?.off('drained', this.onRecordingDrained)
+    this.recordingPaused.clear()
     // Deliver whatever is buffered before the window goes away, then stop.
     this.flushOutput()
     if (this.flushTimer) {
@@ -739,6 +812,8 @@ export class SessionManager extends EventEmitter {
       this.flushTimer = null
     }
     for (const m of this.sessions.values()) {
+      this.autopilot.forget(m.info.id)
+      this.copilotAutopilot.forget(m.info.id)
       if (m.proc) {
         try {
           m.proc.kill()
@@ -756,7 +831,7 @@ export class SessionManager extends EventEmitter {
 
   /** Snapshot the current active sessions so they can be resumed next launch. */
   private persistSessions(): void {
-    if (this.disposing) return
+    if (this.disposing || this.restoring) return
     // Persist every session still on the roster, whatever its status. An agent
     // that died (crashed on resume, killed by a failing MCP server, exited with
     // an error) must NOT be erased from the saved roster: status is transient,
@@ -788,10 +863,8 @@ export class SessionManager extends EventEmitter {
   /**
    * Decide how a saved session regains its context on relaunch.
    *
-   * 'transcript' reattaches the original conversation, so the agent replays its
-   * log. 'brief' deliberately does not: it starts a fresh agent and seeds it
-   * with the distilled handoff instead, which is the only way a session whose
-   * log has outgrown the context window can come back at all.
+   * Auto/transcript prefer native resume. Brief deliberately starts a fresh
+   * Copilot conversation only when a verified handoff exists.
    *
    * Either way the original conversation id survives — as agentSessionId when
    * reattaching, as priorSessionId when superseding — so a relaunch can never
@@ -807,10 +880,11 @@ export class SessionManager extends EventEmitter {
       agentSessionId,
       priorSessionId,
       resume: this.store.settings.resumeConversations,
-      contextMode: this.store.settings.contextMode,
+      contextMode: presetId === 'copilot-cli' ? this.store.settings.contextMode : 'transcript',
       resumeArgs: getPreset(presetId)?.resumeArgs,
       transcriptBytes: transcriptBytes(agentSessionId),
-      hasBrief: briefPathFor(agentSessionId) != null
+      hasBrief: briefPathFor(agentSessionId) != null,
+      hasPriorBrief: briefPathFor(priorSessionId) != null
     })
   }
 
@@ -831,7 +905,13 @@ export class SessionManager extends EventEmitter {
    * used consume anything.
    */
   restore(): SessionInfo[] {
-    return this.store.getSessions().map((p) => this.restoreOne(p))
+    this.restoring = true
+    return this.store.batchUpdates(() => {
+      const restored = this.store.getSessions().map((p) => this.restoreOne(p))
+      this.restoring = false
+      this.persistSessions()
+      return restored
+    })
   }
 
   private restoreOne(p: PersistedSession): SessionInfo {
@@ -900,14 +980,6 @@ export class SessionManager extends EventEmitter {
     m.info.state = state
     m.info.stateChangedAt = now
     if (reason) m.info.detectionReason = reason
-    // First time this agent offers a prompt, type the handoff primer in — but
-    // never press Enter. The user reads it, and a restored roster of dozens of
-    // sessions costs nothing until they choose to engage with one.
-    if (m.pendingPrimer && (state === 'WAITING_INPUT' || state === 'IDLE')) {
-      const primer = m.pendingPrimer
-      m.pendingPrimer = undefined
-      m.proc?.write(primer)
-    }
     this.events.push({ id, ts: now, from, to: state })
     if (this.events.length > EVENT_CAP) this.events.splice(0, this.events.length - EVENT_CAP)
     const snapshot = { ...m.info }
@@ -949,21 +1021,28 @@ export class SessionManager extends EventEmitter {
     this.autopilotTick = (this.autopilotTick + 1) % AUTOPILOT_POLL_TICKS
     if (this.autopilotTick !== 0) return
     for (const m of this.sessions.values()) {
-      if (m.info.status !== 'active') continue
-      let on: boolean
-      if (isClaudeSession(m.info)) {
-        // Claude Code: read the permission mode from its session transcript.
-        on = this.autopilot.isAutopilot(m.info.id, m.info.cwd)
-      } else if (isCopilotSession(m.info)) {
-        // Copilot CLI: read the mode from its session.mode_changed event log.
-        on = this.copilotAutopilot.isAutopilot(m.info.id, m.info.agentSessionId)
-      } else {
-        continue
-      }
+      if (!m.proc || m.info.status !== 'active' || this.autopilotPending.has(m)) continue
+      if (!isClaudeSession(m.info) && !isCopilotSession(m.info)) continue
+      this.autopilotPending.add(m)
+      void this.refreshAutopilot(m)
+    }
+  }
+
+  private async refreshAutopilot(m: Managed): Promise<void> {
+    const proc = m.proc
+    try {
+      const on = isClaudeSession(m.info)
+        ? this.autopilot.isAutopilot(m.info.id, m.info.cwd)
+        : await this.copilotAutopilot.isAutopilot(m.info.id, m.info.agentSessionId)
+      if (this.disposing || this.sessions.get(m.info.id) !== m || m.proc !== proc || m.info.status !== 'active') return
       if (on !== m.info.autopilot) {
         m.info.autopilot = on
         this.rosterDirty = true
       }
+    } catch (error) {
+      console.warn(`[autopilot] Could not refresh ${m.info.id}:`, error)
+    } finally {
+      this.autopilotPending.delete(m)
     }
   }
 

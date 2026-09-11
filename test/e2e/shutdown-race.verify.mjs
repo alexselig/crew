@@ -23,7 +23,7 @@ async function main() {
   // is what used to re-emit a roster into a destroyed tray).
   await page.locator('.roster__header button:has-text("New Session")').first().click()
   await page.waitForSelector('.modal', { timeout: 5000 })
-  await page.locator('.modal select.field__input').selectOption('shell')
+  await page.getByRole('combobox', { name: 'Agent', exact: true }).selectOption('shell')
   await page.locator('.field:has(.field__label:has-text("Working directory")) input').fill(ROOT)
   await page.locator('.field:has(.field__label:has-text("Label")) input').fill('ShutdownTest')
   await page.locator('.modal button:has-text("Launch")').click()

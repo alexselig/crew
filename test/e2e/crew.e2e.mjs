@@ -130,7 +130,7 @@ async function main() {
   await shot(page, 'modal')
 
   // Select Shell preset, set cwd + label
-  await page.locator('.modal select.field__input').selectOption('shell')
+  await page.getByRole('combobox', { name: 'Agent', exact: true }).selectOption('shell')
   // The working-directory input now lives under the "Advanced" disclosure
   // (it defaults to the home dir); open it before filling.
   await page.locator('.advanced__toggle').click()

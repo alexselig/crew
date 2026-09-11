@@ -9,20 +9,33 @@ never lose track of which one needs input. Crew **owns the PTYs**, so it sees th
 full output stream and can reliably tell *working* from *waiting-for-you* — then
 surfaces a menu-bar badge with a count and a native notification.
 
-100% local. No network, no telemetry, no session content leaves your machine.
+Crew keeps its roster and captured transcripts on disk. Agent CLIs, update
+checks, and links you open can use the network.
 
 ## Install
 
-Crew is **signed & notarized by Apple**, so it opens with no security warnings on
-macOS (Apple Silicon, arm64).
+macOS builds are **Developer ID signed and notarized by Apple**, for both
+Apple Silicon and Intel.
 
 ```bash
 curl -fsSL https://github.com/alexselig/crew/releases/latest/download/install.sh | bash
 ```
 
-Or download **`Crew-<version>-arm64.dmg`** from the
+Or download **`Crew-<version>-arm64.dmg`** (Apple Silicon) or
+**`Crew-<version>-x64.dmg`** (Intel) from the
 [latest release](https://github.com/alexselig/crew/releases/latest) and drag Crew
 into Applications.
+
+The installer verifies the download before quitting Crew, stages replacement on
+the same volume, and restores the previous app if launch cannot be confirmed.
+It does not delete session data or remove Gatekeeper protection. Launch
+confirmation checks process presence, not full application health. A power loss
+or forced installer termination may require manual recovery: inspect the hidden
+`.crew-install.*` staging directories beside the app for `previous.app` before
+removing a leftover `.crew-install.lock` or any backup.
+
+On Windows, download **`Crew-Setup.exe`** from the same release. Windows builds
+are currently unsigned, so SmartScreen may display a warning.
 
 Maintainers: see [`RELEASING.md`](./RELEASING.md) for the full release flow
 (`scripts/publish.sh`) and [`MACOS-SIGNING.md`](./MACOS-SIGNING.md) for how
@@ -32,6 +45,14 @@ releases are signed + notarized.
 
 - Launch owned sessions: **Claude Code**, **Copilot CLI**, **Shell**, or any
   custom command + working directory (+ optional initial prompt).
+- New Copilot sessions default to **GPT-6 Astra** (`gpt-6-astra`). The **Model**
+  dropdown reads supported choices from your installed CLI (`copilot completion
+  bash`), not a hard-coded catalog. Account access remains subject to Copilot.
+  The initial model choice is saved for new conversations and duplication.
+  Native resume honors Copilot's persisted selection, including later `/model`
+  changes; existing conversations are not switched back to their launch model.
+- New sessions use the selected session's working directory (or home when none
+  is selected), with the directory visible beside the agent/model controls.
 - Embedded **xterm.js** terminal per session — full interaction in-app,
   scrollback preserved across tab switches.
 - **Beta: Enhanced Terminal Interface** (Settings, off by default) — an
@@ -43,6 +64,10 @@ releases are signed + notarized.
 - **State detection** (`WORKING` / `WAITING_INPUT` / `WAITING_APPROVAL` / …) via
   output quiescence, prompt/approval regexes, and a debounced silence fallback,
   guarded against false red dots during post-input think-time.
+- **Copilot autopilot indicator** follows the CLI's persisted mode, including
+  resumed sessions, and refreshes about once a second while running. Complete
+  mode events are read asynchronously; split writes and large tool output do
+  not discard mode changes. Sleeping/exited sessions are not shown as autonomous.
 - Per-session **unique character** + **editable label**, persisted by
   `preset + cwd` so relaunching a job reuses its identity.
 - **App preview pane** — when a session is building a web app, an **App** tab
@@ -56,15 +81,14 @@ releases are signed + notarized.
 
 ## Restored context: transcript vs brief
 
-Resuming a session normally reattaches the original conversation, so the agent
-replays its whole `events.jsonl`. That is exact, but the cost scales with the
-log — a 0.5 MB history costs well over a million tokens, and a multi-megabyte
-one cannot be replayed at all, which is how a long-running session becomes
-unresumable.
+**Auto** (the default) and **Transcript** use the agent's native conversation
+resume. The provider manages its own context window and compaction. Crew no
+longer switches to a summary just because an event log exceeds 2 MiB: serialized
+file bytes, especially images and tool output, do not measure context tokens.
 
 **Settings → Restored context → Brief** takes the other route. Crew starts a
-fresh conversation and types in a pointer to that session's *handoff brief*: a
-~1–2k token summary rebuilt from data Copilot already keeps on disk — its own
+fresh Copilot conversation and automatically loads that session's *handoff brief*:
+a summary rebuilt from data Copilot already keeps on disk — its own
 compaction checkpoints, the files the work touched, the commits it made, and
 your last few instructions.
 
@@ -72,8 +96,8 @@ your last few instructions.
 npm run handoff          # rebuild every brief into ~/.crew/handoffs
 ```
 
-Generating a brief reads only the local session store, so it costs **no tokens
-at all**. To keep them fresh automatically:
+Generating a brief reads only the local session store, so generation itself
+costs **no inference tokens**. To keep them fresh automatically:
 
 ```
 cp scripts/com.crew.handoff.plist ~/Library/LaunchAgents/
@@ -82,16 +106,55 @@ launchctl load -w ~/Library/LaunchAgents/com.crew.handoff.plist
 
 Notes on the trade-off:
 
-- A brief is a summary; exact snippets and passing remarks are lost. But a long
-  conversation is *already* summarised — those checkpoints are the compaction —
-  so on big sessions you are comparing a brief against a summary, not verbatim
-  recall.
+- A brief is a clipped summary, not a lossless backup. Details can be omitted,
+  and tool-result/attachment preservation is not provided by this feature.
 - Briefs cite file paths and commit hashes, so the agent re-reads the current
   repo rather than trusting a transcript describing code you have since changed.
-- Nothing is deleted. The original id is preserved as `priorSessionId`, and the
-  full transcript stays one command away: `copilot --resume=<id>`.
-- The primer is typed into the prompt but **never submitted**, so restoring a
-  roster of dozens of sessions costs nothing until you engage with one.
+- Crew does not delete provider history. The original id is preserved as
+  `priorSessionId`; native resume remains available while the provider's
+  underlying data exists: `copilot --resume=<id>`.
+- Saved sessions remain asleep until opened. On wake, a fresh brief-backed
+  conversation receives its context-loading prompt via `--interactive`:
+  **no manual submission is required**. This turn may consume Copilot credits.
+  It asks the agent to read the historical context, acknowledge it, and wait
+  for your next instruction, not execute old tasks.
+- Crew verifies the full conversation ID inside the brief rather than trusting
+  the filename prefix. Missing/ambiguous briefs never silently replace native
+  context with an empty conversation. Existing native conversations are not
+  repeatedly primed with their predecessor's brief.
+- Changing an unstarted brief successor to **Transcript** resumes its original
+  conversation rather than opening an empty successor. Retrying a failed launch
+  preserves its conversation IDs and reloads the brief when available.
+- Older roster entries without a recorded provider ID retain the CLI's
+  `--continue` fallback, with a warning to verify the selected conversation.
+  Crew cannot guarantee which historical conversation an ID-less entry belongs to.
+- Optional initial prompts for new Copilot sessions use the same native startup
+  flag instead of a timer typing into a terminal that may not be ready.
+
+## Storage safety
+
+Roster saves use flushed temporary files and atomic replacement, with rotated
+backups and dated snapshots. Unix builds also flush directory entries. Recovery
+validates saved data and tries backups even when the primary file is missing;
+unrecoverable or inaccessible stores are protected from being overwritten by an
+empty roster. Startup publishes the complete restored roster in one batch,
+never a partially restored prefix.
+
+Optional text capture retains buffered output after write failures and tracks
+partial writes so retries do not duplicate bytes. Storage failures produce native
+warnings; affected terminal output is paused until capture flushes successfully.
+Roster changes that could not be saved remain in memory and retry on subsequent
+saves. **Do not quit while storage errors remain unresolved.**
+
+These are failure safeguards, not a zero-loss guarantee. Unsaved memory cannot
+survive process termination, Windows does not get Unix directory flushing, and
+same-disk backups do not protect against disk loss. Text capture is not an archive
+of provider events, attachments, or exact terminal state.
+
+The durable session vault described in
+[`docs/superpowers/specs/2026-09-11-session-preservation-design.md`](docs/superpowers/specs/2026-09-11-session-preservation-design.md)
+is a separate design; these context-loading improvements do not implement
+lossless archival or guarantee recovery of provider data that has been removed.
 
 ## Architecture
 

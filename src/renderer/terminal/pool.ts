@@ -50,7 +50,7 @@ export interface Semantic {
   txSeq: number
   /** Recent raw output, replayed into a rebuilt engine so a retired session
    *  still opens with context instead of a blank screen. Held as chunks (with
-   *  a running length) rather than one string — appending to a 64 KB string on
+   *  a running length) rather than one string — appending to a 64K-code-unit string on
    *  every PTY chunk, for every session, is itself a CPU sink. */
   tailParts: string[]
   tailLen: number
@@ -87,7 +87,7 @@ const tombstones = new Set<string>()
  */
 export const MAX_LIVE_ENGINES = 12
 
-/** Raw output replayed into a rebuilt engine (~a few screens of context). */
+/** Maximum UTF-16 code units replayed into a rebuilt engine. */
 export const TAIL_LIMIT = 64 * 1024
 
 // Cap navigable landmarks per session; xterm also auto-disposes markers when
@@ -123,10 +123,22 @@ function newSemantic(): Semantic {
 
 /** Append raw output to the bounded replay tail. */
 function pushTail(s: Semantic, data: string): void {
+  if (!data) return
   s.tailParts.push(data)
   s.tailLen += data.length
-  while (s.tailLen > TAIL_LIMIT && s.tailParts.length > 1) {
+  if (s.tailLen <= TAIL_LIMIT) return
+  while (s.tailLen - s.tailParts[0].length >= TAIL_LIMIT) {
     s.tailLen -= s.tailParts.shift()!.length
+  }
+  const trim = s.tailLen - TAIL_LIMIT
+  s.tailParts[0] = s.tailParts[0].slice(trim)
+  s.tailLen -= trim
+  // Trimming can bisect a surrogate pair, including one spanning PTY chunks.
+  const first = s.tailParts[0].charCodeAt(0)
+  if (first >= 0xdc00 && first <= 0xdfff) {
+    s.tailParts[0] = s.tailParts[0].slice(1)
+    s.tailLen--
+    if (!s.tailParts[0]) s.tailParts.shift()
   }
 }
 

@@ -204,7 +204,7 @@ export function App(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [c.roster, c.selectedId])
+  }, [visibleRoster, c.selectedId])
 
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const sessionItems: PaletteItem[] = visibleRoster.map((s) => {
@@ -414,6 +414,7 @@ export function App(): JSX.Element {
 
       {c.showNew && (
         <NewSessionModal
+          defaultCwd={c.roster.find((session) => session.id === c.selectedId)?.cwd}
           presets={c.presets}
           homeDir={c.homeDir}
           groups={existingGroups(c.roster)}

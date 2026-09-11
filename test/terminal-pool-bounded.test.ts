@@ -69,7 +69,8 @@ import {
   liveEngineCount,
   dormantCount,
   resetPoolForTests,
-  MAX_LIVE_ENGINES
+  MAX_LIVE_ENGINES,
+  TAIL_LIMIT
 } from '../src/renderer/terminal/pool'
 
 /** The pool is typed against the real engine; these tests drive the mock. */
@@ -89,6 +90,64 @@ beforeEach(() => {
 })
 
 describe('bounded terminal engine pool', () => {
+  it('bounds one oversized chunk without truncating live output', () => {
+    const data = 'old'.repeat(TAIL_LIMIT) + 'newest'
+    writeTo('oversized', data)
+    const p = getPooled('oversized')
+    expect(asFake(p.engine).written.join('')).toBe(data)
+    expect(p.tailLen).toBe(TAIL_LIMIT)
+    expect(p.tailParts.join('')).toBe(data.slice(-TAIL_LIMIT))
+  })
+
+  it('keeps the newest suffix when only part of the oldest chunk must go', () => {
+    const first = 'a'.repeat(TAIL_LIMIT - 4)
+    writeTo('partial', first)
+    writeTo('partial', 'newest-tail')
+    const p = getPooled('partial')
+    expect(p.tailLen).toBe(TAIL_LIMIT)
+    expect(p.tailParts.join('')).toBe((first + 'newest-tail').slice(-TAIL_LIMIT))
+  })
+
+  it.each([false, true])('does not split a surrogate pair at the replay boundary (split chunks: %s)', (split) => {
+    if (split) {
+      writeTo('unicode', 'old\ud83d')
+      writeTo('unicode', '\ude80' + 'n'.repeat(TAIL_LIMIT - 1))
+    } else {
+      writeTo('unicode', 'old🚀' + 'n'.repeat(TAIL_LIMIT - 1))
+    }
+    const p = getPooled('unicode')
+    expect(p.tailLen).toBe(TAIL_LIMIT - 1)
+    expect(p.tailParts.join('')).toBe('n'.repeat(TAIL_LIMIT - 1))
+  })
+
+  it('bounds oversized dormant output and replays it without duplicating semantics', () => {
+    for (let i = 0; i < MAX_LIVE_ENGINES; i++) writeTo(`s${i}`, 'x')
+    const data = 'old'.repeat(TAIL_LIMIT) + CYCLE + 'newest'
+    writeTo('oversized-dormant', data)
+    expect(getBlocks('oversized-dormant')).toHaveLength(1)
+    const p = getPooled('oversized-dormant')
+    expect(p.tailLen).toBe(TAIL_LIMIT)
+    expect(asFake(p.engine).written.join('')).toBe(data.slice(-TAIL_LIMIT))
+    expect(getBlocks('oversized-dormant')).toHaveLength(1)
+  })
+
+  it('preserves complete Unicode at the limit and across subsequent appends', () => {
+    const data = '🚀'.repeat(TAIL_LIMIT / 2)
+    writeTo('exact', data)
+    let p = getPooled('exact')
+    expect(p.tailLen).toBe(TAIL_LIMIT)
+    expect(p.tailParts.join('')).toBe(data)
+    let all = data
+    for (const chunk of ['a', '🚀', '', 'last']) {
+      all += chunk
+      writeTo('exact', chunk)
+      p = getPooled('exact')
+      expect(p.tailLen).toBeLessThanOrEqual(TAIL_LIMIT)
+      expect(p.tailLen).toBe(p.tailParts.join('').length)
+      expect(p.tailParts.join('')).toBe(all.slice(-TAIL_LIMIT).replace(/^[\udc00-\udfff]/, ''))
+    }
+  })
+
   it('caps live emulators no matter how many sessions produce output', () => {
     for (let i = 0; i < MAX_LIVE_ENGINES * 4; i++) writeTo(`s${i}`, 'hello')
     expect(liveEngineCount()).toBeLessThanOrEqual(MAX_LIVE_ENGINES)

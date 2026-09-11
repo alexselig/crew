@@ -5,11 +5,13 @@
 // Privacy: we persist ONLY labels, character map and settings — never terminal
 // output, prompts, env values, or secrets (see SPEC §11).
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, copyFileSync, readdirSync, unlinkSync } from 'node:fs'
+import { readFileSync, mkdirSync, existsSync, renameSync, readdirSync, unlinkSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { dirname, join, basename } from 'node:path'
 import type { Settings, SessionSet, Agent } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
+import { atomicWriteFile } from './atomic-file'
 
 export interface CharacterAssignment {
   characterId: string
@@ -186,77 +188,216 @@ const SNAPSHOT_DIR = 'backups'
 const SNAPSHOT_KEEP = 14
 const SNAPSHOT_PREFIX = 'crew-store-'
 
+class InvalidStoreError extends Error {}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isMissing(err: unknown): boolean {
+  return isRecord(err) && err.code === 'ENOENT'
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string'
+const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString)
+
+function optionalFields(record: Record<string, unknown>, keys: string[], valid: (value: unknown) => boolean): boolean {
+  return keys.every((key) => record[key] === undefined || valid(record[key]))
+}
+
+function validSession(value: unknown, savedSet = false): boolean {
+  return isRecord(value) &&
+    ['command', 'cwd', 'label', ...(savedSet ? [] : ['id', 'characterId'])].every((key) => isString(value[key])) &&
+    (value.presetId === null || isString(value.presetId)) && isStrings(value.args) &&
+    optionalFields(value, ['id', 'characterId', 'color', 'tag', 'description', 'agentSessionId', 'priorSessionId'], isString) &&
+    optionalFields(value, ['sets', 'workspaceIds'], isStrings) &&
+    optionalFields(value, ['createdAt', 'lastPromptAt'], isNumber)
+}
+
+/** Validate before migrations, including stores where all migrations ran already.
+ * Missing legacy fields still default as before; present malformed fields do not. */
+function validateStore(raw: unknown): asserts raw is Partial<StoreData> {
+  if (!isRecord(raw)) throw new InvalidStoreError('store must be an object')
+  const arrays: Record<string, (value: unknown) => boolean> = {
+    recentDirs: isString,
+    migrations: isString,
+    sessions: (value) => validSession(value),
+    sets: (value) => isRecord(value) && isString(value.name) &&
+      Array.isArray(value.sessions) && value.sessions.every((s) => validSession(s, true)),
+    workspaces: (value) => isRecord(value) && isString(value.id) && isString(value.name) &&
+      isNumber(value.order) && isNumber(value.createdAt) && optionalFields(value, ['description'], isString),
+    agents: (value) => isRecord(value) &&
+      ['id', 'name', 'icon', 'base', 'persona'].every((key) => isString(value[key])) &&
+      (value.contextMode === 'cwd' || value.contextMode === 'cwd+transcript') &&
+      typeof value.writes === 'boolean' && isNumber(value.order) &&
+      optionalFields(value, ['color'], isString) && optionalFields(value, ['builtin'], (v) => typeof v === 'boolean')
+  }
+  for (const [key, valid] of Object.entries(arrays)) {
+    const value = raw[key]
+    if (value !== undefined && (!Array.isArray(value) || !value.every(valid))) {
+      throw new InvalidStoreError(`invalid store ${key}`)
+    }
+  }
+  if (raw.characters !== undefined && (!isRecord(raw.characters) ||
+    !Object.values(raw.characters).every((v) => isRecord(v) && isString(v.characterId) && isString(v.lastLabel)))) {
+    throw new InvalidStoreError('invalid store characters')
+  }
+  if (raw.settings !== undefined) {
+    if (!isRecord(raw.settings)) throw new InvalidStoreError('invalid store settings')
+    for (const [key, fallback] of Object.entries(DEFAULT_SETTINGS)) {
+      const value = raw.settings[key]
+      if (value !== undefined && (typeof value !== typeof fallback || (typeof value === 'number' && !isNumber(value)))) {
+        throw new InvalidStoreError(`invalid store settings.${key}`)
+      }
+    }
+  }
+  const bounds = raw.windowBounds
+  if (bounds !== undefined && (!isRecord(bounds) ||
+    !['x', 'y', 'width', 'height'].every((key) => isNumber(bounds[key])))) {
+    throw new InvalidStoreError('invalid store windowBounds')
+  }
+}
+
+function parseStore(contents: string): Partial<StoreData> {
+  let raw: unknown
+  try {
+    raw = JSON.parse(contents)
+  } catch (err) {
+    throw new InvalidStoreError(`invalid store JSON: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  validateStore(raw)
+  return raw
+}
+
 export class Store {
   private data: StoreData
+  private saveBlocked: string | undefined
+  private dirty = false
+  private batch: { failure?: { error: unknown } } | undefined
 
-  constructor(private readonly path: string) {
+  /** onError may run during construction; saves retain unsaved memory on failure. */
+  constructor(private readonly path: string, private readonly onError?: (message: string) => void) {
     const { data, migrated } = this.load()
     this.data = data
     // Snapshot what we just loaded, before anything can overwrite it. The .bak
     // rotation only survives two saves, and the store is rewritten on nearly
     // every event — so a bug that prunes the roster destroys all three copies
     // within seconds. A dated snapshot is the only thing that survives that.
-    this.snapshot()
+    if (!this.saveBlocked) this.snapshot()
     // A migration that changed persisted data must be written back immediately,
     // so it records as applied and never re-runs on the next launch.
     if (migrated) this.persist()
   }
 
+  /** Synchronous only. Nested batches share one snapshot and one publication.
+   * Any callback throw aborts the outer batch, even if an inner throw is caught.
+   * A returned value signals callback completion, not durability: save failures
+   * still report through onError and remain dirty for the next save/batch. */
+  batchUpdates<T>(fn: () => T): T {
+    if (this.batch) {
+      try {
+        return fn()
+      } catch (error) {
+        this.batch.failure ??= { error }
+        throw error
+      }
+    }
+    const snapshot = structuredClone(this.data)
+    const wasDirty = this.dirty
+    const batch: { failure?: { error: unknown } } = {}
+    this.batch = batch
+    let result: T
+    try {
+      result = fn()
+      if (batch.failure) throw batch.failure.error
+    } catch (error) {
+      this.data = snapshot
+      this.dirty = wasDirty
+      throw error
+    } finally {
+      this.batch = undefined
+    }
+    if (this.dirty) this.persist()
+    return result
+  }
+
   private load(): { data: StoreData; migrated: boolean } {
+    let corruptPrimary = false
+    let failed = false
     try {
       return this.readFrom(this.path)
-    } catch {
-      // Distinguish a fresh start (no file) from a CORRUPT existing file. For a
-      // clean slate there's nothing to preserve. But if the file exists and
-      // merely failed to parse (e.g. a truncated write after a crash), move it
-      // aside to a timestamped backup BEFORE we continue — otherwise the first
-      // save would overwrite it and lose recoverable data.
-      if (existsSync(this.path)) {
-        const backup = `${this.path}.corrupt-${Date.now()}`
+    } catch (err) {
+      if (!isMissing(err)) {
+        failed = true
+        corruptPrimary = err instanceof InvalidStoreError
+        if (!corruptPrimary) this.saveBlocked = 'live store is inaccessible; restart after restoring access'
+        this.report(`could not read store ${this.path}`, err)
+      }
+    }
+    const recover = (candidate: string): { data: StoreData; migrated: boolean } | undefined => {
+      let recovered: { data: StoreData; migrated: boolean }
+      try {
+        recovered = this.readFrom(candidate)
+      } catch (err) {
+        if (!isMissing(err)) {
+          failed = true
+          this.report(`could not recover store from ${candidate}`, err)
+        }
+        return undefined
+      }
+      if (corruptPrimary) {
+        const quarantine = `${this.path}.corrupt-${Date.now()}-${randomUUID()}`
         try {
-          renameSync(this.path, backup)
-          console.warn(`[crew] store unreadable; preserved corrupt file at ${backup}`)
+          renameSync(this.path, quarantine)
+          console.warn(`[crew] preserved corrupt store at ${quarantine}`)
         } catch (err) {
-          console.warn('[crew] store unreadable and could not be backed up:', err instanceof Error ? err.message : err)
-        }
-        // Prefer the last known-good rotation over an empty baseline: the roster
-        // is the only mapping from a session to its agent conversation, so
-        // recovering a slightly stale one beats starting from nothing.
-        for (const candidate of [`${this.path}.bak`, `${this.path}.bak2`]) {
-          if (!existsSync(candidate)) continue
-          try {
-            const recovered = this.readFrom(candidate)
-            console.warn(`[crew] recovered store from ${candidate}`)
-            return { ...recovered, migrated: true }
-          } catch {
-            /* try the next rotation */
-          }
+          this.saveBlocked = 'corrupt live store could not be preserved; restart after repairing storage'
+          this.report(this.saveBlocked, err)
         }
       }
-      // Start at the latest schema and mark every migration as already applied —
-      // there's nothing to upgrade on a clean slate, and this avoids nudging a
-      // value the user later sets themselves. The baseline is written on the
-      // first real save.
-      return {
-        data: {
-          ...EMPTY,
-          characters: {},
-          recentDirs: [],
-          sessions: [],
-          sets: [],
-          workspaces: [],
-          agents: BUILTIN_AGENTS.map((a) => ({ ...a })),
-          migrations: MIGRATIONS.map((m) => m.id)
-        },
-        migrated: false
+      this.report(`recovered store from ${candidate}${this.saveBlocked ? '; saving is disabled' : ''}`)
+      return { ...recovered, migrated: true }
+    }
+    for (const candidate of [`${this.path}.bak`, `${this.path}.bak2`]) {
+      const recovered = recover(candidate)
+      if (recovered) return recovered
+    }
+    try {
+      for (const name of this.snapshots().reverse()) {
+        const recovered = recover(join(this.snapshotDir, name))
+        if (recovered) return recovered
       }
+    } catch (err) {
+      failed = true
+      this.report('could not inspect store snapshots', err)
+    }
+    if (failed) {
+      this.saveBlocked ??= 'no readable store or backup; saving is disabled until storage is repaired and Crew restarted'
+      this.report(this.saveBlocked)
+    }
+    // An irrecoverable store only gets a reported, read-only in-memory baseline.
+    // Leave the original files untouched for manual recovery.
+    return {
+      data: {
+        ...EMPTY,
+        settings: { ...DEFAULT_SETTINGS },
+        characters: {},
+        recentDirs: [],
+        sessions: [],
+        sets: [],
+        workspaces: [],
+        agents: BUILTIN_AGENTS.map((a) => ({ ...a })),
+        migrations: MIGRATIONS.map((m) => m.id)
+      },
+      migrated: false
     }
   }
 
   /** Parse a store file into a fully-defaulted StoreData. Throws when the file
    * is missing or unparseable, so callers can fall through to a backup. */
   private readFrom(path: string): { data: StoreData; migrated: boolean } {
-    const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<StoreData>
+    const raw = parseStore(readFileSync(path, 'utf8'))
     const data: StoreData = {
       characters: raw.characters ?? {},
       settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
@@ -273,6 +414,12 @@ export class Store {
   }
 
   private persist(): void {
+    this.dirty = true
+    if (this.batch) return
+    if (this.saveBlocked) {
+      this.report(`failed to persist store: ${this.saveBlocked}`)
+      return
+    }
     try {
       mkdirSync(dirname(this.path), { recursive: true })
       // Keep the previous good copy before overwriting. The roster is the only
@@ -281,26 +428,47 @@ export class Store {
       // list) would otherwise be unrecoverable. Cheap insurance: one .bak, one
       // .bak2, rotated on each save.
       this.rotateBackups()
-      writeFileSync(this.path, JSON.stringify(this.data, null, 2))
+      atomicWriteFile(this.path, JSON.stringify(this.data, null, 2))
+      this.dirty = false
     } catch (err) {
       // Non-fatal: persistence is best-effort. Losing labels between runs is
       // preferable to crashing the app on a read-only disk — but surface it.
-      console.warn('[crew] failed to persist store:', err instanceof Error ? err.message : err)
+      this.report('failed to persist store; changes remain in memory', err)
     }
   }
 
-  /** Rotate <path> -> <path>.bak -> <path>.bak2. Best-effort and never throws:
-   * a failed backup must not block the save itself. */
-  private rotateBackups(): void {
-    if (!existsSync(this.path)) return
+  private report(message: string, err?: unknown): void {
+    const detail = err === undefined ? message : `${message}: ${err instanceof Error ? err.message : String(err)}`
+    console.warn(`[crew] ${detail}`)
     try {
-      if (existsSync(`${this.path}.bak`)) {
-        copyFileSync(`${this.path}.bak`, `${this.path}.bak2`)
-      }
-      copyFileSync(this.path, `${this.path}.bak`)
-    } catch {
-      /* best-effort */
+      this.onError?.(detail)
+    } catch (callbackError) {
+      console.warn('[crew] store error callback failed:', callbackError)
     }
+  }
+
+  /** Fail the save if its safety copy cannot be published. Never truncate a
+   * rotation in place or rotate an externally corrupted primary over good data. */
+  private rotateBackups(): void {
+    let primary: Buffer
+    try {
+      primary = readFileSync(this.path)
+      parseStore(primary.toString('utf8'))
+    } catch (err) {
+      if (isMissing(err)) return
+      throw err
+    }
+    let previous: Buffer | undefined
+    try {
+      const contents = readFileSync(`${this.path}.bak`)
+      parseStore(contents.toString('utf8'))
+      previous = contents
+    } catch (err) {
+      if (err instanceof InvalidStoreError) this.report('skipping corrupt store rotation', err)
+      else if (!isMissing(err)) throw err
+    }
+    if (previous) atomicWriteFile(`${this.path}.bak2`, previous)
+    atomicWriteFile(`${this.path}.bak`, primary)
   }
 
   /** The directory holding dated snapshots. */
@@ -315,8 +483,9 @@ export class Store {
       return readdirSync(this.snapshotDir)
         .filter((f) => f.startsWith(SNAPSHOT_PREFIX) && f.endsWith('.json'))
         .sort()
-    } catch {
-      return []
+    } catch (err) {
+      if (isMissing(err)) return []
+      throw err
     }
   }
 
@@ -336,16 +505,16 @@ export class Store {
       const file = join(this.snapshotDir, `${SNAPSHOT_PREFIX}${day}.json`)
       if (existsSync(file)) return
       mkdirSync(this.snapshotDir, { recursive: true })
-      writeFileSync(file, JSON.stringify(this.data, null, 2))
+      atomicWriteFile(file, JSON.stringify(this.data, null, 2))
       for (const stale of this.snapshots().slice(0, -SNAPSHOT_KEEP)) {
         try {
           unlinkSync(join(this.snapshotDir, stale))
-        } catch {
-          /* best-effort */
+        } catch (err) {
+          this.report(`failed to prune store snapshot ${stale}`, err)
         }
       }
     } catch (err) {
-      console.warn('[crew] failed to snapshot store:', err instanceof Error ? err.message : err)
+      this.report('failed to snapshot store', err)
     }
   }
 
@@ -353,17 +522,24 @@ export class Store {
    * count each one holds so a caller can tell a healthy roster from a pruned one. */
   listSnapshots(): { file: string; day: string; sessions: number }[] {
     const out: { file: string; day: string; sessions: number }[] = []
-    for (const name of this.snapshots().reverse()) {
+    let names: string[]
+    try {
+      names = this.snapshots().reverse()
+    } catch (err) {
+      this.report('failed to list store snapshots', err)
+      return out
+    }
+    for (const name of names) {
       const file = join(this.snapshotDir, name)
       try {
-        const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<StoreData>
+        const data = parseStore(readFileSync(file, 'utf8'))
         out.push({
           file,
           day: basename(name, '.json').slice(SNAPSHOT_PREFIX.length),
-          sessions: raw.sessions?.length ?? 0
+          sessions: data.sessions?.length ?? 0
         })
-      } catch {
-        /* skip unreadable snapshots */
+      } catch (err) {
+        this.report(`failed to read store snapshot ${file}`, err)
       }
     }
     return out

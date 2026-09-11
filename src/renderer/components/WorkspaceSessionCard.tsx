@@ -67,6 +67,7 @@ export function WorkspaceSessionCard({
           id={session.characterId}
           color={session.color}
           state={session.state}
+          autopilot={session.autopilot}
           size={30}
           dot={false}
           badge={false}

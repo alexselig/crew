@@ -31,7 +31,7 @@ async function waitUntil(fn, desc, timeout = 8000, interval = 200) {
 async function launchPreset(page, presetValue, label) {
   await page.locator('.roster__header button:has-text("New Session")').click()
   await page.waitForSelector('.modal', { timeout: 5000 })
-  await page.locator('.modal select.field__input').selectOption(presetValue)
+  await page.getByRole('combobox', { name: 'Agent', exact: true }).selectOption(presetValue)
   await page.locator('.field:has(.field__label:has-text("Working directory")) input').fill(HOME)
   await page.locator('.field:has(.field__label:has-text("Label")) input').fill(label)
   await page.locator('.modal button:has-text("Launch")').click()

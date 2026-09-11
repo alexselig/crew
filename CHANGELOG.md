@@ -3,6 +3,52 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.6.0 — 2026-09-11
+
+### Added
+- **Choose a Copilot model when creating a session.** The dropdown reads models
+  from the installed CLI and defaults to GPT-6 Astra. The working directory is
+  visible and starts from the selected session's directory.
+- **Brief-backed sessions load context automatically.** The context-loading
+  prompt is submitted through Copilot's native startup flag, not delayed typing.
+
+### Changed
+- **Auto restore prefers the original conversation.** Provider event-log bytes
+  are no longer treated as the model's context-window capacity. Native resume
+  also respects model changes made later through `/model`.
+- **Saved rosters are restored in one batch.** Startup no longer repeatedly
+  publishes partial rosters or rotates backups for every restored session.
+
+### Fixed
+- **Autopilot icons reflect saved and newly enabled modes.** Detection reads the
+  existing mode, retains split event records, and clears the indicator when the
+  process exits. Workspace Manager cards now display the pilot artwork too.
+- **Failed saves no longer truncate the last good roster.** Atomic replacement,
+  file flushing, Unix directory flushing, validated backup recovery, and visible
+  storage warnings protect saved data. Unrecoverable stores are not overwritten.
+- **Transcript capture retries failed and partial writes without duplication.**
+  Terminal output is paused while capture is blocked and resumes after recovery.
+- **Context recovery keeps the right conversation.** ID-less legacy sessions
+  retain native continuation; switching an unstarted brief session to Transcript
+  resumes its source; retrying a failed launch preserves its recovery IDs.
+- **Workspace shortcuts follow the current filter.** The transcript composer
+  records submitted prompts, and terminal replay stays bounded even for oversized
+  output chunks.
+- **Preview navigation stays inside the local-app boundary.** Browser and asset
+  opening failures are surfaced rather than disappearing.
+- **Windows model discovery supports npm command shims.**
+- **macOS updates select the correct Apple Silicon or Intel download.** The
+  installer verifies the release version, signing team, notarization, and active
+  native binaries before quitting Crew. Replacement is staged beside the old app
+  and rolled back if launch cannot be confirmed; session data is never deleted.
+- **Releases stay drafts until every platform is ready.** Signing rejects stale
+  or mismatched bundles, and publication verifies all downloads and stable aliases.
+
+### Preservation limits
+- The lossless session vault remains planned, not implemented. Buffered changes
+  cannot survive a forced exit before successful storage, and same-disk backups
+  do not replace an independent backup of provider history and attachments.
+
 ## 0.5.14 — 2026-09-10
 
 ### Added
