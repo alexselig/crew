@@ -6,7 +6,7 @@ import * as pty from 'node-pty'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import {
   StateDetector,
   DEFAULT_DETECTION,
@@ -36,6 +36,7 @@ import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
 import { AutopilotWatcher, CopilotAutopilotWatcher, isClaudeSession, isCopilotSession } from './autopilot'
 import { crewHookFor } from './crew-hook'
+import { DEFAULT_COPILOT_MODEL, withCopilotModel } from '../shared/copilot-models'
 
 const TICK_MS = 250
 const DEFAULT_COLS = 100
@@ -83,8 +84,6 @@ interface Managed {
   credits: CostParser
   cols: number
   rows: number
-  /** Handoff primer waiting to be typed once the agent shows its first prompt. */
-  pendingPrimer?: string
 }
 
 export interface Transition {
@@ -111,16 +110,17 @@ export declare interface SessionManager {
 /**
  * Size of an agent conversation's own event log, or 0 when there isn't one.
  *
- * This is the only honest measure of "how long is this history" available
- * before relaunching: the log is what the agent would have to replay.
+ * Only used to distinguish a not-yet-started successor from an existing
+ * conversation. This is not a measure of the provider's token/context budget.
  */
-function transcriptBytes(agentSessionId: string | undefined): number {
+function transcriptBytes(agentSessionId: string | undefined): number | undefined {
   if (!agentSessionId) return 0
   try {
     return statSync(join(homedir(), '.copilot', 'session-state', agentSessionId, 'events.jsonl')).size
-  } catch {
-    // No log yet, or an agent that keeps none: a short history by definition.
-    return 0
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+    console.warn('[crew] Could not inspect conversation history:', error)
+    return undefined
   }
 }
 
@@ -165,7 +165,11 @@ export class SessionManager extends EventEmitter {
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || defaultShell()
-    const args = req.args && req.args.length ? req.args : preset?.args ?? []
+    const baseArgs = req.args && req.args.length ? req.args : preset?.args ?? []
+    const copilot = req.presetId === 'copilot-cli'
+    const args = copilot && !restore && !baseArgs.some((arg) => arg === '--model' || arg.startsWith('--model='))
+      ? withCopilotModel(baseArgs, DEFAULT_COPILOT_MODEL)
+      : [...baseArgs]
     const cwd = req.cwd || homedir() || process.cwd()
     const id = restore?.id ?? randomUUID()
     // The agent's own session UUID: reused when resuming (so we reattach the same
@@ -247,12 +251,6 @@ export class SessionManager extends EventEmitter {
 
     const detector = new StateDetector(now, cfg, (state, reason) => this.onState(id, state, reason))
     const managed: Managed = { info, proc: null, detector: null, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
-    // A session superseding an older conversation carries its brief instead of
-    // the transcript. Hold the primer until the agent is actually at a prompt —
-    // typing into a TUI that hasn't drawn one yet just loses the keystrokes.
-    const brief = briefPathFor(restore?.priorSessionId)
-    if (brief) managed.pendingPrimer = primerFor(brief)
-
     const start = (): void => {
     let proc: pty.IPty
     try {
@@ -263,9 +261,24 @@ export class SessionManager extends EventEmitter {
       // captured. Other agents (Claude) just get their resume args.
       let idArgs: string[] = []
       let resumeExtra = restore?.extraArgs ?? []
-      if (preset?.sessionIdFlag && (restore?.agentSessionId || !restore)) {
+      if (preset?.sessionIdFlag) {
         idArgs = [preset.sessionIdFlag + agentSessionId]
         resumeExtra = []
+      }
+      const needsBrief = copilot && this.store.settings.resumeConversations &&
+        this.store.settings.contextMode !== 'transcript' && restore?.priorSessionId &&
+        transcriptBytes(agentSessionId) === 0
+      const brief = needsBrief ? briefPathFor(restore.priorSessionId) : null
+      if (needsBrief && !brief) {
+        throw new Error(`Saved context brief is missing or ambiguous. Both conversation IDs are preserved. Regenerate the brief or resume the original with copilot --resume=${restore.priorSessionId}.`)
+      }
+      const prompt = brief ? primerFor(brief) : req.initialPrompt
+      const contextArgs = copilot && prompt
+        ? [...(brief ? ['--add-dir', dirname(brief)] : []), '--interactive', prompt]
+        : []
+      if (copilot && restore && this.store.settings.resumeConversations &&
+          this.store.settings.contextMode === 'brief' && !brief) {
+        this.emit('output', { id, data: '\r\n[Crew] No verified brief for this conversation; resuming native context instead.\r\n' })
       }
       // Enhanced Terminal: install OSC 133 shell integration for the Shell
       // preset so command blocks / jump-to-prompt / exit-code marks work. Opt-in
@@ -275,7 +288,7 @@ export class SessionManager extends EventEmitter {
         this.store.settings.enhancedTerminal && req.presetId === 'shell' && this.crewHookDir
           ? crewHookFor(command, this.crewHookDir)
           : null
-      const spawnArgs = [...args, ...idArgs, ...resumeExtra, ...(hook?.extraArgs ?? [])]
+      const spawnArgs = [...args, ...idArgs, ...resumeExtra, ...(hook?.extraArgs ?? []), ...contextArgs]
       proc = pty.spawn(command, spawnArgs, {
         name: 'xterm-256color',
         cols: DEFAULT_COLS,
@@ -346,7 +359,7 @@ export class SessionManager extends EventEmitter {
       this.persistSessions()
     })
 
-    if (req.initialPrompt && req.initialPrompt.length) {
+    if (!copilot && req.initialPrompt && req.initialPrompt.length) {
       const text = req.initialPrompt
       // Give the agent a beat to draw its input UI before we type into it.
       setTimeout(() => {
@@ -788,10 +801,8 @@ export class SessionManager extends EventEmitter {
   /**
    * Decide how a saved session regains its context on relaunch.
    *
-   * 'transcript' reattaches the original conversation, so the agent replays its
-   * log. 'brief' deliberately does not: it starts a fresh agent and seeds it
-   * with the distilled handoff instead, which is the only way a session whose
-   * log has outgrown the context window can come back at all.
+   * Auto/transcript prefer native resume. Brief deliberately starts a fresh
+   * Copilot conversation only when a verified handoff exists.
    *
    * Either way the original conversation id survives — as agentSessionId when
    * reattaching, as priorSessionId when superseding — so a relaunch can never
@@ -807,10 +818,11 @@ export class SessionManager extends EventEmitter {
       agentSessionId,
       priorSessionId,
       resume: this.store.settings.resumeConversations,
-      contextMode: this.store.settings.contextMode,
+      contextMode: presetId === 'copilot-cli' ? this.store.settings.contextMode : 'transcript',
       resumeArgs: getPreset(presetId)?.resumeArgs,
       transcriptBytes: transcriptBytes(agentSessionId),
-      hasBrief: briefPathFor(agentSessionId) != null
+      hasBrief: briefPathFor(agentSessionId) != null,
+      hasPriorBrief: briefPathFor(priorSessionId) != null
     })
   }
 
@@ -900,14 +912,6 @@ export class SessionManager extends EventEmitter {
     m.info.state = state
     m.info.stateChangedAt = now
     if (reason) m.info.detectionReason = reason
-    // First time this agent offers a prompt, type the handoff primer in — but
-    // never press Enter. The user reads it, and a restored roster of dozens of
-    // sessions costs nothing until they choose to engage with one.
-    if (m.pendingPrimer && (state === 'WAITING_INPUT' || state === 'IDLE')) {
-      const primer = m.pendingPrimer
-      m.pendingPrimer = undefined
-      m.proc?.write(primer)
-    }
     this.events.push({ id, ts: now, from, to: state })
     if (this.events.length > EVENT_CAP) this.events.splice(0, this.events.length - EVENT_CAP)
     const snapshot = { ...m.info }

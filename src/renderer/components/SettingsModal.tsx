@@ -168,12 +168,12 @@ export function SettingsModal({ settings, onToggle, onClose }: Props): JSX.Eleme
               <span className="settings-row__text">
                 <span className="settings-row__label">Restored context</span>
                 <span className="settings-row__desc">
-                  How a restored session gets its memory back. Auto replays the whole conversation
-                  while it is short and switches to the summary once the history outgrows it — which
-                  is almost never, for most sessions. Transcript always replays: exact, but the cost
-                  grows with the log and a very long history cannot be replayed at all. Brief always
-                  starts fresh from a saved summary (~1–2k tokens). The full transcript is kept
-                  either way.
+                  Auto and Transcript resume the original conversation using the agent’s own
+                  context management. Brief starts a new Copilot conversation from a verified
+                  saved summary, or resumes natively if none is available. When you open a
+                  brief-backed session, Crew loads its context automatically — no Enter required —
+                  then asks the agent to wait for your next instruction. This loading turn may
+                  consume credits. Other sessions stay asleep; original provider history is not deleted.
                 </span>
               </span>
               <div className="settings-seg" role="group" aria-label="Restored context mode">

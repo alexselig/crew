@@ -32,6 +32,13 @@ releases are signed + notarized.
 
 - Launch owned sessions: **Claude Code**, **Copilot CLI**, **Shell**, or any
   custom command + working directory (+ optional initial prompt).
+- New Copilot sessions default to **GPT-6 Astra** (`gpt-6-astra`). The **Model**
+  dropdown reads supported choices from your installed CLI (`copilot completion
+  bash`), not a hard-coded catalog. Account access remains subject to Copilot.
+  The selected model is saved with the session and retained on restore and
+  duplication; existing sessions are not switched to Astra.
+- New sessions use the selected session's working directory (or home when none
+  is selected), with the directory visible beside the agent/model controls.
 - Embedded **xterm.js** terminal per session — full interaction in-app,
   scrollback preserved across tab switches.
 - **Beta: Enhanced Terminal Interface** (Settings, off by default) — an
@@ -56,15 +63,14 @@ releases are signed + notarized.
 
 ## Restored context: transcript vs brief
 
-Resuming a session normally reattaches the original conversation, so the agent
-replays its whole `events.jsonl`. That is exact, but the cost scales with the
-log — a 0.5 MB history costs well over a million tokens, and a multi-megabyte
-one cannot be replayed at all, which is how a long-running session becomes
-unresumable.
+**Auto** (the default) and **Transcript** use the agent's native conversation
+resume. The provider manages its own context window and compaction. Crew no
+longer switches to a summary just because an event log exceeds 2 MiB: serialized
+file bytes, especially images and tool output, do not measure context tokens.
 
 **Settings → Restored context → Brief** takes the other route. Crew starts a
-fresh conversation and types in a pointer to that session's *handoff brief*: a
-~1–2k token summary rebuilt from data Copilot already keeps on disk — its own
+fresh Copilot conversation and automatically loads that session's *handoff brief*:
+a summary rebuilt from data Copilot already keeps on disk — its own
 compaction checkpoints, the files the work touched, the commits it made, and
 your last few instructions.
 
@@ -72,8 +78,8 @@ your last few instructions.
 npm run handoff          # rebuild every brief into ~/.crew/handoffs
 ```
 
-Generating a brief reads only the local session store, so it costs **no tokens
-at all**. To keep them fresh automatically:
+Generating a brief reads only the local session store, so generation itself
+costs **no inference tokens**. To keep them fresh automatically:
 
 ```
 cp scripts/com.crew.handoff.plist ~/Library/LaunchAgents/
@@ -82,16 +88,29 @@ launchctl load -w ~/Library/LaunchAgents/com.crew.handoff.plist
 
 Notes on the trade-off:
 
-- A brief is a summary; exact snippets and passing remarks are lost. But a long
-  conversation is *already* summarised — those checkpoints are the compaction —
-  so on big sessions you are comparing a brief against a summary, not verbatim
-  recall.
+- A brief is a clipped summary, not a lossless backup. Details can be omitted,
+  and tool-result/attachment preservation is not provided by this feature.
 - Briefs cite file paths and commit hashes, so the agent re-reads the current
   repo rather than trusting a transcript describing code you have since changed.
-- Nothing is deleted. The original id is preserved as `priorSessionId`, and the
-  full transcript stays one command away: `copilot --resume=<id>`.
-- The primer is typed into the prompt but **never submitted**, so restoring a
-  roster of dozens of sessions costs nothing until you engage with one.
+- Crew does not delete provider history. The original id is preserved as
+  `priorSessionId`; native resume remains available while the provider's
+  underlying data exists: `copilot --resume=<id>`.
+- Saved sessions remain asleep until opened. On wake, a fresh brief-backed
+  conversation receives its context-loading prompt via `--interactive`:
+  **no manual submission is required**. This turn may consume Copilot credits.
+  It asks the agent to read the historical context, acknowledge it, and wait
+  for your next instruction, not execute old tasks.
+- Crew verifies the full conversation ID inside the brief rather than trusting
+  the filename prefix. Missing/ambiguous briefs never silently replace native
+  context with an empty conversation. Existing native conversations are not
+  repeatedly primed with their predecessor's brief.
+- Optional initial prompts for new Copilot sessions use the same native startup
+  flag instead of a timer typing into a terminal that may not be ready.
+
+The durable session vault described in
+[`docs/superpowers/specs/2026-09-11-session-preservation-design.md`](docs/superpowers/specs/2026-09-11-session-preservation-design.md)
+is a separate design; these context-loading improvements do not implement
+lossless archival or guarantee recovery of provider data that has been removed.
 
 ## Architecture
 

@@ -47,6 +47,7 @@ import {
 } from '../shared/agents'
 import type { Agent, AgentRun } from '../shared/types'
 import { CHARACTERS } from './characters'
+import { listCopilotModels } from './copilot-models'
 
 let tray: CrewTray | null = null
 let manager: SessionManager
@@ -648,6 +649,7 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.ROSTER_GET, () => manager.roster())
   ipcMain.handle(IPC.PRESETS_GET, () => builtinPresets())
+  ipcMain.handle(IPC.COPILOT_MODELS_LIST, () => listCopilotModels())
   ipcMain.handle(IPC.CHARACTERS_GET, () => CHARACTERS)
   ipcMain.handle(IPC.HOME_DIR_GET, () => homedir())
   ipcMain.handle(IPC.AGENTS_DETECT, (): AgentStatus[] =>

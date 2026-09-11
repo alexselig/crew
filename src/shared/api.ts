@@ -19,6 +19,7 @@ import type { TrackerData, CommitActivity, RunningServer, LaunchResult, PastWeek
 import type { UsageAnalytics } from './usage'
 import type { UpdateInfo } from './update'
 import type { AgentTranscriptResult } from './agent-events'
+import type { CopilotModelCatalog } from './copilot-models'
 
 export interface StateEvent {
   id: string
@@ -113,6 +114,8 @@ export interface CrewAPI {
   getCharacters(): Promise<CharacterDef[]>
   getHomeDir(): Promise<string>
   detectAgents(): Promise<AgentStatus[]>
+  /** Supported model IDs from the installed CLI; account access is checked by Copilot. */
+  listCopilotModels(): Promise<CopilotModelCatalog>
   /** Skills installed on disk for the given agent command (e.g. "copilot", "claude"). */
   listSkills(agent: string): Promise<InstalledSkill[]>
   getEvents(): Promise<ActivityEvent[]>

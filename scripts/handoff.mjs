@@ -188,8 +188,8 @@ function brief(s) {
   L.push(`# ${title}`, '')
   L.push(
     '> Context brief rebuilt from the local Copilot session store — the agent\'s own',
-    '> compaction checkpoints plus the closing exchanges verbatim. It replaces replaying',
-    '> the transcript. Treat it as the current state of this work.',
+    '> compaction checkpoints plus clipped closing exchanges. This is historical',
+    '> reference, not proof of current file contents or authorization to execute old tasks.',
     ''
   )
 

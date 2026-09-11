@@ -3,10 +3,12 @@ import type { Preset, CreateSessionRequest, SessionSet, Workspace } from '../../
 import type { AgentStatus } from '../../shared/api'
 import { SessionSetChips } from './SessionSetChips'
 import { Icon } from './Icon'
+import { DEFAULT_COPILOT_MODEL, withCopilotModel, type CopilotModelCatalog } from '../../shared/copilot-models'
 
 interface Props {
   presets: Preset[]
   homeDir: string
+  defaultCwd?: string
   /** Existing group (tag) names, offered as selectable chips. */
   groups?: string[]
   /** First-class workspaces, offered as membership chips. */
@@ -14,7 +16,7 @@ interface Props {
   /** Workspace ids to pre-select (e.g. the active workspace filter). */
   defaultWorkspaceIds?: string[]
   onCancel: () => void
-  onCreate: (req: CreateSessionRequest) => void
+  onCreate: (req: CreateSessionRequest) => void | Promise<void>
 }
 
 const CUSTOM = '__custom__'
@@ -22,6 +24,7 @@ const CUSTOM = '__custom__'
 export function NewSessionModal({
   presets,
   homeDir,
+  defaultCwd,
   groups = [],
   workspaces = [],
   defaultWorkspaceIds = [],
@@ -29,7 +32,12 @@ export function NewSessionModal({
   onCreate
 }: Props): JSX.Element {
   const [presetId, setPresetId] = useState<string>(presets[0]?.id ?? CUSTOM)
-  const [cwd, setCwd] = useState<string>(homeDir)
+  const [cwd, setCwd] = useState<string>(defaultCwd || homeDir)
+  const [model, setModel] = useState(DEFAULT_COPILOT_MODEL)
+  const [catalog, setCatalog] = useState<CopilotModelCatalog | null>(null)
+  const [modelRetry, setModelRetry] = useState(0)
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [command, setCommand] = useState('')
   const [args, setArgs] = useState('')
   const [label, setLabel] = useState('')
@@ -55,6 +63,22 @@ export function NewSessionModal({
     void window.crew.detectAgents().then(setAgents)
     void window.crew.getSets().then(setSets)
   }, [])
+
+  useEffect(() => {
+    if (presetId !== 'copilot-cli') return
+    let current = true
+    setCatalog(null)
+    void window.crew.listCopilotModels().then(
+      (result) => { if (current) setCatalog(result) },
+      (error: unknown) => {
+        if (current) setCatalog({
+          models: [], source: 'cli',
+          error: `Could not load Copilot models: ${error instanceof Error ? error.message : String(error)}`
+        })
+      }
+    )
+    return () => { current = false }
+  }, [presetId, modelRetry])
 
   // Group chips: existing groups plus a freshly-typed one (so it shows selected).
   const groupChips =
@@ -106,11 +130,13 @@ export function NewSessionModal({
   }, [onCancel])
 
   const isCustom = presetId === CUSTOM
+  const isCopilot = presetId === 'copilot-cli'
   const cwdOk = cwd.trim().length > 0
   const commandOk = !isCustom || command.trim().length > 0
-  const canCreate = cwdOk && commandOk
+  const modelOk = !isCopilot || (catalog != null && !catalog.error && catalog.models.includes(model))
+  const canCreate = cwdOk && commandOk && modelOk && !creating
 
-  function submit(e: React.FormEvent): void {
+  async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
     if (!canCreate) return
     const preset = presets.find((p) => p.id === presetId)
@@ -130,14 +156,22 @@ export function NewSessionModal({
       : {
           presetId: preset!.id,
           command: preset!.command,
-          args: preset!.args,
+          args: isCopilot ? withCopilotModel(preset!.args, model) : preset!.args,
           cwd: cwd.trim(),
           label: label.trim() || undefined,
           initialPrompt: initialPrompt.trim() || undefined,
           tag,
           workspaceIds
         }
-    onCreate(req)
+    setCreating(true)
+    setCreateError(null)
+    try {
+      await onCreate(req)
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setCreating(false)
+    }
   }
 
   return (
@@ -258,6 +292,7 @@ export function NewSessionModal({
         <label className="field">
           <span className="field__label">Agent</span>
           <select
+            aria-label="Agent"
             className="field__input"
             value={presetId}
             onChange={(e) => setPresetId(e.target.value)}
@@ -280,6 +315,61 @@ export function NewSessionModal({
                 </span>
               )
             })()}
+        </label>
+
+        {isCopilot && (
+          <div className="field">
+            <label className="field__label" htmlFor="new-session-model">Model</label>
+            <select
+              id="new-session-model"
+              aria-label="Model"
+              className="field__input"
+              value={catalog && !catalog.error ? model : ''}
+              disabled={!catalog || !!catalog.error || creating}
+              onChange={(e) => setModel(e.target.value)}
+            >
+              {!catalog || catalog.error ? (
+                <option value="">{catalog?.error ? 'Models unavailable' : 'Loading CLI models…'}</option>
+              ) : (
+                <>
+                  {!catalog.models.includes(model) && (
+                    <option value={model} disabled>Astra (not listed by this CLI)</option>
+                  )}
+                  {catalog.models.map((id) => (
+                    <option key={id} value={id}>
+                      {id === DEFAULT_COPILOT_MODEL ? 'GPT-6 Astra (default)' : id === 'auto' ? 'Auto — let Copilot choose' : id}
+                    </option>
+                  ))}
+                </>
+              )}
+            </select>
+            {catalog?.error ? (
+              <>
+                <span className="agent-status agent-status--missing" role="alert">{catalog.error}</span>
+                <button type="button" className="btn" onClick={() => setModelRetry((n) => n + 1)}>Retry models</button>
+              </>
+            ) : catalog && !catalog.models.includes(model) ? (
+              <span className="agent-status agent-status--missing" role="alert">
+                Astra is not listed by this CLI. Choose another model or update Copilot CLI.
+              </span>
+            ) : (
+              <span className="modal__hint modal__hint--tight">
+                Models come from your installed Copilot CLI. Availability depends on your account.
+                Your choice is saved with this session.
+              </span>
+            )}
+          </div>
+        )}
+
+        <label className="field">
+          <span className="field__label">Working directory</span>
+          <input
+            aria-label="Working directory"
+            className="field__input"
+            placeholder={homeDir}
+            value={cwd}
+            onChange={(e) => setCwd(e.target.value)}
+          />
         </label>
 
         {isCustom && (
@@ -327,15 +417,6 @@ export function NewSessionModal({
                   rows={2}
                 />
               </label>
-              <label className="field">
-                <span className="field__label">Working directory</span>
-                <input
-                  className="field__input"
-                  placeholder={homeDir}
-                  value={cwd}
-                  onChange={(e) => setCwd(e.target.value)}
-                />
-              </label>
               <span className="field__label">Saved sets</span>
               <SessionSetChips
                 sets={sets}
@@ -376,12 +457,13 @@ export function NewSessionModal({
           )}
         </div>
 
+        {createError && <p className="agent-status agent-status--missing" role="alert">{createError}</p>}
         <div className="modal__actions">
           <button type="button" className="btn" onClick={onCancel}>
             Cancel
           </button>
           <button type="submit" className="btn btn--primary" disabled={!canCreate}>
-            Launch
+            {creating ? 'Launching…' : 'Launch'}
           </button>
         </div>
       </form>

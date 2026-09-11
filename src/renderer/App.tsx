@@ -414,6 +414,7 @@ export function App(): JSX.Element {
 
       {c.showNew && (
         <NewSessionModal
+          defaultCwd={c.roster.find((session) => session.id === c.selectedId)?.cwd}
           presets={c.presets}
           homeDir={c.homeDir}
           groups={existingGroups(c.roster)}
