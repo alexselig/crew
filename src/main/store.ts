@@ -211,12 +211,19 @@ function isCustomViewMode(value: unknown): value is CustomViewMode {
   return isString(value) && CUSTOM_VIEW_MODES.includes(value as CustomViewMode)
 }
 
-function validateCustomViewItems(items: readonly CustomViewItem[]): CustomViewItem[] {
+function validateCustomViewItems(items: unknown): CustomViewItem[] {
+  if (!Array.isArray(items)) throw new Error('custom view items must be an array')
   const seen = new Set<string>()
   const normalized: CustomViewItem[] = []
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
+    if (!isRecord(item)) throw new Error(`custom view items[${index}] must be an object`)
+    if (!isString(item.sessionId) || item.sessionId.trim().length === 0) {
+      throw new Error(`custom view items[${index}] sessionId must be a non-empty string`)
+    }
+    if (!isString(item.labelSnapshot)) {
+      throw new Error(`custom view items[${index}] labelSnapshot must be a string`)
+    }
     const sessionId = item.sessionId.trim()
-    if (sessionId.length === 0) throw new Error('custom view items require a session id')
     if (seen.has(sessionId)) continue
     seen.add(sessionId)
     normalized.push({
@@ -232,6 +239,7 @@ function normalizeCustomViewInput(
   existing: readonly CustomView[],
   currentId?: string
 ): CustomViewInput {
+  if (!isString(input.name)) throw new Error('custom view name must be a string')
   const name = input.name.trim()
   if (name.length === 0) throw new Error('custom view name is required')
   if (!isCustomViewMode(input.mode)) throw new Error(`invalid custom view mode: ${String(input.mode)}`)
@@ -256,6 +264,7 @@ function isCustomViewItem(value: unknown): value is CustomViewItem {
 function isCustomView(value: unknown): value is CustomView {
   return isRecord(value) &&
     isString(value.id) &&
+    value.id.trim().length > 0 &&
     isString(value.name) &&
     value.name.trim().length > 0 &&
     isCustomViewMode(value.mode) &&
@@ -272,6 +281,15 @@ function hasUniqueCustomViewNames(views: readonly CustomView[]): boolean {
     const key = view.name.trim().toLocaleLowerCase()
     if (names.has(key)) return false
     names.add(key)
+  }
+  return true
+}
+
+function hasUniqueCustomViewIds(views: readonly CustomView[]): boolean {
+  const ids = new Set<string>()
+  for (const view of views) {
+    if (ids.has(view.id)) return false
+    ids.add(view.id)
   }
   return true
 }
@@ -332,8 +350,13 @@ function validateStore(raw: unknown): asserts raw is Partial<StoreData> {
     !['x', 'y', 'width', 'height'].every((key) => isNumber(bounds[key])))) {
     throw new InvalidStoreError('invalid store windowBounds')
   }
-  if (raw.customViews !== undefined && Array.isArray(raw.customViews) && !hasUniqueCustomViewNames(raw.customViews)) {
-    throw new InvalidStoreError('invalid store customViews')
+  if (raw.customViews !== undefined && Array.isArray(raw.customViews)) {
+    if (!hasUniqueCustomViewNames(raw.customViews)) {
+      throw new InvalidStoreError('invalid store customViews: duplicate names')
+    }
+    if (!hasUniqueCustomViewIds(raw.customViews)) {
+      throw new InvalidStoreError('invalid store customViews: duplicate ids')
+    }
   }
 }
 

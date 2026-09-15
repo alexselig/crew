@@ -81,6 +81,17 @@ function expectUnrelatedFieldsUnchanged(
   expect(currentRest).toEqual(baselineRest)
 }
 
+function customView(id = 'view-1'): CustomView {
+  return {
+    id,
+    name: 'Today',
+    mode: 'curated-only',
+    items: [{ sessionId: 's-1', labelSnapshot: 'Alpha' }],
+    createdAt: 10,
+    updatedAt: 10
+  }
+}
+
 describe('custom view store persistence', () => {
   it('defaults getCustomViews to an empty list', () => {
     const path = tmpStorePath()
@@ -287,5 +298,157 @@ describe('custom view store persistence', () => {
     ).toThrow(/not found/i)
 
     expect(() => store.deleteCustomView('missing')).toThrow(/not found/i)
+  })
+
+  it.each([
+    [
+      'non-array items',
+      {
+        name: 'Broken create',
+        mode: 'curated-only',
+        items: { sessionId: 's-1', labelSnapshot: 'Alpha' }
+      },
+      /items must be an array/i
+    ],
+    [
+      'non-object items',
+      {
+        name: 'Broken create',
+        mode: 'curated-only',
+        items: ['s-1']
+      },
+      /items\[0\] must be an object/i
+    ],
+    [
+      'non-string session ids',
+      {
+        name: 'Broken create',
+        mode: 'curated-only',
+        items: [{ sessionId: 12, labelSnapshot: 'Alpha' }]
+      },
+      /sessionId must be a non-empty string/i
+    ],
+    [
+      'blank session ids',
+      {
+        name: 'Broken create',
+        mode: 'curated-only',
+        items: [{ sessionId: '   ', labelSnapshot: 'Alpha' }]
+      },
+      /sessionId must be a non-empty string/i
+    ],
+    [
+      'non-string label snapshots',
+      {
+        name: 'Broken create',
+        mode: 'curated-only',
+        items: [{ sessionId: 's-1', labelSnapshot: 42 }]
+      },
+      /labelSnapshot must be a string/i
+    ]
+  ])('rejects %s on create without persisting partial data', (_label, input, message) => {
+    const path = tmpStorePath()
+    seed(path, {
+      characters: { 'copilot-cli::/tmp/s-1': { characterId: 'lion', lastLabel: 'Alpha' } },
+      settings: { ...DEFAULT_SETTINGS, sound: true },
+      recentDirs: ['/tmp/s-1'],
+      sessions: [session('s-1', 'Alpha')],
+      sets: [set()],
+      workspaces: [workspace()],
+      customViews: [customView()],
+      agents: [agent()],
+      windowBounds: windowBounds(),
+      migrations: [
+        '2026-07-stale-hide-72h',
+        '2026-08-workspaces-firstclass',
+        '2026-08-context-mode-auto',
+        '2026-08-agents-seed'
+      ]
+    })
+
+    const store = new Store(path)
+    const before = readStore(path)
+    const beforeViews = store.getCustomViews()
+
+    expect(() => store.createCustomView(input as Parameters<Store['createCustomView']>[0])).toThrow(message)
+    expect(readStore(path)).toEqual(before)
+    expect(store.getCustomViews()).toEqual(beforeViews)
+    expectUnrelatedFieldsUnchanged(readStore(path), before)
+  })
+
+  it.each([
+    [
+      'non-array items',
+      {
+        name: 'Release',
+        mode: 'ranked-plus-all',
+        items: { sessionId: 's-1', labelSnapshot: 'Alpha' }
+      },
+      /items must be an array/i
+    ],
+    [
+      'non-object items',
+      {
+        name: 'Release',
+        mode: 'ranked-plus-all',
+        items: ['s-1']
+      },
+      /items\[0\] must be an object/i
+    ],
+    [
+      'non-string session ids',
+      {
+        name: 'Release',
+        mode: 'ranked-plus-all',
+        items: [{ sessionId: false, labelSnapshot: 'Alpha' }]
+      },
+      /sessionId must be a non-empty string/i
+    ],
+    [
+      'blank session ids',
+      {
+        name: 'Release',
+        mode: 'ranked-plus-all',
+        items: [{ sessionId: ' ', labelSnapshot: 'Alpha' }]
+      },
+      /sessionId must be a non-empty string/i
+    ],
+    [
+      'non-string label snapshots',
+      {
+        name: 'Release',
+        mode: 'ranked-plus-all',
+        items: [{ sessionId: 's-1', labelSnapshot: null }]
+      },
+      /labelSnapshot must be a string/i
+    ]
+  ])('rejects %s on update without persisting partial data', (_label, input, message) => {
+    const path = tmpStorePath()
+    seed(path, {
+      characters: { 'copilot-cli::/tmp/s-1': { characterId: 'lion', lastLabel: 'Alpha' } },
+      settings: { ...DEFAULT_SETTINGS, showCredits: true },
+      recentDirs: ['/tmp/s-1'],
+      sessions: [session('s-1', 'Alpha')],
+      sets: [set()],
+      workspaces: [workspace()],
+      customViews: [customView()],
+      agents: [agent()],
+      windowBounds: windowBounds(),
+      migrations: [
+        '2026-07-stale-hide-72h',
+        '2026-08-workspaces-firstclass',
+        '2026-08-context-mode-auto',
+        '2026-08-agents-seed'
+      ]
+    })
+
+    const store = new Store(path)
+    const before = readStore(path)
+    const beforeViews = store.getCustomViews()
+
+    expect(() => store.updateCustomView('view-1', input as Parameters<Store['updateCustomView']>[1])).toThrow(message)
+    expect(readStore(path)).toEqual(before)
+    expect(store.getCustomViews()).toEqual(beforeViews)
+    expectUnrelatedFieldsUnchanged(readStore(path), before)
   })
 })

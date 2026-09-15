@@ -215,4 +215,92 @@ describe('store schema — custom views default', () => {
     expect(store.getCustomViews()).toEqual([])
     expect(readFileSync(path, 'utf8')).toBe(before)
   })
+
+  it('accepts legacy non-UUID custom view ids when they are unique and non-empty', () => {
+    const path = tmpStorePath()
+    seed(path, {
+      customViews: [
+        {
+          id: 'legacy-view',
+          name: 'Today',
+          mode: 'curated-only',
+          items: [{ sessionId: 'session-1', labelSnapshot: 'Alpha' }],
+          createdAt: 1,
+          updatedAt: 2
+        }
+      ]
+    })
+
+    const store = new Store(path)
+
+    expect(store.getCustomViews()).toEqual([
+      {
+        id: 'legacy-view',
+        name: 'Today',
+        mode: 'curated-only',
+        items: [{ sessionId: 'session-1', labelSnapshot: 'Alpha' }],
+        createdAt: 1,
+        updatedAt: 2
+      }
+    ])
+  })
+
+  it.each([
+    [
+      'empty ids',
+      [
+        {
+          id: '   ',
+          name: 'Today',
+          mode: 'curated-only',
+          items: [],
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ]
+    ],
+    [
+      'duplicate ids',
+      [
+        {
+          id: 'dup',
+          name: 'Today',
+          mode: 'curated-only',
+          items: [],
+          createdAt: 1,
+          updatedAt: 1
+        },
+        {
+          id: 'dup',
+          name: 'Release',
+          mode: 'ranked-plus-all',
+          items: [],
+          createdAt: 2,
+          updatedAt: 2
+        }
+      ]
+    ]
+  ])('rejects persisted custom views with %s and restores the last good copy', (_label, invalidViews) => {
+    const path = tmpStorePath()
+    const good = {
+      customViews: [
+        {
+          id: 'legacy-view',
+          name: 'Today',
+          mode: 'curated-only',
+          items: [{ sessionId: 'session-1', labelSnapshot: 'Alpha' }],
+          createdAt: 1,
+          updatedAt: 2
+        }
+      ]
+    }
+    seed(path, good)
+    writeFileSync(`${path}.bak`, JSON.stringify(good))
+    seed(path, { customViews: invalidViews })
+
+    const store = new Store(path)
+
+    expect(store.getCustomViews()).toEqual(good.customViews)
+    expect(JSON.parse(readFileSync(path, 'utf8')).customViews).toEqual(good.customViews)
+  })
 })
