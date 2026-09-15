@@ -455,4 +455,17 @@ describe('custom-view presentation composition', () => {
       ...roster.filter((session) => session.id !== 'a2').sort(byRecent).map((session) => session.id)
     ])
   })
+
+  it('curated-only emits only ranked live sessions in item order', () => {
+    const roster = [
+      sess({ id: 'a1', lastPromptAt: 1 }),
+      sess({ id: 'a2', lastPromptAt: 2 }),
+      sess({ id: 'a3', lastPromptAt: 3 })
+    ]
+
+    const result = composeCustomView(roster, view('curated-only', ['a3', 'missing', 'a1']))
+
+    expect(result.sessions.map((session) => session.id)).toEqual(['a3', 'a1'])
+    expect(result.missing.map((item) => item.sessionId)).toEqual(['missing'])
+  })
 })

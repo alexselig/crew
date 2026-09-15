@@ -23,6 +23,7 @@ import { byRecent, existingGroups, recencyOf } from './grouping'
 import { composeCustomView } from '../shared/custom-views'
 import { arrowNavIntent } from './gridNav'
 import { NEEDS_YOU } from '../shared/types'
+import { nextSelection } from '../shared/selection'
 import { sessionInWorkspaceId } from '../shared/workspaces'
 import { STATE_META } from './state-meta'
 import type { CreateSessionRequest, SessionPresentation } from '../shared/types'
@@ -59,10 +60,6 @@ export function App(): JSX.Element {
     c.showWorkspaces ||
     invokeAgentId !== null ||
     c.editingAgent !== null
-  const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
-  const usedCharacterIds = c.roster
-    .filter((s) => s.status === 'active' && s.id !== selected?.id)
-    .map((s) => s.characterId)
   // Roster filtered to the active workspace (null = All). Non-destructive: hidden
   // sessions keep running; this only changes what's shown. Filter is by workspace
   // id (first-class membership).
@@ -84,6 +81,11 @@ export function App(): JSX.Element {
   }, [visibleRoster, c.presentation, c.customViews])
   const builtinPresentation: SessionPresentation =
     c.presentation.kind === 'builtin' ? c.presentation : { kind: 'builtin', mode: 'none' }
+  const activeRoster = presentedRoster
+  const selected = activeRoster.find((s) => s.id === c.selectedId) ?? null
+  const usedCharacterIds = c.roster
+    .filter((s) => s.status === 'active' && s.id !== selected?.id)
+    .map((s) => s.characterId)
 
   // Default workspace ids for a new session: the active workspace → else the most
   // recently used one (from the most recently prompted session) → else the first
@@ -128,8 +130,13 @@ export function App(): JSX.Element {
     return () => cancelAnimationFrame(raf)
   }, [anyOverlay, c.viewMode, c.selectedId])
 
+  useEffect(() => {
+    const next = nextSelection(activeRoster, c.selectedId, null)
+    if (next !== c.selectedId) c.setSelectedId(next)
+  }, [activeRoster, c.selectedId, c.setSelectedId])
+
   function jumpNextWaiting(): void {
-    const waiting = visibleRoster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
+    const waiting = activeRoster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
     if (waiting.length === 0) return
     const cur = waiting.findIndex((s) => s.id === c.selectedId)
     focusSession(waiting[(cur + 1) % waiting.length].id)
@@ -206,17 +213,17 @@ export function App(): JSX.Element {
         jumpNextWaiting()
       } else if (/^[1-9]$/.test(e.key)) {
         e.preventDefault()
-        const s = visibleRoster[Number(e.key) - 1]
+        const s = activeRoster[Number(e.key) - 1]
         if (s) focusSession(s.id)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRoster, c.selectedId])
+  }, [activeRoster, c.selectedId])
 
   const paletteItems = useMemo<PaletteItem[]>(() => {
-    const sessionItems: PaletteItem[] = visibleRoster.map((s) => {
+    const sessionItems: PaletteItem[] = activeRoster.map((s) => {
       const ch = c.characters.find((x) => x.id === s.characterId)
       return {
         id: 'sess-' + s.id,
@@ -285,7 +292,7 @@ export function App(): JSX.Element {
     ]
     return [...sessionItems, ...actions, ...workspaceItems]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRoster, c.characters, c.viewMode, c.selectedId, c.workspaces, c.activeWorkspace])
+  }, [activeRoster, c.characters, c.viewMode, c.selectedId, c.workspaces, c.activeWorkspace])
 
   const navIsCollapsed = c.navCollapsed || c.viewMode === 'grid'
   // Float the rail open on hover whenever it is collapsed — in grid view too.

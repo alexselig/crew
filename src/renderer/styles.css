@@ -1502,7 +1502,7 @@ button {
   color: var(--text-faint);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
@@ -1536,7 +1536,7 @@ button {
   color: var(--text-dim);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   padding: 5px 7px;
   transition: background 0.12s, border-color 0.12s, color 0.12s;

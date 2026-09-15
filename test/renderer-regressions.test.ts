@@ -39,13 +39,19 @@ beforeAll(async () => {
               import React from 'react'
               export function ${name}(props) {
                 const chooseFocus = () => props.onChoosePresentation({ kind: 'custom', viewId: 'focus' })
+                const chooseSolo = () => props.onChoosePresentation({ kind: 'custom', viewId: 'solo' })
                 return React.createElement(
                   'div',
-                  { className: 'stub-${prefix}' },
+                  { className: 'stub-${prefix}', 'data-selected-id': props.selectedId ?? '' },
                   React.createElement(
                     'button',
                     { type: 'button', className: 'stub-${prefix}__choose', onClick: chooseFocus },
                     'choose'
+                  ),
+                  React.createElement(
+                    'button',
+                    { type: 'button', className: 'stub-${prefix}__choose-solo', onClick: chooseSolo },
+                    'choose-solo'
                   ),
                   React.createElement(
                     'div',
@@ -53,6 +59,23 @@ beforeAll(async () => {
                     ...props.roster.map((session) =>
                       React.createElement('span', { key: session.id, 'data-session-id': session.id }, session.id)
                     )
+                  )
+                )
+              }
+            `
+          }
+          if (name === 'CommandPalette') {
+            return `
+              import React from 'react'
+              export function CommandPalette(props) {
+                globalThis.regression.paletteSessionItems = props.items
+                  .filter((item) => item.id.startsWith('sess-'))
+                  .map((item) => item.label)
+                return React.createElement(
+                  'div',
+                  { className: 'stub-command-palette' },
+                  ...props.items.map((item) =>
+                    React.createElement('span', { key: item.id, 'data-item-id': item.id }, item.label)
                   )
                 )
               }
@@ -204,6 +227,35 @@ describe('renderer state and input regressions (isolated browser)', () => {
       await page.close()
     }
   })
+
+  it.each(['Meta', 'Control'])(
+    '%s custom curated views replace hidden selection and limit shortcuts and palette entries to presented sessions',
+    async (modifier) => {
+      const page = await open('app')
+      try {
+        await page.locator('.stub-roster__choose-solo').click()
+        await page.waitForFunction(
+          () =>
+            document.querySelector('.stub-roster')?.getAttribute('data-selected-id') === 'a4' &&
+            document.querySelector('.stub-gridview')?.getAttribute('data-selected-id') === 'a4'
+        )
+        expect(await page.evaluate(() => globalThis.regression.currentSelected)).toBe('a4')
+
+        await page.keyboard.press(`${modifier}+1`)
+        await page.keyboard.press(`${modifier}+2`)
+        await page.keyboard.press(`${modifier}+j`)
+        expect(await page.evaluate(() => globalThis.regression.selected.slice(-2))).toEqual(['a4', 'a4'])
+
+        await page.keyboard.press(`${modifier}+k`)
+        await page.waitForSelector('.stub-command-palette')
+        expect(await page.evaluate(() => globalThis.regression.paletteSessionItems)).toEqual(['a4'])
+        expect(await page.locator('[data-item-id="sess-a4"]').count()).toBe(1)
+        expect(await page.locator('[data-item-id="sess-a1"]').count()).toBe(0)
+      } finally {
+        await page.close()
+      }
+    }
+  )
 
   it('falls back a missing custom presentation to built-in Recent', async () => {
     const page = await open('hook-fallback')

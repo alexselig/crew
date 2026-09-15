@@ -74,6 +74,7 @@ const defaultSettings: Settings = {
 }
 const controls: RendererRegressionControls = {
   activeWorkspace: 'a',
+  currentSelected: null,
   selected: [],
   modes: [],
   presentations: [],
@@ -83,6 +84,7 @@ const controls: RendererRegressionControls = {
   reorders: [],
   createdCustomViews: 0,
   editedCustomViewIds: [],
+  paletteSessionItems: [],
   workspace: (_id: string | null) => {},
   pilot: (_value: boolean) => {},
   present: (_value: string) => {},
@@ -107,7 +109,9 @@ export function useCrew(): CrewState {
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('grid')
   const [groupMode, setGroupMode] = useState<'none' | 'needs' | 'tag' | 'recent'>('recent')
   const [presentation, setPresentation] = useState<SessionPresentation>({ kind: 'builtin', mode: 'recent' })
+  const [selectedId, setSelectedId] = useState<string | null>('a1')
   controls.activeWorkspace = activeWorkspace
+  controls.currentSelected = selectedId
   controls.workspace = setActiveWorkspace
   controls.present = (value: string) => {
     const next = JSON.parse(value) as SessionPresentation
@@ -116,8 +120,8 @@ export function useCrew(): CrewState {
     if (next.kind === 'builtin') setGroupMode(next.mode)
   }
   return {
-    roster, activeWorkspace, selectedId: 'unchanged-selection', characters: [],
-    presets: [], homeDir: '/synthetic', setSelectedId: noop,
+    roster, activeWorkspace, selectedId, characters: [],
+    presets: [], homeDir: '/synthetic', setSelectedId,
     customViews,
     presentation,
     setPresentation: (next) => controls.present(JSON.stringify(next)),
@@ -136,7 +140,10 @@ export function useCrew(): CrewState {
     minimized: new Set(), toggleMinimize: noop, revealed: new Set(),
     groupOrder: [], reorderGroups: noop, setActiveWorkspace,
     refreshWorkspaces: noop, setShowWorkspaces: noop,
-    selectSession: (id: string) => controls.selected.push(id),
+    selectSession: (id: string) => {
+      controls.selected.push(id)
+      setSelectedId(id)
+    },
     setViewMode: (mode: string) => {
       controls.modes.push(mode)
       setViewMode(mode as 'single' | 'grid')
