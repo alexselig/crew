@@ -65,7 +65,7 @@ export class NotificationCoordinator {
     this.timer = null
     this.pending.clear()
     this.announced.clear()
-    this.active?.close()
+    this.closeActiveNotice()
     this.active = null
   }
 
@@ -82,7 +82,7 @@ export class NotificationCoordinator {
     this.pending.clear()
     for (const { session } of batch) this.announced.add(session.id)
 
-    this.active?.close()
+    this.closeActiveNotice()
 
     const single = batch.length === 1 ? batch[0] : null
     this.active = this.showNotice({
@@ -95,5 +95,13 @@ export class NotificationCoordinator {
       silent: batch.every((item) => item.silent),
       onClick: single ? () => this.jumpTo(single.session.id) : this.revealCrew
     })
+  }
+
+  private closeActiveNotice(): void {
+    try {
+      this.active?.close()
+    } catch {
+      // Best-effort cleanup; a failed close must not block replacement or shutdown.
+    }
   }
 }

@@ -78,6 +78,26 @@ describe('NotificationCoordinator', () => {
     expect(closes[0]).toHaveBeenCalledOnce()
   })
 
+  it('shows a replacement notice even if the prior close throws', () => {
+    const shown: NoticeRequest[] = []
+    const close = vi.fn()
+      .mockImplementationOnce(() => {
+        throw new Error('close failed')
+      })
+    const coordinator = new NotificationCoordinator((request) => {
+      shown.push(request)
+      return { close }
+    }, vi.fn(), vi.fn())
+
+    coordinator.queue(session('a'), false)
+    vi.advanceTimersByTime(1000)
+    coordinator.queue(session('b'), false)
+
+    expect(() => vi.advanceTimersByTime(1000)).not.toThrow()
+    expect(shown).toHaveLength(2)
+    expect(shown[1]).toMatchObject({ title: 'Session b' })
+  })
+
   it('single click jumps and aggregate click reveals Crew', () => {
     const requests: NoticeRequest[] = []
     const jump = vi.fn()
@@ -116,5 +136,33 @@ describe('NotificationCoordinator', () => {
     coordinator.dispose()
     vi.advanceTimersByTime(1000)
     expect(shown).not.toHaveBeenCalled()
+  })
+
+  it('closes the active notice during dispose', () => {
+    const close = vi.fn()
+    const coordinator = new NotificationCoordinator(() => {
+      return { close }
+    }, vi.fn(), vi.fn())
+
+    coordinator.queue(session('alive'), false)
+    vi.advanceTimersByTime(1000)
+    coordinator.dispose()
+
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it('swallows a throwing close during dispose', () => {
+    const coordinator = new NotificationCoordinator(() => {
+      return {
+        close: vi.fn(() => {
+          throw new Error('close failed')
+        })
+      }
+    }, vi.fn(), vi.fn())
+
+    coordinator.queue(session('alive'), false)
+    vi.advanceTimersByTime(1000)
+
+    expect(() => coordinator.dispose()).not.toThrow()
   })
 })
