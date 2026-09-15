@@ -3,6 +3,14 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## Unreleased
+
+### Fixed
+- **Needs-you alerts no longer build unbounded notification stacks.** Crew
+  batches sessions that finish together, announces each session once until you
+  interact with it, and replaces its previous native notification. This
+  prevents repeated macOS notification summarization from pinning `suggestd`.
+
 ## 0.6.0 — 2026-09-11
 
 ### Added
