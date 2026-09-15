@@ -6,3 +6,4 @@ dist/
 .env
 .env.local
 .crew-progress.md
+.worktrees/
