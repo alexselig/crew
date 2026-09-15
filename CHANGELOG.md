@@ -10,6 +10,8 @@ running and supervising multiple AI CLI agent sessions at a glance.
   batches sessions that finish together, announces each session once until you
   interact with it, and replaces its previous native notification. This
   prevents repeated macOS notification summarization from pinning `suggestd`.
+  Native notifications already delivered before this fix may still require
+  manual clearing in Notification Center.
 
 ## 0.6.0 — 2026-09-11
 
