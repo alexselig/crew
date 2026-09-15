@@ -178,3 +178,41 @@ describe('store migration — contextMode brief → auto', () => {
     expect(new Store(path).settings.contextMode).toBe('brief')
   })
 })
+
+describe('store schema — custom views default', () => {
+  it('treats a missing customViews field as an empty list without forcing a migration write', () => {
+    const path = tmpStorePath()
+    seed(path, {
+      characters: {},
+      settings: { ...DEFAULT_SETTINGS },
+      recentDirs: ['/tmp/release'],
+      sessions: [],
+      sets: [],
+      workspaces: [],
+      agents: [
+        {
+          id: 'ag-1',
+          name: 'Mine',
+          icon: 'spark',
+          base: 'copilot-cli',
+          persona: 'p',
+          contextMode: 'cwd',
+          writes: false,
+          order: 0
+        }
+      ],
+      migrations: [
+        '2026-07-stale-hide-72h',
+        '2026-08-workspaces-firstclass',
+        '2026-08-context-mode-auto',
+        '2026-08-agents-seed'
+      ]
+    })
+
+    const before = readFileSync(path, 'utf8')
+    const store = new Store(path)
+
+    expect(store.getCustomViews()).toEqual([])
+    expect(readFileSync(path, 'utf8')).toBe(before)
+  })
+})

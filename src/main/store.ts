@@ -8,7 +8,7 @@
 import { readFileSync, mkdirSync, existsSync, renameSync, readdirSync, unlinkSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, join, basename } from 'node:path'
-import type { Settings, SessionSet, Agent } from '../shared/types'
+import type { Agent, CustomView, CustomViewItem, CustomViewMode, Settings, SessionSet } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
 import { atomicWriteFile } from './atomic-file'
@@ -84,6 +84,7 @@ interface StoreData {
   sessions: PersistedSession[]
   sets: SessionSet[]
   workspaces: Workspace[]
+  customViews: CustomView[]
   agents: Agent[]
   windowBounds?: WindowBounds
   /** Ids of the one-time data migrations already applied to this store (see
@@ -98,6 +99,7 @@ const EMPTY: StoreData = {
   sessions: [],
   sets: [],
   workspaces: [],
+  customViews: [],
   agents: []
 }
 
@@ -201,6 +203,78 @@ function isMissing(err: unknown): boolean {
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString)
+const CUSTOM_VIEW_MODES: readonly CustomViewMode[] = ['curated-only', 'ranked-plus-all']
+
+type CustomViewInput = Pick<CustomView, 'name' | 'mode' | 'items'>
+
+function isCustomViewMode(value: unknown): value is CustomViewMode {
+  return isString(value) && CUSTOM_VIEW_MODES.includes(value as CustomViewMode)
+}
+
+function validateCustomViewItems(items: readonly CustomViewItem[]): CustomViewItem[] {
+  const seen = new Set<string>()
+  const normalized: CustomViewItem[] = []
+  for (const item of items) {
+    const sessionId = item.sessionId.trim()
+    if (sessionId.length === 0) throw new Error('custom view items require a session id')
+    if (seen.has(sessionId)) continue
+    seen.add(sessionId)
+    normalized.push({
+      sessionId,
+      labelSnapshot: item.labelSnapshot
+    })
+  }
+  return normalized
+}
+
+function normalizeCustomViewInput(
+  input: CustomViewInput,
+  existing: readonly CustomView[],
+  currentId?: string
+): CustomViewInput {
+  const name = input.name.trim()
+  if (name.length === 0) throw new Error('custom view name is required')
+  if (!isCustomViewMode(input.mode)) throw new Error(`invalid custom view mode: ${String(input.mode)}`)
+  const nameKey = name.toLocaleLowerCase()
+  if (existing.some((view) => view.id !== currentId && view.name.trim().toLocaleLowerCase() === nameKey)) {
+    throw new Error(`custom view "${name}" already exists`)
+  }
+  return {
+    name,
+    mode: input.mode,
+    items: validateCustomViewItems(input.items)
+  }
+}
+
+function isCustomViewItem(value: unknown): value is CustomViewItem {
+  return isRecord(value) &&
+    isString(value.sessionId) &&
+    value.sessionId.trim().length > 0 &&
+    isString(value.labelSnapshot)
+}
+
+function isCustomView(value: unknown): value is CustomView {
+  return isRecord(value) &&
+    isString(value.id) &&
+    isString(value.name) &&
+    value.name.trim().length > 0 &&
+    isCustomViewMode(value.mode) &&
+    Array.isArray(value.items) &&
+    value.items.every(isCustomViewItem) &&
+    isNumber(value.createdAt) &&
+    isNumber(value.updatedAt) &&
+    new Set(value.items.map((item) => item.sessionId.trim())).size === value.items.length
+}
+
+function hasUniqueCustomViewNames(views: readonly CustomView[]): boolean {
+  const names = new Set<string>()
+  for (const view of views) {
+    const key = view.name.trim().toLocaleLowerCase()
+    if (names.has(key)) return false
+    names.add(key)
+  }
+  return true
+}
 
 function optionalFields(record: Record<string, unknown>, keys: string[], valid: (value: unknown) => boolean): boolean {
   return keys.every((key) => record[key] === undefined || valid(record[key]))
@@ -227,6 +301,7 @@ function validateStore(raw: unknown): asserts raw is Partial<StoreData> {
       Array.isArray(value.sessions) && value.sessions.every((s) => validSession(s, true)),
     workspaces: (value) => isRecord(value) && isString(value.id) && isString(value.name) &&
       isNumber(value.order) && isNumber(value.createdAt) && optionalFields(value, ['description'], isString),
+    customViews: (value) => isCustomView(value),
     agents: (value) => isRecord(value) &&
       ['id', 'name', 'icon', 'base', 'persona'].every((key) => isString(value[key])) &&
       (value.contextMode === 'cwd' || value.contextMode === 'cwd+transcript') &&
@@ -256,6 +331,9 @@ function validateStore(raw: unknown): asserts raw is Partial<StoreData> {
   if (bounds !== undefined && (!isRecord(bounds) ||
     !['x', 'y', 'width', 'height'].every((key) => isNumber(bounds[key])))) {
     throw new InvalidStoreError('invalid store windowBounds')
+  }
+  if (raw.customViews !== undefined && Array.isArray(raw.customViews) && !hasUniqueCustomViewNames(raw.customViews)) {
+    throw new InvalidStoreError('invalid store customViews')
   }
 }
 
@@ -387,6 +465,7 @@ export class Store {
         sessions: [],
         sets: [],
         workspaces: [],
+        customViews: [],
         agents: BUILTIN_AGENTS.map((a) => ({ ...a })),
         migrations: MIGRATIONS.map((m) => m.id)
       },
@@ -405,6 +484,7 @@ export class Store {
       sessions: raw.sessions ?? [],
       sets: raw.sets ?? [],
       workspaces: raw.workspaces ?? [],
+      customViews: raw.customViews ?? [],
       agents: raw.agents ?? [],
       windowBounds: raw.windowBounds,
       migrations: [...(raw.migrations ?? [])]
@@ -609,6 +689,51 @@ export class Store {
     this.data.workspaces = list
     this.persist()
     return this.data.workspaces
+  }
+
+  getCustomViews(): CustomView[] {
+    return structuredClone(this.data.customViews)
+  }
+
+  createCustomView(input: CustomViewInput): CustomView {
+    const normalized = normalizeCustomViewInput(input, this.data.customViews)
+    const now = Date.now()
+    const view: CustomView = {
+      id: randomUUID(),
+      name: normalized.name,
+      mode: normalized.mode,
+      items: normalized.items,
+      createdAt: now,
+      updatedAt: now
+    }
+    this.data.customViews = [...this.data.customViews, view]
+    this.persist()
+    return structuredClone(view)
+  }
+
+  updateCustomView(id: string, input: CustomViewInput): CustomView {
+    const current = this.data.customViews.find((view) => view.id === id)
+    if (!current) throw new Error(`custom view not found: ${id}`)
+    const normalized = normalizeCustomViewInput(input, this.data.customViews, id)
+    const updated: CustomView = {
+      ...current,
+      name: normalized.name,
+      mode: normalized.mode,
+      items: normalized.items,
+      updatedAt: Date.now()
+    }
+    this.data.customViews = this.data.customViews.map((view) => view.id === id ? updated : view)
+    this.persist()
+    return structuredClone(updated)
+  }
+
+  deleteCustomView(id: string): CustomView[] {
+    if (!this.data.customViews.some((view) => view.id === id)) {
+      throw new Error(`custom view not found: ${id}`)
+    }
+    this.data.customViews = this.data.customViews.filter((view) => view.id !== id)
+    this.persist()
+    return structuredClone(this.data.customViews)
   }
 
   /** Specialist agent definitions (Agents shelf). */
