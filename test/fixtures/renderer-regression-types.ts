@@ -23,10 +23,15 @@ export interface RendererRegressionControls {
   customViewUpdates: Array<{ id: string; input: CustomViewWrite }>
   customViewDeletes: string[]
   failCustomViewWrites: boolean
+  holdCustomViewWrites: boolean
+  focusedTerminals: string[]
   paletteSessionItems: string[]
   workspace: (id: string | null) => void
   pilot: (value: boolean) => void
   present: (value: string) => void
+  view: (value: 'single' | 'grid') => void
+  removeOrganizerView: () => void
+  releaseCustomViewWrite: () => void
   legacy: () => void
   transcript: () => TranscriptBlock[]
   complete: () => void

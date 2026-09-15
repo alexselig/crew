@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCrew } from './hooks'
 import { Roster } from './components/Roster'
 import { SessionView } from './components/SessionView'
@@ -36,6 +36,8 @@ export function App(): JSX.Element {
   const [showBroadcast, setShowBroadcast] = useState(false)
   const [invokeAgentId, setInvokeAgentId] = useState<string | null>(null)
   const [showTranscripts, setShowTranscripts] = useState(false)
+  const customViewOpenerRef = useRef<HTMLElement | null>(null)
+  const suppressTerminalFocusRef = useRef(false)
   // The Project Tracker is a single feature reached from two toolbar buttons that
   // deep-link to different sections (chart → Activity, clipboard → Planning).
   // null = closed; a section value = open on that section.
@@ -116,6 +118,24 @@ export function App(): JSX.Element {
     if (info) c.setSelectedId(info.id)
   }
 
+  function openCustomViewEditor(
+    editor: string | 'new',
+    opener: HTMLElement | null = null
+  ): void {
+    const active = document.activeElement
+    customViewOpenerRef.current =
+      opener ?? (active instanceof HTMLElement ? active : null)
+    c.setShowCustomViewEditor(editor)
+  }
+
+  function closeCustomViewEditor(): void {
+    // A custom-view modal returns focus to its picker; do not let the usual
+    // single-view terminal refocus overwrite that restoration one frame later.
+    suppressTerminalFocusRef.current =
+      c.viewMode === 'single' && Boolean(customViewOpenerRef.current?.isConnected)
+    c.setShowCustomViewEditor(null)
+  }
+
   function close(id: string): void {
     void window.crew.closeSession(id)
   }
@@ -131,6 +151,10 @@ export function App(): JSX.Element {
   // close — otherwise focus is left on <body> and typed input goes nowhere.
   useEffect(() => {
     if (anyOverlay || c.viewMode !== 'single' || !c.selectedId) return
+    if (suppressTerminalFocusRef.current) {
+      suppressTerminalFocusRef.current = false
+      return
+    }
     const id = c.selectedId
     const raf = requestAnimationFrame(() => focusTerminal(id))
     return () => cancelAnimationFrame(raf)
@@ -338,8 +362,8 @@ export function App(): JSX.Element {
         presentation={c.presentation}
         customViews={c.customViews}
         onChoosePresentation={c.setPresentation}
-        onCreateCustomView={() => c.setShowCustomViewEditor('new')}
-        onEditCustomView={(id) => c.setShowCustomViewEditor(id)}
+        onCreateCustomView={(opener) => openCustomViewEditor('new', opener)}
+        onEditCustomView={(id, opener) => openCustomViewEditor(id, opener)}
         collapsedGroups={c.collapsedGroups}
         onToggleGroup={c.toggleGroup}
         minimized={c.minimized}
@@ -389,8 +413,8 @@ export function App(): JSX.Element {
           presentation={c.presentation}
           customViews={c.customViews}
           onChoosePresentation={c.setPresentation}
-          onCreateCustomView={() => c.setShowCustomViewEditor('new')}
-          onEditCustomView={(id) => c.setShowCustomViewEditor(id)}
+          onCreateCustomView={(opener) => openCustomViewEditor('new', opener)}
+          onEditCustomView={(id, opener) => openCustomViewEditor(id, opener)}
           collapsedGroups={c.collapsedGroups}
           onToggleGroup={c.toggleGroup}
           minimized={c.minimized}
@@ -495,16 +519,18 @@ export function App(): JSX.Element {
       {c.showCustomViewEditor !== null && (
         <CustomViewOrganizer
           view={editingCustomView}
+          editing={c.showCustomViewEditor !== 'new'}
           roster={c.roster}
           workspaces={c.workspaces}
           presets={c.presets}
+          restoreFocusTo={customViewOpenerRef.current}
           onSaved={(views) => {
             const previousIds = new Set(c.customViews.map((view) => view.id))
             const saved = editingCustomView
               ? views.find((view) => view.id === editingCustomView.id)
               : views.find((view) => !previousIds.has(view.id))
             if (saved) c.setPresentation({ kind: 'custom', viewId: saved.id })
-            c.setShowCustomViewEditor(null)
+            closeCustomViewEditor()
           }}
           onDeleted={(views) => {
             const activeViewId =
@@ -512,9 +538,9 @@ export function App(): JSX.Element {
             if (activeViewId && !views.some((view) => view.id === activeViewId)) {
               c.setPresentation({ kind: 'builtin', mode: 'recent' })
             }
-            c.setShowCustomViewEditor(null)
+            closeCustomViewEditor()
           }}
-          onClose={() => c.setShowCustomViewEditor(null)}
+          onClose={closeCustomViewEditor}
         />
       )}
 

@@ -14,8 +14,8 @@ interface Props {
   presentation: SessionPresentation
   customViews: CustomView[]
   onChoose: (presentation: SessionPresentation) => void
-  onCreateCustomView: () => void
-  onEditCustomView: (id: string) => void
+  onCreateCustomView: (opener: HTMLElement | null) => void
+  onEditCustomView: (id: string, opener: HTMLElement | null) => void
 }
 
 function summaryFor(view: CustomView): string {
@@ -36,6 +36,7 @@ export function GroupPicker({
   const [dropUp, setDropUp] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -81,6 +82,7 @@ export function GroupPicker({
   return (
     <div className="group-picker" ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         className="icon-btn"
         title="Choose session view"
@@ -132,7 +134,7 @@ export function GroupPicker({
                     type="button"
                     className="group-menu__edit"
                     onClick={() => {
-                      onEditCustomView(view.id)
+                      onEditCustomView(view.id, triggerRef.current)
                       setOpen(false)
                     }}
                   >
@@ -147,7 +149,7 @@ export function GroupPicker({
             role="menuitem"
             className="group-menu__item group-menu__item--action"
             onClick={() => {
-              onCreateCustomView()
+              onCreateCustomView(triggerRef.current)
               setOpen(false)
             }}
           >

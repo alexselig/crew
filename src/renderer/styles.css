@@ -3324,6 +3324,9 @@ button {
 }
 
 .custom-view-organizer__drag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
   width: 22px;
   height: 28px;
@@ -3407,15 +3410,15 @@ button {
 }
 
 .custom-view-organizer__rank-actions button {
-  min-width: 30px;
-  height: 20px;
+  min-width: 40px;
+  height: 26px;
   padding: 0 4px;
   background: transparent;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
   color: var(--text-dim);
   font: inherit;
-  font-size: 8.5px;
+  font-size: 9.5px;
 }
 
 .custom-view-organizer__rank-actions button:hover:not(:disabled) {
@@ -3438,13 +3441,26 @@ button {
 }
 
 .custom-view-organizer__drop-line {
-  height: 7px;
+  position: relative;
+  height: 15px;
   margin: 0 4px;
-  border-radius: var(--radius-sm);
-  transition: background 0.1s;
 }
 
-.custom-view-organizer__drop-line.is-active {
+.custom-view-organizer__drop-line::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border-soft);
+  border-radius: var(--radius-sm);
+  transform: translateY(-50%);
+  transition: background 0.1s, height 0.1s;
+}
+
+.custom-view-organizer__drop-line.is-active::before {
+  height: 2px;
   background: var(--accent);
 }
 
@@ -3472,6 +3488,16 @@ button {
   border-radius: var(--radius);
   color: var(--danger);
   font-size: 11px;
+}
+
+.custom-view-organizer__conflict {
+  margin: auto 0;
+  padding: 18px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .custom-view-organizer__actions {

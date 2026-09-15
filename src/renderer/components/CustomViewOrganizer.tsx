@@ -13,9 +13,11 @@ import { reduceOrganizer, type OrganizerAction } from '../custom-view-dnd'
 
 interface Props {
   view: CustomView | null
+  editing?: boolean
   roster: SessionInfo[]
   workspaces: Workspace[]
   presets: Preset[]
+  restoreFocusTo?: HTMLElement | null
   onSaved: (views: CustomView[]) => void
   onDeleted: (views: CustomView[]) => void
   onClose: () => void
@@ -28,6 +30,8 @@ interface DragPayload {
 
 const DRAG_MIME = 'application/x-crew-custom-view-session'
 const NO_PRESET = '__no-preset__'
+const FOCUSABLE =
+  'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 function readDragPayload(event: React.DragEvent): DragPayload | null {
   try {
@@ -54,9 +58,11 @@ function errorMessage(error: unknown): string {
 
 export function CustomViewOrganizer({
   view,
+  editing = view !== null,
   roster,
   workspaces,
   presets,
+  restoreFocusTo = null,
   onSaved,
   onDeleted,
   onClose
@@ -76,19 +82,39 @@ export function CustomViewOrganizer({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const nameRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLFormElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const restoreFocusRef = useRef<HTMLElement | null>(
+    restoreFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  )
+  const conflict = editing && view === null
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => nameRef.current?.focus())
+    const frame = requestAnimationFrame(() => {
+      if (conflict) closeRef.current?.focus()
+      else nameRef.current?.focus()
+    })
     return () => cancelAnimationFrame(frame)
+  }, [conflict])
+
+  useEffect(() => {
+    function containFocus(event: FocusEvent): void {
+      const dialog = dialogRef.current
+      if (!dialog || dialog.contains(event.target as Node)) return
+      const first = dialog.querySelector<HTMLElement>(FOCUSABLE)
+      first?.focus()
+    }
+    document.addEventListener('focusin', containFocus)
+    return () => document.removeEventListener('focusin', containFocus)
   }, [])
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape' && !saving) onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose, saving])
+  useEffect(
+    () => () => {
+      const opener = restoreFocusRef.current
+      if (opener?.isConnected) opener.focus()
+    },
+    []
+  )
 
   const presetNames = useMemo(() => {
     const names = new Map<string | null, string>(presets.map((preset) => [preset.id, preset.name]))
@@ -121,6 +147,7 @@ export function CustomViewOrganizer({
   const rankedIds = useMemo(() => new Set(items.map((item) => item.sessionId)), [items])
 
   function dispatch(action: OrganizerAction): void {
+    if (saving || conflict) return
     setItems((current) => reduceOrganizer(current, action))
   }
 
@@ -128,6 +155,10 @@ export function CustomViewOrganizer({
     event: React.DragEvent<HTMLElement>,
     payload: DragPayload
   ): void {
+    if (saving || conflict) {
+      event.preventDefault()
+      return
+    }
     event.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload))
     event.dataTransfer.effectAllowed = payload.source === 'available' ? 'copyMove' : 'move'
     setDragging(payload)
@@ -143,6 +174,7 @@ export function CustomViewOrganizer({
   function dropAt(event: React.DragEvent, index: number): void {
     event.preventDefault()
     event.stopPropagation()
+    if (saving || conflict) return finishDrag()
     const payload = readDragPayload(event)
     if (!payload) return finishDrag()
 
@@ -159,6 +191,7 @@ export function CustomViewOrganizer({
 
   function dropOnAvailable(event: React.DragEvent): void {
     event.preventDefault()
+    if (saving || conflict) return finishDrag()
     const payload = readDragPayload(event)
     if (payload?.source === 'ranked') {
       dispatch({ type: 'remove', sessionId: payload.sessionId })
@@ -168,7 +201,7 @@ export function CustomViewOrganizer({
 
   async function save(event: React.FormEvent): Promise<void> {
     event.preventDefault()
-    if (saving) return
+    if (saving || conflict) return
     const trimmedName = name.trim()
     if (!trimmedName) {
       setError('Enter a name for this view.')
@@ -191,7 +224,7 @@ export function CustomViewOrganizer({
   }
 
   async function deleteView(): Promise<void> {
-    if (!view || saving) return
+    if (!view || saving || conflict) return
     if (!window.confirm(`Delete "${view.name}"? Sessions in this view will not be changed.`)) return
 
     setSaving(true)
@@ -204,27 +237,74 @@ export function CustomViewOrganizer({
     }
   }
 
+  function onDialogKeyDown(event: React.KeyboardEvent<HTMLFormElement>): void {
+    if (event.key === 'Escape' && !saving) {
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+      return
+    }
+    if (event.key === 'Tab') {
+      const focusable = Array.from(
+        event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)
+      ).filter((element) => element.getClientRects().length > 0)
+      if (focusable.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    event.stopPropagation()
+  }
+
   return (
     <div className="modal-overlay" onMouseDown={saving ? undefined : onClose}>
       <form
+        ref={dialogRef}
         className="modal modal--wide custom-view-organizer"
         role="dialog"
         aria-modal="true"
+        aria-busy={saving}
         aria-labelledby="custom-view-organizer-title"
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={onDialogKeyDown}
         onSubmit={save}
       >
         <div className="custom-view-organizer__header">
           <div>
             <span className="custom-view-organizer__eyebrow">
-              {view ? 'Edit custom view' : 'New custom view'}
+              {editing ? 'Edit custom view' : 'New custom view'}
             </span>
             <h2 className="modal__title" id="custom-view-organizer-title">
-              Organize sessions
+              {conflict ? 'View unavailable' : 'Organize sessions'}
             </h2>
           </div>
         </div>
 
+        {conflict ? (
+          <>
+            <div className="custom-view-organizer__conflict" role="alert">
+              This custom view was deleted in another window. Your local draft was not saved,
+              and Crew will not recreate the deleted view.
+            </div>
+            <div className="modal__actions custom-view-organizer__actions">
+              <div className="custom-view-organizer__actions-main">
+                <button ref={closeRef} type="button" className="btn btn--primary" onClick={onClose}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
         <div className="custom-view-organizer__settings">
           <label className="field">
             <span className="field__label">Name</span>
@@ -259,7 +339,7 @@ export function CustomViewOrganizer({
             }`}
             aria-labelledby="custom-view-all-title"
             onDragOver={(event) => {
-              if (dragging?.source !== 'ranked') return
+              if (saving || dragging?.source !== 'ranked') return
               event.preventDefault()
               event.dataTransfer.dropEffect = 'move'
               setRemovalTarget(true)
@@ -288,6 +368,7 @@ export function CustomViewOrganizer({
                   placeholder="Search sessions..."
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  disabled={saving}
                 />
               </label>
               <div className="custom-view-organizer__filter-row">
@@ -296,6 +377,7 @@ export function CustomViewOrganizer({
                     aria-label="Workspace filter"
                     value={workspaceId}
                     onChange={(event) => setWorkspaceId(event.target.value)}
+                    disabled={saving}
                   >
                     <option value="all">All workspaces</option>
                     {workspaces.map((workspace) => (
@@ -310,6 +392,7 @@ export function CustomViewOrganizer({
                     aria-label="Status filter"
                     value={status}
                     onChange={(event) => setStatus(event.target.value as SessionStatus | 'all')}
+                    disabled={saving}
                   >
                     <option value="all">All statuses</option>
                     <option value="active">Active</option>
@@ -322,6 +405,7 @@ export function CustomViewOrganizer({
                     aria-label="Preset filter"
                     value={presetId}
                     onChange={(event) => setPresetId(event.target.value)}
+                    disabled={saving}
                   >
                     <option value="all">All agents</option>
                     {presets.map((preset) => (
@@ -349,18 +433,19 @@ export function CustomViewOrganizer({
                     data-session-id={session.id}
                     key={session.id}
                   >
-                    <button
-                      type="button"
+                    <span
                       className="custom-view-organizer__drag"
-                      aria-label={`Drag ${session.label} to ranked order`}
-                      draggable
+                      data-drag-handle
+                      title={`Drag ${session.label} to ranked order`}
+                      aria-hidden="true"
+                      draggable={!saving}
                       onDragStart={(event) =>
                         startDrag(event, { source: 'available', sessionId: session.id })
                       }
                       onDragEnd={finishDrag}
                     >
                       ::
-                    </button>
+                    </span>
                     <div className="custom-view-organizer__card-body">
                       <strong>{session.label}</strong>
                       <span>{session.cwd}</span>
@@ -375,6 +460,7 @@ export function CustomViewOrganizer({
                         type="button"
                         className="mini-btn"
                         aria-label={`Add ${session.label} to ranked order`}
+                        disabled={saving || isRanked}
                         onClick={() => dispatch({ type: 'insert', session, index: items.length })}
                       >
                         Add
@@ -411,6 +497,7 @@ export function CustomViewOrganizer({
                       }`}
                       data-index={index}
                       onDragOver={(event) => {
+                        if (saving) return
                         event.preventDefault()
                         event.dataTransfer.dropEffect = 'move'
                         setDropIndex(index)
@@ -425,18 +512,19 @@ export function CustomViewOrganizer({
                       data-session-id={item.sessionId}
                     >
                       <span className="custom-view-organizer__rank">{index + 1}</span>
-                      <button
-                        type="button"
+                      <span
                         className="custom-view-organizer__drag"
-                        aria-label={`Drag ${label} in ranked order`}
-                        draggable
+                        data-drag-handle
+                        title={`Drag ${label} in ranked order`}
+                        aria-hidden="true"
+                        draggable={!saving}
                         onDragStart={(event) =>
                           startDrag(event, { source: 'ranked', sessionId: item.sessionId })
                         }
                         onDragEnd={finishDrag}
                       >
                         ::
-                      </button>
+                      </span>
                       <div className="custom-view-organizer__card-body">
                         <strong>{label}</strong>
                         <span>{session?.cwd ?? item.sessionId}</span>
@@ -446,7 +534,7 @@ export function CustomViewOrganizer({
                         <button
                           type="button"
                           aria-label={`Move ${label} to first`}
-                          disabled={index === 0}
+                          disabled={saving || index === 0}
                           onClick={() => dispatch({ type: 'move-first', sessionId: item.sessionId })}
                         >
                           First
@@ -454,7 +542,7 @@ export function CustomViewOrganizer({
                         <button
                           type="button"
                           aria-label={`Move ${label} up`}
-                          disabled={index === 0}
+                          disabled={saving || index === 0}
                           onClick={() => dispatch({ type: 'move-up', sessionId: item.sessionId })}
                         >
                           Up
@@ -462,7 +550,7 @@ export function CustomViewOrganizer({
                         <button
                           type="button"
                           aria-label={`Move ${label} down`}
-                          disabled={index === items.length - 1}
+                          disabled={saving || index === items.length - 1}
                           onClick={() => dispatch({ type: 'move-down', sessionId: item.sessionId })}
                         >
                           Down
@@ -470,7 +558,7 @@ export function CustomViewOrganizer({
                         <button
                           type="button"
                           aria-label={`Move ${label} to last`}
-                          disabled={index === items.length - 1}
+                          disabled={saving || index === items.length - 1}
                           onClick={() => dispatch({ type: 'move-last', sessionId: item.sessionId })}
                         >
                           Last
@@ -478,6 +566,7 @@ export function CustomViewOrganizer({
                         <button
                           type="button"
                           aria-label={`Remove ${label} from ranked order`}
+                          disabled={saving}
                           onClick={() => dispatch({ type: 'remove', sessionId: item.sessionId })}
                         >
                           Remove
@@ -493,6 +582,7 @@ export function CustomViewOrganizer({
                 }`}
                 data-index={items.length}
                 onDragOver={(event) => {
+                  if (saving) return
                   event.preventDefault()
                   event.dataTransfer.dropEffect = 'move'
                   setDropIndex(items.length)
@@ -537,6 +627,8 @@ export function CustomViewOrganizer({
             </button>
           </div>
         </div>
+          </>
+        )}
       </form>
     </div>
   )

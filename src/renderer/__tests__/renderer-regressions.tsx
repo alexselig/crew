@@ -124,14 +124,30 @@ const controls: RendererRegressionControls = {
   customViewUpdates: [],
   customViewDeletes: [],
   failCustomViewWrites: false,
+  holdCustomViewWrites: false,
+  focusedTerminals: [],
   paletteSessionItems: [],
   workspace: (_id: string | null) => {},
   pilot: (_value: boolean) => {},
   present: (_value: string) => {},
+  view: (_value: 'single' | 'grid') => {},
+  removeOrganizerView: () => {},
+  releaseCustomViewWrite: () => {},
   legacy: () => setEngineMode('legacy'),
   transcript: () => getTranscript('composer'),
   complete: () => writeTo('composer', '\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07\x1b]133;D;0\x07'),
   pending: () => pendingInputTokens('composer')
+}
+let releaseCustomViewWrite: (() => void) | null = null
+const waitForCustomViewWrite = async (): Promise<void> => {
+  if (!controls.holdCustomViewWrites) return
+  await new Promise<void>((resolve) => {
+    releaseCustomViewWrite = resolve
+  })
+}
+controls.releaseCustomViewWrite = () => {
+  releaseCustomViewWrite?.()
+  releaseCustomViewWrite = null
 }
 Object.assign(window, {
   regression: controls,
@@ -142,6 +158,7 @@ Object.assign(window, {
     createCustomView: async (input: Parameters<typeof window.crew.createCustomView>[0]) => {
       controls.customViewCreates.push(structuredClone(input))
       if (controls.failCustomViewWrites) throw new Error('Synthetic create failure')
+      await waitForCustomViewWrite()
       return [
         ...customViews,
         {
@@ -158,6 +175,7 @@ Object.assign(window, {
     ) => {
       controls.customViewUpdates.push({ id, input: structuredClone(input) })
       if (controls.failCustomViewWrites) throw new Error('Synthetic update failure')
+      await waitForCustomViewWrite()
       return customViews.map((view) =>
         view.id === id ? { ...view, ...input, updatedAt: view.updatedAt + 1 } : view
       )
@@ -178,9 +196,14 @@ export function useCrew(): CrewState {
   const [groupMode, setGroupMode] = useState<'none' | 'needs' | 'tag' | 'recent'>('recent')
   const [presentation, setPresentation] = useState<SessionPresentation>({ kind: 'builtin', mode: 'recent' })
   const [selectedId, setSelectedId] = useState<string | null>('a1')
+  const [customViewList, setCustomViewList] = useState(customViews)
+  const [showCustomViewEditor, setShowCustomViewEditor] = useState<string | 'new' | null>(null)
   controls.activeWorkspace = activeWorkspace
   controls.currentSelected = selectedId
   controls.workspace = setActiveWorkspace
+  controls.view = setViewMode
+  controls.removeOrganizerView = () =>
+    setCustomViewList((views) => views.filter((view) => view.id !== showCustomViewEditor))
   controls.present = (value: string) => {
     const next = JSON.parse(value) as SessionPresentation
     controls.presentations.push(value)
@@ -190,10 +213,10 @@ export function useCrew(): CrewState {
   return {
     roster, activeWorkspace, selectedId, characters: [],
     presets: [], homeDir: '/synthetic', setSelectedId,
-    customViews,
+    customViews: customViewList,
     presentation,
     setPresentation: (next) => controls.present(JSON.stringify(next)),
-    showCustomViewEditor: null, setShowCustomViewEditor: noop,
+    showCustomViewEditor, setShowCustomViewEditor,
     workspaces: [
       { id: 'a', name: 'A', order: 0, createdAt: 1 },
       { id: 'b', name: 'B', order: 1, createdAt: 1 }
@@ -393,11 +416,14 @@ function ComponentsFixture() {
 
 function OrganizerFixture({ view }: { view: CustomView | null }) {
   const [closed, setClosed] = useState(false)
+  const [currentView, setCurrentView] = useState(view)
+  controls.removeOrganizerView = () => setCurrentView(null)
   if (closed) return <div className="organizer-closed">Closed</div>
   return (
     <div className="app">
       <CustomViewOrganizer
-        view={view}
+        view={currentView}
+        editing={view !== null}
         roster={organizerRoster}
         workspaces={organizerWorkspaces}
         presets={organizerPresets}

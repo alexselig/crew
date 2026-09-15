@@ -26,11 +26,19 @@ beforeAll(async () => {
       resolveId(source, importer) {
         if (!importer?.endsWith('/src/renderer/App.tsx')) return
         if (source === './hooks') return resolve(`.${fixture}`)
-        if (source.startsWith('./components/') && source !== './components/Character') {
+        if (source === './terminal/facade') return '\0test-focus-terminal'
+        if (
+          source.startsWith('./components/') &&
+          source !== './components/Character' &&
+          source !== './components/CustomViewOrganizer'
+        ) {
           return '\0test-view:' + source.split('/').at(-1) + '.tsx'
         }
       },
       load(id) {
+        if (id === '\0test-focus-terminal') {
+          return `export function focusTerminal(id) { globalThis.regression.focusedTerminals.push(id) }`
+        }
         if (id.startsWith('\0test-view:')) {
           const name = id.split(':')[1].replace(/\.tsx$/, '')
           if (name === 'Roster' || name === 'GridView') {
@@ -53,6 +61,33 @@ beforeAll(async () => {
                     { type: 'button', className: 'stub-${prefix}__choose-solo', onClick: chooseSolo },
                     'choose-solo'
                   ),
+                  React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'stub-${prefix}__new-view',
+                      onClick: (event) => props.onCreateCustomView(event.currentTarget)
+                    },
+                    'new-view'
+                  ),
+                  React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'stub-${prefix}__edit-view',
+                      onClick: (event) => props.onEditCustomView('focus', event.currentTarget)
+                    },
+                    'edit-view'
+                  ),
+                  ${name === 'Roster' ? `React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'stub-roster__single',
+                      onClick: () => props.onSetViewMode('single')
+                    },
+                    'single'
+                  ),` : ''}
                   React.createElement(
                     'div',
                     { className: 'stub-${prefix}__order' },
@@ -323,6 +358,105 @@ describe('renderer state and input regressions (isolated browser)', () => {
     }
   })
 
+  it('traps keyboard focus, blocks app shortcuts, closes on Escape, and restores the grid opener', async () => {
+    const page = await open('app')
+    try {
+      const gridOpener = page.locator('.stub-gridview__new-view')
+      await gridOpener.focus()
+      await page.keyboard.press('Enter')
+      await page.waitForSelector('.custom-view-organizer', { timeout: 2000 })
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).toBe('View name')
+
+      await page.keyboard.press('Shift+Tab')
+      expect(await page.evaluate(() => document.activeElement?.textContent)).toBe('Save view')
+      await page.keyboard.press('Tab')
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).toBe('View name')
+
+      await page.keyboard.press('Meta+n')
+      expect(await page.evaluate(() => globalThis.regression.newDialogs)).toEqual([])
+      await page.keyboard.press('Escape')
+      await page.waitForSelector('.custom-view-organizer', { state: 'detached', timeout: 2000 })
+      await page.waitForFunction(
+        () => document.activeElement?.classList.contains('stub-gridview__new-view'),
+        undefined,
+        { timeout: 2000 }
+      )
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('restores focus to the actual edit opener in single view', async () => {
+    const page = await open('app')
+    try {
+      await page.evaluate(() => globalThis.regression.view('single'))
+      await page.waitForSelector('.stub-gridview', { state: 'detached', timeout: 2000 })
+      await page.evaluate(() => {
+        globalThis.regression.focusedTerminals = []
+      })
+      const singleOpener = page.locator('.stub-roster__edit-view')
+      await singleOpener.focus()
+      await page.keyboard.press('Space')
+      await page.waitForSelector('.custom-view-organizer', { timeout: 2000 })
+      await page.keyboard.press('Escape')
+      await page.waitForSelector('.custom-view-organizer', { state: 'detached', timeout: 2000 })
+      await page.waitForFunction(
+        () => document.activeElement?.classList.contains('stub-roster__edit-view'),
+        undefined,
+        { timeout: 2000 }
+      )
+      await page.waitForTimeout(50)
+      expect(await page.evaluate(() => globalThis.regression.focusedTerminals)).toEqual([])
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('supports genuine keyboard activation and keeps pointer-only drag handles out of the tab order', async () => {
+    const page = await open('organizer-new')
+    try {
+      expect(await page.locator('.custom-view-organizer__drag[role="button"]').count()).toBe(0)
+      expect(
+        await page.locator('.custom-view-organizer__drag').evaluateAll((handles) =>
+          handles.every((handle) => (handle as HTMLElement).tabIndex === -1)
+        )
+      ).toBe(true)
+
+      const add = page.getByRole('button', { name: 'Add Alpha build to ranked order' })
+      await add.focus()
+      await page.keyboard.press('Enter')
+      expect(await page.locator('.custom-view-organizer__ranked-card').count()).toBe(1)
+      const remove = page.getByRole('button', { name: 'Remove Alpha build from ranked order' })
+      await remove.focus()
+      await page.keyboard.press('Space')
+      expect(await page.locator('.custom-view-organizer__ranked-card').count()).toBe(0)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('uses large pointer targets with thin insertion rules and card-sized ordering controls', async () => {
+    const page = await open('organizer-edit')
+    try {
+      const metrics = await page.locator('.custom-view-organizer').evaluate((root) => {
+        const drop = root.querySelector<HTMLElement>('.custom-view-organizer__drop-line')!
+        const order = root.querySelector<HTMLElement>('.custom-view-organizer__rank-actions button:not(:disabled)')!
+        return {
+          dropHeight: Number.parseFloat(getComputedStyle(drop).height),
+          ruleHeight: Number.parseFloat(getComputedStyle(drop, '::before').height),
+          orderHeight: Number.parseFloat(getComputedStyle(order).height),
+          orderFont: Number.parseFloat(getComputedStyle(order).fontSize)
+        }
+      })
+      expect(metrics.dropHeight).toBeGreaterThanOrEqual(14)
+      expect(metrics.ruleHeight).toBeLessThanOrEqual(2)
+      expect(metrics.orderHeight).toBeGreaterThanOrEqual(26)
+      expect(metrics.orderFont).toBeGreaterThanOrEqual(9.5)
+    } finally {
+      await page.close()
+    }
+  })
+
   it('supports exact pointer insertion, right-column reorder, and drag-back removal', async () => {
     const page = await open('organizer-new')
     try {
@@ -381,6 +515,61 @@ describe('renderer state and input regressions (isolated browser)', () => {
           cards.map((card) => card.getAttribute('data-session-id'))
         )
       ).toEqual(['b1', 'a2'])
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('disables Add for sessions that are already ranked', async () => {
+    const page = await open('organizer-edit')
+    try {
+      expect(await page.getByRole('button', { name: 'Add Beta review to ranked order' }).isDisabled()).toBe(true)
+      expect(await page.getByRole('button', { name: 'Add Gamma docs to ranked order' }).isDisabled()).toBe(true)
+      expect(await page.getByRole('button', { name: 'Add Alpha build to ranked order' }).isDisabled()).toBe(false)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('locks every payload-changing control and drag surface while Save is pending', async () => {
+    const page = await open('organizer-edit')
+    try {
+      await page.evaluate(() => {
+        globalThis.regression.holdCustomViewWrites = true
+      })
+      await page.getByRole('button', { name: 'Save view' }).click()
+      await page.waitForFunction(
+        () => document.querySelector('.custom-view-organizer')?.getAttribute('aria-busy') === 'true'
+      )
+
+      expect(await page.getByLabel('View name').isDisabled()).toBe(true)
+      expect(await page.getByLabel('Display mode').isDisabled()).toBe(true)
+      expect(await page.getByRole('searchbox', { name: 'Search all sessions' }).isDisabled()).toBe(true)
+      expect(await page.getByLabel('Workspace filter').isDisabled()).toBe(true)
+      expect(await page.getByLabel('Status filter').isDisabled()).toBe(true)
+      expect(await page.getByLabel('Preset filter').isDisabled()).toBe(true)
+      expect(await page.getByRole('button', { name: 'Add Alpha build to ranked order' }).isDisabled()).toBe(true)
+      expect(await page.getByRole('button', { name: 'Remove Beta review from ranked order' }).isDisabled()).toBe(true)
+      expect(await page.locator('.custom-view-organizer__drag[draggable="true"]').count()).toBe(0)
+
+      await page.evaluate(() => globalThis.regression.releaseCustomViewWrite())
+      await page.waitForSelector('.organizer-closed')
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('enters a non-resurrecting conflict state if an edited view disappears', async () => {
+    const page = await open('organizer-edit')
+    try {
+      await page.evaluate(() => globalThis.regression.removeOrganizerView())
+      const alert = page.getByRole('alert')
+      expect(await alert.textContent()).toContain('deleted in another window')
+      expect(await page.getByRole('button', { name: 'Save view' }).count()).toBe(0)
+      expect(await page.getByRole('button', { name: 'Close' }).count()).toBe(1)
+      await page.keyboard.press('Enter')
+      expect(await page.evaluate(() => globalThis.regression.customViewCreates)).toEqual([])
+      expect(await page.evaluate(() => globalThis.regression.customViewUpdates)).toEqual([])
     } finally {
       await page.close()
     }

@@ -22,8 +22,8 @@ interface Props {
   presentation: SessionPresentation
   customViews: CustomView[]
   onChoosePresentation: (presentation: SessionPresentation) => void
-  onCreateCustomView: () => void
-  onEditCustomView: (id: string) => void
+  onCreateCustomView: (opener: HTMLElement | null) => void
+  onEditCustomView: (id: string, opener: HTMLElement | null) => void
   collapsedGroups: Set<string>
   onToggleGroup: (name: string) => void
   /** Minimized session ids (hidden behind a per-group "show more"). */
