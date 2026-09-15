@@ -62,6 +62,21 @@ describe('NotificationCoordinator', () => {
     expect(shown).toHaveLength(2)
   })
 
+  it('uses the latest session snapshot in a pending batch', () => {
+    const requests: NoticeRequest[] = []
+    const coordinator = new NotificationCoordinator((request) => {
+      requests.push(request)
+      return { close: vi.fn() }
+    }, vi.fn(), vi.fn())
+    const first = session('a')
+
+    coordinator.queue(first, true)
+    coordinator.queue({ ...first, label: 'Updated' }, false)
+    vi.advanceTimersByTime(1000)
+
+    expect(requests[0]).toMatchObject({ title: 'Updated', silent: false })
+  })
+
   it('closes the prior notice before showing a later batch', () => {
     const closes: Array<ReturnType<typeof vi.fn>> = []
     const coordinator = new NotificationCoordinator(() => {

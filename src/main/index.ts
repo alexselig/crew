@@ -894,9 +894,10 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
+  ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) => {
+    tray?.acknowledge(p.id)
     manager.input(p.id, p.data)
-  )
+  })
   ipcMain.on(IPC.SESSION_WAKE, (_e, id: string) => manager.wake(id))
   ipcMain.on(IPC.SESSION_RESIZE, (_e, p: { id: string; cols: number; rows: number }) =>
     manager.resize(p.id, p.cols, p.rows)

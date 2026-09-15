@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { IPC } from '../src/shared/types'
 
 const source = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
+const traySource = readFileSync(new URL('../src/main/tray.ts', import.meta.url), 'utf8')
 
 describe('main-process reliability integration', () => {
   it('keeps a visible window on its connected secondary display when summoned', () => {
@@ -171,6 +172,17 @@ describe('main-process reliability integration', () => {
     expect(source).toMatch(/new Store\([^\n]+reportStorageError\)/)
     expect(source).toMatch(/new TranscriptRecorder\([^\n]+reportStorageError\)/)
     expect(source).toContain('errorReporter.setReady()')
+  })
+
+  it('integrates queued notifications with tray display and actual session input', () => {
+    expect(traySource).toContain('new NotificationCoordinator(')
+    expect(traySource).toContain('this.notifications.queue(')
+    expect(traySource).toContain('acknowledge(id: string): void')
+    expect(traySource).toContain(
+      'this.notifications.reconcile(new Set(active.map((session) => session.id)))'
+    )
+    expect(traySource).toContain('this.notifications.dispose()')
+    expect(source).toContain('tray?.acknowledge(p.id)')
   })
 
   it('stops producers before recorder flush and drains shutdown warnings synchronously', () => {
