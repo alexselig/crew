@@ -75,7 +75,7 @@ export function searchCustomViewSessions(input: {
     input.status == null || input.status === 'all' ? true : session.status === input.status
 
   const matchesPreset = (session: SessionInfo): boolean =>
-    input.presetId == null || input.presetId === 'all' ? true : session.presetId === input.presetId
+    input.presetId === undefined || input.presetId === 'all' ? true : session.presetId === input.presetId
 
   const haystackFor = (session: SessionInfo): string => {
     const workspaceNames = (session.workspaceIds ?? [])

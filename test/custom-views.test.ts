@@ -100,4 +100,87 @@ describe('custom views', () => {
       expect(result.map((s) => s.id)).toEqual(['a'])
     }
   })
+
+  it('filters by workspace, status, and preset while preserving roster order', () => {
+    const roster: SessionInfo[] = [
+      { ...session('first'), workspaceIds: ['ws-1'] },
+      { ...session('second'), presetId: null, workspaceIds: ['ws-1'] },
+      { ...session('third'), presetId: 'other-preset', status: 'error', workspaceIds: ['ws-2'] },
+      { ...session('fourth'), presetId: null, workspaceIds: ['ws-1', 'ws-2'] }
+    ]
+
+    expect(
+      searchCustomViewSessions({
+        sessions: roster,
+        query: '',
+        workspaces: [
+          { id: 'ws-1', name: 'Workspace One', order: 0, createdAt: 1 },
+          { id: 'ws-2', name: 'Workspace Two', order: 1, createdAt: 1 }
+        ],
+        presetNames: new Map([
+          ['copilot-cli', 'Copilot CLI'],
+          ['other-preset', 'Other Preset'],
+          [null, 'No preset']
+        ]),
+        workspaceId: 'ws-1',
+        status: 'active',
+        presetId: 'copilot-cli'
+      }).map((s) => s.id)
+    ).toEqual(['first'])
+
+    expect(
+      searchCustomViewSessions({
+        sessions: roster,
+        query: '',
+        workspaces: [
+          { id: 'ws-1', name: 'Workspace One', order: 0, createdAt: 1 },
+          { id: 'ws-2', name: 'Workspace Two', order: 1, createdAt: 1 }
+        ],
+        presetNames: new Map([
+          ['copilot-cli', 'Copilot CLI'],
+          ['other-preset', 'Other Preset'],
+          [null, 'No preset']
+        ]),
+        workspaceId: 'ws-1',
+        status: 'all',
+        presetId: null
+      }).map((s) => s.id)
+    ).toEqual(['second', 'fourth'])
+
+    expect(
+      searchCustomViewSessions({
+        sessions: roster,
+        query: '',
+        workspaces: [
+          { id: 'ws-1', name: 'Workspace One', order: 0, createdAt: 1 },
+          { id: 'ws-2', name: 'Workspace Two', order: 1, createdAt: 1 }
+        ],
+        presetNames: new Map([
+          ['copilot-cli', 'Copilot CLI'],
+          ['other-preset', 'Other Preset'],
+          [null, 'No preset']
+        ]),
+        workspaceId: 'ws-1',
+        status: 'all',
+        presetId: 'all'
+      }).map((s) => s.id)
+    ).toEqual(['first', 'second', 'fourth'])
+
+    expect(
+      searchCustomViewSessions({
+        sessions: roster,
+        query: '',
+        workspaces: [
+          { id: 'ws-1', name: 'Workspace One', order: 0, createdAt: 1 },
+          { id: 'ws-2', name: 'Workspace Two', order: 1, createdAt: 1 }
+        ],
+        presetNames: new Map([
+          ['copilot-cli', 'Copilot CLI'],
+          ['other-preset', 'Other Preset'],
+          [null, 'No preset']
+        ]),
+        workspaceId: 'ws-1'
+      }).map((s) => s.id)
+    ).toEqual(['first', 'second', 'fourth'])
+  })
 })
