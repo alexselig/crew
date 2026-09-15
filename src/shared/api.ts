@@ -11,6 +11,7 @@ import type {
   Settings,
   SessionSet,
   Workspace,
+  CustomView,
   Agent,
   AgentRun
 } from './types'
@@ -72,6 +73,8 @@ export interface TranscriptMatch {
   line: string
 }
 
+export type CustomViewInput = Pick<CustomView, 'name' | 'mode' | 'items'>
+
 export interface CrewAPI {
   // request/response
   createSession(req: CreateSessionRequest): Promise<SessionInfo>
@@ -90,6 +93,10 @@ export interface CrewAPI {
   describeWorkspace(id: string, description: string): Promise<Workspace[]>
   deleteWorkspace(id: string): Promise<Workspace[]>
   reorderWorkspaces(ids: string[]): Promise<Workspace[]>
+  getCustomViews(): Promise<CustomView[]>
+  createCustomView(input: CustomViewInput): Promise<CustomView[]>
+  updateCustomView(id: string, input: CustomViewInput): Promise<CustomView[]>
+  deleteCustomView(id: string): Promise<CustomView[]>
   /** Replace a session's workspace-id membership. */
   setSessionWorkspaces(id: string, workspaceIds: string[]): Promise<void>
   addSessionToWorkspace(id: string, wsId: string): Promise<void>
@@ -198,6 +205,8 @@ export interface CrewAPI {
   onWorkspace(cb: (id: string | null) => void): Unsubscribe
   /** The workspace list changed (created/renamed/reordered/deleted). */
   onWorkspaces(cb: (list: Workspace[]) => void): Unsubscribe
+  /** The custom-view list changed (created/edited/deleted). */
+  onCustomViews(cb: (list: CustomView[]) => void): Unsubscribe
   /** File › Workspaces… — open the Workspace Manager. */
   onOpenWorkspaces(cb: () => void): Unsubscribe
   /** The agent list changed (created/edited/deleted/reordered). */

@@ -7,6 +7,7 @@ import { IPC } from '../src/shared/types'
 
 const source = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
 const traySource = readFileSync(new URL('../src/main/tray.ts', import.meta.url), 'utf8')
+const hooksSource = readFileSync(new URL('../src/renderer/hooks.ts', import.meta.url), 'utf8')
 
 describe('main-process reliability integration', () => {
   it('keeps a visible window on its connected secondary display when summoned', () => {
@@ -244,5 +245,19 @@ describe('main-process reliability integration', () => {
     expect(teardown.indexOf('manager?.disposeAll()')).toBeLessThan(teardown.indexOf('recorder?.dispose()'))
     expect(teardown.indexOf('agentRunner?.disposeAll()')).toBeLessThan(teardown.indexOf('recorder?.dispose()'))
     expect(teardown).toContain('errorReporter.flushForShutdown()')
+  })
+
+  it('exposes custom-view IPC handlers through the main contract', () => {
+    expect(source).toContain('IPC.CUSTOM_VIEWS_GET')
+    expect(source).toContain('store.createCustomView')
+    expect(source).toContain('store.updateCustomView')
+    expect(source).toContain('store.deleteCustomView')
+  })
+
+  it('tracks session presentation state per window and falls back missing custom views to Recent', () => {
+    expect(hooksSource).toContain("readViewPref('sessionPresentation')")
+    expect(hooksSource).toContain("kind: 'builtin', mode: 'recent'")
+    expect(hooksSource).toContain("writeViewPref('sessionPresentation'")
+    expect(hooksSource).toContain("showCustomViewEditor")
   })
 })

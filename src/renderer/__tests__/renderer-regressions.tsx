@@ -54,6 +54,8 @@ export function useCrew(): CrewState {
   return {
     roster, activeWorkspace, selectedId: 'unchanged-selection', characters: [],
     presets: [], homeDir: '/synthetic', setSelectedId: noop,
+    customViews: [], presentation: { kind: 'builtin', mode: 'none' }, setPresentation: noop,
+    showCustomViewEditor: null, setShowCustomViewEditor: noop,
     workspaces: [
       { id: 'a', name: 'A', order: 0, createdAt: 1 },
       { id: 'b', name: 'B', order: 1, createdAt: 1 }

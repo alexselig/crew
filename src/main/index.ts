@@ -9,8 +9,8 @@ import { accessSync, constants, writeFileSync, appendFileSync } from 'node:fs'
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { IPC, NEEDS_YOU } from '../shared/types'
-import type { CreateSessionRequest, Settings } from '../shared/types'
-import type { AgentStatus } from '../shared/api'
+import type { Agent, AgentRun, CreateSessionRequest, CustomView, Settings } from '../shared/types'
+import type { AgentStatus, CustomViewInput } from '../shared/api'
 import type { TrackerSessionInput } from '../shared/tracker'
 import { SessionManager } from './session-manager'
 import { ensureCrewHookDir } from './crew-hook'
@@ -44,7 +44,6 @@ import {
   deleteAgent as deleteAgentList,
   reorderAgents as reorderAgentList
 } from '../shared/agents'
-import type { Agent, AgentRun } from '../shared/types'
 import { CHARACTERS } from './characters'
 import { listCopilotModels } from './copilot-models'
 import { BoundedErrorReporter, createShellActions, installPreviewBoundary } from './main-boundaries'
@@ -794,6 +793,26 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.TRACKER_STOP, (_e, id: string) => stopServer(id))
   ipcMain.handle(IPC.TRACKER_STATUS, () => serverStatus())
+
+  // ── Custom views ──
+  const pushCustomViews = (): CustomView[] => {
+    const list = store.getCustomViews()
+    broadcast(IPC.EVT_CUSTOM_VIEWS, list)
+    return list
+  }
+  ipcMain.handle(IPC.CUSTOM_VIEWS_GET, () => store.getCustomViews())
+  ipcMain.handle(IPC.CUSTOM_VIEW_CREATE, (_e, input: CustomViewInput) => {
+    store.createCustomView(input)
+    return pushCustomViews()
+  })
+  ipcMain.handle(IPC.CUSTOM_VIEW_UPDATE, (_e, p: { id: string; input: CustomViewInput }) => {
+    store.updateCustomView(p.id, p.input)
+    return pushCustomViews()
+  })
+  ipcMain.handle(IPC.CUSTOM_VIEW_DELETE, (_e, id: string) => {
+    store.deleteCustomView(id)
+    return pushCustomViews()
+  })
 
   // ── First-class workspaces (Workspace Manager) ──
   const pushWorkspaces = (): Workspace[] => {
