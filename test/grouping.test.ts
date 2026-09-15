@@ -1,6 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { groupSessions, partitionHidden, splitMinimized, isSessionHidden, recencyOf, groupSessionsForPicker, organizeSessions, _resetRecencyOrder } from '../src/renderer/grouping'
-import type { SessionInfo } from '../src/shared/types'
+import {
+  groupSessions,
+  partitionHidden,
+  splitMinimized,
+  isSessionHidden,
+  recencyOf,
+  groupSessionsForPicker,
+  organizeSessions,
+  byRecent,
+  _resetRecencyOrder
+} from '../src/renderer/grouping'
+import { composeCustomView } from '../src/shared/custom-views'
+import type { CustomView, SessionInfo } from '../src/shared/types'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -26,6 +37,17 @@ function sess(over: Partial<SessionInfo> & { id: string }): SessionInfo {
     createdAt: now,
     stateChangedAt: now,
     ...over
+  }
+}
+
+function view(mode: CustomView['mode'], ids: string[]): CustomView {
+  return {
+    id: 'view-1',
+    name: 'Today',
+    mode,
+    items: ids.map((sessionId) => ({ sessionId, labelSnapshot: sessionId })),
+    createdAt: 1,
+    updatedAt: 1
   }
 }
 
@@ -401,5 +423,36 @@ describe('organizeSessions', () => {
     )
     expect(out).toHaveLength(1)
     expect(out[0].sessions.map((s) => s.id)).toEqual(['need-new', 'need-old', 'work', 'idle'])
+  })
+})
+
+describe('custom-view presentation composition', () => {
+  it('filters the workspace before composing a custom view', () => {
+    const fullRoster = [
+      sess({ id: 'a2', workspaceIds: ['a'], lastPromptAt: 2 }),
+      sess({ id: 'b9', workspaceIds: ['b'], lastPromptAt: 9 }),
+      sess({ id: 'a1', workspaceIds: ['a'], lastPromptAt: 1 })
+    ]
+
+    const visibleRoster = fullRoster.filter((session) => (session.workspaceIds ?? []).includes('a'))
+    const result = composeCustomView(visibleRoster, view('ranked-plus-all', ['b9', 'a2']))
+
+    expect(result.sessions.map((session) => session.id)).toEqual(['a2', 'a1'])
+  })
+
+  it('appends unranked sessions in recent order for ranked-plus-all', () => {
+    const roster = [
+      sess({ id: 'a1', lastPromptAt: 1 }),
+      sess({ id: 'a2', lastPromptAt: 2 }),
+      sess({ id: 'a3', lastPromptAt: 3 }),
+      sess({ id: 'a4', lastPromptAt: 4 })
+    ]
+
+    const result = composeCustomView(roster, view('ranked-plus-all', ['a2']))
+
+    expect(result.sessions.map((session) => session.id)).toEqual([
+      'a2',
+      ...roster.filter((session) => session.id !== 'a2').sort(byRecent).map((session) => session.id)
+    ])
   })
 })

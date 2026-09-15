@@ -1482,10 +1482,70 @@ button {
   color: var(--text);
 }
 
+.group-menu__item--custom {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-menu__item--action {
+  margin-top: 2px;
+}
+
 .group-menu__check {
   width: 12px;
   color: var(--accent);
   font-size: 11px;
+}
+
+.group-menu__section {
+  padding: 8px 8px 4px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.group-menu__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.group-menu__content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.group-menu__label {
+  color: var(--text);
+}
+
+.group-menu__meta {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+.group-menu__edit {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 5px 7px;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.group-menu__edit:hover {
+  border-color: var(--hair-strong);
+  background: rgba(242, 241, 234, 0.05);
+  color: var(--text);
 }
 
 /* ---------- Drag-to-reorder ---------- */

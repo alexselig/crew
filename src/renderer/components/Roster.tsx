@@ -1,6 +1,6 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
-import type { SessionInfo, CharacterDef, Preset } from '../../shared/types'
+import type { SessionInfo, CharacterDef, Preset, CustomView, SessionPresentation } from '../../shared/types'
 import { formatUsd, formatCredits, sessionUsd } from '../state-meta'
 import { SessionCard } from './SessionCard'
 import { GroupPicker } from './GroupPicker'
@@ -29,7 +29,11 @@ interface Props {
   navWidth: number
   onNavWidth: (w: number) => void
   groupMode: GroupMode
-  onSetGroupMode: (m: GroupMode) => void
+  presentation: SessionPresentation
+  customViews: CustomView[]
+  onChoosePresentation: (presentation: SessionPresentation) => void
+  onCreateCustomView: () => void
+  onEditCustomView: (id: string) => void
   collapsedGroups: Set<string>
   onToggleGroup: (name: string) => void
   /** Minimized session ids (hidden behind a per-bucket "show more"). */
@@ -91,7 +95,11 @@ export function Roster(props: Props): JSX.Element {
     navWidth,
     onNavWidth,
     groupMode,
-    onSetGroupMode,
+    presentation,
+    customViews,
+    onChoosePresentation,
+    onCreateCustomView,
+    onEditCustomView,
     collapsedGroups,
     onToggleGroup,
     minimized,
@@ -204,9 +212,14 @@ export function Roster(props: Props): JSX.Element {
   // session order AND group headers — so the two views stay aligned. The rail
   // just renders each header compactly (truncated title + underline; the count
   // and chevron are hidden via CSS).
-  const applyGrouping = groupMode !== 'none'
+  const applyGrouping = presentation.kind === 'builtin' && groupMode !== 'none'
   useNowTick(applyGrouping && groupMode === 'recent')
-  const dnd = useCardDnd(roster, railed ? 'disabled' : groupMode, onReorder, onSetTag)
+  const dnd = useCardDnd(
+    roster,
+    railed || presentation.kind === 'custom' ? 'disabled' : groupMode,
+    onReorder,
+    onSetTag
+  )
 
   function renderCard(s: SessionInfo): JSX.Element {
     const h = dnd.cardHandlers(s)
@@ -428,7 +441,13 @@ export function Roster(props: Props): JSX.Element {
         <ViewToggle mode={viewMode} density={gridDensity} onChange={onSetViewMode} onGridRepeat={onGridRepeat} />
         {!railed && (
           <div className="roster__tools">
-            <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
+            <GroupPicker
+              presentation={presentation}
+              customViews={customViews}
+              onChoose={onChoosePresentation}
+              onCreateCustomView={onCreateCustomView}
+              onEditCustomView={onEditCustomView}
+            />
             <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
               <Icon name="broadcast" />
             </button>

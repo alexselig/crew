@@ -1,37 +1,91 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from '../App'
+import { GroupPicker } from '../components/GroupPicker'
+import { Roster } from '../components/Roster'
+import { GridView } from '../components/GridView'
 import { WorkspaceSessionCard } from '../components/WorkspaceSessionCard'
 import { TranscriptPane } from '../components/TranscriptPane'
 import { getPooled, getTranscript, writeTo } from '../terminal/pool'
 import { setEngineMode } from '../terminal/facade'
 import { meterInput, pendingInputTokens } from '../input-meter'
 import { useSessionDrag } from '../useSessionDrag'
-import type { CrewState } from '../hooks'
-import type { SessionInfo } from '../../shared/types'
+import { useCrew as useLiveCrew, type CrewState } from '../hooks'
+import type { SessionInfo, CustomView, SessionPresentation, Settings } from '../../shared/types'
 import type { RendererRegressionControls } from '../../../test/fixtures/renderer-regression-types'
 
 const noop = () => {}
-const session = (id: string, workspaceIds: string[]): SessionInfo => ({
+const session = (id: string, workspaceIds: string[], lastPromptAt = Number(id.replace(/\D/g, '')) || 1): SessionInfo => ({
   id, workspaceIds, label: id, characterId: 'fox', color: '#ff7a3c',
   state: 'WAITING_INPUT', status: 'active', presetId: 'shell',
   command: '/bin/bash', args: [], cwd: '/synthetic', createdAt: 1,
-  stateChangedAt: 1, autopilot: false, pid: null, exitCode: null,
+  stateChangedAt: 1, lastPromptAt, autopilot: false, pid: null, exitCode: null,
   costUsd: 0, creditsUsed: 0
 })
 const roster = [
   ...Array.from({ length: 9 }, (_, i) => session(`a${i + 1}`, ['a'])),
   ...Array.from({ length: 9 }, (_, i) => session(`b${i + 1}`, ['b']))
 ]
+const customViews: CustomView[] = [
+  {
+    id: 'focus',
+    name: 'Release queue',
+    mode: 'ranked-plus-all',
+    items: [
+      { sessionId: 'b9', labelSnapshot: 'b9' },
+      { sessionId: 'a2', labelSnapshot: 'a2' }
+    ],
+    createdAt: 1,
+    updatedAt: 1
+  },
+  {
+    id: 'solo',
+    name: 'Today only',
+    mode: 'curated-only',
+    items: [{ sessionId: 'a4', labelSnapshot: 'a4' }],
+    createdAt: 1,
+    updatedAt: 1
+  }
+]
+const exitedRoster: SessionInfo[] = [
+  { ...session('x1', ['a'], 1), status: 'exited', state: 'EXITED' as const, pid: null, exitCode: 0 },
+  { ...session('x2', ['a'], 2), status: 'exited', state: 'EXITED' as const, pid: null, exitCode: 0 }
+]
+const defaultSettings: Settings = {
+  notifications: true,
+  sound: true,
+  notifyOnlyWhenUnfocused: false,
+  sortNeedsYouFirst: false,
+  launchAtLogin: false,
+  showSpend: true,
+  showCredits: false,
+  costMode: 'auto',
+  aicPerUsd: 100,
+  resumeConversations: true,
+  contextMode: 'auto',
+  budgetUsd: 0,
+  inputTokenWarn: 100000,
+  captureTranscripts: false,
+  staleHideHours: 72,
+  minimizedAsList: true,
+  enhancedTerminal: false,
+  showGithubButton: true,
+  githubButtonOpensRepo: true
+}
 const controls: RendererRegressionControls = {
   activeWorkspace: 'a',
   selected: [],
   modes: [],
+  presentations: [],
   newDialogs: [],
   windows: 0,
   sent: [],
+  reorders: [],
+  createdCustomViews: 0,
+  editedCustomViewIds: [],
   workspace: (_id: string | null) => {},
   pilot: (_value: boolean) => {},
+  present: (_value: string) => {},
   legacy: () => setEngineMode('legacy'),
   transcript: () => getTranscript('composer'),
   complete: () => writeTo('composer', '\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07\x1b]133;D;0\x07'),
@@ -41,7 +95,8 @@ Object.assign(window, {
   regression: controls,
   crew: {
     sendInput: (id: string, data: string) => controls.sent.push({ id, data }),
-    openWindow: () => { controls.windows++ }
+    openWindow: () => { controls.windows++ },
+    reorder: (ids: string[]) => { controls.reorders.push(ids) }
   }
 })
 
@@ -49,12 +104,23 @@ Object.assign(window, {
 // Its useMemo/useEffect and the browser's keyboard listener lifecycle are real.
 export function useCrew(): CrewState {
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>('a')
+  const [viewMode, setViewMode] = useState<'single' | 'grid'>('grid')
+  const [groupMode, setGroupMode] = useState<'none' | 'needs' | 'tag' | 'recent'>('recent')
+  const [presentation, setPresentation] = useState<SessionPresentation>({ kind: 'builtin', mode: 'recent' })
   controls.activeWorkspace = activeWorkspace
   controls.workspace = setActiveWorkspace
+  controls.present = (value: string) => {
+    const next = JSON.parse(value) as SessionPresentation
+    controls.presentations.push(value)
+    setPresentation(next)
+    if (next.kind === 'builtin') setGroupMode(next.mode)
+  }
   return {
     roster, activeWorkspace, selectedId: 'unchanged-selection', characters: [],
     presets: [], homeDir: '/synthetic', setSelectedId: noop,
-    customViews: [], presentation: { kind: 'builtin', mode: 'none' }, setPresentation: noop,
+    customViews,
+    presentation,
+    setPresentation: (next) => controls.present(JSON.stringify(next)),
     showCustomViewEditor: null, setShowCustomViewEditor: noop,
     workspaces: [
       { id: 'a', name: 'A', order: 0, createdAt: 1 },
@@ -62,15 +128,19 @@ export function useCrew(): CrewState {
     ],
     agents: [], runs: {}, setActiveRunId: noop, setEditingAgent: noop,
     editingAgent: null, activeRunId: null, showNew: false, showWorkspaces: false,
-    settings: null, viewMode: 'grid', gridDensity: 'four', groupMode: 'none',
-    setSetting: noop, setGridDensity: noop, setGroupMode: noop,
+    settings: defaultSettings, viewMode, gridDensity: 'four', groupMode,
+    setSetting: noop, setGridDensity: noop,
+    setGroupMode: (mode) => controls.present(JSON.stringify({ kind: 'builtin', mode })),
     navWidth: 300, setNavWidth: noop, navCollapsed: false, setNavCollapsed: noop,
     collapsedGroups: new Set(), toggleGroup: noop,
     minimized: new Set(), toggleMinimize: noop, revealed: new Set(),
     groupOrder: [], reorderGroups: noop, setActiveWorkspace,
     refreshWorkspaces: noop, setShowWorkspaces: noop,
     selectSession: (id: string) => controls.selected.push(id),
-    setViewMode: (mode: string) => controls.modes.push(mode),
+    setViewMode: (mode: string) => {
+      controls.modes.push(mode)
+      setViewMode(mode as 'single' | 'grid')
+    },
     setShowNew: (show: boolean) => controls.newDialogs.push(show)
   }
 }
@@ -88,12 +158,169 @@ function WorkspaceFixture() {
 }
 
 const kind = new URLSearchParams(location.search).get('fixture')
+if (kind === 'hook-fallback') {
+  localStorage.removeItem('crew.w0.groupMode')
+  localStorage.setItem('crew.w0.sessionPresentation', JSON.stringify({ kind: 'custom', viewId: 'missing' }))
+  ;(window as { crew: unknown }).crew = {
+    getRoster: async () => roster,
+    getPresets: async () => [],
+    getCharacters: async () => [],
+    getHomeDir: async () => '/synthetic',
+    getSettings: async () => defaultSettings,
+    getWorkspaces: async () => [],
+    getCustomViews: async () => [],
+    getAgents: async () => [],
+    onRoster: () => noop,
+    onState: () => noop,
+    onOutput: () => noop,
+    onJump: () => noop,
+    onNew: () => noop,
+    onWorkspace: () => noop,
+    onWorkspaces: () => noop,
+    onCustomViews: () => noop,
+    onOpenWorkspaces: () => noop,
+    onAgents: () => noop,
+    onAgentRun: () => noop
+  }
+}
 if (kind === 'composer') {
   setEngineMode('crew')
   getPooled('composer')
   meterInput('composer', 'pending terminal input')
 }
+
+function PickerFixture() {
+  const [presentation, setPresentation] = useState<SessionPresentation>({ kind: 'custom', viewId: 'focus' })
+  return (
+    <div className="app">
+      <GroupPicker
+        presentation={presentation}
+        customViews={customViews}
+        onChoose={(next) => {
+          controls.presentations.push(JSON.stringify(next))
+          setPresentation(next)
+        }}
+        onCreateCustomView={() => {
+          controls.createdCustomViews++
+        }}
+        onEditCustomView={(id) => {
+          controls.editedCustomViewIds.push(id)
+        }}
+      />
+    </div>
+  )
+}
+
+function HookFallbackFixture() {
+  const state = useLiveCrew()
+  return (
+    <div className="app">
+      <div className="hook-presentation">
+        {state.presentation.kind === 'builtin'
+          ? `builtin:${state.presentation.mode}`
+          : `custom:${state.presentation.viewId}`}
+      </div>
+    </div>
+  )
+}
+
+function ComponentsFixture() {
+  return (
+    <div className="app">
+      <Roster
+        roster={exitedRoster}
+        characters={[]}
+        presets={[]}
+        selectedId={null}
+        viewMode="single"
+        onSetViewMode={noop}
+        onGridRepeat={noop}
+        gridDensity="four"
+        collapsed={false}
+        onSetCollapsed={noop}
+        navWidth={300}
+        onNavWidth={noop}
+        groupMode="none"
+        presentation={{ kind: 'custom', viewId: 'focus' }}
+        customViews={customViews}
+        onChoosePresentation={noop}
+        onCreateCustomView={noop}
+        onEditCustomView={noop}
+        collapsedGroups={new Set()}
+        onToggleGroup={noop}
+        minimized={new Set()}
+        onToggleMinimize={noop}
+        revealed={new Set()}
+        groupOrder={[]}
+        onReorderGroups={noop}
+        onSelect={noop}
+        onNew={noop}
+        onOpenSettings={noop}
+        onBroadcast={noop}
+        onAnalytics={noop}
+        onOpenTracker={noop}
+        agents={[]}
+        runs={{}}
+        onInvokeAgent={noop}
+        onAddAgent={noop}
+        onEditAgent={noop}
+        showSpend={false}
+        showCredits={false}
+        budgetUsd={0}
+        staleHideHours={72}
+        onRestart={noop}
+        onClose={noop}
+        onReorder={noop}
+        onSetTag={noop}
+      />
+      <GridView
+        roster={exitedRoster}
+        characters={[]}
+        selectedId={null}
+        gridDensity="two"
+        presentation={{ kind: 'custom', viewId: 'focus' }}
+        customViews={customViews}
+        onChoosePresentation={noop}
+        onCreateCustomView={noop}
+        onEditCustomView={noop}
+        groupMode="none"
+        collapsedGroups={new Set()}
+        onToggleGroup={noop}
+        minimized={new Set()}
+        onToggleMinimize={noop}
+        revealed={new Set()}
+        staleHideHours={72}
+        minimizedAsList={false}
+        enhancedTerminal={false}
+        githubButton={{ show: false, opensRepo: false }}
+        groupOrder={[]}
+        onReorderGroups={noop}
+        onSelect={noop}
+        onExpand={noop}
+        onClose={noop}
+        onNew={noop}
+        onSetViewMode={noop}
+        onGridRepeat={noop}
+        onOpenSettings={noop}
+        onBroadcast={noop}
+        onAnalytics={noop}
+        onOpenTracker={noop}
+        showSpend={false}
+        showCredits={false}
+        onReorder={noop}
+        onSetTag={noop}
+        onSetCharacter={noop}
+        onSetColor={noop}
+      />
+    </div>
+  )
+}
+
 createRoot(document.getElementById('root')!).render(
   kind === 'workspace' ? <WorkspaceFixture /> :
-  kind === 'composer' ? <TranscriptPane sessionId="composer" enhanced /> : <App />
+  kind === 'composer' ? <TranscriptPane sessionId="composer" enhanced /> :
+  kind === 'picker' ? <PickerFixture /> :
+  kind === 'hook-fallback' ? <HookFallbackFixture /> :
+  kind === 'components' ? <ComponentsFixture /> :
+  <App />
 )

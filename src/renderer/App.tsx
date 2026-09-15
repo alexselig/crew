@@ -19,12 +19,13 @@ import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
 import { Character } from './components/Character'
 import { focusTerminal } from './terminal/facade'
-import { existingGroups, recencyOf } from './grouping'
+import { byRecent, existingGroups, recencyOf } from './grouping'
+import { composeCustomView } from '../shared/custom-views'
 import { arrowNavIntent } from './gridNav'
 import { NEEDS_YOU } from '../shared/types'
 import { sessionInWorkspaceId } from '../shared/workspaces'
 import { STATE_META } from './state-meta'
-import type { CreateSessionRequest } from '../shared/types'
+import type { CreateSessionRequest, SessionPresentation } from '../shared/types'
 
 export function App(): JSX.Element {
   const c = useCrew()
@@ -75,6 +76,14 @@ export function App(): JSX.Element {
     () => c.workspaces.find((w) => w.id === c.activeWorkspace)?.name ?? null,
     [c.workspaces, c.activeWorkspace]
   )
+  const presentedRoster = useMemo(() => {
+    const presentation = c.presentation
+    if (presentation.kind === 'builtin') return visibleRoster
+    const view = c.customViews.find((item) => item.id === presentation.viewId)
+    return view ? composeCustomView(visibleRoster, view).sessions : [...visibleRoster].sort(byRecent)
+  }, [visibleRoster, c.presentation, c.customViews])
+  const builtinPresentation: SessionPresentation =
+    c.presentation.kind === 'builtin' ? c.presentation : { kind: 'builtin', mode: 'none' }
 
   // Default workspace ids for a new session: the active workspace → else the most
   // recently used one (from the most recently prompted session) → else the first
@@ -298,7 +307,7 @@ export function App(): JSX.Element {
     >
       <UpdateBanner />
       <Roster
-        roster={visibleRoster}
+        roster={presentedRoster}
         hiddenByWorkspace={c.roster.length - visibleRoster.length}
         characters={c.characters}
         presets={c.presets}
@@ -312,8 +321,12 @@ export function App(): JSX.Element {
         onSetCollapsed={c.setNavCollapsed}
         navWidth={c.navWidth}
         onNavWidth={c.setNavWidth}
-        groupMode={c.groupMode}
-        onSetGroupMode={c.setGroupMode}
+        groupMode={builtinPresentation.mode}
+        presentation={c.presentation}
+        customViews={c.customViews}
+        onChoosePresentation={c.setPresentation}
+        onCreateCustomView={() => c.setShowCustomViewEditor('new')}
+        onEditCustomView={(id) => c.setShowCustomViewEditor(id)}
         collapsedGroups={c.collapsedGroups}
         onToggleGroup={c.toggleGroup}
         minimized={c.minimized}
@@ -349,7 +362,7 @@ export function App(): JSX.Element {
 
       {c.viewMode === 'grid' ? (
         <GridView
-          roster={visibleRoster}
+          roster={presentedRoster}
           enhancedTerminal={c.settings?.enhancedTerminal ?? false}
           githubButton={{
             show: c.settings?.showGithubButton ?? true,
@@ -359,8 +372,12 @@ export function App(): JSX.Element {
           selectedId={c.selectedId}
           gridDensity={c.gridDensity}
           activeWorkspace={activeWorkspaceName}
-          groupMode={c.groupMode}
-          onSetGroupMode={c.setGroupMode}
+          groupMode={builtinPresentation.mode}
+          presentation={c.presentation}
+          customViews={c.customViews}
+          onChoosePresentation={c.setPresentation}
+          onCreateCustomView={() => c.setShowCustomViewEditor('new')}
+          onEditCustomView={(id) => c.setShowCustomViewEditor(id)}
           collapsedGroups={c.collapsedGroups}
           onToggleGroup={c.toggleGroup}
           minimized={c.minimized}

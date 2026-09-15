@@ -27,12 +27,38 @@ beforeAll(async () => {
         if (!importer?.endsWith('/src/renderer/App.tsx')) return
         if (source === './hooks') return resolve(`.${fixture}`)
         if (source.startsWith('./components/') && source !== './components/Character') {
-          return '\0test-view:' + source.split('/').at(-1)
+          return '\0test-view:' + source.split('/').at(-1) + '.tsx'
         }
       },
       load(id) {
         if (id.startsWith('\0test-view:')) {
-          return `export function ${id.split(':')[1]}() { return null }`
+          const name = id.split(':')[1].replace(/\.tsx$/, '')
+          if (name === 'Roster' || name === 'GridView') {
+            const prefix = name.toLowerCase()
+            return `
+              import React from 'react'
+              export function ${name}(props) {
+                const chooseFocus = () => props.onChoosePresentation({ kind: 'custom', viewId: 'focus' })
+                return React.createElement(
+                  'div',
+                  { className: 'stub-${prefix}' },
+                  React.createElement(
+                    'button',
+                    { type: 'button', className: 'stub-${prefix}__choose', onClick: chooseFocus },
+                    'choose'
+                  ),
+                  React.createElement(
+                    'div',
+                    { className: 'stub-${prefix}__order' },
+                    ...props.roster.map((session) =>
+                      React.createElement('span', { key: session.id, 'data-session-id': session.id }, session.id)
+                    )
+                  )
+                )
+              }
+            `
+          }
+          return `export function ${name}() { return null }`
         }
       },
       configureServer(vite) {
@@ -74,7 +100,16 @@ async function open(kind: string) {
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto(`${origin}/regression?fixture=${kind}`)
   try {
-    await page.waitForSelector(kind === 'workspace' ? '.workspace-card' : kind === 'composer' ? '.transcript-composer' : '.app', { timeout: 5000, state: 'attached' })
+    await page.waitForSelector(
+      kind === 'workspace'
+        ? '.workspace-card'
+        : kind === 'composer'
+          ? '.transcript-composer'
+          : kind === 'hook-fallback'
+            ? '.hook-presentation'
+            : '.app',
+      { timeout: 5000, state: 'attached' }
+    )
   } catch (error) {
     await page.close()
     throw new Error(errors.join('\n') || String(error))
@@ -123,6 +158,72 @@ describe('renderer state and input regressions (isolated browser)', () => {
       await page.keyboard.press(`${modifier}+Shift+n`)
       expect(await page.evaluate(() => globalThis.regression.newDialogs)).toEqual([true])
       expect(await page.evaluate(() => globalThis.regression.windows)).toBe(1)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('renders built-in and custom views in the picker and only exposes edit for the active custom view', async () => {
+    const page = await open('picker')
+    try {
+      await page.locator('button[aria-haspopup="menu"]').click()
+      const items = await page.locator('[role="menuitemradio"]').allTextContents()
+      expect(items.slice(0, 4)).toEqual(['No grouping', 'Needs you', 'By group', 'By recent'])
+      expect(items[4]).toContain('Release queue')
+      expect(items[4]).toContain('Ranked + all')
+      expect(items[4]).toContain('2 ranked')
+      expect(items[5]).toContain('Today only')
+      expect(items[5]).toContain('Curated only')
+      expect(items[5]).toContain('1 ranked')
+      expect(await page.locator('.group-menu').textContent()).toContain('Custom views')
+      expect(await page.locator('button:has-text("New custom view")').count()).toBe(1)
+      expect(await page.locator('button:has-text("Edit view")').count()).toBe(1)
+      await page.locator('[role="menuitemradio"]:has-text("Today only")').click()
+      expect(await page.evaluate(() => globalThis.regression.presentations.at(-1))).toBe(
+        JSON.stringify({ kind: 'custom', viewId: 'solo' })
+      )
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('composes roster and grid custom-view order after workspace filtering without global reorder', async () => {
+    const page = await open('app')
+    try {
+      await page.locator('.stub-roster__choose').click()
+      const rosterIds = await page.locator('.stub-roster__order [data-session-id]').evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute('data-session-id'))
+      )
+      const gridIds = await page.locator('.stub-gridview__order [data-session-id]').evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute('data-session-id'))
+      )
+      expect(rosterIds).toEqual(['a2', 'a9', 'a8', 'a7', 'a6', 'a5', 'a4', 'a3', 'a1'])
+      expect(gridIds).toEqual(rosterIds)
+      expect(await page.evaluate(() => globalThis.regression.reorders)).toEqual([])
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('falls back a missing custom presentation to built-in Recent', async () => {
+    const page = await open('hook-fallback')
+    try {
+      await page.waitForFunction(
+        () => document.querySelector('.hook-presentation')?.textContent === 'builtin:recent'
+      )
+      expect(await page.locator('.hook-presentation').textContent()).toBe('builtin:recent')
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('disables ordinary roster and grid drag while a custom view is active', async () => {
+    const page = await open('components')
+    try {
+      expect(await page.locator('.roster .card[draggable="true"]').count()).toBe(0)
+      expect(await page.locator('.gridview .tile__header[draggable="true"]').count()).toBe(0)
+      expect(await page.locator('.roster .card[draggable="false"]').count()).toBe(2)
+      expect(await page.locator('.gridview .tile__header[draggable="false"]').count()).toBe(2)
     } finally {
       await page.close()
     }
