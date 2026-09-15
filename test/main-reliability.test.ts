@@ -8,6 +8,123 @@ import { IPC } from '../src/shared/types'
 const source = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
 
 describe('main-process reliability integration', () => {
+  it('keeps a visible window on its connected secondary display when summoned', () => {
+    const helpers = source.slice(
+      source.indexOf('function boundsOnSomeDisplay('),
+      source.indexOf('function defaultBounds(')
+    )
+    const revealWindow = source.slice(
+      source.indexOf('function revealWindow('),
+      source.indexOf('function showWindow(')
+    )
+    const movedTo: unknown[] = []
+    const displays = [
+      { id: 1, workArea: { x: 0, y: 0, width: 1440, height: 900 } },
+      { id: 2, workArea: { x: 1440, y: 0, width: 1920, height: 1080 } }
+    ]
+    const javascript = transpileModule(
+      `${helpers}\n${revealWindow}\nrevealWindow(window)`,
+      {}
+    ).outputText
+
+    runInNewContext(javascript, {
+      screen: {
+        getAllDisplays: () => displays,
+        getPrimaryDisplay: () => displays[0],
+        getDisplayNearestPoint: () => displays[1]
+      },
+      window: {
+        getBounds: () => ({ x: 1600, y: 100, width: 1120, height: 740 }),
+        setBounds: (bounds: unknown) => movedTo.push(bounds)
+      }
+    })
+
+    expect(movedTo).toEqual([])
+  })
+
+  it('restores saved bounds on a connected secondary display', () => {
+    const placement = source.slice(
+      source.indexOf('function boundsOnSomeDisplay('),
+      source.indexOf('/** Where an ADDITIONAL window opens:')
+    )
+    const saved = { x: 1600, y: 100, width: 1120, height: 740 }
+    const displays = [
+      { id: 1, workArea: { x: 0, y: 0, width: 1440, height: 900 } },
+      { id: 2, workArea: { x: 1440, y: 0, width: 1920, height: 1080 } }
+    ]
+    const javascript = transpileModule(
+      `${placement}\nglobalThis.result = defaultBounds()`,
+      {}
+    ).outputText
+    const context = {
+      result: undefined,
+      store: { windowBounds: saved },
+      screen: {
+        getAllDisplays: () => displays,
+        getPrimaryDisplay: () => displays[0],
+        getDisplayNearestPoint: () => displays[1]
+      }
+    }
+
+    runInNewContext(javascript, context)
+
+    expect(context.result).toEqual(saved)
+  })
+
+  it('moves an off-screen summoned window to the primary display', () => {
+    const helpers = source.slice(
+      source.indexOf('function boundsOnSomeDisplay('),
+      source.indexOf('function defaultBounds(')
+    )
+    const revealWindow = source.slice(
+      source.indexOf('function revealWindow('),
+      source.indexOf('function showWindow(')
+    )
+    const movedTo: unknown[] = []
+    const primary = { id: 1, workArea: { x: 0, y: 0, width: 1440, height: 900 } }
+    const javascript = transpileModule(
+      `${helpers}\n${revealWindow}\nrevealWindow(window)`,
+      {}
+    ).outputText
+
+    runInNewContext(javascript, {
+      screen: {
+        getAllDisplays: () => [primary],
+        getPrimaryDisplay: () => primary
+      },
+      window: {
+        getBounds: () => ({ x: 1600, y: 100, width: 1120, height: 740 }),
+        setBounds: (bounds: unknown) => movedTo.push(bounds)
+      }
+    })
+
+    expect(movedTo).toEqual([{ x: 160, y: 80, width: 1120, height: 740 }])
+  })
+
+  it('centers and clamps disconnected saved bounds on the primary display', () => {
+    const placement = source.slice(
+      source.indexOf('function boundsOnSomeDisplay('),
+      source.indexOf('/** Where an ADDITIONAL window opens:')
+    )
+    const primary = { id: 1, workArea: { x: 0, y: 0, width: 1440, height: 900 } }
+    const javascript = transpileModule(
+      `${placement}\nglobalThis.result = defaultBounds()`,
+      {}
+    ).outputText
+    const context = {
+      result: undefined,
+      store: { windowBounds: { x: 1600, y: 100, width: 1800, height: 1200 } },
+      screen: {
+        getAllDisplays: () => [primary],
+        getPrimaryDisplay: () => primary
+      }
+    }
+
+    runInNewContext(javascript, context)
+
+    expect(context.result).toEqual({ x: 40, y: 40, width: 1360, height: 820 })
+  })
+
   it('forwards autopilot-only roster changes without a fingerprint or state-change gate', () => {
     // Execute the entry point's real forwarding functions, without booting Crew
     // or constructing its PTYs, persistence, windows, or provider integrations.

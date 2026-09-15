@@ -171,23 +171,13 @@ function centeredOn(display: Display, width: number, height: number): Rectangle 
   }
 }
 
-/** Where the FIRST window opens. It always lands on the primary display — the
- * screen carrying the menu bar, i.e. the one the user is actually sitting in
- * front of. A frame remembered on another display (an external monitor that's
- * since been turned off, put to sleep, or is simply out of view) is the classic
- * "the app launched but there's no window" trap, so the exact remembered frame
- * is only restored when it's on the primary display; otherwise we re-center
- * there at the remembered size. Summoning (tray / activate) can still pull the
- * window to whichever display you're on via revealOnActiveDisplay. */
+/** Where the FIRST window opens: restore its remembered frame when that frame
+ * is still visible on any connected display, otherwise center it on primary. */
 function defaultBounds(): Rectangle {
   const primary = screen.getPrimaryDisplay()
   const saved = store.windowBounds
-  if (saved && boundsOnSomeDisplay(saved)) {
-    const savedDisplay = screen.getDisplayNearestPoint({ x: saved.x, y: saved.y })
-    if (savedDisplay.id === primary.id) return saved
-    return centeredOn(primary, saved.width, saved.height)
-  }
-  return centeredOn(primary, 1120, 740)
+  if (saved && boundsOnSomeDisplay(saved)) return saved
+  return centeredOn(primary, saved?.width ?? 1120, saved?.height ?? 740)
 }
 
 /** Where an ADDITIONAL window opens: a monitor that has no Crew window yet (so a
@@ -355,17 +345,12 @@ function openWindow(): void {
   createWindow({ intro: false, bounds: newWindowBounds() })
 }
 
-/** Bring a window onto the primary display — the menu-bar screen the user is in
- * front of — whenever Crew is summoned, so it can't stay stranded on an external
- * monitor that's off or out of view. Only moves the window when it isn't already
- * on the primary display (or is off-screen entirely); size is kept and clamped
- * to fit the work area. */
+/** Keep a summoned window where it is while its display remains connected. If
+ * its frame is off-screen, move it to the primary display at the same size. */
 function revealWindow(w: BrowserWindow): void {
-  const primary = screen.getPrimaryDisplay()
   const b = w.getBounds()
-  const onPrimary = screen.getDisplayNearestPoint({ x: b.x, y: b.y }).id === primary.id
-  if (!onPrimary || !boundsOnSomeDisplay(b)) {
-    w.setBounds(centeredOn(primary, b.width, b.height))
+  if (!boundsOnSomeDisplay(b)) {
+    w.setBounds(centeredOn(screen.getPrimaryDisplay(), b.width, b.height))
   }
 }
 
@@ -921,7 +906,7 @@ function registerIpc(): void {
 // One running Crew owns the tray, sessions and windows. A second launch (the
 // user re-opening the app, or a stale hidden instance being started again) must
 // not spin up a duplicate background process — it hands off to the primary,
-// which reveals its window on the display the user is actually looking at.
+// which reveals its window without moving it away from a connected display.
 if (!app.requestSingleInstanceLock()) {
   // A redundant second instance: hand off to the primary and exit silently
   // (no quit prompt — this process never showed a window).
