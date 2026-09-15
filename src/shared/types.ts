@@ -214,6 +214,26 @@ export interface SessionInfo {
   appUrl?: string
 }
 
+export type CustomViewMode = 'curated-only' | 'ranked-plus-all'
+
+export interface CustomViewItem {
+  sessionId: string
+  labelSnapshot: string
+}
+
+export interface CustomView {
+  id: string
+  name: string
+  mode: CustomViewMode
+  items: CustomViewItem[]
+  createdAt: number
+  updatedAt: number
+}
+
+export type SessionPresentation =
+  | { kind: 'builtin'; mode: 'none' | 'needs' | 'tag' | 'recent' }
+  | { kind: 'custom'; viewId: string }
+
 export interface CreateSessionRequest {
   presetId: string | null
   command: string
