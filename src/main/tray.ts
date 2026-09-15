@@ -113,6 +113,10 @@ export class CrewTray {
     this.notifications.acknowledge(id)
   }
 
+  suppress(id: string): void {
+    this.notifications.suppress(id)
+  }
+
   destroy(): void {
     this.destroyed = true
     this.notifications.dispose()

@@ -37,6 +37,16 @@ export class NotificationCoordinator {
     this.scheduleFlush()
   }
 
+  suppress(id: string): void {
+    if (this.destroyed) return
+    this.announced.add(id)
+    this.pending.delete(id)
+    if (this.pending.size === 0 && this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
+  }
+
   acknowledge(id: string): void {
     this.announced.delete(id)
     this.pending.delete(id)

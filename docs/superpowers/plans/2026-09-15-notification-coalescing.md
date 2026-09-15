@@ -4,7 +4,7 @@
 
 **Goal:** Prevent Crew notification stacks from repeatedly triggering macOS notification summarization while preserving useful needs-you alerts.
 
-**Architecture:** Add a dependency-injected notification coordinator that batches newly waiting sessions, deduplicates each session until real user input, and owns at most one active native notification. `CrewTray` adapts Electron notifications to the coordinator; the main IPC input boundary re-arms the matching session.
+**Architecture:** Add a dependency-injected notification coordinator that batches newly waiting sessions, deduplicates each session until real user input, treats foreground-suppressed waits as already announced, and owns at most one active native notification. `CrewTray` adapts Electron notifications to the coordinator; the main IPC input boundary re-arms the matching session.
 
 **Tech Stack:** TypeScript, Electron `Notification`, Vitest fake timers, existing `CrewTray` and main-process IPC.
 
@@ -14,6 +14,8 @@
 - Batch eligible sessions for exactly 1,000 ms.
 - Keep at most one Crew-owned native notification active.
 - Re-arm a session only after actual user input.
+- If any Crew `BrowserWindow` is focused, suppress the native alert entirely and
+  still consume that session's current wait cycle.
 - Existing delivered notifications may require manual clearing; never touch unrelated system notifications.
 - Do not bump the application version or publish a release.
 
@@ -27,7 +29,7 @@
 
 **Interfaces:**
 - Consumes: `SessionInfo` snapshots from `src/shared/types.ts`.
-- Produces: `NotificationCoordinator.queue()`, `acknowledge()`, `reconcile()`, and `dispose()`.
+- Produces: `NotificationCoordinator.queue()`, `suppress()`, `acknowledge()`, `reconcile()`, and `dispose()`.
 
 - [ ] **Step 1: Write the failing coordinator tests**
 
@@ -293,7 +295,7 @@ git commit -m "fix: coalesce needs-you notifications"
 
 **Interfaces:**
 - Consumes: `NotificationCoordinator` from Task 1.
-- Produces: `CrewTray.notify()`, `CrewTray.acknowledge()`, roster reconciliation, and clean teardown.
+- Produces: `CrewTray.notify()`, `CrewTray.suppress()`, `CrewTray.acknowledge()`, roster reconciliation, and clean teardown.
 
 - [ ] **Step 1: Add failing integration assertions**
 
@@ -317,6 +319,13 @@ it('uses the latest session snapshot in a pending batch', () => {
 
 Update `queue()` so a pending session refreshes its snapshot without creating a
 second entry.
+
+Add focused main-process coverage proving:
+
+- a focused Crew window calls `tray.suppress(session.id)` and does not call
+  `tray.notify(...)`, even when `notifyOnlyWhenUnfocused` is false;
+- an unfocused Crew window still calls `tray.notify(...)`;
+- the tray exposes `suppress(id)` and the transition handler uses it.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -360,6 +369,10 @@ acknowledge(id: string): void {
   this.notifications.acknowledge(id)
 }
 
+suppress(id: string): void {
+  this.notifications.suppress(id)
+}
+
 private showNativeNotification(request: NoticeRequest): { close: () => void } {
   const notification = new Notification({
     title: request.title,
@@ -388,6 +401,16 @@ ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) => {
   tray?.acknowledge(p.id)
   manager.input(p.id, p.data)
 })
+```
+
+Also, in the transition handler, suppress foreground delivery without queueing
+or deferring it:
+
+```ts
+if (BrowserWindow.getAllWindows().some((w) => w.isFocused())) {
+  tray?.suppress(session.id)
+  return
+}
 ```
 
 - [ ] **Step 4: Run notification and main reliability tests**

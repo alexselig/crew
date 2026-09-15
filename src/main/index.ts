@@ -608,7 +608,10 @@ function wireManager(): void {
     if (!NEEDS_YOU.includes(to) || NEEDS_YOU.includes(from)) return
     const s = store.settings
     if (!s.notifications) return
-    if (s.notifyOnlyWhenUnfocused && BrowserWindow.getAllWindows().some((w) => w.isFocused())) return
+    if (BrowserWindow.getAllWindows().some((w) => w.isFocused())) {
+      tray?.suppress(session.id)
+      return
+    }
     tray?.notify(session, !s.sound)
   })
 }

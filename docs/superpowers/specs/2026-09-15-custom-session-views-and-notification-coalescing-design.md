@@ -12,8 +12,9 @@ session in recent order.
 
 Crew will also stop native notification stacks from repeatedly triggering macOS
 Apple Intelligence summarization. Notifications will be batched, deduplicated by
-the user's unresolved interaction with each session, and limited to one delivered
-Crew notification at a time.
+the user's unresolved interaction with each session, limited to one delivered
+Crew notification at a time, and suppressed entirely while any Crew window is
+foregrounded.
 
 ## 2. Non-goals
 
@@ -216,9 +217,11 @@ The coordinator maintains:
 
 When Crew receives an eligible needs-you transition:
 
-1. Ignore it if that session is already announced or pending.
-2. Add the latest session snapshot to the pending batch.
-3. Start the one-second timer if it is not already running.
+1. If any Crew `BrowserWindow` is focused, mark the session announced for this
+   wait cycle without showing a native notification.
+2. Otherwise, ignore it if that session is already announced or pending.
+3. Add the latest session snapshot to the pending batch.
+4. Start the one-second timer if it is not already running.
 
 When the timer fires:
 
@@ -234,6 +237,10 @@ The main process calls `acknowledgeSession(id)` when the user sends input to tha
 session. This removes the ID from `announcedSessionIds`, allowing a later genuine
 needs-you episode to notify again. Detector output, silence, redraws, and state
 oscillation do not re-arm notifications.
+
+Foreground suppression does not create a delayed alert when Crew later loses
+focus. That wait cycle is treated as already announced and only re-arms after
+real `SESSION_INPUT`.
 
 Roster reconciliation removes pending/announced IDs for sessions no longer on
 the roster. Destroying the tray cancels the timer, clears state, closes the
@@ -281,6 +288,9 @@ Crew from continuing to create an unbounded stack.
 - Fifty transitions inside one batch produce one aggregate notification.
 - Repeated working/waiting oscillation for one session produces one notification
   until user input.
+- Foregrounded Crew windows suppress native notification delivery while still
+  consuming that session's current wait cycle.
+- Background delivery still produces the native alert normally.
 - User input re-arms only that session.
 - A later batch closes/replaces the previous notification.
 - Single-session notification retains jump behavior.

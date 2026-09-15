@@ -77,6 +77,24 @@ describe('NotificationCoordinator', () => {
     expect(requests[0]).toMatchObject({ title: 'Updated', silent: false })
   })
 
+  it('suppresses a foreground session until input acknowledges it', () => {
+    const shown: NoticeRequest[] = []
+    const coordinator = new NotificationCoordinator((request) => {
+      shown.push(request)
+      return { close: vi.fn() }
+    }, vi.fn(), vi.fn())
+
+    coordinator.suppress('a')
+    coordinator.queue(session('a'), false)
+    vi.advanceTimersByTime(1000)
+    expect(shown).toHaveLength(0)
+
+    coordinator.acknowledge('a')
+    coordinator.queue(session('a'), false)
+    vi.advanceTimersByTime(1000)
+    expect(shown).toHaveLength(1)
+  })
+
   it('closes the prior notice before showing a later batch', () => {
     const closes: Array<ReturnType<typeof vi.fn>> = []
     const coordinator = new NotificationCoordinator(() => {

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { runInNewContext } from 'node:vm'
 import { transpileModule } from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { IPC } from '../src/shared/types'
 
 const source = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
@@ -174,14 +174,68 @@ describe('main-process reliability integration', () => {
     expect(source).toContain('errorReporter.setReady()')
   })
 
+  it('suppresses native notifications while any Crew window is focused', () => {
+    const broadcast = source.slice(source.indexOf('function broadcast('), source.indexOf('function focusedWindow('))
+    const wireManager = source.slice(source.indexOf('function wireManager('), source.indexOf('function registerIpc('))
+    const manager = new EventEmitter()
+    const notify = vi.fn()
+    const suppress = vi.fn()
+    const javascript = transpileModule(`${broadcast}\n${wireManager}\nwireManager()`, {}).outputText
+
+    runInNewContext(javascript, {
+      manager,
+      BrowserWindow: { getAllWindows: () => [{ isFocused: () => true }] },
+      IPC,
+      NEEDS_YOU: ['WAITING_INPUT', 'WAITING_APPROVAL'],
+      isQuitting: false,
+      tray: { notify, suppress, update: vi.fn() },
+      assets: { sync: () => {} },
+      store: { settings: { notifications: true, notifyOnlyWhenUnfocused: false, sound: true } }
+    })
+
+    const session = { id: 'focused', state: 'WAITING_INPUT' }
+    manager.emit('transition', { session, from: 'WORKING', to: 'WAITING_INPUT' })
+
+    expect(suppress).toHaveBeenCalledWith('focused')
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('delivers native notifications while Crew is in the background', () => {
+    const broadcast = source.slice(source.indexOf('function broadcast('), source.indexOf('function focusedWindow('))
+    const wireManager = source.slice(source.indexOf('function wireManager('), source.indexOf('function registerIpc('))
+    const manager = new EventEmitter()
+    const notify = vi.fn()
+    const suppress = vi.fn()
+    const javascript = transpileModule(`${broadcast}\n${wireManager}\nwireManager()`, {}).outputText
+
+    runInNewContext(javascript, {
+      manager,
+      BrowserWindow: { getAllWindows: () => [{ isFocused: () => false }] },
+      IPC,
+      NEEDS_YOU: ['WAITING_INPUT', 'WAITING_APPROVAL'],
+      isQuitting: false,
+      tray: { notify, suppress, update: vi.fn() },
+      assets: { sync: () => {} },
+      store: { settings: { notifications: true, notifyOnlyWhenUnfocused: false, sound: false } }
+    })
+
+    const session = { id: 'background', state: 'WAITING_INPUT' }
+    manager.emit('transition', { session, from: 'WORKING', to: 'WAITING_INPUT' })
+
+    expect(notify).toHaveBeenCalledWith(session, true)
+    expect(suppress).not.toHaveBeenCalled()
+  })
+
   it('integrates queued notifications with tray display and actual session input', () => {
     expect(traySource).toContain('new NotificationCoordinator(')
     expect(traySource).toContain('this.notifications.queue(')
     expect(traySource).toContain('acknowledge(id: string): void')
+    expect(traySource).toContain('suppress(id: string): void')
     expect(traySource).toContain(
       'this.notifications.reconcile(new Set(active.map((session) => session.id)))'
     )
     expect(traySource).toContain('this.notifications.dispose()')
+    expect(source).toContain('tray?.suppress(session.id)')
     expect(source).toContain('tray?.acknowledge(p.id)')
   })
 
