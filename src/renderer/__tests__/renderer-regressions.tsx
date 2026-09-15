@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import '../styles.css'
 import { App } from '../App'
 import { GroupPicker } from '../components/GroupPicker'
 import { Roster } from '../components/Roster'
 import { GridView } from '../components/GridView'
 import { WorkspaceSessionCard } from '../components/WorkspaceSessionCard'
 import { TranscriptPane } from '../components/TranscriptPane'
+import { CustomViewOrganizer } from '../components/CustomViewOrganizer'
 import { getPooled, getTranscript, writeTo } from '../terminal/pool'
 import { setEngineMode } from '../terminal/facade'
 import { meterInput, pendingInputTokens } from '../input-meter'
@@ -51,6 +53,40 @@ const exitedRoster: SessionInfo[] = [
   { ...session('x1', ['a'], 1), status: 'exited', state: 'EXITED' as const, pid: null, exitCode: 0 },
   { ...session('x2', ['a'], 2), status: 'exited', state: 'EXITED' as const, pid: null, exitCode: 0 }
 ]
+const organizerRoster: SessionInfo[] = [
+  { ...session('a1', ['a'], 4), label: 'Alpha build', presetId: 'shell', tag: 'release' },
+  {
+    ...session('a2', ['a'], 3),
+    label: 'Beta review',
+    presetId: 'copilot-cli',
+    status: 'exited',
+    state: 'EXITED',
+    pid: null,
+    exitCode: 0
+  },
+  { ...session('b1', ['b'], 2), label: 'Gamma docs', presetId: null, tag: 'docs' },
+  { ...session('b2', ['b'], 1), label: 'Delta test', presetId: 'shell' }
+]
+const organizerView: CustomView = {
+  id: 'organizer-view',
+  name: 'Release queue',
+  mode: 'ranked-plus-all',
+  items: [
+    { sessionId: 'a2', labelSnapshot: 'Beta review' },
+    { sessionId: 'missing-session', labelSnapshot: 'Recovered deploy' },
+    { sessionId: 'b1', labelSnapshot: 'Gamma docs' }
+  ],
+  createdAt: 1,
+  updatedAt: 2
+}
+const organizerWorkspaces = [
+  { id: 'a', name: 'Application', order: 0, createdAt: 1 },
+  { id: 'b', name: 'Documentation', order: 1, createdAt: 1 }
+]
+const organizerPresets = [
+  { id: 'shell', name: 'Shell', command: '/bin/bash', args: [] },
+  { id: 'copilot-cli', name: 'Copilot CLI', command: 'copilot', args: [] }
+]
 const defaultSettings: Settings = {
   notifications: true,
   sound: true,
@@ -84,6 +120,10 @@ const controls: RendererRegressionControls = {
   reorders: [],
   createdCustomViews: 0,
   editedCustomViewIds: [],
+  customViewCreates: [],
+  customViewUpdates: [],
+  customViewDeletes: [],
+  failCustomViewWrites: false,
   paletteSessionItems: [],
   workspace: (_id: string | null) => {},
   pilot: (_value: boolean) => {},
@@ -98,7 +138,35 @@ Object.assign(window, {
   crew: {
     sendInput: (id: string, data: string) => controls.sent.push({ id, data }),
     openWindow: () => { controls.windows++ },
-    reorder: (ids: string[]) => { controls.reorders.push(ids) }
+    reorder: (ids: string[]) => { controls.reorders.push(ids) },
+    createCustomView: async (input: Parameters<typeof window.crew.createCustomView>[0]) => {
+      controls.customViewCreates.push(structuredClone(input))
+      if (controls.failCustomViewWrites) throw new Error('Synthetic create failure')
+      return [
+        ...customViews,
+        {
+          id: 'created-view',
+          ...input,
+          createdAt: 10,
+          updatedAt: 10
+        }
+      ]
+    },
+    updateCustomView: async (
+      id: string,
+      input: Parameters<typeof window.crew.updateCustomView>[1]
+    ) => {
+      controls.customViewUpdates.push({ id, input: structuredClone(input) })
+      if (controls.failCustomViewWrites) throw new Error('Synthetic update failure')
+      return customViews.map((view) =>
+        view.id === id ? { ...view, ...input, updatedAt: view.updatedAt + 1 } : view
+      )
+    },
+    deleteCustomView: async (id: string) => {
+      controls.customViewDeletes.push(id)
+      if (controls.failCustomViewWrites) throw new Error('Synthetic delete failure')
+      return customViews.filter((view) => view.id !== id)
+    }
   }
 })
 
@@ -323,11 +391,31 @@ function ComponentsFixture() {
   )
 }
 
+function OrganizerFixture({ view }: { view: CustomView | null }) {
+  const [closed, setClosed] = useState(false)
+  if (closed) return <div className="organizer-closed">Closed</div>
+  return (
+    <div className="app">
+      <CustomViewOrganizer
+        view={view}
+        roster={organizerRoster}
+        workspaces={organizerWorkspaces}
+        presets={organizerPresets}
+        onSaved={() => setClosed(true)}
+        onDeleted={() => setClosed(true)}
+        onClose={() => setClosed(true)}
+      />
+    </div>
+  )
+}
+
 createRoot(document.getElementById('root')!).render(
   kind === 'workspace' ? <WorkspaceFixture /> :
   kind === 'composer' ? <TranscriptPane sessionId="composer" enhanced /> :
   kind === 'picker' ? <PickerFixture /> :
   kind === 'hook-fallback' ? <HookFallbackFixture /> :
   kind === 'components' ? <ComponentsFixture /> :
+  kind === 'organizer-new' ? <OrganizerFixture view={null} /> :
+  kind === 'organizer-edit' ? <OrganizerFixture view={organizerView} /> :
   <App />
 )

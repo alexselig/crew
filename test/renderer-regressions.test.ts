@@ -281,6 +281,199 @@ describe('renderer state and input regressions (isolated browser)', () => {
     }
   })
 
+  it('keeps the ranked draft visible while search and filters narrow the full roster', async () => {
+    const page = await open('organizer-edit')
+    try {
+      expect(await page.locator('.custom-view-organizer__available-card').allTextContents()).toEqual([
+        expect.stringContaining('Alpha build'),
+        expect.stringContaining('Beta review'),
+        expect.stringContaining('Gamma docs'),
+        expect.stringContaining('Delta test')
+      ])
+      expect(await page.locator('.custom-view-organizer__ranked-card').allTextContents()).toEqual([
+        expect.stringContaining('Beta review'),
+        expect.stringContaining('Recovered deploy'),
+        expect.stringContaining('Gamma docs')
+      ])
+      expect(await page.locator('.custom-view-organizer__ranked-card').nth(1).textContent()).toContain(
+        'Unavailable'
+      )
+
+      await page.getByRole('searchbox', { name: 'Search all sessions' }).fill('Alpha')
+      expect(await page.locator('.custom-view-organizer__available-card').allTextContents()).toEqual([
+        expect.stringContaining('Alpha build')
+      ])
+      expect(await page.locator('.custom-view-organizer__ranked-card').count()).toBe(3)
+
+      await page.getByLabel('Workspace filter').selectOption('b')
+      expect(await page.locator('.custom-view-organizer__available-card').count()).toBe(0)
+      await page.getByRole('searchbox', { name: 'Search all sessions' }).fill('')
+      expect(await page.locator('.custom-view-organizer__available-card').allTextContents()).toEqual([
+        expect.stringContaining('Gamma docs'),
+        expect.stringContaining('Delta test')
+      ])
+      await page.getByLabel('Status filter').selectOption('active')
+      await page.getByLabel('Preset filter').selectOption('shell')
+      expect(await page.locator('.custom-view-organizer__available-card').allTextContents()).toEqual([
+        expect.stringContaining('Delta test')
+      ])
+      expect(await page.locator('.custom-view-organizer__ranked-card').count()).toBe(3)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('supports exact pointer insertion, right-column reorder, and drag-back removal', async () => {
+    const page = await open('organizer-new')
+    try {
+      await page
+        .locator('.custom-view-organizer__available-card[data-session-id="a1"] [draggable="true"]')
+        .dragTo(page.locator('.custom-view-organizer__drop-line[data-index="0"]'), { timeout: 1500 })
+      await page
+        .locator('.custom-view-organizer__available-card[data-session-id="a2"] [draggable="true"]')
+        .dragTo(page.locator('.custom-view-organizer__drop-line[data-index="0"]'), { timeout: 1500 })
+      expect(
+        await page.locator('.custom-view-organizer__ranked-card').evaluateAll((cards) =>
+          cards.map((card) => card.getAttribute('data-session-id'))
+        )
+      ).toEqual(['a2', 'a1'])
+
+      await page
+        .locator('.custom-view-organizer__ranked-card[data-session-id="a1"] [draggable="true"]')
+        .dragTo(page.locator('.custom-view-organizer__drop-line[data-index="0"]'), { timeout: 1500 })
+      expect(
+        await page.locator('.custom-view-organizer__ranked-card').evaluateAll((cards) =>
+          cards.map((card) => card.getAttribute('data-session-id'))
+        )
+      ).toEqual(['a1', 'a2'])
+
+      await page
+        .locator('.custom-view-organizer__ranked-card[data-session-id="a1"] [draggable="true"]')
+        .dragTo(page.locator('.custom-view-organizer__available-drop'), { timeout: 1500 })
+      expect(
+        await page.locator('.custom-view-organizer__ranked-card').evaluateAll((cards) =>
+          cards.map((card) => card.getAttribute('data-session-id'))
+        )
+      ).toEqual(['a2'])
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('provides keyboard equivalents for adding, removing, and ordering ranked sessions', async () => {
+    const page = await open('organizer-new')
+    try {
+      await page.getByRole('button', { name: 'Add Alpha build to ranked order' }).click()
+      await page.getByRole('button', { name: 'Add Beta review to ranked order' }).click()
+      await page.getByRole('button', { name: 'Add Gamma docs to ranked order' }).click()
+      await page.getByRole('button', { name: 'Move Gamma docs to first' }).click()
+      await page.getByRole('button', { name: 'Move Gamma docs down' }).click()
+      await page.getByRole('button', { name: 'Move Alpha build to last' }).click()
+      await page.getByRole('button', { name: 'Move Alpha build up' }).click()
+      expect(
+        await page.locator('.custom-view-organizer__ranked-card').evaluateAll((cards) =>
+          cards.map((card) => card.getAttribute('data-session-id'))
+        )
+      ).toEqual(['b1', 'a1', 'a2'])
+      await page.getByRole('button', { name: 'Remove Alpha build from ranked order' }).click()
+      expect(
+        await page.locator('.custom-view-organizer__ranked-card').evaluateAll((cards) =>
+          cards.map((card) => card.getAttribute('data-session-id'))
+        )
+      ).toEqual(['b1', 'a2'])
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('saves one complete replacement, while Cancel performs no write', async () => {
+    const editPage = await open('organizer-edit')
+    try {
+      await editPage.getByLabel('View name').fill('Ship queue')
+      await editPage.getByLabel('Display mode').selectOption('curated-only')
+      await editPage.getByRole('button', { name: 'Move Gamma docs to first' }).click()
+      await editPage.getByRole('button', { name: 'Save view' }).click()
+      await editPage.waitForSelector('.organizer-closed')
+      expect(await editPage.evaluate(() => globalThis.regression.customViewCreates)).toEqual([])
+      expect(await editPage.evaluate(() => globalThis.regression.customViewUpdates)).toEqual([
+        {
+          id: 'organizer-view',
+          input: {
+            name: 'Ship queue',
+            mode: 'curated-only',
+            items: [
+              { sessionId: 'b1', labelSnapshot: 'Gamma docs' },
+              { sessionId: 'a2', labelSnapshot: 'Beta review' },
+              { sessionId: 'missing-session', labelSnapshot: 'Recovered deploy' }
+            ]
+          }
+        }
+      ])
+    } finally {
+      await editPage.close()
+    }
+
+    const cancelPage = await open('organizer-new')
+    try {
+      await cancelPage.getByLabel('View name').fill('Discard me')
+      await cancelPage.getByRole('button', { name: 'Add Alpha build to ranked order' }).click()
+      await cancelPage.getByRole('button', { name: 'Cancel' }).click()
+      await cancelPage.waitForSelector('.organizer-closed')
+      expect(await cancelPage.evaluate(() => globalThis.regression.customViewCreates)).toEqual([])
+      expect(await cancelPage.evaluate(() => globalThis.regression.customViewUpdates)).toEqual([])
+      expect(await cancelPage.evaluate(() => globalThis.regression.customViewDeletes)).toEqual([])
+    } finally {
+      await cancelPage.close()
+    }
+  })
+
+  it('creates once, confirms deletion, and leaves failed drafts open with an alert', async () => {
+    const createPage = await open('organizer-new')
+    try {
+      await createPage.getByLabel('View name').fill('Fresh queue')
+      await createPage.getByRole('button', { name: 'Add Delta test to ranked order' }).click()
+      await createPage.getByRole('button', { name: 'Save view' }).click()
+      await createPage.waitForSelector('.organizer-closed')
+      expect(await createPage.evaluate(() => globalThis.regression.customViewCreates)).toEqual([
+        {
+          name: 'Fresh queue',
+          mode: 'ranked-plus-all',
+          items: [{ sessionId: 'b2', labelSnapshot: 'Delta test' }]
+        }
+      ])
+    } finally {
+      await createPage.close()
+    }
+
+    const deletePage = await open('organizer-edit')
+    try {
+      deletePage.once('dialog', (dialog) => void dialog.dismiss())
+      await deletePage.getByRole('button', { name: 'Delete view' }).click()
+      expect(await deletePage.evaluate(() => globalThis.regression.customViewDeletes)).toEqual([])
+      deletePage.once('dialog', (dialog) => void dialog.accept())
+      await deletePage.getByRole('button', { name: 'Delete view' }).click()
+      await deletePage.waitForSelector('.organizer-closed')
+      expect(await deletePage.evaluate(() => globalThis.regression.customViewDeletes)).toEqual([
+        'organizer-view'
+      ])
+    } finally {
+      await deletePage.close()
+    }
+
+    const errorPage = await open('organizer-edit')
+    try {
+      await errorPage.evaluate(() => {
+        globalThis.regression.failCustomViewWrites = true
+      })
+      await errorPage.getByRole('button', { name: 'Save view' }).click()
+      expect(await errorPage.getByRole('alert').textContent()).toContain('Synthetic update failure')
+      expect(await errorPage.getByLabel('View name').inputValue()).toBe('Release queue')
+      expect(await errorPage.locator('.custom-view-organizer').count()).toBe(1)
+    } finally {
+      await errorPage.close()
+    }
+  })
+
   it.each(['Enter', 'button'])('records composer %s submissions once and attributes tool results', async (submit) => {
     const page = await open('composer')
     try {

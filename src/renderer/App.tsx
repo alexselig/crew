@@ -13,6 +13,7 @@ import { WorkspaceManager } from './components/WorkspaceManager'
 import { AgentInvoke } from './components/AgentInvoke'
 import { AgentEditor } from './components/AgentEditor'
 import { AgentRunPanel } from './components/AgentRunPanel'
+import { CustomViewOrganizer } from './components/CustomViewOrganizer'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { UpdateBanner } from './components/UpdateBanner'
 import { TitleSequence } from './components/TitleSequence'
@@ -58,6 +59,7 @@ export function App(): JSX.Element {
     showIntro ||
     c.showNew ||
     c.showWorkspaces ||
+    c.showCustomViewEditor !== null ||
     invokeAgentId !== null ||
     c.editingAgent !== null
   // Roster filtered to the active workspace (null = All). Non-destructive: hidden
@@ -81,6 +83,10 @@ export function App(): JSX.Element {
   }, [visibleRoster, c.presentation, c.customViews])
   const builtinPresentation: SessionPresentation =
     c.presentation.kind === 'builtin' ? c.presentation : { kind: 'builtin', mode: 'none' }
+  const editingCustomView =
+    c.showCustomViewEditor && c.showCustomViewEditor !== 'new'
+      ? c.customViews.find((view) => view.id === c.showCustomViewEditor) ?? null
+      : null
   const activeRoster = presentedRoster
   const selected = activeRoster.find((s) => s.id === c.selectedId) ?? null
   const usedCharacterIds = c.roster
@@ -483,6 +489,32 @@ export function App(): JSX.Element {
           workspaces={c.workspaces}
           onOpenSession={(id) => c.setSelectedId(id)}
           onClose={() => c.setShowWorkspaces(false)}
+        />
+      )}
+
+      {c.showCustomViewEditor !== null && (
+        <CustomViewOrganizer
+          view={editingCustomView}
+          roster={c.roster}
+          workspaces={c.workspaces}
+          presets={c.presets}
+          onSaved={(views) => {
+            const previousIds = new Set(c.customViews.map((view) => view.id))
+            const saved = editingCustomView
+              ? views.find((view) => view.id === editingCustomView.id)
+              : views.find((view) => !previousIds.has(view.id))
+            if (saved) c.setPresentation({ kind: 'custom', viewId: saved.id })
+            c.setShowCustomViewEditor(null)
+          }}
+          onDeleted={(views) => {
+            const activeViewId =
+              c.presentation.kind === 'custom' ? c.presentation.viewId : null
+            if (activeViewId && !views.some((view) => view.id === activeViewId)) {
+              c.setPresentation({ kind: 'builtin', mode: 'recent' })
+            }
+            c.setShowCustomViewEditor(null)
+          }}
+          onClose={() => c.setShowCustomViewEditor(null)}
         />
       )}
 
