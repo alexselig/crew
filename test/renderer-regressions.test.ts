@@ -540,6 +540,11 @@ describe('renderer state and input regressions (isolated browser)', () => {
       await page.keyboard.press('Enter')
       await page.getByRole('button', { name: 'Move Gamma docs down' }).focus()
       await page.keyboard.press('Space')
+      expect(
+        await page.locator('.custom-view-organizer__ranked-card').evaluateAll((cards) =>
+          cards.map((card) => card.getAttribute('data-session-id'))
+        )
+      ).toEqual(['a1', 'b1', 'a2'])
       await page.getByRole('button', { name: 'Move Alpha build to last' }).focus()
       await page.keyboard.press('Enter')
       await page.getByRole('button', { name: 'Move Alpha build up' }).focus()
