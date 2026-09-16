@@ -5,6 +5,12 @@ running and supervising multiple AI CLI agent sessions at a glance.
 
 ## Unreleased
 
+### Added
+- **Named Custom Views organize sessions into a personal ranked queue.** Search
+  the full roster in a two-column organizer, drag sessions directly into rank,
+  and choose whether a view shows only ranked work or ranked work followed by
+  every remaining session.
+
 ### Fixed
 - **Needs-you alerts no longer build unbounded notification stacks.** Crew
   batches sessions that finish together, announces each session once until you

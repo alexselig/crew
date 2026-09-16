@@ -53,6 +53,10 @@ releases are signed + notarized.
   changes; existing conversations are not switched back to their launch model.
 - New sessions use the selected session's working directory (or home when none
   is selected), with the directory visible beside the agent/model controls.
+- **Named Custom Views** organize sessions into a personal ranked queue. Search
+  the full roster in a two-column organizer, drag sessions directly into rank,
+  and choose whether a view shows only ranked work or ranked work followed by
+  every remaining session.
 - Embedded **xterm.js** terminal per session — full interaction in-app,
   scrollback preserved across tab switches.
 - **Beta: Enhanced Terminal Interface** (Settings, off by default) — an
@@ -191,10 +195,10 @@ npm run build            # production build
 npm run test:e2e         # Playwright end-to-end against the built app
 ```
 
-The E2E harness (`test/e2e/crew.e2e.mjs`) launches the real app and drives every
-button — create a session, type into the terminal, rename, change character,
-detect the waiting transition, restart, close, and the error path — asserting
-zero renderer/main-process errors.
+The focused E2E harness (`test/e2e/crew.e2e.mjs`) runs an isolated browser
+integration for Custom Views: it creates a `Release queue`, drags sessions into
+rank, verifies roster/grid order, reloads to confirm persistence, removes a
+ranked session, deletes the active view, and asserts zero renderer errors.
 
 ## Status
 
