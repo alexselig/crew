@@ -11,7 +11,7 @@ import { dirname, join, basename } from 'node:path'
 import type { Agent, CustomView, CustomViewItem, CustomViewMode, Settings, SessionSet } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
-import { atomicWriteFile } from './atomic-file'
+import { AtomicWriteError, atomicWriteFile, syncParentDirectory } from './atomic-file'
 
 export interface CharacterAssignment {
   characterId: string
@@ -394,7 +394,8 @@ export class Store {
   /** Synchronous only. Nested batches share one snapshot and one publication.
    * Any callback throw aborts the outer batch, even if an inner throw is caught.
    * A returned value signals callback completion, not durability: save failures
-   * still report through onError and remain dirty for the next save/batch. */
+   * still report through onError and remain dirty for the next save/batch.
+   * Strict Custom View mutations reject before execution inside a batch. */
   batchUpdates<T>(fn: () => T): T {
     if (this.batch) {
       try {
@@ -521,8 +522,8 @@ export class Store {
     if (this.batch) return
     if (this.saveBlocked) {
       const error = new Error(`failed to persist store: ${this.saveBlocked}`)
-      this.report(error.message)
       if (throwOnFailure) throw error
+      this.report(error.message)
       return
     }
     try {
@@ -536,24 +537,97 @@ export class Store {
       atomicWriteFile(this.path, JSON.stringify(this.data, null, 2))
       this.dirty = false
     } catch (err) {
+      if (throwOnFailure) throw err
       // Non-fatal: persistence is best-effort. Losing labels between runs is
       // preferable to crashing the app on a read-only disk — but surface it.
       this.report('failed to persist store; changes remain in memory', err)
-      if (throwOnFailure) throw err
     }
   }
 
   private mutateCustomViewsDurably<T>(mutate: () => T): T {
+    if (this.batch) {
+      throw new Error('strict custom view mutations cannot run inside batchUpdates')
+    }
     const previous = structuredClone(this.data.customViews)
     const wasDirty = this.dirty
+    let previousPrimary: Buffer | undefined
     try {
-      const result = mutate()
+      previousPrimary = readFileSync(this.path)
+    } catch (error) {
+      if (!isMissing(error)) {
+        this.report('failed to prepare custom view mutation; no changes were applied', error)
+        throw error
+      }
+    }
+    let result: T
+    try {
+      result = mutate()
       this.persist(true)
       return result
     } catch (error) {
+      const published = error instanceof AtomicWriteError &&
+        error.path === this.path &&
+        error.published
+      if (published) {
+        const committed = Buffer.from(JSON.stringify(this.data, null, 2))
+        try {
+          this.restorePrimary(previousPrimary)
+        } catch (rollbackError) {
+          const recovery = this.publishPrimary(committed)
+          if (recovery !== 'failed') {
+            this.dirty = recovery === 'uncertain'
+            this.report(
+              recovery === 'uncertain'
+                ? 'custom view mutation remains committed in memory and on disk; directory durability is uncertain'
+                : 'custom view mutation remains committed because rollback failed; the new store was republished durably',
+              rollbackError
+            )
+            return result!
+          }
+          this.data.customViews = previous
+          this.dirty = wasDirty
+          this.report(
+            'custom view mutation was rolled back in memory and on disk, but rollback durability could not be confirmed',
+            rollbackError
+          )
+          throw error
+        }
+      }
       this.data.customViews = previous
       this.dirty = wasDirty
+      this.report(
+        published
+          ? 'failed to confirm custom view store durability after publication; mutation rolled back'
+          : 'failed to persist custom view store before publication; mutation rolled back',
+        error
+      )
       throw error
+    }
+  }
+
+  private restorePrimary(previous: Buffer | undefined): void {
+    if (previous !== undefined) {
+      atomicWriteFile(this.path, previous)
+      return
+    }
+    try {
+      unlinkSync(this.path)
+    } catch (error) {
+      if (!isMissing(error)) throw error
+    }
+    syncParentDirectory(this.path)
+  }
+
+  private publishPrimary(contents: Buffer): 'durable' | 'uncertain' | 'failed' {
+    try {
+      atomicWriteFile(this.path, contents)
+      return 'durable'
+    } catch {
+      try {
+        return readFileSync(this.path).equals(contents) ? 'uncertain' : 'failed'
+      } catch {
+        return 'failed'
+      }
     }
   }
 

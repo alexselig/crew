@@ -2,6 +2,18 @@ import { closeSync, fsyncSync, openSync, renameSync, unlinkSync, writeFileSync }
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 
+export class AtomicWriteError extends Error {
+  readonly path: string
+  readonly published: boolean
+
+  constructor(path: string, published: boolean, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause })
+    this.name = 'AtomicWriteError'
+    this.path = path
+    this.published = published
+  }
+}
+
 /** Node does not expose directory flushing on Windows. Unix errors propagate so
  * callers never acknowledge a rename/new file before its directory is flushed. */
 export function syncParentDirectory(path: string): void {
@@ -20,6 +32,7 @@ export function atomicWriteFile(path: string, contents: string | Buffer): void {
   const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`)
   let fd: number | undefined
   let created = false
+  let published = false
   try {
     fd = openSync(temporary, 'wx', 0o600)
     created = true
@@ -29,7 +42,10 @@ export function atomicWriteFile(path: string, contents: string | Buffer): void {
     fd = undefined
     renameSync(temporary, path)
     created = false
+    published = true
     syncParentDirectory(path)
+  } catch (error) {
+    throw new AtomicWriteError(path, published, error)
   } finally {
     if (fd !== undefined) {
       try {

@@ -28,6 +28,15 @@ const session = {
   cwd: '/tmp', label: 'Important session', characterId: 'lion'
 }
 
+function captureError(fn: () => void): unknown {
+  try {
+    fn()
+  } catch (error) {
+    return error
+  }
+  throw new Error('expected operation to throw')
+}
+
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(fs.openSync).mockImplementation(actualFs.openSync)
@@ -89,7 +98,14 @@ describe('atomic publication', () => {
     } else {
       vi.mocked(fs.renameSync).mockImplementationOnce(fail)
     }
-    expect(() => atomicWriteFile(path, 'replacement')).toThrow(`${stage} failed`)
+    const error = captureError(() => atomicWriteFile(path, 'replacement'))
+    expect(error).toMatchObject({
+      name: 'AtomicWriteError',
+      path,
+      published: false,
+      cause: expect.any(Error)
+    })
+    expect(error).toHaveProperty('message', `${stage} failed`)
     expect(fs.readFileSync(path, 'utf8')).toBe('last good')
     expect(fs.readdirSync(dir)).toEqual(['store.json'])
   })
