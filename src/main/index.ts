@@ -8,9 +8,9 @@ import { homedir, tmpdir } from 'node:os'
 import { accessSync, constants, writeFileSync, appendFileSync } from 'node:fs'
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
-import { IPC, NEEDS_YOU } from '../shared/types'
-import type { Agent, AgentRun, CreateSessionRequest, CustomView, Settings } from '../shared/types'
-import type { AgentStatus, CustomViewInput } from '../shared/api'
+import { IPC } from '../shared/types'
+import type { Agent, AgentRun, CreateSessionRequest, Settings } from '../shared/types'
+import type { AgentStatus } from '../shared/api'
 import type { TrackerSessionInput } from '../shared/tracker'
 import { SessionManager } from './session-manager'
 import { ensureCrewHookDir } from './crew-hook'
@@ -47,6 +47,8 @@ import {
 import { CHARACTERS } from './characters'
 import { listCopilotModels } from './copilot-models'
 import { BoundedErrorReporter, createShellActions, installPreviewBoundary } from './main-boundaries'
+import { registerCustomViewIpc } from './custom-view-ipc'
+import { handleNeedsYouTransition } from './notification-integration'
 
 let tray: CrewTray | null = null
 let manager: SessionManager
@@ -134,6 +136,10 @@ function broadcast(channel: string, payload?: unknown): void {
 /** The window the user is most likely acting on: the focused one, else any. */
 function focusedWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
+}
+
+function isCrewForeground(): boolean {
+  return BrowserWindow.getAllWindows().some((window) => window.isFocused())
 }
 
 function debounce(fn: () => void, ms: number): () => void {
@@ -602,16 +608,12 @@ function wireManager(): void {
   })
 
   manager.on('transition', ({ session, from, to }) => {
-    // Notify only when a session ENTERS a needs-you state from a non-needs-you
-    // one (covers WORKING→WAITING and IDLE→WAITING without double-firing).
-    if (!NEEDS_YOU.includes(to) || NEEDS_YOU.includes(from)) return
-    const s = store.settings
-    if (!s.notifications) return
-    if (BrowserWindow.getAllWindows().some((w) => w.isFocused())) {
-      tray?.suppress(session.id)
-      return
-    }
-    tray?.notify(session, !s.sound)
+    handleNeedsYouTransition(
+      { session, from, to },
+      store.settings,
+      tray,
+      isCrewForeground
+    )
   })
 }
 
@@ -795,24 +797,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.TRACKER_STATUS, () => serverStatus())
 
   // ── Custom views ──
-  const pushCustomViews = (): CustomView[] => {
-    const list = store.getCustomViews()
-    broadcast(IPC.EVT_CUSTOM_VIEWS, list)
-    return list
-  }
-  ipcMain.handle(IPC.CUSTOM_VIEWS_GET, () => store.getCustomViews())
-  ipcMain.handle(IPC.CUSTOM_VIEW_CREATE, (_e, input: CustomViewInput) => {
-    store.createCustomView(input)
-    return pushCustomViews()
-  })
-  ipcMain.handle(IPC.CUSTOM_VIEW_UPDATE, (_e, p: { id: string; input: CustomViewInput }) => {
-    store.updateCustomView(p.id, p.input)
-    return pushCustomViews()
-  })
-  ipcMain.handle(IPC.CUSTOM_VIEW_DELETE, (_e, id: string) => {
-    store.deleteCustomView(id)
-    return pushCustomViews()
-  })
+  registerCustomViewIpc(ipcMain, store, broadcast)
 
   // ── First-class workspaces (Workspace Manager) ──
   const pushWorkspaces = (): Workspace[] => {
@@ -979,6 +964,7 @@ if (!app.requestSingleInstanceLock()) {
     onNewWindow: openWindow,
     onNewSession: openNewSession,
     onJump: jumpTo,
+    isForeground: isCrewForeground,
     onQuit: () => {
       void confirmQuit()
     }

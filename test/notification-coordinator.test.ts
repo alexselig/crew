@@ -95,6 +95,35 @@ describe('NotificationCoordinator', () => {
     expect(shown).toHaveLength(1)
   })
 
+  it('rechecks foreground state at flush and consumes the wait without showing', () => {
+    const shown: NoticeRequest[] = []
+    let foreground = false
+    const coordinator = new NotificationCoordinator(
+      (request) => {
+        shown.push(request)
+        return { close: vi.fn() }
+      },
+      vi.fn(),
+      vi.fn(),
+      () => foreground
+    )
+
+    coordinator.queue(session('a'), false)
+    foreground = true
+    vi.advanceTimersByTime(1000)
+    expect(shown).toEqual([])
+
+    foreground = false
+    coordinator.queue(session('a'), false)
+    vi.advanceTimersByTime(1000)
+    expect(shown).toEqual([])
+
+    coordinator.acknowledge('a')
+    coordinator.queue(session('a'), false)
+    vi.advanceTimersByTime(1000)
+    expect(shown).toHaveLength(1)
+  })
+
   it('closes the prior notice before showing a later batch', () => {
     const closes: Array<ReturnType<typeof vi.fn>> = []
     const coordinator = new NotificationCoordinator(() => {
@@ -151,6 +180,85 @@ describe('NotificationCoordinator', () => {
     vi.advanceTimersByTime(1000)
     requests[1].onClick()
     expect(reveal).toHaveBeenCalledOnce()
+  })
+
+  it('acknowledge closes and invalidates an active single-session callback', () => {
+    const requests: NoticeRequest[] = []
+    const close = vi.fn()
+    const jump = vi.fn()
+    const coordinator = new NotificationCoordinator((request) => {
+      requests.push(request)
+      return { close }
+    }, jump, vi.fn())
+
+    coordinator.queue(session('a'), false)
+    vi.advanceTimersByTime(1000)
+    coordinator.acknowledge('a')
+    requests[0].onClick()
+
+    expect(close).toHaveBeenCalledOnce()
+    expect(jump).not.toHaveBeenCalled()
+  })
+
+  it('reconcile closes and invalidates an aggregate containing a removed session', () => {
+    const requests: NoticeRequest[] = []
+    const close = vi.fn()
+    const reveal = vi.fn()
+    const coordinator = new NotificationCoordinator((request) => {
+      requests.push(request)
+      return { close }
+    }, vi.fn(), reveal)
+
+    coordinator.queue(session('a'), false)
+    coordinator.queue(session('b'), false)
+    vi.advanceTimersByTime(1000)
+    coordinator.reconcile(new Set(['a']))
+    requests[0].onClick()
+
+    expect(close).toHaveBeenCalledOnce()
+    expect(reveal).not.toHaveBeenCalled()
+  })
+
+  it('supersedes stale aggregate clicks even when replacement close fails', () => {
+    const requests: NoticeRequest[] = []
+    const reveal = vi.fn()
+    const jump = vi.fn()
+    const firstClose = vi.fn(() => {
+      throw new Error('close failed')
+    })
+    const coordinator = new NotificationCoordinator((request) => {
+      requests.push(request)
+      return { close: requests.length === 1 ? firstClose : vi.fn() }
+    }, jump, reveal)
+
+    coordinator.queue(session('a'), false)
+    coordinator.queue(session('b'), false)
+    vi.advanceTimersByTime(1000)
+    coordinator.queue(session('c'), false)
+    vi.advanceTimersByTime(1000)
+
+    requests[0].onClick()
+    requests[1].onClick()
+    expect(firstClose).toHaveBeenCalledOnce()
+    expect(reveal).not.toHaveBeenCalled()
+    expect(jump).toHaveBeenCalledWith('c')
+  })
+
+  it('dispose invalidates an active aggregate callback', () => {
+    const requests: NoticeRequest[] = []
+    const reveal = vi.fn()
+    const coordinator = new NotificationCoordinator((request) => {
+      requests.push(request)
+      return { close: vi.fn() }
+    }, vi.fn(), reveal)
+
+    coordinator.queue(session('a'), false)
+    coordinator.queue(session('b'), false)
+    vi.advanceTimersByTime(1000)
+    coordinator.dispose()
+    requests[0].onClick()
+
+    expect(reveal).not.toHaveBeenCalled()
   })
 
   it('reconcile and dispose cancel stale pending work', () => {

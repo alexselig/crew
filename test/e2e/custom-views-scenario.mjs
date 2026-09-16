@@ -37,6 +37,10 @@ async function rosterIds(page) {
   return page.evaluate(async () => (await window.crew.getRoster()).map((session) => session.id))
 }
 
+export function exactRelaunchStateMatches(checked, actualOrder, expectedOrder) {
+  return checked === 'true' && JSON.stringify(actualOrder) === JSON.stringify(expectedOrder)
+}
+
 export async function runCustomViewsRelaunchScenario({ page, preparePage, relaunchPage }) {
   const checks = []
   if (preparePage) page = await preparePage(page)
@@ -113,16 +117,17 @@ export async function runCustomViewsRelaunchScenario({ page, preparePage, relaun
   page = await relaunchPage(page)
 
   await waitUntil(async () => (await page.evaluate(() => window.crew.getRoster().then((roster) => roster.length))) === 3, 'three sessions restored after relaunch')
-  const reopenedOrder = await sessionOrder(page, '.roster__list .card')
-  if (JSON.stringify(reopenedOrder) !== JSON.stringify(expectedQueueOrder)) {
-    throw new Error(`restored roster order mismatch: ${JSON.stringify(reopenedOrder)}`)
-  }
-
   await page.locator('.roster__toolbar [title="Choose session view"]').click()
   const persistedView = page.getByRole('menuitemradio', { name: /Release queue/ })
-  if ((await persistedView.getAttribute('aria-checked')) !== 'true') {
-    throw new Error('Release queue was not selected after relaunch')
-  }
+  await waitUntil(
+    async () =>
+      exactRelaunchStateMatches(
+        await persistedView.getAttribute('aria-checked'),
+        await sessionOrder(page, '.roster__list .card'),
+        expectedQueueOrder
+      ),
+    'Release queue checked with exact restored roster order'
+  )
   checks.push('custom-view selection and order persist across relaunch')
 
   await page.getByRole('button', { name: 'Edit view' }).click()

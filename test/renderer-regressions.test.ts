@@ -10,8 +10,10 @@ let browser: Browser
 let origin: string
 const artifacts = resolve(`.renderer-regressions-${process.pid}`)
 const fixture = '/src/renderer/__tests__/renderer-regressions.tsx'
+const skipBrowserTests = process.env.CREW_SKIP_BROWSER_TESTS === '1'
 
 beforeAll(async () => {
+  if (skipBrowserTests) return
   mkdirSync(artifacts, { recursive: true })
   const config: InlineConfig = {
     configFile: false,
@@ -154,6 +156,7 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
+  if (skipBrowserTests) return
   await browser?.close()
   await server?.close()
   rmSync(artifacts, { recursive: true, force: true })
@@ -182,7 +185,7 @@ async function open(kind: string) {
   return page
 }
 
-describe('renderer state and input regressions (isolated browser)', () => {
+describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolated browser)', () => {
   it('forwards workspace-card autopilot false → true → false to the actual Character', async () => {
     const page = await open('workspace')
     try {

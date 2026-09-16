@@ -516,11 +516,13 @@ export class Store {
     return { data, migrated }
   }
 
-  private persist(): void {
+  private persist(throwOnFailure = false): void {
     this.dirty = true
     if (this.batch) return
     if (this.saveBlocked) {
-      this.report(`failed to persist store: ${this.saveBlocked}`)
+      const error = new Error(`failed to persist store: ${this.saveBlocked}`)
+      this.report(error.message)
+      if (throwOnFailure) throw error
       return
     }
     try {
@@ -537,6 +539,21 @@ export class Store {
       // Non-fatal: persistence is best-effort. Losing labels between runs is
       // preferable to crashing the app on a read-only disk — but surface it.
       this.report('failed to persist store; changes remain in memory', err)
+      if (throwOnFailure) throw err
+    }
+  }
+
+  private mutateCustomViewsDurably<T>(mutate: () => T): T {
+    const previous = structuredClone(this.data.customViews)
+    const wasDirty = this.dirty
+    try {
+      const result = mutate()
+      this.persist(true)
+      return result
+    } catch (error) {
+      this.data.customViews = previous
+      this.dirty = wasDirty
+      throw error
     }
   }
 
@@ -729,8 +746,9 @@ export class Store {
       createdAt: now,
       updatedAt: now
     }
-    this.data.customViews = [...this.data.customViews, view]
-    this.persist()
+    this.mutateCustomViewsDurably(() => {
+      this.data.customViews = [...this.data.customViews, view]
+    })
     return structuredClone(view)
   }
 
@@ -745,8 +763,9 @@ export class Store {
       items: normalized.items,
       updatedAt: Date.now()
     }
-    this.data.customViews = this.data.customViews.map((view) => view.id === id ? updated : view)
-    this.persist()
+    this.mutateCustomViewsDurably(() => {
+      this.data.customViews = this.data.customViews.map((view) => view.id === id ? updated : view)
+    })
     return structuredClone(updated)
   }
 
@@ -754,8 +773,9 @@ export class Store {
     if (!this.data.customViews.some((view) => view.id === id)) {
       throw new Error(`custom view not found: ${id}`)
     }
-    this.data.customViews = this.data.customViews.filter((view) => view.id !== id)
-    this.persist()
+    this.mutateCustomViewsDurably(() => {
+      this.data.customViews = this.data.customViews.filter((view) => view.id !== id)
+    })
     return structuredClone(this.data.customViews)
   }
 

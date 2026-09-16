@@ -15,6 +15,7 @@ import { writeTo, disposePooled, setEngineMode } from './terminal/facade'
 import { clearInputMeter } from './input-meter'
 import { windowSlot, readViewPref, writeViewPref } from './window-scope'
 import { nextSelection } from '../shared/selection'
+import { navigateToSession as navigateToVisibleSession } from './session-navigation'
 
 export type ViewMode = 'single' | 'grid'
 /** Grid density (all horizontal-scroll): `two` = 1 row (2 tiles), `four` = 2 rows
@@ -99,6 +100,8 @@ export interface CrewState {
   setSelectedId: (id: string | null) => void
   /** Select a session by user action, restoring (un-minimizing) it if hidden. */
   selectSession: (id: string) => void
+  /** Reveal a session across workspace/presentation filters, then select it. */
+  navigateToSession: (id: string) => void
   showNew: boolean
   setShowNew: (v: boolean) => void
   viewMode: ViewMode
@@ -224,6 +227,8 @@ export function useCrew(): CrewState {
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [editingAgent, setEditingAgent] = useState<string | null | 'new'>(null)
   const knownIds = useRef<Set<string>>(new Set())
+  const navigationState = useRef({ roster, activeWorkspace, presentation, customViews })
+  navigationState.current = { roster, activeWorkspace, presentation, customViews }
 
   const setActiveWorkspace = (name: string | null): void => {
     setActiveWorkspaceState(name)
@@ -317,6 +322,12 @@ export function useCrew(): CrewState {
     })
     setSelectedId(id)
   }
+  const navigateToSession = (id: string): void => {
+    navigateToVisibleSession(
+      { id, ...navigationState.current },
+      { setActiveWorkspace, setPresentation, selectSession, setShowNew }
+    )
+  }
   const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]): void => {
     void window.crew.updateSettings({ [key]: value } as Partial<Settings>).then(setSettings)
   }
@@ -350,10 +361,7 @@ export function useCrew(): CrewState {
       )
     )
     const offOutput = window.crew.onOutput((e) => writeTo(e.id, e.data))
-    const offJump = window.crew.onJump((id) => {
-      setSelectedId(id)
-      setShowNew(false)
-    })
+    const offJump = window.crew.onJump(navigateToSession)
     const offNew = window.crew.onNew(() => setShowNew(true))
     const offWorkspace = window.crew.onWorkspace((name) => setActiveWorkspace(name))
     const offWorkspaces = window.crew.onWorkspaces((w) => setWorkspaces(w))
@@ -423,6 +431,7 @@ export function useCrew(): CrewState {
     selectedId,
     setSelectedId,
     selectSession,
+    navigateToSession,
     showNew,
     setShowNew,
     viewMode,

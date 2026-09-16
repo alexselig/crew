@@ -236,6 +236,10 @@ export function useCrew(): CrewState {
       controls.selected.push(id)
       setSelectedId(id)
     },
+    navigateToSession: (id: string) => {
+      controls.selected.push(id)
+      setSelectedId(id)
+    },
     setViewMode: (mode: string) => {
       controls.modes.push(mode)
       setViewMode(mode as 'single' | 'grid')

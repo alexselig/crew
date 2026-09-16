@@ -4,10 +4,35 @@ import { runInNewContext } from 'node:vm'
 import { transpileModule } from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC } from '../src/shared/types'
+import type { SessionInfo } from '../src/shared/types'
+import { handleNeedsYouTransition } from '../src/main/notification-integration'
 
 const source = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
 const traySource = readFileSync(new URL('../src/main/tray.ts', import.meta.url), 'utf8')
 const hooksSource = readFileSync(new URL('../src/renderer/hooks.ts', import.meta.url), 'utf8')
+
+function notificationSession(id: string): SessionInfo {
+  return {
+    id,
+    label: id,
+    characterId: 'fox',
+    color: '#ff5a5a',
+    presetId: 'copilot-cli',
+    command: 'copilot',
+    args: [],
+    cwd: '/tmp',
+    state: 'WAITING_INPUT',
+    status: 'active',
+    pid: 1,
+    exitCode: null,
+    costUsd: 0,
+    creditsUsed: 0,
+    autopilot: false,
+    workspaceIds: [],
+    createdAt: 1,
+    stateChangedAt: 1
+  }
+}
 
 describe('main-process reliability integration', () => {
   it('keeps a visible window on its connected secondary display when summoned', () => {
@@ -176,52 +201,30 @@ describe('main-process reliability integration', () => {
   })
 
   it('suppresses native notifications while any Crew window is focused', () => {
-    const broadcast = source.slice(source.indexOf('function broadcast('), source.indexOf('function focusedWindow('))
-    const wireManager = source.slice(source.indexOf('function wireManager('), source.indexOf('function registerIpc('))
-    const manager = new EventEmitter()
     const notify = vi.fn()
     const suppress = vi.fn()
-    const javascript = transpileModule(`${broadcast}\n${wireManager}\nwireManager()`, {}).outputText
-
-    runInNewContext(javascript, {
-      manager,
-      BrowserWindow: { getAllWindows: () => [{ isFocused: () => true }] },
-      IPC,
-      NEEDS_YOU: ['WAITING_INPUT', 'WAITING_APPROVAL'],
-      isQuitting: false,
-      tray: { notify, suppress, update: vi.fn() },
-      assets: { sync: () => {} },
-      store: { settings: { notifications: true, notifyOnlyWhenUnfocused: false, sound: true } }
-    })
-
-    const session = { id: 'focused', state: 'WAITING_INPUT' }
-    manager.emit('transition', { session, from: 'WORKING', to: 'WAITING_INPUT' })
+    const session = notificationSession('focused')
+    handleNeedsYouTransition(
+      { session, from: 'WORKING', to: 'WAITING_INPUT' },
+      { notifications: true, sound: true },
+      { notify, suppress },
+      () => true
+    )
 
     expect(suppress).toHaveBeenCalledWith('focused')
     expect(notify).not.toHaveBeenCalled()
   })
 
   it('delivers native notifications while Crew is in the background', () => {
-    const broadcast = source.slice(source.indexOf('function broadcast('), source.indexOf('function focusedWindow('))
-    const wireManager = source.slice(source.indexOf('function wireManager('), source.indexOf('function registerIpc('))
-    const manager = new EventEmitter()
     const notify = vi.fn()
     const suppress = vi.fn()
-    const javascript = transpileModule(`${broadcast}\n${wireManager}\nwireManager()`, {}).outputText
-
-    runInNewContext(javascript, {
-      manager,
-      BrowserWindow: { getAllWindows: () => [{ isFocused: () => false }] },
-      IPC,
-      NEEDS_YOU: ['WAITING_INPUT', 'WAITING_APPROVAL'],
-      isQuitting: false,
-      tray: { notify, suppress, update: vi.fn() },
-      assets: { sync: () => {} },
-      store: { settings: { notifications: true, notifyOnlyWhenUnfocused: false, sound: false } }
-    })
-
-    const session = { id: 'background', state: 'WAITING_INPUT' }
-    manager.emit('transition', { session, from: 'WORKING', to: 'WAITING_INPUT' })
+    const session = notificationSession('background')
+    handleNeedsYouTransition(
+      { session, from: 'WORKING', to: 'WAITING_INPUT' },
+      { notifications: true, sound: false },
+      { notify, suppress },
+      () => false
+    )
 
     expect(notify).toHaveBeenCalledWith(session, true)
     expect(suppress).not.toHaveBeenCalled()
@@ -236,7 +239,8 @@ describe('main-process reliability integration', () => {
       'this.notifications.reconcile(new Set(active.map((session) => session.id)))'
     )
     expect(traySource).toContain('this.notifications.dispose()')
-    expect(source).toContain('tray?.suppress(session.id)')
+    expect(source).toContain('handleNeedsYouTransition(')
+    expect(source).toContain('isForeground: isCrewForeground')
     expect(source).toContain('tray?.acknowledge(p.id)')
   })
 
@@ -248,10 +252,7 @@ describe('main-process reliability integration', () => {
   })
 
   it('exposes custom-view IPC handlers through the main contract', () => {
-    expect(source).toContain('IPC.CUSTOM_VIEWS_GET')
-    expect(source).toContain('store.createCustomView')
-    expect(source).toContain('store.updateCustomView')
-    expect(source).toContain('store.deleteCustomView')
+    expect(source).toContain('registerCustomViewIpc(ipcMain, store, broadcast)')
   })
 
   it('tracks session presentation state per window and falls back missing custom views to Recent', () => {
@@ -259,5 +260,6 @@ describe('main-process reliability integration', () => {
     expect(hooksSource).toContain("kind: 'builtin', mode: 'recent'")
     expect(hooksSource).toContain("writeViewPref('sessionPresentation'")
     expect(hooksSource).toContain("showCustomViewEditor")
+    expect(hooksSource).toContain('window.crew.onJump(navigateToSession)')
   })
 })

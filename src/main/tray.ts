@@ -38,6 +38,7 @@ export interface TrayCallbacks {
   onNewWindow: () => void
   onNewSession: () => void
   onJump: (id: string) => void
+  isForeground: () => boolean
   onQuit: () => void
 }
 
@@ -61,7 +62,8 @@ export class CrewTray {
     this.notifications = new NotificationCoordinator(
       (request) => this.showNativeNotification(request),
       cb.onJump,
-      cb.onShow
+      cb.onShow,
+      cb.isForeground
     )
     this.tray.setToolTip('Crew')
     this.tray.on('click', () => this.cb.onShow())

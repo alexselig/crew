@@ -10,8 +10,11 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   attachRendererErrorCapture,
+  exactRelaunchStateMatches,
   runCustomViewsRelaunchScenario
 } from './custom-views-scenario.mjs'
+
+export { exactRelaunchStateMatches }
 
 const ROOT = resolve(process.cwd())
 const DATA_DIR = `/tmp/crew-custom-views-signed-${process.pid}`
