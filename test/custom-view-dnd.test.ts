@@ -50,17 +50,17 @@ describe('custom view organizer reducer', () => {
       session: session('a', 'Renamed A'),
       index: 2
     })
-    expectOrder(moved, ['b', 'c', 'a'])
-    expect(moved[2]).toEqual({ sessionId: 'a', labelSnapshot: 'Renamed A' })
+    expectOrder(moved, ['b', 'a', 'c'])
+    expect(moved[1]).toEqual({ sessionId: 'a', labelSnapshot: 'Renamed A' })
   })
 
-  it('moves a ranked session to the exact insertion slot', () => {
+  it('moves a ranked session to the exact visual insertion slot', () => {
     const result = reduceOrganizer([item('a'), item('b'), item('c')], {
       type: 'move',
       sessionId: 'a',
       index: 2
     })
-    expectOrder(result, ['b', 'c', 'a'])
+    expectOrder(result, ['b', 'a', 'c'])
   })
 
   it('removes only the requested ranked session', () => {

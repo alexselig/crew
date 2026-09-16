@@ -126,6 +126,7 @@ const controls: RendererRegressionControls = {
   failCustomViewWrites: false,
   holdCustomViewWrites: false,
   focusedTerminals: [],
+  gridScrolls: 0,
   paletteSessionItems: [],
   workspace: (_id: string | null) => {},
   pilot: (_value: boolean) => {},

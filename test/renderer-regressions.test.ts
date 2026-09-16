@@ -48,6 +48,9 @@ beforeAll(async () => {
               export function ${name}(props) {
                 const chooseFocus = () => props.onChoosePresentation({ kind: 'custom', viewId: 'focus' })
                 const chooseSolo = () => props.onChoosePresentation({ kind: 'custom', viewId: 'solo' })
+                const scrollProbe = ${name === 'GridView' ? `(node) => {
+                  if (node) node.scrollTo = () => { globalThis.regression.gridScrolls++ }
+                }` : 'undefined'}
                 return React.createElement(
                   'div',
                   { className: 'stub-${prefix}', 'data-selected-id': props.selectedId ?? '' },
@@ -87,6 +90,10 @@ beforeAll(async () => {
                       onClick: () => props.onSetViewMode('single')
                     },
                     'single'
+                  ),` : ''}
+                  ${name === 'GridView' ? `React.createElement(
+                    'div',
+                    { className: 'gridview__scroll', ref: scrollProbe }
                   ),` : ''}
                   React.createElement(
                     'div',
@@ -365,6 +372,11 @@ describe('renderer state and input regressions (isolated browser)', () => {
       await gridOpener.focus()
       await page.keyboard.press('Enter')
       await page.waitForSelector('.custom-view-organizer', { timeout: 2000 })
+      await page.waitForFunction(
+        () => document.activeElement?.getAttribute('aria-label') === 'View name',
+        undefined,
+        { timeout: 2000 }
+      )
       expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))).toBe('View name')
 
       await page.keyboard.press('Shift+Tab')
@@ -391,6 +403,11 @@ describe('renderer state and input regressions (isolated browser)', () => {
     try {
       await page.evaluate(() => globalThis.regression.view('single'))
       await page.waitForSelector('.stub-gridview', { state: 'detached', timeout: 2000 })
+      await page.waitForFunction(
+        () => globalThis.regression.focusedTerminals.includes('a1'),
+        undefined,
+        { timeout: 2000 }
+      )
       await page.evaluate(() => {
         globalThis.regression.focusedTerminals = []
       })
@@ -494,16 +511,39 @@ describe('renderer state and input regressions (isolated browser)', () => {
     }
   })
 
+  it('adjusts downward insertion when an already-ranked session is dragged from the left roster', async () => {
+    const page = await open('organizer-new')
+    try {
+      await page.getByRole('button', { name: 'Add Alpha build to ranked order' }).click()
+      await page.getByRole('button', { name: 'Add Beta review to ranked order' }).click()
+      await page.getByRole('button', { name: 'Add Gamma docs to ranked order' }).click()
+      await page
+        .locator('.custom-view-organizer__available-card[data-session-id="a1"] [data-drag-handle]')
+        .dragTo(page.locator('.custom-view-organizer__drop-line[data-index="2"]'), { timeout: 1500 })
+      expect(
+        await page.locator('.custom-view-organizer__ranked-card').evaluateAll((cards) =>
+          cards.map((card) => card.getAttribute('data-session-id'))
+        )
+      ).toEqual(['a2', 'a1', 'b1'])
+    } finally {
+      await page.close()
+    }
+  })
+
   it('provides keyboard equivalents for adding, removing, and ordering ranked sessions', async () => {
     const page = await open('organizer-new')
     try {
       await page.getByRole('button', { name: 'Add Alpha build to ranked order' }).click()
       await page.getByRole('button', { name: 'Add Beta review to ranked order' }).click()
       await page.getByRole('button', { name: 'Add Gamma docs to ranked order' }).click()
-      await page.getByRole('button', { name: 'Move Gamma docs to first' }).click()
-      await page.getByRole('button', { name: 'Move Gamma docs down' }).click()
-      await page.getByRole('button', { name: 'Move Alpha build to last' }).click()
-      await page.getByRole('button', { name: 'Move Alpha build up' }).click()
+      await page.getByRole('button', { name: 'Move Gamma docs to first' }).focus()
+      await page.keyboard.press('Enter')
+      await page.getByRole('button', { name: 'Move Gamma docs down' }).focus()
+      await page.keyboard.press('Space')
+      await page.getByRole('button', { name: 'Move Alpha build to last' }).focus()
+      await page.keyboard.press('Enter')
+      await page.getByRole('button', { name: 'Move Alpha build up' }).focus()
+      await page.keyboard.press('Space')
       expect(
         await page.locator('.custom-view-organizer__ranked-card').evaluateAll((cards) =>
           cards.map((card) => card.getAttribute('data-session-id'))
@@ -554,6 +594,50 @@ describe('renderer state and input regressions (isolated browser)', () => {
 
       await page.evaluate(() => globalThis.regression.releaseCustomViewWrite())
       await page.waitForSelector('.organizer-closed')
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('focuses the busy dialog fallback and disables background grid arrows and shortcuts during Save', async () => {
+    const page = await open('app')
+    try {
+      await page.locator('.stub-gridview__new-view').focus()
+      await page.keyboard.press('Enter')
+      await page.waitForSelector('.custom-view-organizer')
+      await page.getByLabel('View name').fill('Held save')
+      await page.evaluate(() => {
+        globalThis.regression.holdCustomViewWrites = true
+        globalThis.regression.gridScrolls = 0
+      })
+      await page.getByRole('button', { name: 'Save view' }).click()
+      await page.waitForFunction(
+        () => document.querySelector('.custom-view-organizer')?.getAttribute('aria-busy') === 'true'
+      )
+
+      expect(await page.evaluate(() => document.activeElement?.classList.contains('custom-view-organizer'))).toBe(true)
+      expect(await page.locator('.custom-view-organizer').getAttribute('tabindex')).toBe('-1')
+
+      await page.locator('.stub-gridview__new-view').focus()
+      expect(await page.evaluate(() => document.activeElement?.classList.contains('custom-view-organizer'))).toBe(true)
+
+      const arrowPrevented = await page.locator('.custom-view-organizer').evaluate((dialog) => {
+        const event = new KeyboardEvent('keydown', {
+          key: 'ArrowRight',
+          bubbles: true,
+          cancelable: true
+        })
+        dialog.dispatchEvent(event)
+        return event.defaultPrevented
+      })
+      expect(arrowPrevented).toBe(false)
+      expect(await page.evaluate(() => globalThis.regression.gridScrolls)).toBe(0)
+
+      await page.keyboard.press('Meta+n')
+      expect(await page.evaluate(() => globalThis.regression.newDialogs)).toEqual([])
+
+      await page.evaluate(() => globalThis.regression.releaseCustomViewWrite())
+      await page.waitForSelector('.custom-view-organizer', { state: 'detached' })
     } finally {
       await page.close()
     }

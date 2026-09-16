@@ -181,6 +181,7 @@ export function App(): JSX.Element {
   // moving between panes — see arrowNavIntent / isEditableTarget.
   useEffect(() => {
     function onArrowCapture(e: KeyboardEvent): void {
+      if (anyOverlay) return
       const el = document.activeElement as HTMLElement | null
       const active = el
         ? {
@@ -224,7 +225,7 @@ export function App(): JSX.Element {
     }
     window.addEventListener('keydown', onArrowCapture, true)
     return () => window.removeEventListener('keydown', onArrowCapture, true)
-  }, [])
+  }, [anyOverlay])
 
   // Global keyboard shortcuts.
   useEffect(() => {

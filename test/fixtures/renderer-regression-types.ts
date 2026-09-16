@@ -25,6 +25,7 @@ export interface RendererRegressionControls {
   failCustomViewWrites: boolean
   holdCustomViewWrites: boolean
   focusedTerminals: string[]
+  gridScrolls: number
   paletteSessionItems: string[]
   workspace: (id: string | null) => void
   pilot: (value: boolean) => void

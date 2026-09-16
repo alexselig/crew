@@ -98,11 +98,16 @@ export function CustomViewOrganizer({
   }, [conflict])
 
   useEffect(() => {
+    if (saving) dialogRef.current?.focus()
+  }, [saving])
+
+  useEffect(() => {
     function containFocus(event: FocusEvent): void {
       const dialog = dialogRef.current
       if (!dialog || dialog.contains(event.target as Node)) return
       const first = dialog.querySelector<HTMLElement>(FOCUSABLE)
-      first?.focus()
+      if (first) first.focus()
+      else dialog.focus()
     }
     document.addEventListener('focusin', containFocus)
     return () => document.removeEventListener('focusin', containFocus)
@@ -182,9 +187,7 @@ export function CustomViewOrganizer({
       const session = rosterById.get(payload.sessionId)
       if (session) dispatch({ type: 'insert', session, index })
     } else {
-      const sourceIndex = items.findIndex((item) => item.sessionId === payload.sessionId)
-      const adjustedIndex = sourceIndex >= 0 && sourceIndex < index ? index - 1 : index
-      dispatch({ type: 'move', sessionId: payload.sessionId, index: adjustedIndex })
+      dispatch({ type: 'move', sessionId: payload.sessionId, index })
     }
     finishDrag()
   }
@@ -250,6 +253,7 @@ export function CustomViewOrganizer({
       ).filter((element) => element.getClientRects().length > 0)
       if (focusable.length === 0) {
         event.preventDefault()
+        event.currentTarget.focus()
         return
       }
       const first = focusable[0]
@@ -273,6 +277,7 @@ export function CustomViewOrganizer({
         role="dialog"
         aria-modal="true"
         aria-busy={saving}
+        tabIndex={-1}
         aria-labelledby="custom-view-organizer-title"
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={onDialogKeyDown}
