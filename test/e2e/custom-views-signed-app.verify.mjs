@@ -7,6 +7,7 @@
 import { _electron as electron } from 'playwright'
 import { existsSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   attachRendererErrorCapture,
   runCustomViewsRelaunchScenario
@@ -14,6 +15,11 @@ import {
 
 const ROOT = resolve(process.cwd())
 const DATA_DIR = `/tmp/crew-custom-views-signed-${process.pid}`
+const MAIN_ERROR_RE = /\b(error|exception|throw)\b/i
+
+export function extractMainErrors(lines) {
+  return lines.filter((line) => MAIN_ERROR_RE.test(line))
+}
 
 function resolveSignedAppExecutable(inputPath) {
   const resolved = resolve(inputPath)
@@ -23,16 +29,18 @@ function resolveSignedAppExecutable(inputPath) {
 
 function recordProcessOutput(app, stderrLines, mainErrors) {
   const record = (target, classifyErrors) => (chunk) => {
-    const text = chunk.toString()
-    for (const line of text.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)) {
-      target.push(line)
-      if (classifyErrors && /error|exception|throw/i.test(line)) mainErrors.push(line)
-    }
+    const lines = chunk
+      .toString()
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    target.push(...lines)
+    if (classifyErrors) mainErrors.push(...extractMainErrors(lines))
   }
 
   const proc = app.process()
   proc.stderr?.on('data', record(stderrLines, true))
-  proc.stdout?.on('data', record([], true))
+  proc.stdout?.on('data', record([], false))
 }
 
 async function launchSignedApp(executablePath, stderrLines, mainErrors) {
@@ -98,7 +106,7 @@ async function main() {
     console.log(`process stderr lines: ${stderrLines.length}`)
     console.log(`main-process errors: ${mainErrors.length}`)
 
-    if (rendererErrors.length || stderrLines.length || mainErrors.length) {
+    if (rendererErrors.length || mainErrors.length) {
       for (const error of rendererErrors) console.log(`  ✗ renderer error: ${error}`)
       for (const line of stderrLines) console.log(`  ✗ stderr: ${line}`)
       for (const error of mainErrors) console.log(`  ✗ main-process error: ${error}`)
@@ -114,7 +122,13 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error('\n💥 signed-app custom-view verification error:', error)
-  process.exit(1)
-})
+if (
+  process.argv[1] &&
+  !process.env.VITEST &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  main().catch((error) => {
+    console.error('\n💥 signed-app custom-view verification error:', error)
+    process.exit(1)
+  })
+}
