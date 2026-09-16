@@ -199,6 +199,10 @@ The focused E2E harness (`test/e2e/crew.e2e.mjs`) runs an isolated browser
 integration for Custom Views: it creates a `Release queue`, drags sessions into
 rank, verifies roster/grid order, reloads to confirm persistence, removes a
 ranked session, deletes the active view, and asserts zero renderer errors.
+On machines that block unsigned local Electron bundles, the remaining
+launch-path verification is to run that same scenario against a
+Developer-ID-signed `Crew.app` built from the target commit and confirm the
+same seven checks plus zero renderer/main-process errors.
 
 ## Status
 
