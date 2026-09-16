@@ -192,17 +192,30 @@ npm run dev              # run in development
 npm run typecheck        # main / preload / renderer
 npm test                 # detection-engine unit tests
 npm run build            # production build
-npm run test:e2e         # Playwright end-to-end against the built app
+npm run test:e2e         # original full Electron suite against the built local app
+npm run test:e2e:custom-views:renderer
+CREW_SIGNED_APP_PATH=/Applications/Crew.app npm run test:e2e:custom-views:signed
 ```
 
-The focused E2E harness (`test/e2e/crew.e2e.mjs`) runs an isolated browser
-integration for Custom Views: it creates a `Release queue`, drags sessions into
-rank, verifies roster/grid order, reloads to confirm persistence, removes a
-ranked session, deletes the active view, and asserts zero renderer errors.
-On machines that block unsigned local Electron bundles, the remaining
-launch-path verification is to run that same scenario against a
-Developer-ID-signed `Crew.app` built from the target commit and confirm the
-same seven checks plus zero renderer/main-process errors.
+`test/e2e/crew.e2e.mjs` remains the original full Electron end-to-end suite: it
+launches the built local app and exercises the broader session, terminal,
+detection, preview, workspace, agent, and error-path coverage.
+
+`test/e2e/custom-views-renderer.verify.mjs` is additive only: a headless
+Chromium renderer integration for Custom Views that mounts the real renderer
+against a typed fake `window.crew` API and verifies create, rank, save, relaunch,
+edit/remove, delete/fallback, and zero renderer errors.
+
+`test/e2e/custom-views-signed-app.verify.mjs` is the launch-path relaunch check
+for Custom Views. It requires `CREW_SIGNED_APP_PATH` to point to a Developer ID
+signed `Crew.app` bundle or its `Contents/MacOS/Crew` executable, reuses the
+same test user-data directory across relaunch, captures renderer page errors and
+actual process stderr/main errors, and blocks with a clear message before launch
+when that path is not provided.
+
+This machine is intentionally **environment-blocked** for that signed-app
+scenario here: it must not open unsigned local Electron builds or any GUI test
+launcher on this host.
 
 ## Status
 
