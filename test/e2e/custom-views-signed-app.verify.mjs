@@ -102,7 +102,8 @@ async function main() {
       for (const error of rendererErrors) console.log(`  ✗ renderer error: ${error}`)
       for (const line of stderrLines) console.log(`  ✗ stderr: ${line}`)
       for (const error of mainErrors) console.log(`  ✗ main-process error: ${error}`)
-      process.exit(1)
+      process.exitCode = 1
+      return
     }
 
     console.log('\n✅ SIGNED-APP CUSTOM VIEWS RELAUNCH PASSED')
