@@ -212,10 +212,9 @@ signed `Crew.app` bundle or its `Contents/MacOS/Crew` executable, reuses the
 same test user-data directory across relaunch, captures renderer page errors and
 actual process stderr/main errors, and blocks with a clear message before launch
 when that path is not provided.
-
-This machine is intentionally **environment-blocked** for that signed-app
-scenario here: it must not open unsigned local Electron builds or any GUI test
-launcher on this host.
+On hosts that block unsigned Electron apps, set `CREW_SIGNED_APP_PATH` to a
+Developer ID-signed `Crew.app` before running the signed-app check; otherwise
+the script exits before launch.
 
 ## Status
 
