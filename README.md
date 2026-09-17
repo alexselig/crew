@@ -41,18 +41,28 @@ Maintainers: see [`RELEASING.md`](./RELEASING.md) for the full release flow
 (`scripts/publish.sh`) and [`MACOS-SIGNING.md`](./MACOS-SIGNING.md) for how
 releases are signed + notarized.
 
-## Features (v0.1)
+## Features
 
 - Launch owned sessions: **Claude Code**, **Copilot CLI**, **Shell**, or any
   custom command + working directory (+ optional initial prompt).
-- New Copilot sessions default to **GPT-6 Astra** (`gpt-6-astra`). The **Model**
-  dropdown reads supported choices from your installed CLI (`copilot completion
-  bash`), not a hard-coded catalog. Account access remains subject to Copilot.
-  The initial model choice is saved for new conversations and duplication.
+- When model discovery succeeds, new Copilot sessions preselect **GPT-6 Astra**
+  (`gpt-6-astra`) when the installed CLI advertises it. The **Model** dropdown
+  reads supported choices from your installed CLI (`copilot completion bash`),
+  not a hard-coded catalog. If discovery is unavailable or returns no choices,
+  Crew omits `--model` and lets Copilot CLI use its native default. Account
+  access remains subject to Copilot. An explicit initial model choice is saved
+  for new conversations and duplication.
   Native resume honors Copilot's persisted selection, including later `/model`
   changes; existing conversations are not switched back to their launch model.
 - New sessions use the selected session's working directory (or home when none
   is selected), with the directory visible beside the agent/model controls.
+- **Named Custom Views** organize sessions into a personal ranked queue. Search
+  the full roster in a two-column organizer, drag sessions directly into rank,
+  and choose whether a view shows only ranked work or ranked work followed by
+  every remaining session.
+- **Multi-monitor window placement** stays where you left it while that display
+  remains connected. Crew recenters a saved or summoned window on the primary
+  display only after its previous monitor is disconnected.
 - Embedded **xterm.js** terminal per session — full interaction in-app,
   scrollback preserved across tab switches.
 - **Beta: Enhanced Terminal Interface** (Settings, off by default) — an
@@ -75,8 +85,15 @@ releases are signed + notarized.
   Crew auto-detects the local dev-server URL from the session's output (Vite,
   Next, CRA, …) — you start the server in the terminal, Crew just mirrors it.
   Loopback-only and hardened (isolated session, node integration off).
-- Menu-bar **badge + count**, context-menu jump-to-waiting, and a native
-  **notification** when a session starts waiting.
+- Menu-bar **badge + count**, context-menu jump-to-waiting, and native
+  **needs-you notifications**. Crew always suppresses native alerts while any
+  Crew window is focused, batches sessions that finish together into one alert,
+  and announces each session once until you interact with it.
+- **Global background-idle mode** keeps sessions and needs-you detection running
+  while every Crew window is unfocused, but pauses terminal rendering, preview
+  and transcript polling, elapsed-time clocks, and decorative motion. Focusing
+  any Crew window resumes renderer activity and restores the selected terminal
+  from bounded recent output.
 - Needs-you-first roster sort; restart / dismiss; graceful error handling.
 
 ## Restored context: transcript vs brief
@@ -188,13 +205,34 @@ npm run dev              # run in development
 npm run typecheck        # main / preload / renderer
 npm test                 # detection-engine unit tests
 npm run build            # production build
-npm run test:e2e         # Playwright end-to-end against the built app
+npm run test:e2e         # original full Electron suite against the built local app
+npm run test:e2e:custom-views:renderer
+CREW_SIGNED_APP_PATH=/Applications/Crew.app npm run test:e2e:custom-views:signed
 ```
 
-The E2E harness (`test/e2e/crew.e2e.mjs`) launches the real app and drives every
-button — create a session, type into the terminal, rename, change character,
-detect the waiting transition, restart, close, and the error path — asserting
-zero renderer/main-process errors.
+`test/e2e/crew.e2e.mjs` remains the original full Electron end-to-end suite: it
+launches the built local app and exercises the broader session, terminal,
+detection, preview, workspace, agent, and error-path coverage.
+
+`test/e2e/custom-views-renderer.verify.mjs` is additive only: a headless
+Chromium renderer integration for Custom Views that mounts the real renderer
+against a typed fake `window.crew` API and verifies create, rank, save, relaunch,
+edit/remove, delete/fallback, and zero renderer errors.
+
+`test/e2e/custom-views-signed-app.verify.mjs` is the launch-path relaunch check
+for Custom Views. It requires `CREW_SIGNED_APP_PATH` to point to a Developer ID
+signed `Crew.app` bundle or its `Contents/MacOS/Crew` executable, reuses the
+same test user-data directory across relaunch, captures renderer page errors and
+actual process stderr/main errors, and blocks with a clear message before launch
+when that path is not provided.
+On hosts that block unsigned Electron apps, set `CREW_SIGNED_APP_PATH` to a
+Developer ID-signed `Crew.app` before running the signed-app check; otherwise
+the script exits before launch.
+
+For signed-app background-idle acceptance, including the global all-windows
+focus rule, CPU thresholds, notification correctness, and terminal recovery,
+follow
+[`docs/performance/background-idle-measurement.md`](./docs/performance/background-idle-measurement.md).
 
 ## Status
 

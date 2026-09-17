@@ -2,12 +2,157 @@ import { readFileSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { runInNewContext } from 'node:vm'
 import { transpileModule } from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { IPC } from '../src/shared/types'
+import type { SessionInfo } from '../src/shared/types'
+import { AppActivityCoordinator } from '../src/main/app-activity'
+import { handleNeedsYouTransition } from '../src/main/notification-integration'
 
 const source = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
+const traySource = readFileSync(new URL('../src/main/tray.ts', import.meta.url), 'utf8')
+const hooksSource = readFileSync(new URL('../src/renderer/hooks.ts', import.meta.url), 'utf8')
+
+function notificationSession(id: string): SessionInfo {
+  return {
+    id,
+    label: id,
+    characterId: 'fox',
+    color: '#ff5a5a',
+    presetId: 'copilot-cli',
+    command: 'copilot',
+    args: [],
+    cwd: '/tmp',
+    state: 'WAITING_INPUT',
+    status: 'active',
+    pid: 1,
+    exitCode: null,
+    costUsd: 0,
+    creditsUsed: 0,
+    autopilot: false,
+    workspaceIds: [],
+    createdAt: 1,
+    stateChangedAt: 1
+  }
+}
 
 describe('main-process reliability integration', () => {
+  it('keeps a visible window on its connected secondary display when summoned', () => {
+    const helpers = source.slice(
+      source.indexOf('function boundsOnSomeDisplay('),
+      source.indexOf('function defaultBounds(')
+    )
+    const revealWindow = source.slice(
+      source.indexOf('function revealWindow('),
+      source.indexOf('function showWindow(')
+    )
+    const movedTo: unknown[] = []
+    const displays = [
+      { id: 1, workArea: { x: 0, y: 0, width: 1440, height: 900 } },
+      { id: 2, workArea: { x: 1440, y: 0, width: 1920, height: 1080 } }
+    ]
+    const javascript = transpileModule(
+      `${helpers}\n${revealWindow}\nrevealWindow(window)`,
+      {}
+    ).outputText
+
+    runInNewContext(javascript, {
+      screen: {
+        getAllDisplays: () => displays,
+        getPrimaryDisplay: () => displays[0],
+        getDisplayNearestPoint: () => displays[1]
+      },
+      window: {
+        getBounds: () => ({ x: 1600, y: 100, width: 1120, height: 740 }),
+        setBounds: (bounds: unknown) => movedTo.push(bounds)
+      }
+    })
+
+    expect(movedTo).toEqual([])
+  })
+
+  it('restores saved bounds on a connected secondary display', () => {
+    const placement = source.slice(
+      source.indexOf('function boundsOnSomeDisplay('),
+      source.indexOf('/** Where an ADDITIONAL window opens:')
+    )
+    const saved = { x: 1600, y: 100, width: 1120, height: 740 }
+    const displays = [
+      { id: 1, workArea: { x: 0, y: 0, width: 1440, height: 900 } },
+      { id: 2, workArea: { x: 1440, y: 0, width: 1920, height: 1080 } }
+    ]
+    const javascript = transpileModule(
+      `${placement}\nglobalThis.result = defaultBounds()`,
+      {}
+    ).outputText
+    const context = {
+      result: undefined,
+      store: { windowBounds: saved },
+      screen: {
+        getAllDisplays: () => displays,
+        getPrimaryDisplay: () => displays[0],
+        getDisplayNearestPoint: () => displays[1]
+      }
+    }
+
+    runInNewContext(javascript, context)
+
+    expect(context.result).toEqual(saved)
+  })
+
+  it('moves an off-screen summoned window to the primary display', () => {
+    const helpers = source.slice(
+      source.indexOf('function boundsOnSomeDisplay('),
+      source.indexOf('function defaultBounds(')
+    )
+    const revealWindow = source.slice(
+      source.indexOf('function revealWindow('),
+      source.indexOf('function showWindow(')
+    )
+    const movedTo: unknown[] = []
+    const primary = { id: 1, workArea: { x: 0, y: 0, width: 1440, height: 900 } }
+    const javascript = transpileModule(
+      `${helpers}\n${revealWindow}\nrevealWindow(window)`,
+      {}
+    ).outputText
+
+    runInNewContext(javascript, {
+      screen: {
+        getAllDisplays: () => [primary],
+        getPrimaryDisplay: () => primary
+      },
+      window: {
+        getBounds: () => ({ x: 1600, y: 100, width: 1120, height: 740 }),
+        setBounds: (bounds: unknown) => movedTo.push(bounds)
+      }
+    })
+
+    expect(movedTo).toEqual([{ x: 160, y: 80, width: 1120, height: 740 }])
+  })
+
+  it('centers and clamps disconnected saved bounds on the primary display', () => {
+    const placement = source.slice(
+      source.indexOf('function boundsOnSomeDisplay('),
+      source.indexOf('/** Where an ADDITIONAL window opens:')
+    )
+    const primary = { id: 1, workArea: { x: 0, y: 0, width: 1440, height: 900 } }
+    const javascript = transpileModule(
+      `${placement}\nglobalThis.result = defaultBounds()`,
+      {}
+    ).outputText
+    const context = {
+      result: undefined,
+      store: { windowBounds: { x: 1600, y: 100, width: 1800, height: 1200 } },
+      screen: {
+        getAllDisplays: () => [primary],
+        getPrimaryDisplay: () => primary
+      }
+    }
+
+    runInNewContext(javascript, context)
+
+    expect(context.result).toEqual({ x: 40, y: 40, width: 1360, height: 820 })
+  })
+
   it('forwards autopilot-only roster changes without a fingerprint or state-change gate', () => {
     // Execute the entry point's real forwarding functions, without booting Crew
     // or constructing its PTYs, persistence, windows, or provider integrations.
@@ -26,6 +171,7 @@ describe('main-process reliability integration', () => {
     runInNewContext(javascript, {
       manager,
       BrowserWindow: { getAllWindows: () => [window] },
+      AppActivityCoordinator,
       IPC,
       isQuitting: false,
       tray: null,
@@ -56,10 +202,66 @@ describe('main-process reliability integration', () => {
     expect(source).toContain('errorReporter.setReady()')
   })
 
+  it('suppresses native notifications while any Crew window is focused', () => {
+    const notify = vi.fn()
+    const suppress = vi.fn()
+    const session = notificationSession('focused')
+    handleNeedsYouTransition(
+      { session, from: 'WORKING', to: 'WAITING_INPUT' },
+      { notifications: true, sound: true },
+      { notify, suppress },
+      () => true
+    )
+
+    expect(suppress).toHaveBeenCalledWith('focused')
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('delivers native notifications while Crew is in the background', () => {
+    const notify = vi.fn()
+    const suppress = vi.fn()
+    const session = notificationSession('background')
+    handleNeedsYouTransition(
+      { session, from: 'WORKING', to: 'WAITING_INPUT' },
+      { notifications: true, sound: false },
+      { notify, suppress },
+      () => false
+    )
+
+    expect(notify).toHaveBeenCalledWith(session, true)
+    expect(suppress).not.toHaveBeenCalled()
+  })
+
+  it('integrates queued notifications with tray display and actual session input', () => {
+    expect(traySource).toContain('new NotificationCoordinator(')
+    expect(traySource).toContain('this.notifications.queue(')
+    expect(traySource).toContain('acknowledge(id: string): void')
+    expect(traySource).toContain('suppress(id: string): void')
+    expect(traySource).toContain(
+      'this.notifications.reconcile(new Set(active.map((session) => session.id)))'
+    )
+    expect(traySource).toContain('this.notifications.dispose()')
+    expect(source).toContain('handleNeedsYouTransition(')
+    expect(source).toContain('isForeground: isCrewForeground')
+    expect(source).toContain('tray?.acknowledge(p.id)')
+  })
+
   it('stops producers before recorder flush and drains shutdown warnings synchronously', () => {
     const teardown = source.slice(source.indexOf('function teardown()'), source.indexOf('function reallyQuit()'))
     expect(teardown.indexOf('manager?.disposeAll()')).toBeLessThan(teardown.indexOf('recorder?.dispose()'))
     expect(teardown.indexOf('agentRunner?.disposeAll()')).toBeLessThan(teardown.indexOf('recorder?.dispose()'))
     expect(teardown).toContain('errorReporter.flushForShutdown()')
+  })
+
+  it('exposes custom-view IPC handlers through the main contract', () => {
+    expect(source).toContain('registerCustomViewIpc(ipcMain, store, broadcast)')
+  })
+
+  it('tracks session presentation state per window and falls back missing custom views to Recent', () => {
+    expect(hooksSource).toContain("readViewPref('sessionPresentation')")
+    expect(hooksSource).toContain("kind: 'builtin', mode: 'recent'")
+    expect(hooksSource).toContain("writeViewPref('sessionPresentation'")
+    expect(hooksSource).toContain("showCustomViewEditor")
+    expect(hooksSource).toContain('window.crew.onJump(navigateToSession)')
   })
 })

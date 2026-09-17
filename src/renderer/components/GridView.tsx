@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { SessionInfo, CharacterDef } from '../../shared/types'
+import type { SessionInfo, CharacterDef, CustomView, SessionPresentation } from '../../shared/types'
 import { GridTile } from './GridTile'
 import type { GithubButtonSettings } from './SessionTools'
 import { GroupPicker } from './GroupPicker'
@@ -19,7 +19,11 @@ interface Props {
   /** Active workspace filter name (null = All), shown in the top bar. */
   activeWorkspace?: string | null
   groupMode: GroupMode
-  onSetGroupMode: (m: GroupMode) => void
+  presentation: SessionPresentation
+  customViews: CustomView[]
+  onChoosePresentation: (presentation: SessionPresentation) => void
+  onCreateCustomView: (opener: HTMLElement | null) => void
+  onEditCustomView: (id: string, opener: HTMLElement | null) => void
   collapsedGroups: Set<string>
   onToggleGroup: (name: string) => void
   /** Minimized session ids (hidden behind a per-group "show more"). */
@@ -68,7 +72,11 @@ export function GridView({
   gridDensity,
   activeWorkspace,
   groupMode,
-  onSetGroupMode,
+  presentation,
+  customViews,
+  onChoosePresentation,
+  onCreateCustomView,
+  onEditCustomView,
   minimized,
   onToggleMinimize,
   revealed,
@@ -95,7 +103,7 @@ export function GridView({
   onSetColor
 }: Props): JSX.Element {
   // Tiles hold static positions (roster order) the user can rearrange by dragging.
-  const grouped = groupMode !== 'none'
+  const grouped = presentation.kind === 'builtin' && groupMode !== 'none'
   useNowTick(grouped && groupMode === 'recent')
   // Per-bucket "show more" reveal state (bucket name, or '__all__' when ungrouped).
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
@@ -119,7 +127,12 @@ export function GridView({
   // `grid--g-${gridDensity}`), so it leaves <main> without the density class.
   const density = grouped ? null : gridDensity
   const groups = grouped ? groupSessions(gridRoster, groupMode, groupOrder) : []
-  const dnd = useCardDnd(roster, groupMode, onReorder, onSetTag)
+  const dnd = useCardDnd(
+    roster,
+    presentation.kind === 'custom' ? 'disabled' : groupMode,
+    onReorder,
+    onSetTag
+  )
   const tagGroups = allGroups ?? existingGroups(roster)
 
   // The group/bucket the selected session currently lives in. When it changes —
@@ -305,7 +318,13 @@ export function GridView({
         </div>
         <div className="grid-topbar__right">
           <div className="grid-topbar__tools">
-            <GroupPicker mode={groupMode} onChoose={onSetGroupMode} />
+            <GroupPicker
+              presentation={presentation}
+              customViews={customViews}
+              onChoose={onChoosePresentation}
+              onCreateCustomView={onCreateCustomView}
+              onEditCustomView={onEditCustomView}
+            />
             <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
               <Icon name="broadcast" />
             </button>

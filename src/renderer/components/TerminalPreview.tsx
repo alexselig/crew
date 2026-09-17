@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { useAppActivity } from '../app-activity'
+import { createActivityPoller, type ActivityPoller } from '../activity-poller'
 import { previewText } from '../terminal/facade'
 
 /**
@@ -37,14 +39,23 @@ export function useInViewport(rootMargin = '400px'): [React.RefObject<HTMLDivEle
  * running and its output keeps accruing; only the emulator is withheld.
  */
 export function TerminalPreview({ id }: { id: string }): JSX.Element {
+  const active = useAppActivity()
   const [lines, setLines] = useState<string[]>(() => previewText(id, 12))
+  const pollerRef = useRef<ActivityPoller | null>(null)
 
   useEffect(() => {
-    // Poll rather than subscribe: this is a thumbnail for a pane nobody is
-    // reading, so a slow refresh is the point.
-    const t = setInterval(() => setLines(previewText(id, 12)), 1500)
-    return () => clearInterval(t)
+    const poller = createActivityPoller(1500, () => setLines(previewText(id, 12)))
+    pollerRef.current = poller
+    poller.setActive(active)
+    return () => {
+      poller.dispose()
+      if (pollerRef.current === poller) pollerRef.current = null
+    }
   }, [id])
+
+  useEffect(() => {
+    pollerRef.current?.setActive(active)
+  }, [active])
 
   return (
     <pre className="tile__preview" aria-label="Recent output">

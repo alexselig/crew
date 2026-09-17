@@ -36,7 +36,7 @@ import { Store, identityKey, type PersistedSession } from './store'
 import type { TranscriptRecorder } from './transcripts'
 import { AutopilotWatcher, CopilotAutopilotWatcher, isClaudeSession, isCopilotSession } from './autopilot'
 import { crewHookFor } from './crew-hook'
-import { DEFAULT_COPILOT_MODEL, withCopilotModel, withoutCopilotModel } from '../shared/copilot-models'
+import { withoutCopilotModel } from '../shared/copilot-models'
 
 const TICK_MS = 250
 const DEFAULT_COLS = 100
@@ -200,9 +200,7 @@ export class SessionManager extends EventEmitter {
     const command = req.command || preset?.command || defaultShell()
     const baseArgs = req.args && req.args.length ? req.args : preset?.args ?? []
     const copilot = req.presetId === 'copilot-cli'
-    const args = copilot && !restore && !baseArgs.some((arg) => arg === '--model' || arg.startsWith('--model='))
-      ? withCopilotModel(baseArgs, DEFAULT_COPILOT_MODEL)
-      : [...baseArgs]
+    const args = [...baseArgs]
     const cwd = req.cwd || homedir() || process.cwd()
     const id = restore?.id ?? randomUUID()
     // The agent's own session UUID: reused when resuming (so we reattach the same

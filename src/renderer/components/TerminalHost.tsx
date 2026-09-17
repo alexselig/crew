@@ -1,5 +1,6 @@
 import { TerminalView } from './TerminalView'
 import { CrewTerminal } from './CrewTerminal'
+import { useAppActivity } from '../app-activity'
 
 /**
  * Chooses the terminal implementation for a session. When the app-wide "Beta
@@ -17,6 +18,9 @@ export function TerminalHost({
   enhanced: boolean
   focusOnMount?: boolean
 }): JSX.Element {
+  const active = useAppActivity()
+  if (!active) return <div className="term-mount term-mount--suspended" aria-hidden="true" />
+
   return enhanced ? (
     <CrewTerminal id={id} focusOnMount={focusOnMount} />
   ) : (

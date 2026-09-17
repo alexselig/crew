@@ -21,6 +21,16 @@ import { TranscriptRecorder } from '../src/main/transcripts'
 
 const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs')
 let dir: string
+
+function captureError(fn: () => void): unknown {
+  try {
+    fn()
+  } catch (error) {
+    return error
+  }
+  throw new Error('expected operation to throw')
+}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'crew-directory-sync-'))
   operations.length = 0
@@ -52,7 +62,14 @@ describe.skipIf(process.platform === 'win32')('Unix publication durability', () 
       }
       actualFs.fsyncSync(fd)
     })
-    expect(() => atomicWriteFile(path, 'complete new contents')).toThrow('Fixture directory sync failure')
+    const error = captureError(() => atomicWriteFile(path, 'complete new contents'))
+    expect(error).toMatchObject({
+      name: 'AtomicWriteError',
+      path,
+      published: true,
+      cause: expect.any(Error)
+    })
+    expect(error).toHaveProperty('message', 'Fixture directory sync failure')
     expect(readFileSync(path, 'utf8')).toBe('complete new contents')
     expect(readdirSync(dir)).toEqual(['state.json'])
     expect(directoryFd).toBeTypeOf('number')

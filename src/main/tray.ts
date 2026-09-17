@@ -6,6 +6,7 @@ import { Tray, Menu, nativeImage, Notification, type MenuItemConstructorOptions 
 import type { SessionInfo } from '../shared/types'
 import { NEEDS_YOU } from '../shared/types'
 import { getCharacter } from './characters'
+import { NotificationCoordinator, type NoticeRequest } from './notification-coordinator'
 import { isMac } from './platform'
 
 // 22×22 template PNG (a ring + center dot). Embedded so no resource-copy step
@@ -37,6 +38,7 @@ export interface TrayCallbacks {
   onNewWindow: () => void
   onNewSession: () => void
   onJump: (id: string) => void
+  isForeground: () => boolean
   onQuit: () => void
 }
 
@@ -52,10 +54,17 @@ const STATE_LABEL: Record<string, string> = {
 
 export class CrewTray {
   private readonly tray: Tray
+  private readonly notifications: NotificationCoordinator
   private destroyed = false
 
   constructor(private readonly cb: TrayCallbacks) {
     this.tray = new Tray(buildTrayIcon())
+    this.notifications = new NotificationCoordinator(
+      (request) => this.showNativeNotification(request),
+      cb.onJump,
+      cb.onShow,
+      cb.isForeground
+    )
     this.tray.setToolTip('Crew')
     this.tray.on('click', () => this.cb.onShow())
     this.update([])
@@ -90,24 +99,41 @@ export class CrewTray {
     )
 
     this.tray.setContextMenu(this.buildMenu(active, waiting))
+    this.notifications.reconcile(new Set(active.map((session) => session.id)))
   }
 
   notify(session: SessionInfo, silent = false): void {
-    if (this.destroyed) return
-    if (!Notification.isSupported()) return
-    const ch = getCharacter(session.characterId)
-    const n = new Notification({
-      title: `${ch?.glyph ?? '●'}  ${session.label}`,
-      body: session.state === 'WAITING_APPROVAL' ? 'needs your approval' : 'needs your input',
+    if (this.destroyed || !Notification.isSupported()) return
+    const character = getCharacter(session.characterId)
+    this.notifications.queue(
+      { ...session, label: `${character?.glyph ?? '●'}  ${session.label}` },
       silent
-    })
-    n.on('click', () => this.cb.onJump(session.id))
-    n.show()
+    )
+  }
+
+  acknowledge(id: string): void {
+    this.notifications.acknowledge(id)
+  }
+
+  suppress(id: string): void {
+    this.notifications.suppress(id)
   }
 
   destroy(): void {
     this.destroyed = true
+    this.notifications.dispose()
     this.tray.destroy()
+  }
+
+  private showNativeNotification(request: NoticeRequest): { close: () => void } {
+    const notification = new Notification({
+      title: request.title,
+      body: request.body,
+      silent: request.silent
+    })
+    notification.on('click', request.onClick)
+    notification.show()
+    return { close: () => notification.close() }
   }
 
   private buildMenu(active: SessionInfo[], waiting: SessionInfo[]): Menu {

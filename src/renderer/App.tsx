@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCrew } from './hooks'
 import { Roster } from './components/Roster'
 import { SessionView } from './components/SessionView'
@@ -13,18 +13,21 @@ import { WorkspaceManager } from './components/WorkspaceManager'
 import { AgentInvoke } from './components/AgentInvoke'
 import { AgentEditor } from './components/AgentEditor'
 import { AgentRunPanel } from './components/AgentRunPanel'
+import { CustomViewOrganizer } from './components/CustomViewOrganizer'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { UpdateBanner } from './components/UpdateBanner'
 import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
 import { Character } from './components/Character'
 import { focusTerminal } from './terminal/facade'
-import { existingGroups, recencyOf } from './grouping'
+import { byRecent, existingGroups, recencyOf } from './grouping'
+import { composeCustomView } from '../shared/custom-views'
 import { arrowNavIntent } from './gridNav'
 import { NEEDS_YOU } from '../shared/types'
+import { nextSelection } from '../shared/selection'
 import { sessionInWorkspaceId } from '../shared/workspaces'
 import { STATE_META } from './state-meta'
-import type { CreateSessionRequest } from '../shared/types'
+import type { CreateSessionRequest, SessionPresentation } from '../shared/types'
 
 export function App(): JSX.Element {
   const c = useCrew()
@@ -33,6 +36,8 @@ export function App(): JSX.Element {
   const [showBroadcast, setShowBroadcast] = useState(false)
   const [invokeAgentId, setInvokeAgentId] = useState<string | null>(null)
   const [showTranscripts, setShowTranscripts] = useState(false)
+  const customViewOpenerRef = useRef<HTMLElement | null>(null)
+  const suppressTerminalFocusRef = useRef(false)
   // The Project Tracker is a single feature reached from two toolbar buttons that
   // deep-link to different sections (chart → Activity, clipboard → Planning).
   // null = closed; a section value = open on that section.
@@ -56,12 +61,9 @@ export function App(): JSX.Element {
     showIntro ||
     c.showNew ||
     c.showWorkspaces ||
+    c.showCustomViewEditor !== null ||
     invokeAgentId !== null ||
     c.editingAgent !== null
-  const selected = c.roster.find((s) => s.id === c.selectedId) ?? null
-  const usedCharacterIds = c.roster
-    .filter((s) => s.status === 'active' && s.id !== selected?.id)
-    .map((s) => s.characterId)
   // Roster filtered to the active workspace (null = All). Non-destructive: hidden
   // sessions keep running; this only changes what's shown. Filter is by workspace
   // id (first-class membership).
@@ -75,6 +77,23 @@ export function App(): JSX.Element {
     () => c.workspaces.find((w) => w.id === c.activeWorkspace)?.name ?? null,
     [c.workspaces, c.activeWorkspace]
   )
+  const presentedRoster = useMemo(() => {
+    const presentation = c.presentation
+    if (presentation.kind === 'builtin') return visibleRoster
+    const view = c.customViews.find((item) => item.id === presentation.viewId)
+    return view ? composeCustomView(visibleRoster, view).sessions : [...visibleRoster].sort(byRecent)
+  }, [visibleRoster, c.presentation, c.customViews])
+  const builtinPresentation: SessionPresentation =
+    c.presentation.kind === 'builtin' ? c.presentation : { kind: 'builtin', mode: 'none' }
+  const editingCustomView =
+    c.showCustomViewEditor && c.showCustomViewEditor !== 'new'
+      ? c.customViews.find((view) => view.id === c.showCustomViewEditor) ?? null
+      : null
+  const activeRoster = presentedRoster
+  const selected = activeRoster.find((s) => s.id === c.selectedId) ?? null
+  const usedCharacterIds = c.roster
+    .filter((s) => s.status === 'active' && s.id !== selected?.id)
+    .map((s) => s.characterId)
 
   // Default workspace ids for a new session: the active workspace → else the most
   // recently used one (from the most recently prompted session) → else the first
@@ -99,6 +118,24 @@ export function App(): JSX.Element {
     if (info) c.setSelectedId(info.id)
   }
 
+  function openCustomViewEditor(
+    editor: string | 'new',
+    opener: HTMLElement | null = null
+  ): void {
+    const active = document.activeElement
+    customViewOpenerRef.current =
+      opener ?? (active instanceof HTMLElement ? active : null)
+    c.setShowCustomViewEditor(editor)
+  }
+
+  function closeCustomViewEditor(): void {
+    // A custom-view modal returns focus to its picker; do not let the usual
+    // single-view terminal refocus overwrite that restoration one frame later.
+    suppressTerminalFocusRef.current =
+      c.viewMode === 'single' && Boolean(customViewOpenerRef.current?.isConnected)
+    c.setShowCustomViewEditor(null)
+  }
+
   function close(id: string): void {
     void window.crew.closeSession(id)
   }
@@ -106,7 +143,7 @@ export function App(): JSX.Element {
   // Bring a session into focus view (used by "Needs you" buttons + tile expand).
   // Opening a session also restores it if it was minimized.
   function focusSession(id: string): void {
-    c.selectSession(id)
+    c.navigateToSession(id)
     c.setViewMode('single')
   }
 
@@ -114,13 +151,22 @@ export function App(): JSX.Element {
   // close — otherwise focus is left on <body> and typed input goes nowhere.
   useEffect(() => {
     if (anyOverlay || c.viewMode !== 'single' || !c.selectedId) return
+    if (suppressTerminalFocusRef.current) {
+      suppressTerminalFocusRef.current = false
+      return
+    }
     const id = c.selectedId
     const raf = requestAnimationFrame(() => focusTerminal(id))
     return () => cancelAnimationFrame(raf)
   }, [anyOverlay, c.viewMode, c.selectedId])
 
+  useEffect(() => {
+    const next = nextSelection(activeRoster, c.selectedId, null)
+    if (next !== c.selectedId) c.setSelectedId(next)
+  }, [activeRoster, c.selectedId, c.setSelectedId])
+
   function jumpNextWaiting(): void {
-    const waiting = visibleRoster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
+    const waiting = activeRoster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
     if (waiting.length === 0) return
     const cur = waiting.findIndex((s) => s.id === c.selectedId)
     focusSession(waiting[(cur + 1) % waiting.length].id)
@@ -135,6 +181,7 @@ export function App(): JSX.Element {
   // moving between panes — see arrowNavIntent / isEditableTarget.
   useEffect(() => {
     function onArrowCapture(e: KeyboardEvent): void {
+      if (anyOverlay) return
       const el = document.activeElement as HTMLElement | null
       const active = el
         ? {
@@ -178,7 +225,7 @@ export function App(): JSX.Element {
     }
     window.addEventListener('keydown', onArrowCapture, true)
     return () => window.removeEventListener('keydown', onArrowCapture, true)
-  }, [])
+  }, [anyOverlay])
 
   // Global keyboard shortcuts.
   useEffect(() => {
@@ -197,17 +244,17 @@ export function App(): JSX.Element {
         jumpNextWaiting()
       } else if (/^[1-9]$/.test(e.key)) {
         e.preventDefault()
-        const s = visibleRoster[Number(e.key) - 1]
+        const s = activeRoster[Number(e.key) - 1]
         if (s) focusSession(s.id)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRoster, c.selectedId])
+  }, [activeRoster, c.selectedId])
 
   const paletteItems = useMemo<PaletteItem[]>(() => {
-    const sessionItems: PaletteItem[] = visibleRoster.map((s) => {
+    const sessionItems: PaletteItem[] = activeRoster.map((s) => {
       const ch = c.characters.find((x) => x.id === s.characterId)
       return {
         id: 'sess-' + s.id,
@@ -276,7 +323,7 @@ export function App(): JSX.Element {
     ]
     return [...sessionItems, ...actions, ...workspaceItems]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRoster, c.characters, c.viewMode, c.selectedId, c.workspaces, c.activeWorkspace])
+  }, [activeRoster, c.characters, c.viewMode, c.selectedId, c.workspaces, c.activeWorkspace])
 
   const navIsCollapsed = c.navCollapsed || c.viewMode === 'grid'
   // Float the rail open on hover whenever it is collapsed — in grid view too.
@@ -298,7 +345,7 @@ export function App(): JSX.Element {
     >
       <UpdateBanner />
       <Roster
-        roster={visibleRoster}
+        roster={presentedRoster}
         hiddenByWorkspace={c.roster.length - visibleRoster.length}
         characters={c.characters}
         presets={c.presets}
@@ -312,8 +359,12 @@ export function App(): JSX.Element {
         onSetCollapsed={c.setNavCollapsed}
         navWidth={c.navWidth}
         onNavWidth={c.setNavWidth}
-        groupMode={c.groupMode}
-        onSetGroupMode={c.setGroupMode}
+        groupMode={builtinPresentation.mode}
+        presentation={c.presentation}
+        customViews={c.customViews}
+        onChoosePresentation={c.setPresentation}
+        onCreateCustomView={(opener) => openCustomViewEditor('new', opener)}
+        onEditCustomView={(id, opener) => openCustomViewEditor(id, opener)}
         collapsedGroups={c.collapsedGroups}
         onToggleGroup={c.toggleGroup}
         minimized={c.minimized}
@@ -349,7 +400,7 @@ export function App(): JSX.Element {
 
       {c.viewMode === 'grid' ? (
         <GridView
-          roster={visibleRoster}
+          roster={presentedRoster}
           enhancedTerminal={c.settings?.enhancedTerminal ?? false}
           githubButton={{
             show: c.settings?.showGithubButton ?? true,
@@ -359,8 +410,12 @@ export function App(): JSX.Element {
           selectedId={c.selectedId}
           gridDensity={c.gridDensity}
           activeWorkspace={activeWorkspaceName}
-          groupMode={c.groupMode}
-          onSetGroupMode={c.setGroupMode}
+          groupMode={builtinPresentation.mode}
+          presentation={c.presentation}
+          customViews={c.customViews}
+          onChoosePresentation={c.setPresentation}
+          onCreateCustomView={(opener) => openCustomViewEditor('new', opener)}
+          onEditCustomView={(id, opener) => openCustomViewEditor(id, opener)}
           collapsedGroups={c.collapsedGroups}
           onToggleGroup={c.toggleGroup}
           minimized={c.minimized}
@@ -457,8 +512,32 @@ export function App(): JSX.Element {
           roster={c.roster}
           characters={c.characters}
           workspaces={c.workspaces}
-          onOpenSession={(id) => c.setSelectedId(id)}
+          onOpenSession={c.navigateToSession}
           onClose={() => c.setShowWorkspaces(false)}
+        />
+      )}
+
+      {c.showCustomViewEditor !== null && (
+        <CustomViewOrganizer
+          view={editingCustomView}
+          editing={c.showCustomViewEditor !== 'new'}
+          roster={c.roster}
+          workspaces={c.workspaces}
+          presets={c.presets}
+          restoreFocusTo={customViewOpenerRef.current}
+          onSaved={(saved) => {
+            c.setPresentation({ kind: 'custom', viewId: saved.id })
+            closeCustomViewEditor()
+          }}
+          onDeleted={(views) => {
+            const activeViewId =
+              c.presentation.kind === 'custom' ? c.presentation.viewId : null
+            if (activeViewId && !views.some((view) => view.id === activeViewId)) {
+              c.setPresentation({ kind: 'builtin', mode: 'recent' })
+            }
+            closeCustomViewEditor()
+          }}
+          onClose={closeCustomViewEditor}
         />
       )}
 

@@ -3,13 +3,17 @@
 
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/types'
-import type { CrewAPI, Unsubscribe } from '../shared/api'
+import type { CrewAPI, CustomViewCreateResult, Unsubscribe } from '../shared/api'
+import { initialAppActivity, ReplayValue } from './replay-value'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
   const listener = (_e: IpcRendererEvent, payload: T): void => cb(payload)
   ipcRenderer.on(channel, listener)
   return () => ipcRenderer.removeListener(channel, listener)
 }
+
+const appActivity = new ReplayValue(initialAppActivity(process.argv))
+ipcRenderer.on(IPC.EVT_APP_ACTIVITY, (_event, active: boolean) => appActivity.publish(active))
 
 const api: CrewAPI = {
   createSession: (req) => ipcRenderer.invoke(IPC.SESSION_CREATE, req),
@@ -22,6 +26,11 @@ const api: CrewAPI = {
   setTag: (id, tag) => ipcRenderer.invoke(IPC.SESSION_SET_TAG, { id, tag }),
   setWorkspaces: (id, sets) => ipcRenderer.invoke(IPC.SESSION_SET_WORKSPACES, { id, sets }),
   getWorkspaces: () => ipcRenderer.invoke(IPC.WORKSPACES_GET),
+  getCustomViews: () => ipcRenderer.invoke(IPC.CUSTOM_VIEWS_GET),
+  createCustomView: (input): Promise<CustomViewCreateResult> =>
+    ipcRenderer.invoke(IPC.CUSTOM_VIEW_CREATE, input),
+  updateCustomView: (id, input) => ipcRenderer.invoke(IPC.CUSTOM_VIEW_UPDATE, { id, input }),
+  deleteCustomView: (id) => ipcRenderer.invoke(IPC.CUSTOM_VIEW_DELETE, id),
   createWorkspace: (name) => ipcRenderer.invoke(IPC.WORKSPACE_CREATE, name),
   renameWorkspace: (id, name) => ipcRenderer.invoke(IPC.WORKSPACE_RENAME, { id, name }),
   describeWorkspace: (id, description) => ipcRenderer.invoke(IPC.WORKSPACE_DESCRIBE, { id, description }),
@@ -82,6 +91,7 @@ const api: CrewAPI = {
   resize: (id, cols, rows) => ipcRenderer.send(IPC.SESSION_RESIZE, { id, cols, rows }),
 
   pathForFile: (file) => webUtils.getPathForFile(file),
+  getAppActivity: () => appActivity.current(),
 
   onOutput: (cb) => subscribe(IPC.EVT_OUTPUT, cb),
   onState: (cb) => subscribe(IPC.EVT_STATE, cb),
@@ -90,6 +100,8 @@ const api: CrewAPI = {
   onNew: (cb) => subscribe(IPC.EVT_NEW, () => cb()),
   onWorkspace: (cb) => subscribe(IPC.EVT_WORKSPACE, cb),
   onWorkspaces: (cb) => subscribe(IPC.EVT_WORKSPACES, cb),
+  onCustomViews: (cb) => subscribe(IPC.EVT_CUSTOM_VIEWS, cb),
+  onAppActivity: (cb) => appActivity.subscribe(cb),
   onOpenWorkspaces: (cb) => subscribe(IPC.EVT_OPEN_WORKSPACES, () => cb()),
   onAgents: (cb) => subscribe(IPC.EVT_AGENTS, cb),
   onAgentRun: (cb) => subscribe(IPC.EVT_AGENT_RUN, cb),

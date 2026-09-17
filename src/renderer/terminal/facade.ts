@@ -55,6 +55,11 @@ export function focusTerminal(id: string): void {
   else legacy.focusTerminal(id)
 }
 
+export function setTerminalRenderingActive(active: boolean): void {
+  legacy.setRenderingActive(active)
+  crew.setRenderingActive(active)
+}
+
 export function disposePooled(id: string): void {
   // Session truly gone (UUID never reused) — dispose from both pools so neither
   // leaks, regardless of which engine was active while it ran.

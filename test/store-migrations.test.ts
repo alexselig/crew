@@ -178,3 +178,129 @@ describe('store migration — contextMode brief → auto', () => {
     expect(new Store(path).settings.contextMode).toBe('brief')
   })
 })
+
+describe('store schema — custom views default', () => {
+  it('treats a missing customViews field as an empty list without forcing a migration write', () => {
+    const path = tmpStorePath()
+    seed(path, {
+      characters: {},
+      settings: { ...DEFAULT_SETTINGS },
+      recentDirs: ['/tmp/release'],
+      sessions: [],
+      sets: [],
+      workspaces: [],
+      agents: [
+        {
+          id: 'ag-1',
+          name: 'Mine',
+          icon: 'spark',
+          base: 'copilot-cli',
+          persona: 'p',
+          contextMode: 'cwd',
+          writes: false,
+          order: 0
+        }
+      ],
+      migrations: [
+        '2026-07-stale-hide-72h',
+        '2026-08-workspaces-firstclass',
+        '2026-08-context-mode-auto',
+        '2026-08-agents-seed'
+      ]
+    })
+
+    const before = readFileSync(path, 'utf8')
+    const store = new Store(path)
+
+    expect(store.getCustomViews()).toEqual([])
+    expect(readFileSync(path, 'utf8')).toBe(before)
+  })
+
+  it('accepts legacy non-UUID custom view ids when they are unique and non-empty', () => {
+    const path = tmpStorePath()
+    seed(path, {
+      customViews: [
+        {
+          id: 'legacy-view',
+          name: 'Today',
+          mode: 'curated-only',
+          items: [{ sessionId: 'session-1', labelSnapshot: 'Alpha' }],
+          createdAt: 1,
+          updatedAt: 2
+        }
+      ]
+    })
+
+    const store = new Store(path)
+
+    expect(store.getCustomViews()).toEqual([
+      {
+        id: 'legacy-view',
+        name: 'Today',
+        mode: 'curated-only',
+        items: [{ sessionId: 'session-1', labelSnapshot: 'Alpha' }],
+        createdAt: 1,
+        updatedAt: 2
+      }
+    ])
+  })
+
+  it.each([
+    [
+      'empty ids',
+      [
+        {
+          id: '   ',
+          name: 'Today',
+          mode: 'curated-only',
+          items: [],
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ]
+    ],
+    [
+      'duplicate ids',
+      [
+        {
+          id: 'dup',
+          name: 'Today',
+          mode: 'curated-only',
+          items: [],
+          createdAt: 1,
+          updatedAt: 1
+        },
+        {
+          id: 'dup',
+          name: 'Release',
+          mode: 'ranked-plus-all',
+          items: [],
+          createdAt: 2,
+          updatedAt: 2
+        }
+      ]
+    ]
+  ])('rejects persisted custom views with %s and restores the last good copy', (_label, invalidViews) => {
+    const path = tmpStorePath()
+    const good = {
+      customViews: [
+        {
+          id: 'legacy-view',
+          name: 'Today',
+          mode: 'curated-only',
+          items: [{ sessionId: 'session-1', labelSnapshot: 'Alpha' }],
+          createdAt: 1,
+          updatedAt: 2
+        }
+      ]
+    }
+    seed(path, good)
+    writeFileSync(`${path}.bak`, JSON.stringify(good))
+    seed(path, { customViews: invalidViews })
+
+    const store = new Store(path)
+
+    expect(store.getCustomViews()).toEqual(good.customViews)
+    expect(JSON.parse(readFileSync(path, 'utf8')).customViews).toEqual(good.customViews)
+  })
+})

@@ -8,13 +8,12 @@ interface Props {
 }
 
 const TOGGLES: { key: keyof Settings; label: string; desc: string }[] = [
-  { key: 'notifications', label: 'Notifications', desc: 'Native notification when a session starts waiting on you.' },
-  { key: 'sound', label: 'Notification sound', desc: 'Play the system sound with notifications.' },
   {
-    key: 'notifyOnlyWhenUnfocused',
-    label: 'Only when unfocused',
-    desc: 'Suppress notifications while the Crew window is focused.'
+    key: 'notifications',
+    label: 'Notifications',
+    desc: 'Native notification when a background session starts waiting on you.'
   },
+  { key: 'sound', label: 'Notification sound', desc: 'Play the system sound with notifications.' },
   { key: 'showSpend', label: 'Show spend', desc: 'Display dollar spend per session and the total in the sidebar.' },
   {
     key: 'showCredits',

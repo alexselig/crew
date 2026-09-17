@@ -77,6 +77,7 @@ const dormant = new Map<string, Semantic>()
 // getPooled would recreate ("resurrect") a terminal that is never attached or
 // disposed again. Session ids are UUIDs (never reused), so this set is safe.
 const tombstones = new Set<string>()
+let renderingActive = true
 
 /**
  * How many terminal emulators may exist at once. Everything above this is
@@ -244,6 +245,15 @@ function ingest(s: Semantic, data: string, p: Pooled | null): void {
 
 export function writeTo(id: string, data: string): void {
   if (tombstones.has(id)) return
+  if (!renderingActive) {
+    let dormantSession = dormant.get(id)
+    if (!dormantSession) {
+      dormantSession = newSemantic()
+      dormant.set(id, dormantSession)
+    }
+    ingest(dormantSession, data, null)
+    return
+  }
   const live = pool.get(id)
   if (live) {
     live.engine.write(data)
@@ -427,6 +437,14 @@ export function disposePooled(id: string): void {
   tombstones.add(id)
 }
 
+export function setRenderingActive(active: boolean): void {
+  if (active === renderingActive) return
+  renderingActive = active
+  if (!active) {
+    for (const id of [...pool.keys()]) retire(id)
+  }
+}
+
 /** Live engine count — the bounded resource. For tests and diagnostics. */
 export function liveEngineCount(): number {
   return pool.size
@@ -449,4 +467,5 @@ export function resetPoolForTests(): void {
   pool.clear()
   dormant.clear()
   tombstones.clear()
+  renderingActive = true
 }

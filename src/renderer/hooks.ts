@@ -1,10 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SessionInfo, Preset, CharacterDef, Settings, Workspace, Agent, AgentRun } from '../shared/types'
+import type {
+  SessionInfo,
+  Preset,
+  CharacterDef,
+  Settings,
+  Workspace,
+  CustomView,
+  SessionPresentation,
+  Agent,
+  AgentRun
+} from '../shared/types'
 import type { GroupMode } from './grouping'
 import { writeTo, disposePooled, setEngineMode } from './terminal/facade'
 import { clearInputMeter } from './input-meter'
 import { windowSlot, readViewPref, writeViewPref } from './window-scope'
 import { nextSelection } from '../shared/selection'
+import { navigateToSession as navigateToVisibleSession } from './session-navigation'
 
 export type ViewMode = 'single' | 'grid'
 /** Grid density (all horizontal-scroll): `two` = 1 row (2 tiles), `four` = 2 rows
@@ -14,6 +25,59 @@ export type GridDensity = 'two' | 'four' | 'six'
 const NAV_MIN = 200
 const NAV_MAX = 520
 const NAV_DEFAULT = 300
+const BUILTIN_GROUP_MODES: readonly GroupMode[] = ['none', 'needs', 'tag', 'recent']
+const RECENT_PRESENTATION: SessionPresentation = { kind: 'builtin', mode: 'recent' }
+
+interface InitialPresentationState {
+  groupMode: GroupMode
+  presentation: SessionPresentation
+}
+
+function readInitialGroupMode(): GroupMode {
+  const saved = readViewPref('groupMode')
+  if (saved && BUILTIN_GROUP_MODES.includes(saved as GroupMode)) return saved as GroupMode
+  if (windowSlot === 0 && localStorage.getItem('crew.groupByTag') === '1') return 'tag'
+  return 'none'
+}
+
+function readInitialPresentationState(): InitialPresentationState {
+  const groupMode = readInitialGroupMode()
+  const saved = readViewPref('sessionPresentation')
+  if (!saved) return { groupMode, presentation: { kind: 'builtin', mode: groupMode } }
+  try {
+    const parsed = JSON.parse(saved) as unknown
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'kind' in parsed &&
+      parsed.kind === 'builtin' &&
+      'mode' in parsed &&
+      BUILTIN_GROUP_MODES.includes(parsed.mode as GroupMode)
+    ) {
+      return {
+        groupMode: parsed.mode as GroupMode,
+        presentation: { kind: 'builtin', mode: parsed.mode as GroupMode }
+      }
+    }
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'kind' in parsed &&
+      parsed.kind === 'custom' &&
+      'viewId' in parsed &&
+      typeof parsed.viewId === 'string' &&
+      parsed.viewId.trim().length > 0
+    ) {
+      return {
+        groupMode,
+        presentation: { kind: 'custom', viewId: parsed.viewId }
+      }
+    }
+  } catch {
+    // Ignore corrupted renderer-local preferences and fall back to the legacy built-in state.
+  }
+  return { groupMode, presentation: { kind: 'builtin', mode: groupMode } }
+}
 
 /** Force a re-render on an interval while `active`, so wall-clock-derived views
  *  (the 'recent' grouping buckets) migrate sessions between buckets as time
@@ -36,6 +100,8 @@ export interface CrewState {
   setSelectedId: (id: string | null) => void
   /** Select a session by user action, restoring (un-minimizing) it if hidden. */
   selectSession: (id: string) => void
+  /** Reveal a session across workspace/presentation filters, then select it. */
+  navigateToSession: (id: string) => void
   showNew: boolean
   setShowNew: (v: boolean) => void
   viewMode: ViewMode
@@ -48,6 +114,11 @@ export interface CrewState {
   setNavCollapsed: (v: boolean) => void
   groupMode: GroupMode
   setGroupMode: (m: GroupMode) => void
+  customViews: CustomView[]
+  presentation: SessionPresentation
+  setPresentation: (p: SessionPresentation) => void
+  showCustomViewEditor: string | 'new' | null
+  setShowCustomViewEditor: (v: string | 'new' | null) => void
   collapsedGroups: Set<string>
   toggleGroup: (name: string) => void
   /** Session ids the user has minimized (hidden behind a per-bucket "show more"). */
@@ -84,6 +155,7 @@ export interface CrewState {
 }
 
 export function useCrew(): CrewState {
+  const initialPresentation = useRef<InitialPresentationState>(readInitialPresentationState())
   const [roster, setRoster] = useState<SessionInfo[]>([])
   const [presets, setPresets] = useState<Preset[]>([])
   const [characters, setCharacters] = useState<CharacterDef[]>([])
@@ -102,12 +174,13 @@ export function useCrew(): CrewState {
   const [navCollapsed, setNavCollapsedState] = useState<boolean>(
     () => readViewPref('navCollapsed') === '1'
   )
-  const [groupMode, setGroupModeState] = useState<GroupMode>(() => {
-    const saved = readViewPref('groupMode')
-    if (saved === 'none' || saved === 'needs' || saved === 'tag' || saved === 'recent') return saved
-    if (windowSlot === 0 && localStorage.getItem('crew.groupByTag') === '1') return 'tag'
-    return 'none'
-  })
+  const [groupMode, setGroupModeState] = useState<GroupMode>(() => initialPresentation.current.groupMode)
+  const [customViews, setCustomViews] = useState<CustomView[]>([])
+  const [customViewsLoaded, setCustomViewsLoaded] = useState(false)
+  const [presentation, setPresentationState] = useState<SessionPresentation>(
+    () => initialPresentation.current.presentation
+  )
+  const [showCustomViewEditor, setShowCustomViewEditor] = useState<string | 'new' | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     try {
       return new Set<string>(JSON.parse(readViewPref('collapsedGroups') || '[]'))
@@ -154,6 +227,8 @@ export function useCrew(): CrewState {
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [editingAgent, setEditingAgent] = useState<string | null | 'new'>(null)
   const knownIds = useRef<Set<string>>(new Set())
+  const navigationState = useRef({ roster, activeWorkspace, presentation, customViews })
+  navigationState.current = { roster, activeWorkspace, presentation, customViews }
 
   const setActiveWorkspace = (name: string | null): void => {
     setActiveWorkspaceState(name)
@@ -176,9 +251,22 @@ export function useCrew(): CrewState {
     setNavCollapsedState(v)
     writeViewPref('navCollapsed', v ? '1' : '0')
   }
+  const writeSessionPresentationPref = (next: SessionPresentation): void => {
+    writeViewPref('sessionPresentation', JSON.stringify(next))
+  }
+  const setPresentation = (next: SessionPresentation): void => {
+    setPresentationState(next)
+    writeSessionPresentationPref(next)
+    if (next.kind !== 'builtin') return
+    setGroupModeState(next.mode)
+    writeViewPref('groupMode', next.mode)
+  }
   const setGroupMode = (m: GroupMode): void => {
     setGroupModeState(m)
     writeViewPref('groupMode', m)
+    const next: SessionPresentation = { kind: 'builtin', mode: m }
+    setPresentationState(next)
+    writeSessionPresentationPref(next)
   }
   const toggleGroup = (name: string): void => {
     setCollapsedGroups((prev) => {
@@ -234,6 +322,12 @@ export function useCrew(): CrewState {
     })
     setSelectedId(id)
   }
+  const navigateToSession = (id: string): void => {
+    navigateToVisibleSession(
+      { id, ...navigationState.current },
+      { setActiveWorkspace, setPresentation, selectSession, setShowNew }
+    )
+  }
   const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]): void => {
     void window.crew.updateSettings({ [key]: value } as Partial<Settings>).then(setSettings)
   }
@@ -251,6 +345,11 @@ export function useCrew(): CrewState {
     void window.crew.getHomeDir().then((h) => mounted && setHomeDir(h))
     void window.crew.getSettings().then((s) => mounted && setSettings(s))
     void window.crew.getWorkspaces().then((w) => mounted && setWorkspaces(w))
+    void window.crew.getCustomViews().then((views) => {
+      if (!mounted) return
+      setCustomViews(views)
+      setCustomViewsLoaded(true)
+    })
     void window.crew.getAgents().then((a) => mounted && setAgents(a))
 
     const offRoster = window.crew.onRoster((r) => setRoster(r))
@@ -262,13 +361,14 @@ export function useCrew(): CrewState {
       )
     )
     const offOutput = window.crew.onOutput((e) => writeTo(e.id, e.data))
-    const offJump = window.crew.onJump((id) => {
-      setSelectedId(id)
-      setShowNew(false)
-    })
+    const offJump = window.crew.onJump(navigateToSession)
     const offNew = window.crew.onNew(() => setShowNew(true))
     const offWorkspace = window.crew.onWorkspace((name) => setActiveWorkspace(name))
     const offWorkspaces = window.crew.onWorkspaces((w) => setWorkspaces(w))
+    const offCustomViews = window.crew.onCustomViews((views) => {
+      setCustomViews(views)
+      setCustomViewsLoaded(true)
+    })
     const offOpenWorkspaces = window.crew.onOpenWorkspaces(() => setShowWorkspaces(true))
     const offAgents = window.crew.onAgents((a) => setAgents(a))
     const offAgentRun = window.crew.onAgentRun((run) => {
@@ -285,11 +385,18 @@ export function useCrew(): CrewState {
       offNew()
       offWorkspace()
       offWorkspaces()
+      offCustomViews()
       offOpenWorkspaces()
       offAgents()
       offAgentRun()
     }
   }, [])
+
+  useEffect(() => {
+    if (!customViewsLoaded || presentation.kind !== 'custom') return
+    if (customViews.some((view) => view.id === presentation.viewId)) return
+    setPresentation(RECENT_PRESENTATION)
+  }, [customViews, customViewsLoaded, presentation])
 
   // Keep the selection valid as sessions come and go, and as a workspace filter
   // hides them. One rule, one place — see nextSelection().
@@ -324,6 +431,7 @@ export function useCrew(): CrewState {
     selectedId,
     setSelectedId,
     selectSession,
+    navigateToSession,
     showNew,
     setShowNew,
     viewMode,
@@ -336,6 +444,11 @@ export function useCrew(): CrewState {
     setNavCollapsed,
     groupMode,
     setGroupMode,
+    customViews,
+    presentation,
+    setPresentation,
+    showCustomViewEditor,
+    setShowCustomViewEditor,
     collapsedGroups,
     toggleGroup,
     minimized,

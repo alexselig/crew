@@ -63,6 +63,11 @@ export function recencyOf(s: SessionInfo): number {
   return s.lastPromptAt ?? s.createdAt
 }
 
+/** Newest-first session ordering shared by Recent-derived views. */
+export function byRecent(a: SessionInfo, b: SessionInfo): number {
+  return recencyOf(b) - recencyOf(a)
+}
+
 /** Split a bucket's sessions (preserving order) into visible ones and hidden
  * ones, per the `isHidden` predicate. Hidden sessions are tucked behind a
  * per-bucket "show more" (they're stale in group sort, or manually minimized in
@@ -243,10 +248,9 @@ export interface PickerGroup {
  * Falls back to a single flat, recency-sorted list when no groups are present.
  */
 export function groupSessionsForPicker(sessions: SessionInfo[]): PickerGroup[] {
-  const byRecency = (a: SessionInfo, b: SessionInfo): number => recencyOf(b) - recencyOf(a)
   const hasTags = sessions.some((s) => s.tag && s.tag.trim())
   if (!hasTags) {
-    return [{ name: null, sessions: [...sessions].sort(byRecency) }]
+    return [{ name: null, sessions: [...sessions].sort(byRecent) }]
   }
   const map = new Map<string, SessionInfo[]>()
   for (const s of sessions) {
@@ -255,7 +259,7 @@ export function groupSessionsForPicker(sessions: SessionInfo[]): PickerGroup[] {
     if (list) list.push(s)
     else map.set(name, [s])
   }
-  const groups = [...map.entries()].map(([name, list]) => ({ name, sessions: list.sort(byRecency) }))
+  const groups = [...map.entries()].map(([name, list]) => ({ name, sessions: list.sort(byRecent) }))
   groups.sort((a, b) => {
     if (a.name === 'Ungrouped') return 1
     if (b.name === 'Ungrouped') return -1
@@ -292,9 +296,9 @@ export function organizeSessions(sessions: SessionInfo[], sort: LaneSort): Picke
   if (sort === 'name') {
     list.sort((a, b) => a.label.localeCompare(b.label))
   } else if (sort === 'status') {
-    list.sort((a, b) => statusRank(a) - statusRank(b) || recencyOf(b) - recencyOf(a))
+    list.sort((a, b) => statusRank(a) - statusRank(b) || byRecent(a, b))
   } else {
-    list.sort((a, b) => recencyOf(b) - recencyOf(a))
+    list.sort(byRecent)
   }
   return [{ name: null, sessions: list }]
 }

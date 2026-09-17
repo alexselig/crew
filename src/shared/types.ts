@@ -214,6 +214,26 @@ export interface SessionInfo {
   appUrl?: string
 }
 
+export type CustomViewMode = 'curated-only' | 'ranked-plus-all'
+
+export interface CustomViewItem {
+  sessionId: string
+  labelSnapshot: string
+}
+
+export interface CustomView {
+  id: string
+  name: string
+  mode: CustomViewMode
+  items: CustomViewItem[]
+  createdAt: number
+  updatedAt: number
+}
+
+export type SessionPresentation =
+  | { kind: 'builtin'; mode: 'none' | 'needs' | 'tag' | 'recent' }
+  | { kind: 'custom'; viewId: string }
+
 export interface CreateSessionRequest {
   presetId: string | null
   command: string
@@ -304,6 +324,10 @@ export const IPC = {
   TRACKER_STOP: 'tracker:stop',
   TRACKER_STATUS: 'tracker:status',
   WORKSPACES_GET: 'workspaces:get',
+  CUSTOM_VIEWS_GET: 'customViews:get',
+  CUSTOM_VIEW_CREATE: 'customViews:create',
+  CUSTOM_VIEW_UPDATE: 'customViews:update',
+  CUSTOM_VIEW_DELETE: 'customViews:delete',
   WORKSPACE_CREATE: 'workspace:create',
   WORKSPACE_RENAME: 'workspace:rename',
   WORKSPACE_DESCRIBE: 'workspace:describe',
@@ -331,6 +355,8 @@ export const IPC = {
   EVT_NEW: 'evt:new',
   EVT_WORKSPACE: 'evt:workspace',
   EVT_WORKSPACES: 'evt:workspaces',
+  EVT_CUSTOM_VIEWS: 'evt:customViews',
+  EVT_APP_ACTIVITY: 'evt:appActivity',
   EVT_OPEN_WORKSPACES: 'evt:openWorkspaces',
   EVT_AGENTS: 'evt:agents',
   EVT_AGENT_RUN: 'evt:agentRun',

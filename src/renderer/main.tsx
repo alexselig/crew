@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client'
+import { AppActivityProvider } from './app-activity'
 import { App } from './App'
 import './fonts/fonts.css'
 import './styles.css'
@@ -7,5 +8,9 @@ import './styles.css'
 // open/dispose each xterm terminal twice, corrupting the persistent pool.
 const root = document.getElementById('root')
 if (root) {
-  createRoot(root).render(<App />)
+  createRoot(root).render(
+    <AppActivityProvider>
+      <App />
+    </AppActivityProvider>
+  )
 }

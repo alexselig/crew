@@ -3,19 +3,17 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getPooled, touch, focusTerminal, markPrompt, jumpToPrompt, recordInput } from '../terminal/pool'
 import { quotePaths } from '../../shared/shell-quote'
 import { meterInput } from '../input-meter'
+import { TerminalFocusRegistry } from '../terminal-focus'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
 function hasFiles(e: React.DragEvent): boolean {
   return Array.from(e.dataTransfer.types).includes('Files')
 }
 
-// The session whose terminal was last focused. Tracked at module scope so we can
-// restore focus after a DOM re-parent (grid reorder / regrouping / view swap)
-// silently blurs the terminal's hidden textarea — which otherwise leaves it
-// unable to accept input until the user toggles views. `focusBound` ensures we
-// attach the focus listener to each pooled engine only once.
-let lastFocusedTerminal: string | null = null
-const focusBound = new Set<string>()
+// Tracked at module scope so a DOM re-parent can restore focus. Binding follows
+// engine identity because background suspension replaces the engine for the same
+// session id when rendering resumes.
+const focusRegistry = new TerminalFocusRegistry()
 
 /**
  * The Crew-engine terminal view (used when "Beta Enhanced Terminal Interface" is
@@ -53,12 +51,7 @@ export function CrewTerminal({
 
     // Remember this terminal as the focus target whenever it gains focus, so a
     // later DOM re-parent that blurs it can hand focus back (see layout effect).
-    if (!focusBound.has(id)) {
-      p.engine.onFocus(() => {
-        lastFocusedTerminal = id
-      })
-      focusBound.add(id)
-    }
+    focusRegistry.bind(id, p.engine)
 
     let disposed = false
     const fit = (): void => {
@@ -83,7 +76,7 @@ export function CrewTerminal({
     // JetBrains Mono loads asynchronously; the engine measures cell height at
     // open() time, so re-fit once fonts are ready or the bottom row clips.
     void document.fonts?.ready.then(fit)
-    if (focusOnMount || lastFocusedTerminal === id) p.engine.focus()
+    if (focusOnMount || focusRegistry.isLastFocused(id)) p.engine.focus()
 
     const ro = new ResizeObserver(() => fit())
     ro.observe(host)
@@ -146,9 +139,8 @@ export function CrewTerminal({
   // if this was the focused terminal and focus fell to <body>, reclaim it — so
   // input keeps working without having to toggle views.
   useLayoutEffect(() => {
-    if (lastFocusedTerminal !== id) return
     const p = getPooled(id)
-    if (p.engine.mounted && document.activeElement === document.body) {
+    if (focusRegistry.shouldRestore(id, p.engine.mounted, document.activeElement === document.body)) {
       p.engine.focus()
     }
   })

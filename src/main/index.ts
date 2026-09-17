@@ -8,8 +8,8 @@ import { homedir, tmpdir } from 'node:os'
 import { accessSync, constants, writeFileSync, appendFileSync } from 'node:fs'
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
-import { IPC, NEEDS_YOU } from '../shared/types'
-import type { CreateSessionRequest, Settings } from '../shared/types'
+import { IPC } from '../shared/types'
+import type { Agent, AgentRun, CreateSessionRequest, Settings } from '../shared/types'
 import type { AgentStatus } from '../shared/api'
 import type { TrackerSessionInput } from '../shared/tracker'
 import { SessionManager } from './session-manager'
@@ -44,10 +44,12 @@ import {
   deleteAgent as deleteAgentList,
   reorderAgents as reorderAgentList
 } from '../shared/agents'
-import type { Agent, AgentRun } from '../shared/types'
 import { CHARACTERS } from './characters'
 import { listCopilotModels } from './copilot-models'
 import { BoundedErrorReporter, createShellActions, installPreviewBoundary } from './main-boundaries'
+import { registerCustomViewIpc } from './custom-view-ipc'
+import { handleNeedsYouTransition } from './notification-integration'
+import { AppActivityCoordinator } from './app-activity'
 
 let tray: CrewTray | null = null
 let manager: SessionManager
@@ -132,9 +134,18 @@ function broadcast(channel: string, payload?: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload)
 }
 
+const appActivity = new AppActivityCoordinator(
+  () => BrowserWindow.getAllWindows(),
+  (active) => broadcast(IPC.EVT_APP_ACTIVITY, active)
+)
+
 /** The window the user is most likely acting on: the focused one, else any. */
 function focusedWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
+}
+
+function isCrewForeground(): boolean {
+  return appActivity.current()
 }
 
 function debounce(fn: () => void, ms: number): () => void {
@@ -171,23 +182,13 @@ function centeredOn(display: Display, width: number, height: number): Rectangle 
   }
 }
 
-/** Where the FIRST window opens. It always lands on the primary display — the
- * screen carrying the menu bar, i.e. the one the user is actually sitting in
- * front of. A frame remembered on another display (an external monitor that's
- * since been turned off, put to sleep, or is simply out of view) is the classic
- * "the app launched but there's no window" trap, so the exact remembered frame
- * is only restored when it's on the primary display; otherwise we re-center
- * there at the remembered size. Summoning (tray / activate) can still pull the
- * window to whichever display you're on via revealOnActiveDisplay. */
+/** Where the FIRST window opens: restore its remembered frame when that frame
+ * is still visible on any connected display, otherwise center it on primary. */
 function defaultBounds(): Rectangle {
   const primary = screen.getPrimaryDisplay()
   const saved = store.windowBounds
-  if (saved && boundsOnSomeDisplay(saved)) {
-    const savedDisplay = screen.getDisplayNearestPoint({ x: saved.x, y: saved.y })
-    if (savedDisplay.id === primary.id) return saved
-    return centeredOn(primary, saved.width, saved.height)
-  }
-  return centeredOn(primary, 1120, 740)
+  if (saved && boundsOnSomeDisplay(saved)) return saved
+  return centeredOn(primary, saved?.width ?? 1120, saved?.height ?? 740)
 }
 
 /** Where an ADDITIONAL window opens: a monitor that has no Crew window yet (so a
@@ -223,11 +224,19 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
+      additionalArguments: [`--crew-app-active=${appActivity.current() ? '1' : '0'}`],
       // Enables the <webview> tag used by the session "App" pane to render a
       // session's local dev server. Hardened below in will-attach-webview.
       webviewTag: true
     }
   })
+  w.on('focus', () => appActivity.schedule())
+  w.on('blur', () => appActivity.schedule())
+  w.on('closed', () => appActivity.schedule())
+  w.on('show', () => appActivity.schedule())
+  w.on('hide', () => appActivity.schedule())
+  w.on('minimize', () => appActivity.schedule())
+  w.on('restore', () => appActivity.schedule())
 
   w.on('ready-to-show', () => {
     w.show()
@@ -285,6 +294,7 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
   // Resume the previous session set once the renderer is ready to receive their
   // output. Guarded so it only happens once per app lifetime (the first window).
   w.webContents.once('did-finish-load', () => {
+    appActivity.sendCurrent((active) => w.webContents.send(IPC.EVT_APP_ACTIVITY, active))
     // Match this window to the app-wide workspace filter (the renderer also
     // persists its own per-window copy across reloads).
     if (activeWorkspace != null) w.webContents.send(IPC.EVT_WORKSPACE, activeWorkspace)
@@ -355,17 +365,12 @@ function openWindow(): void {
   createWindow({ intro: false, bounds: newWindowBounds() })
 }
 
-/** Bring a window onto the primary display — the menu-bar screen the user is in
- * front of — whenever Crew is summoned, so it can't stay stranded on an external
- * monitor that's off or out of view. Only moves the window when it isn't already
- * on the primary display (or is off-screen entirely); size is kept and clamped
- * to fit the work area. */
+/** Keep a summoned window where it is while its display remains connected. If
+ * its frame is off-screen, move it to the primary display at the same size. */
 function revealWindow(w: BrowserWindow): void {
-  const primary = screen.getPrimaryDisplay()
   const b = w.getBounds()
-  const onPrimary = screen.getDisplayNearestPoint({ x: b.x, y: b.y }).id === primary.id
-  if (!onPrimary || !boundsOnSomeDisplay(b)) {
-    w.setBounds(centeredOn(primary, b.width, b.height))
+  if (!boundsOnSomeDisplay(b)) {
+    w.setBounds(centeredOn(screen.getPrimaryDisplay(), b.width, b.height))
   }
 }
 
@@ -618,13 +623,12 @@ function wireManager(): void {
   })
 
   manager.on('transition', ({ session, from, to }) => {
-    // Notify only when a session ENTERS a needs-you state from a non-needs-you
-    // one (covers WORKING→WAITING and IDLE→WAITING without double-firing).
-    if (!NEEDS_YOU.includes(to) || NEEDS_YOU.includes(from)) return
-    const s = store.settings
-    if (!s.notifications) return
-    if (s.notifyOnlyWhenUnfocused && BrowserWindow.getAllWindows().some((w) => w.isFocused())) return
-    tray?.notify(session, !s.sound)
+    handleNeedsYouTransition(
+      { session, from, to },
+      store.settings,
+      tray,
+      isCrewForeground
+    )
   })
 }
 
@@ -807,6 +811,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.TRACKER_STOP, (_e, id: string) => stopServer(id))
   ipcMain.handle(IPC.TRACKER_STATUS, () => serverStatus())
 
+  // ── Custom views ──
+  registerCustomViewIpc(ipcMain, store, broadcast)
+
   // ── First-class workspaces (Workspace Manager) ──
   const pushWorkspaces = (): Workspace[] => {
     const list = store.getWorkspaces()
@@ -909,9 +916,10 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) =>
+  ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) => {
+    tray?.acknowledge(p.id)
     manager.input(p.id, p.data)
-  )
+  })
   ipcMain.on(IPC.SESSION_WAKE, (_e, id: string) => manager.wake(id))
   ipcMain.on(IPC.SESSION_RESIZE, (_e, p: { id: string; cols: number; rows: number }) =>
     manager.resize(p.id, p.cols, p.rows)
@@ -921,7 +929,7 @@ function registerIpc(): void {
 // One running Crew owns the tray, sessions and windows. A second launch (the
 // user re-opening the app, or a stale hidden instance being started again) must
 // not spin up a duplicate background process — it hands off to the primary,
-// which reveals its window on the display the user is actually looking at.
+// which reveals its window without moving it away from a connected display.
 if (!app.requestSingleInstanceLock()) {
   // A redundant second instance: hand off to the primary and exit silently
   // (no quit prompt — this process never showed a window).
@@ -971,6 +979,7 @@ if (!app.requestSingleInstanceLock()) {
     onNewWindow: openWindow,
     onNewSession: openNewSession,
     onJump: jumpTo,
+    isForeground: isCrewForeground,
     onQuit: () => {
       void confirmQuit()
     }
