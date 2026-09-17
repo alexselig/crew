@@ -35,6 +35,11 @@ IDENTITY="${CREW_SIGN_IDENTITY:-Developer ID Application: Aaron Selig (42KAR3VVM
 PROFILE="${CREW_NOTARY_PROFILE:-crew-notary}"
 TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"
 VERSION="$(node -p "require('./package.json').version")"
+SIGN_BIN="$(mktemp -d)"
+ln -s "$REPO_DIR/scripts/codesign-retry.sh" "$SIGN_BIN/codesign"
+export CREW_TIMESTAMP_URL="$TIMESTAMP_URL"
+export PATH="$SIGN_BIN:$PATH"
+trap 'rm -rf "$SIGN_BIN"' EXIT
 # Which macOS architecture to sign/package. electron-builder --dir emits arm64 to
 # dist/mac-arm64/ and x64 to dist/mac/. Override the app path with CREW_APP if needed.
 ARCH="${CREW_ARCH:-arm64}"
@@ -75,11 +80,8 @@ echo "    identity: $IDENTITY"
 NP=()
 while IFS= read -r f; do NP+=("$f"); done < <(find "$APP/Contents/Resources/app.asar.unpacked/node_modules/node-pty" \( -name "*.node" -o -name "spawn-helper" \) ! -path "*win32*" 2>/dev/null || true)
 [ "${#NP[@]}" -gt 0 ] || { echo "ERROR: packaged node-pty native binaries are missing." >&2; exit 1; }
-# Apple's timestamp server (timestamp.apple.com) intermittently drops individual
-# requests, and signing an Electron app makes hundreds of them — a single blip
-# ("A timestamp was expected but was not found") fails the whole pass. codesign
-# --force is idempotent, so retry the whole sign a few times until every file gets
-# a timestamp.
+# The PATH wrapper retries each codesign operation independently. Retrying only
+# the whole Electron app repeatedly restarts at the first timestamp failure.
 signed=0
 for attempt in 1 2 3 4 5; do
   if node_modules/.bin/electron-osx-sign "$APP" "${NP[@]}" \
