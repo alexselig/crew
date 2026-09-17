@@ -158,7 +158,10 @@ const crew: CrewAPI = {
     }
     const views = [...readViews(), view]
     writeViews(views)
-    return views.map(cloneView)
+    return {
+      created: cloneView(view),
+      views: views.map(cloneView)
+    }
   },
   updateCustomView: async (id, input) => {
     const updatedAt = Date.now()

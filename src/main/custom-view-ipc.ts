@@ -23,8 +23,8 @@ export function registerCustomViewIpc(
 
   ipc.handle(IPC.CUSTOM_VIEWS_GET, () => store.getCustomViews())
   ipc.handle(IPC.CUSTOM_VIEW_CREATE, (_event, input: CustomViewInput) => {
-    store.createCustomView(input)
-    return pushCustomViews()
+    const created = store.createCustomView(input)
+    return { created, views: pushCustomViews() }
   })
   ipc.handle(
     IPC.CUSTOM_VIEW_UPDATE,

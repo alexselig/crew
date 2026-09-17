@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
-import { IPC } from '../src/shared/types'
+import { IPC, type CustomView } from '../src/shared/types'
 import { registerCustomViewIpc, type CustomViewStore } from '../src/main/custom-view-ipc'
 
 type Handler = Parameters<IpcMain['handle']>[1]
@@ -64,7 +65,7 @@ describe('custom view IPC runtime contract', () => {
     await expect(invoke(IPC.CUSTOM_VIEWS_GET)).resolves.toEqual([existing])
     await expect(
       invoke(IPC.CUSTOM_VIEW_CREATE, { name: 'Created', mode: 'curated-only', items: [] })
-    ).resolves.toEqual([existing, created])
+    ).resolves.toEqual({ created, views: [existing, created] })
     await expect(
       invoke(IPC.CUSTOM_VIEW_UPDATE, {
         id: created.id,
@@ -77,6 +78,58 @@ describe('custom view IPC runtime contract', () => {
       [IPC.EVT_CUSTOM_VIEWS, [existing, updated]],
       [IPC.EVT_CUSTOM_VIEWS, [existing]]
     ])
+  })
+
+  it("identifies each caller's own created view during concurrent window creation", async () => {
+    let sequence = 0
+    let views: CustomView[] = []
+    const store: CustomViewStore = {
+      getCustomViews: () => structuredClone(views),
+      createCustomView: vi.fn((input) => {
+        const created: CustomView = {
+          id: `view-${++sequence}`,
+          ...input,
+          createdAt: sequence,
+          updatedAt: sequence
+        }
+        views = [...views, created]
+        return structuredClone(created)
+      }),
+      updateCustomView: vi.fn(),
+      deleteCustomView: vi.fn()
+    }
+    const { invoke } = harness(store)
+
+    const [windowA, windowB] = await Promise.all([
+      invoke(IPC.CUSTOM_VIEW_CREATE, {
+        name: 'Window A',
+        mode: 'curated-only',
+        items: []
+      }),
+      invoke(IPC.CUSTOM_VIEW_CREATE, {
+        name: 'Window B',
+        mode: 'curated-only',
+        items: []
+      })
+    ])
+
+    expect(windowA).toMatchObject({
+      created: { id: 'view-1', name: 'Window A' }
+    })
+    expect(windowB).toMatchObject({
+      created: { id: 'view-2', name: 'Window B' }
+    })
+    expect((windowB as { views: Array<{ id: string }> }).views.map((view) => view.id)).toEqual([
+      'view-1',
+      'view-2'
+    ])
+  })
+
+  it('has the renderer select the authoritative created view instead of diffing stale ids', () => {
+    const source = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8')
+    expect(source).toContain('onSaved={(saved) =>')
+    expect(source).toContain("c.setPresentation({ kind: 'custom', viewId: saved.id })")
+    expect(source).not.toContain('previousIds')
   })
 
   it('rejects a failed mutation without broadcasting success', async () => {

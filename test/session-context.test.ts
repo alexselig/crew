@@ -189,10 +189,12 @@ describe('automatic context loading', () => {
 })
 
 describe('creation model defaults', () => {
-  it('defaults new Copilot sessions to Astra and persists the choice', () => {
+  it('leaves new Copilot sessions on the CLI native default through final spawn args', () => {
     const created = manager.create({ presetId: 'copilot-cli', command: 'copilot', args: [], cwd: dir })
-    expect(created.args).toEqual(['--model', 'gpt-6-astra'])
+    expect(created.args).toEqual([])
     expect(store.getSessions()[0].args).toEqual(created.args)
+    const launch: string[] = spawn.mock.calls[0][1]
+    expect(launch.some((arg) => arg === '--model' || arg.startsWith('--model='))).toBe(false)
   })
 
   it('preserves explicit selections and existing CLI-default sessions on restore', () => {
@@ -204,12 +206,16 @@ describe('creation model defaults', () => {
       presetId: 'copilot-cli', command: 'copilot', args: ['--model=auto'], cwd: dir
     })
     expect(created.args).toEqual(['--model=auto'])
+    expect(spawn.mock.calls.at(-1)?.[1]).toContain('--model=auto')
   })
 
   it('preserves the chosen model when duplicating a session', () => {
     const created = manager.create({
       presetId: 'copilot-cli', command: 'copilot', args: ['--model', 'gpt-5.5'], cwd: dir
     })
+    expect(spawn.mock.calls[0][1]).toEqual(
+      expect.arrayContaining(['--model', 'gpt-5.5'])
+    )
     expect(manager.duplicateSession(created.id, null)?.args).toEqual(['--model', 'gpt-5.5'])
   })
 

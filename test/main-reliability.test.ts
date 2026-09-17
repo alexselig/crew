@@ -5,6 +5,7 @@ import { transpileModule } from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC } from '../src/shared/types'
 import type { SessionInfo } from '../src/shared/types'
+import { AppActivityCoordinator } from '../src/main/app-activity'
 import { handleNeedsYouTransition } from '../src/main/notification-integration'
 
 const source = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
@@ -170,6 +171,7 @@ describe('main-process reliability integration', () => {
     runInNewContext(javascript, {
       manager,
       BrowserWindow: { getAllWindows: () => [window] },
+      AppActivityCoordinator,
       IPC,
       isQuitting: false,
       tray: null,

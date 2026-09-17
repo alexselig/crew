@@ -525,12 +525,8 @@ export function App(): JSX.Element {
           workspaces={c.workspaces}
           presets={c.presets}
           restoreFocusTo={customViewOpenerRef.current}
-          onSaved={(views) => {
-            const previousIds = new Set(c.customViews.map((view) => view.id))
-            const saved = editingCustomView
-              ? views.find((view) => view.id === editingCustomView.id)
-              : views.find((view) => !previousIds.has(view.id))
-            if (saved) c.setPresentation({ kind: 'custom', viewId: saved.id })
+          onSaved={(saved) => {
+            c.setPresentation({ kind: 'custom', viewId: saved.id })
             closeCustomViewEditor()
           }}
           onDeleted={(views) => {

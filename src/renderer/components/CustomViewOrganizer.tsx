@@ -18,7 +18,7 @@ interface Props {
   workspaces: Workspace[]
   presets: Preset[]
   restoreFocusTo?: HTMLElement | null
-  onSaved: (views: CustomView[]) => void
+  onSaved: (saved: CustomView, views: CustomView[]) => void
   onDeleted: (views: CustomView[]) => void
   onClose: () => void
 }
@@ -216,10 +216,15 @@ export function CustomViewOrganizer({
     setError(null)
     try {
       const input = { name: trimmedName, mode, items }
-      const views = view
-        ? await window.crew.updateCustomView(view.id, input)
-        : await window.crew.createCustomView(input)
-      onSaved(views)
+      if (view) {
+        const views = await window.crew.updateCustomView(view.id, input)
+        const saved = views.find((item) => item.id === view.id)
+        if (!saved) throw new Error('The saved custom view is no longer available.')
+        onSaved(saved, views)
+      } else {
+        const result = await window.crew.createCustomView(input)
+        onSaved(result.created, result.views)
+      }
     } catch (cause) {
       setError(errorMessage(cause))
       setSaving(false)

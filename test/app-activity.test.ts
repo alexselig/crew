@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { AppActivityCoordinator } from '../src/main/app-activity'
 
 interface FakeWindow {
@@ -78,5 +79,12 @@ describe('AppActivityCoordinator', () => {
     coordinator.sendCurrent(ready)
     expect(ready).toHaveBeenCalledWith(true)
     expect(sent).toEqual([])
+  })
+
+  it('is the coordinator implementation imported by the production main process', () => {
+    const source = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
+    expect(source).toContain("import { AppActivityCoordinator } from './app-activity'")
+    expect(source).not.toContain('class AppActivityCoordinator')
+    expect(source).not.toContain('interface FocusableWindow')
   })
 })

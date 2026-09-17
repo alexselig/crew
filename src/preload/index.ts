@@ -3,7 +3,7 @@
 
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/types'
-import type { CrewAPI, Unsubscribe } from '../shared/api'
+import type { CrewAPI, CustomViewCreateResult, Unsubscribe } from '../shared/api'
 import { ReplayValue } from './replay-value'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
@@ -27,7 +27,8 @@ const api: CrewAPI = {
   setWorkspaces: (id, sets) => ipcRenderer.invoke(IPC.SESSION_SET_WORKSPACES, { id, sets }),
   getWorkspaces: () => ipcRenderer.invoke(IPC.WORKSPACES_GET),
   getCustomViews: () => ipcRenderer.invoke(IPC.CUSTOM_VIEWS_GET),
-  createCustomView: (input) => ipcRenderer.invoke(IPC.CUSTOM_VIEW_CREATE, input),
+  createCustomView: (input): Promise<CustomViewCreateResult> =>
+    ipcRenderer.invoke(IPC.CUSTOM_VIEW_CREATE, input),
   updateCustomView: (id, input) => ipcRenderer.invoke(IPC.CUSTOM_VIEW_UPDATE, { id, input }),
   deleteCustomView: (id) => ipcRenderer.invoke(IPC.CUSTOM_VIEW_DELETE, id),
   createWorkspace: (name) => ipcRenderer.invoke(IPC.WORKSPACE_CREATE, name),

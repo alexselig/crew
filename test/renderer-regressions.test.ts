@@ -432,6 +432,31 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
     }
   })
 
+  it('selects the authoritative created view when another window creates one concurrently', async () => {
+    const page = await open('app')
+    try {
+      await page.locator('.stub-gridview__new-view').click()
+      await page.getByLabel('View name').fill('Fresh queue')
+      await page.getByRole('button', { name: 'Save view' }).click()
+      await page.waitForSelector('.custom-view-organizer', { state: 'detached', timeout: 2000 })
+      expect(await page.evaluate(() => globalThis.regression.presentations.at(-1))).toBe(
+        JSON.stringify({ kind: 'custom', viewId: 'created-view' })
+      )
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('does not expose a foreground-notification toggle that can no longer change behavior', async () => {
+    const page = await open('settings')
+    try {
+      expect(await page.getByText('Notifications', { exact: true }).count()).toBe(1)
+      expect(await page.getByText('Only when unfocused', { exact: true }).count()).toBe(0)
+    } finally {
+      await page.close()
+    }
+  })
+
   it('supports genuine keyboard activation and keeps pointer-only drag handles out of the tab order', async () => {
     const page = await open('organizer-new')
     try {

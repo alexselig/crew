@@ -75,6 +75,11 @@ export interface TranscriptMatch {
 
 export type CustomViewInput = Pick<CustomView, 'name' | 'mode' | 'items'>
 
+export interface CustomViewCreateResult {
+  created: CustomView
+  views: CustomView[]
+}
+
 export interface CrewAPI {
   // request/response
   createSession(req: CreateSessionRequest): Promise<SessionInfo>
@@ -94,7 +99,7 @@ export interface CrewAPI {
   deleteWorkspace(id: string): Promise<Workspace[]>
   reorderWorkspaces(ids: string[]): Promise<Workspace[]>
   getCustomViews(): Promise<CustomView[]>
-  createCustomView(input: CustomViewInput): Promise<CustomView[]>
+  createCustomView(input: CustomViewInput): Promise<CustomViewCreateResult>
   updateCustomView(id: string, input: CustomViewInput): Promise<CustomView[]>
   deleteCustomView(id: string): Promise<CustomView[]>
   /** Replace a session's workspace-id membership. */

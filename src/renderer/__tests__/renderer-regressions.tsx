@@ -8,6 +8,7 @@ import { GridView } from '../components/GridView'
 import { WorkspaceSessionCard } from '../components/WorkspaceSessionCard'
 import { TranscriptPane } from '../components/TranscriptPane'
 import { CustomViewOrganizer } from '../components/CustomViewOrganizer'
+import { SettingsModal } from '../components/SettingsModal'
 import { getPooled, getTranscript, writeTo } from '../terminal/pool'
 import { setEngineMode } from '../terminal/facade'
 import { meterInput, pendingInputTokens } from '../input-meter'
@@ -160,15 +161,27 @@ Object.assign(window, {
       controls.customViewCreates.push(structuredClone(input))
       if (controls.failCustomViewWrites) throw new Error('Synthetic create failure')
       await waitForCustomViewWrite()
-      return [
-        ...customViews,
-        {
-          id: 'created-view',
-          ...input,
-          createdAt: 10,
-          updatedAt: 10
-        }
-      ]
+      const created = {
+        id: 'created-view',
+        ...input,
+        createdAt: 10,
+        updatedAt: 10
+      }
+      return {
+        created,
+        views: [
+          ...customViews,
+          {
+            id: 'other-window-view',
+            name: 'Other window',
+            mode: 'curated-only' as const,
+            items: [],
+            createdAt: 9,
+            updatedAt: 9
+          },
+          created
+        ]
+      }
     },
     updateCustomView: async (
       id: string,
@@ -440,12 +453,21 @@ function OrganizerFixture({ view }: { view: CustomView | null }) {
   )
 }
 
+function SettingsFixture() {
+  return (
+    <div className="app">
+      <SettingsModal settings={defaultSettings} onToggle={noop} onClose={noop} />
+    </div>
+  )
+}
+
 createRoot(document.getElementById('root')!).render(
   kind === 'workspace' ? <WorkspaceFixture /> :
   kind === 'composer' ? <TranscriptPane sessionId="composer" enhanced /> :
   kind === 'picker' ? <PickerFixture /> :
   kind === 'hook-fallback' ? <HookFallbackFixture /> :
   kind === 'components' ? <ComponentsFixture /> :
+  kind === 'settings' ? <SettingsFixture /> :
   kind === 'organizer-new' ? <OrganizerFixture view={null} /> :
   kind === 'organizer-edit' ? <OrganizerFixture view={organizerView} /> :
   <App />
