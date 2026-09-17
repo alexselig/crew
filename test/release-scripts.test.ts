@@ -183,4 +183,11 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     expect(existsSync(join(dir, 'signed.marker'))).toBe(true)
     expect(readFileSync(join(dir, 'notary.args'), 'utf8')).toContain('dist/.crew-notarize-arm64.zip')
   })
+
+  it('uses Apple timestamp service explicitly for app and DMG signatures', () => {
+    const source = readFileSync(resolve('scripts/sign-notarize.sh'), 'utf8')
+    expect(source).toContain('TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"')
+    expect(source).toContain('--timestamp="$TIMESTAMP_URL"')
+    expect(source).toContain('--timestamp="$TIMESTAMP_URL" "$DMG"')
+  })
 })

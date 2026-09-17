@@ -33,6 +33,7 @@ cd "$REPO_DIR"
 
 IDENTITY="${CREW_SIGN_IDENTITY:-Developer ID Application: Aaron Selig (42KAR3VVM7)}"
 PROFILE="${CREW_NOTARY_PROFILE:-crew-notary}"
+TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"
 VERSION="$(node -p "require('./package.json').version")"
 # Which macOS architecture to sign/package. electron-builder --dir emits arm64 to
 # dist/mac-arm64/ and x64 to dist/mac/. Override the app path with CREW_APP if needed.
@@ -82,7 +83,8 @@ while IFS= read -r f; do NP+=("$f"); done < <(find "$APP/Contents/Resources/app.
 signed=0
 for attempt in 1 2 3 4 5; do
   if node_modules/.bin/electron-osx-sign "$APP" "${NP[@]}" \
-      --identity="$IDENTITY" --platform=darwin --type=distribution; then
+      --identity="$IDENTITY" --platform=darwin --type=distribution \
+      --timestamp="$TIMESTAMP_URL"; then
     signed=1
     break
   fi
@@ -110,7 +112,7 @@ hdiutil create -volname "Crew" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev
 rm -rf "$STAGE"
 signed=0
 for attempt in 1 2 3 4 5; do
-  if codesign --force --sign "$IDENTITY" --timestamp "$DMG"; then
+  if codesign --force --sign "$IDENTITY" --timestamp="$TIMESTAMP_URL" "$DMG"; then
     signed=1
     break
   fi
