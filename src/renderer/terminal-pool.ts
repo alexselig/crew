@@ -44,6 +44,7 @@ const dormant = new Map<string, { tailParts: string[]; tailLen: number; lastUsed
 // getPooled would recreate ("resurrect") a terminal that is never attached or
 // disposed again. Session ids are UUIDs (never reused), so this set is safe.
 const tombstones = new Set<string>()
+let renderingActive = true
 
 /** How many terminal emulators may exist at once. Well above what any grid
  *  layout shows, so ordinary use never retires anything. */
@@ -139,10 +140,21 @@ export function getPooled(id: string): Pooled {
 
 /** Append raw output to a bounded replay tail. */
 function pushTail(t: { tailParts: string[]; tailLen: number }, data: string): void {
+  if (!data) return
   t.tailParts.push(data)
   t.tailLen += data.length
-  while (t.tailLen > TAIL_LIMIT && t.tailParts.length > 1) {
+  if (t.tailLen <= TAIL_LIMIT) return
+  while (t.tailLen - t.tailParts[0].length >= TAIL_LIMIT) {
     t.tailLen -= t.tailParts.shift()!.length
+  }
+  const trim = t.tailLen - TAIL_LIMIT
+  t.tailParts[0] = t.tailParts[0].slice(trim)
+  t.tailLen -= trim
+  const first = t.tailParts[0].charCodeAt(0)
+  if (first >= 0xdc00 && first <= 0xdfff) {
+    t.tailParts[0] = t.tailParts[0].slice(1)
+    t.tailLen--
+    if (!t.tailParts[0]) t.tailParts.shift()
   }
 }
 
@@ -185,6 +197,15 @@ export function touch(id: string): void {
 
 export function writeTo(id: string, data: string): void {
   if (tombstones.has(id)) return
+  if (!renderingActive) {
+    let dormantSession = dormant.get(id)
+    if (!dormantSession) {
+      dormantSession = { tailParts: [], tailLen: 0, lastUsed: Date.now() }
+      dormant.set(id, dormantSession)
+    }
+    pushTail(dormantSession, data)
+    return
+  }
   const live = pool.get(id)
   if (live) {
     live.term.write(data)
@@ -274,6 +295,14 @@ export function disposePooled(id: string): void {
   tombstones.add(id)
 }
 
+export function setRenderingActive(active: boolean): void {
+  if (active === renderingActive) return
+  renderingActive = active
+  if (!active) {
+    for (const id of [...pool.keys()]) retire(id)
+  }
+}
+
 /** Live terminal count — the bounded resource. For tests and diagnostics. */
 export function liveTerminalCount(): number {
   return pool.size
@@ -296,4 +325,5 @@ export function resetPoolForTests(): void {
   pool.clear()
   dormant.clear()
   tombstones.clear()
+  renderingActive = true
 }

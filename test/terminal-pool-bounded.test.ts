@@ -69,6 +69,7 @@ import {
   liveEngineCount,
   dormantCount,
   resetPoolForTests,
+  setRenderingActive,
   MAX_LIVE_ENGINES,
   TAIL_LIMIT
 } from '../src/renderer/terminal/pool'
@@ -186,6 +187,52 @@ describe('bounded terminal engine pool', () => {
     // ...nor double-count them by re-parsing the replayed tail.
     writeTo('later', CYCLE)
     expect(getBlocks('later')).toHaveLength(2)
+  })
+
+  it('retires every live emulator when terminal rendering is suspended', () => {
+    getPooled('visible')
+    writeTo('background', 'before')
+    expect(liveEngineCount()).toBe(2)
+
+    setRenderingActive(false)
+
+    expect(liveEngineCount()).toBe(0)
+    expect(dormantCount()).toBe(2)
+    expect(engines.every((engine) => engine.disposed)).toBe(true)
+  })
+
+  it('keeps parsing output without allocating while suspended', () => {
+    setRenderingActive(false)
+    writeTo('sleeping', CYCLE + 'recent output')
+
+    expect(createXtermEngine).not.toHaveBeenCalled()
+    expect(liveEngineCount()).toBe(0)
+    expect(getBlocks('sleeping')).toHaveLength(1)
+    expect(getTranscript('sleeping')).toHaveLength(1)
+  })
+
+  it('replays one bounded tail after resume without duplicating semantics', () => {
+    setRenderingActive(false)
+    writeTo('sleeping', CYCLE + 'recent output')
+    setRenderingActive(true)
+
+    const pooled = getPooled('sleeping')
+
+    expect(asFake(pooled.engine).written.join('')).toContain('recent output')
+    expect(getBlocks('sleeping')).toHaveLength(1)
+    expect(liveEngineCount()).toBe(1)
+  })
+
+  it('keeps suspension idempotent and preserves tombstones', () => {
+    getPooled('closed')
+    setRenderingActive(false)
+    setRenderingActive(false)
+    disposePooled('closed')
+    writeTo('closed', 'late output')
+    setRenderingActive(true)
+
+    expect(liveEngineCount()).toBe(0)
+    expect(dormantCount()).toBe(0)
   })
 
   it('retires the least-recently-viewed session, never the one on screen', () => {
