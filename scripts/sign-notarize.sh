@@ -87,6 +87,7 @@ signed=0
 for attempt in 1 2 3 4 5; do
   if node_modules/.bin/electron-osx-sign "$APP" "${NP[@]}" \
       --identity="$IDENTITY" --platform=darwin --type=distribution \
+      --ignore='\.(pak|nib|dat|bin|asar|icns)$' \
       --timestamp="$TIMESTAMP_URL"; then
     signed=1
     break

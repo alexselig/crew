@@ -31,7 +31,7 @@ function fixture(version = '0.6.0', architecture = 'arm64', bundleId = 'com.alex
   copyFileSync(resolve('scripts/sign-notarize.sh'), join(dir, 'scripts', 'sign-notarize.sh'))
   copyFileSync(resolve('scripts/codesign-retry.sh'), join(dir, 'scripts', 'codesign-retry.sh'))
   const executable = (path: string, body: string) => writeFileSync(path, `#!/bin/bash\n${body}\n`, { mode: 0o700 })
-  executable(join(dir, 'node_modules', '.bin', 'electron-osx-sign'), 'touch signed.marker')
+  executable(join(dir, 'node_modules', '.bin', 'electron-osx-sign'), 'printf "%s\\n" "$@" > sign.args; touch signed.marker')
   executable(join(bin, 'codesign'), 'exit 0')
   executable(join(bin, 'lipo'), `printf '%s\\n' '${architecture}'`)
   executable(join(bin, 'xcrun'), 'printf "%s\\n" "$*" > notary.args; exit 1')
@@ -197,6 +197,12 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     expect(source).toContain('TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"')
     expect(source).toContain('--timestamp="$TIMESTAMP_URL"')
     expect(source).toContain('--timestamp="$TIMESTAMP_URL" "$DMG"')
+  })
+
+  it('does not individually sign Electron non-code resources', () => {
+    const { dir, run } = fixture()
+    run()
+    expect(readFileSync(join(dir, 'sign.args'), 'utf8')).toContain('--ignore=\\.(pak|nib|dat|bin|asar|icns)$')
   })
 
   it('retries each codesign operation and expands a bare timestamp argument', () => {
