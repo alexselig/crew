@@ -230,4 +230,40 @@ printf '%s\n' "$@" > "$CREW_TEST_ARGS"
     expect(readFileSync(count, 'utf8').trim()).toBe('2')
     expect(readFileSync(args, 'utf8')).toContain('--timestamp=http://timestamp.apple.com/ts01')
   })
+
+  it('accepts a valid current signature after codesign reports a timestamp failure', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'crew-codesign-existing-signature-'))
+    directories.push(dir)
+    const fake = join(dir, 'codesign')
+    const count = join(dir, 'count')
+    writeFileSync(fake, `#!/bin/bash
+case "$1" in
+  --verify) exit 0 ;;
+  -d*)
+    echo "Authority=$CREW_EXPECTED_AUTHORITY" >&2
+    echo "Timestamp=Sep 17, 2026 at 8:29:45 AM" >&2
+    exit 0
+    ;;
+esac
+count=0
+[ ! -f "$CREW_TEST_COUNT" ] || count="$(cat "$CREW_TEST_COUNT")"
+echo "$((count + 1))" > "$CREW_TEST_COUNT"
+exit 1
+`, { mode: 0o700 })
+
+    const result = spawnSync('/bin/bash', [resolve('scripts/codesign-retry.sh'), '--sign', 'fixture', '--timestamp', 'locale.pak'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CREW_REAL_CODESIGN: fake,
+        CREW_EXPECTED_AUTHORITY: 'Developer ID Application: Test Signer (TEAMID)',
+        CREW_CODESIGN_RETRIES: '2',
+        CREW_CODESIGN_RETRY_DELAY: '0',
+        CREW_TEST_COUNT: count
+      }
+    })
+
+    expect(result.status).toBe(0)
+    expect(readFileSync(count, 'utf8').trim()).toBe('1')
+  })
 })
