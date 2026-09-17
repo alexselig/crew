@@ -32,8 +32,8 @@ installers, shells, grep/awk, and processes from any other Crew bundle.
 Resolve and freeze the candidate PID list before each sample run:
 
 ```bash
-ps -axo pid=,command= |
-  awk -v app="$CREW_APP/Contents/" 'index($0, app) { print $1 }' |
+ps -axo pid=,comm= |
+  awk -v app="$CREW_APP/Contents/" 'index($0, app) == 1 { print $1 }' |
   sort -n > "$EVIDENCE_DIR/pids.txt"
 cat "$EVIDENCE_DIR/pids.txt"
 ```

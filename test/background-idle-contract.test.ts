@@ -21,6 +21,8 @@ describe('background idle performance contract', () => {
     expect(measurement).toContain('recent output')
     expect(measurement).toContain('signed')
     expect(measurement).toContain('Do not launch')
+    expect(measurement).toContain('ps -axo pid=,comm=')
+    expect(measurement).toContain('index($0, app) == 1')
     expect(measurement).toContain('foreground.tsv')
     expect(measurement).toContain('background.tsv')
     expect(measurement).toContain('sample 5')
