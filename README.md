@@ -45,10 +45,13 @@ releases are signed + notarized.
 
 - Launch owned sessions: **Claude Code**, **Copilot CLI**, **Shell**, or any
   custom command + working directory (+ optional initial prompt).
-- New Copilot sessions default to **GPT-6 Astra** (`gpt-6-astra`). The **Model**
-  dropdown reads supported choices from your installed CLI (`copilot completion
-  bash`), not a hard-coded catalog. Account access remains subject to Copilot.
-  The initial model choice is saved for new conversations and duplication.
+- When model discovery succeeds, new Copilot sessions preselect **GPT-6 Astra**
+  (`gpt-6-astra`) when the installed CLI advertises it. The **Model** dropdown
+  reads supported choices from your installed CLI (`copilot completion bash`),
+  not a hard-coded catalog. If discovery is unavailable or returns no choices,
+  Crew omits `--model` and lets Copilot CLI use its native default. Account
+  access remains subject to Copilot. An explicit initial model choice is saved
+  for new conversations and duplication.
   Native resume honors Copilot's persisted selection, including later `/model`
   changes; existing conversations are not switched back to their launch model.
 - New sessions use the selected session's working directory (or home when none
