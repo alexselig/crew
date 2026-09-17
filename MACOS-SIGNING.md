@@ -29,6 +29,40 @@ One-time prereqs and the manual steps behind the script are below.
 
 ---
 
+## Troubleshooting: "A timestamp was expected but was not found"
+
+If **every** target fails with this message, the timestamp authority is almost
+certainly fine — check name resolution before assuming an Apple outage or a rate
+limit. `codesign` resolves `timestamp.apple.com` through its own network stack,
+and on networks where the AAAA record is unroutable it fails on every signature
+while `curl` succeeds.
+
+Confirm with a throwaway binary (never probe with an Apple system binary such as
+`/bin/echo` — SIP muddies the result):
+
+```sh
+printf 'int main(void){return 0;}\n' > /tmp/t.c && cc -o /tmp/tprobe /tmp/t.c
+codesign --sign <hash> --force --timestamp                        /tmp/tprobe  # fails
+codesign --sign <hash> --force --timestamp=http://17.179.249.1/ts01 /tmp/tprobe  # works
+```
+
+Check the service itself with a real RFC 3161 query — `Status: Granted` means the
+TSA is healthy and the problem is local:
+
+```sh
+openssl ts -query -data /tmp/t.c -sha256 -cert -out /tmp/req.tsq
+curl -s -o /tmp/resp.tsr -H 'Content-Type: application/timestamp-query' \
+  --data-binary @/tmp/req.tsq http://timestamp.apple.com/ts01
+openssl ts -reply -in /tmp/resp.tsr -text | grep Status
+```
+
+`scripts/sign-notarize.sh` already guards against this: it pins the TSA to a
+resolved A record via `scripts/resolve-timestamp-url.sh`. The service is plain
+HTTP, so an address literal invalidates no TLS hostname. Override with
+`CREW_TIMESTAMP_URL` if you need a specific endpoint.
+
+---
+
 ## Background: why the "malware" warning happened
 
 macOS Gatekeeper shows **"Crew.app was not opened because it contains malware"**

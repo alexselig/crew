@@ -33,7 +33,7 @@ cd "$REPO_DIR"
 
 IDENTITY="${CREW_SIGN_IDENTITY:-Developer ID Application: Aaron Selig (42KAR3VVM7)}"
 PROFILE="${CREW_NOTARY_PROFILE:-crew-notary}"
-TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"
+TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-$(bash "$REPO_DIR/scripts/resolve-timestamp-url.sh" http://timestamp.apple.com/ts01)}"
 VERSION="$(node -p "require('./package.json').version")"
 SIGN_BIN="$(mktemp -d)"
 ln -s "$REPO_DIR/scripts/codesign-retry.sh" "$SIGN_BIN/codesign"

@@ -29,6 +29,7 @@ function fixture(version = '0.6.0', architecture = 'arm64', bundleId = 'com.alex
 <key>CFBundleIdentifier</key><string>${bundleId}</string>
 </dict></plist>`)
   copyFileSync(resolve('scripts/sign-notarize.sh'), join(dir, 'scripts', 'sign-notarize.sh'))
+  copyFileSync(resolve('scripts/resolve-timestamp-url.sh'), join(dir, 'scripts', 'resolve-timestamp-url.sh'))
   copyFileSync(resolve('scripts/codesign-retry.sh'), join(dir, 'scripts', 'codesign-retry.sh'))
   const executable = (path: string, body: string) => writeFileSync(path, `#!/bin/bash\n${body}\n`, { mode: 0o700 })
   executable(join(dir, 'node_modules', '.bin', 'electron-osx-sign'), 'printf "%s\\n" "$@" > sign.args; touch signed.marker')
@@ -195,7 +196,7 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
 
   it('uses Apple timestamp service explicitly for app and DMG signatures', () => {
     const source = readFileSync(resolve('scripts/sign-notarize.sh'), 'utf8')
-    expect(source).toContain('TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"')
+    expect(source).toContain('TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-$(bash "$REPO_DIR/scripts/resolve-timestamp-url.sh" http://timestamp.apple.com/ts01)}"')
     expect(source).toContain('--timestamp="$TIMESTAMP_URL"')
     expect(source).toContain('--timestamp="$TIMESTAMP_URL" "$DMG"')
   })
@@ -333,5 +334,73 @@ exit 1
     })
 
     expect(result.status).not.toBe(0)
+  })
+
+  // codesign resolves timestamp.apple.com through its own network stack, which on
+  // some networks picks an unroutable AAAA record and reports "A timestamp was
+  // expected but was not found" for every target. The TSA answers fine over IPv4,
+  // so the URL is pinned to a literal address the resolver already validated.
+  const resolver = (stub: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'crew-timestamp-url-'))
+    directories.push(dir)
+    const bin = join(dir, 'bin')
+    mkdirSync(bin)
+    writeFileSync(join(bin, 'dig'), `#!/bin/bash\n${stub}\n`, { mode: 0o700 })
+    return spawnSync('/bin/bash', [resolve('scripts/resolve-timestamp-url.sh'), 'http://timestamp.apple.com/ts01'], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }
+    })
+  }
+
+  it('pins the timestamp service to an IPv4 literal codesign can reach', () => {
+    const result = resolver("printf '%s\\n' '17.179.249.1'")
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout.trim()).toBe('http://17.179.249.1/ts01')
+  })
+
+  it('ignores non-address answers when pinning the timestamp service', () => {
+    const result = resolver("printf '%s\\n' 'timestamp.v.aaplimg.com.' '17.179.249.1'")
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout.trim()).toBe('http://17.179.249.1/ts01')
+  })
+
+  it('falls back to the hostname when no IPv4 address resolves', () => {
+    const result = resolver('exit 1')
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout.trim()).toBe('http://timestamp.apple.com/ts01')
+  })
+
+  it('leaves an address that is already a literal unchanged', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'crew-timestamp-literal-'))
+    directories.push(dir)
+    const result = spawnSync('/bin/bash', [resolve('scripts/resolve-timestamp-url.sh'), 'http://17.179.249.1/ts01'], {
+      encoding: 'utf8'
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout.trim()).toBe('http://17.179.249.1/ts01')
+  })
+
+  it('pins the timestamp url before signing and honours an explicit override', () => {
+    const source = readFileSync(resolve('scripts/sign-notarize.sh'), 'utf8')
+    expect(source).toContain('resolve-timestamp-url.sh')
+    expect(source).toContain('TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-')
+  })
+
+  it('does not re-resolve a timestamp url the caller pinned explicitly', () => {
+    const { dir, run } = fixture()
+    const result = spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
+      cwd: dir, encoding: 'utf8', timeout: 5000,
+      env: {
+        ...process.env,
+        PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
+        CREW_APP: join(dir, 'dist', 'mac-arm64', 'Crew.app'),
+        CREW_ARCH: 'arm64',
+        CREW_REAL_CODESIGN: join(dir, 'bin', 'codesign'),
+        CREW_CODESIGN_RETRY_DELAY: '0',
+        CREW_TIMESTAMP_URL: 'http://192.0.2.7/ts01'
+      }
+    })
+    expect(result.status, result.stderr).not.toBeNull()
+    expect(readFileSync(join(dir, 'sign.args'), 'utf8')).toContain('--timestamp=http://192.0.2.7/ts01')
   })
 })
