@@ -4,6 +4,9 @@ Run this procedure only against an already-installed signed Crew app or a
 Developer ID-signed candidate. Do not launch an unsigned Crew, Electron,
 Playwright, or GUI E2E build on this machine.
 
+Background-idle state is global: Crew enters it only when none of its windows is
+focused. Focusing any Crew window resumes renderer activity across the app.
+
 ## Preconditions
 
 1. Record the absolute signed bundle path as `CREW_APP`, for example
