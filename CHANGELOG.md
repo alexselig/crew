@@ -3,13 +3,24 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
-## Unreleased
+## 0.7.0 — 2026-09-17
 
 ### Added
 - **Named Custom Views organize sessions into a personal ranked queue.** Search
   the full roster in a two-column organizer, drag sessions directly into rank,
   and choose whether a view shows only ranked work or ranked work followed by
-  every remaining session.
+  every remaining session. Views persist across relaunches, keep missing-session
+  placeholders recoverable, and stay consistent across multiple Crew windows.
+
+### Changed
+- **Crew becomes inexpensive when every window is in the background.** Live
+  sessions and needs-you detection continue, while terminal emulators, preview
+  and transcript polling, elapsed-time clocks, and decorative motion pause.
+  Returning to Crew rebuilds only the visible terminal and replays its bounded
+  recent output.
+- **New Copilot sessions no longer depend on model discovery.** When the CLI
+  cannot provide a model catalog, Crew hides the Model field and launches
+  without `--model`, allowing Copilot CLI to choose its native default.
 
 ### Fixed
 - **Needs-you alerts no longer build unbounded notification stacks.** Crew
@@ -18,6 +29,17 @@ running and supervising multiple AI CLI agent sessions at a glance.
   prevents repeated macOS notification summarization from pinning `suggestd`.
   Native notifications already delivered before this fix may still require
   manual clearing in Notification Center.
+- **Crew windows stay on connected monitors.** Reopening or summoning Crew
+  preserves a window's saved position on any display that is still attached,
+  and recenters it on the primary display only when its old monitor is gone.
+- **Background polling recovers after transient failures.** Synchronous and
+  asynchronous refresh errors no longer leave preview or transcript polling
+  permanently stuck, and inactive renderers no longer create a terminal before
+  receiving their initial activity state.
+- **Custom View editing is reliable under fast keyboard and multi-window use.**
+  Escape closes the organizer even before initial focus settles, save results
+  cannot resurrect a concurrently deleted view, and the picker exposes its edit
+  action with correct menu semantics.
 
 ## 0.6.0 — 2026-09-11
 
