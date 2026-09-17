@@ -33,7 +33,14 @@ Resolve and freeze the candidate PID list before each sample run:
 
 ```bash
 ps -axo pid=,comm= |
-  awk -v app="$CREW_APP/Contents/" 'index($0, app) == 1 { print $1 }' |
+  awk -v app="$CREW_APP/Contents/" '
+    {
+      pid=$1
+      executable=$0
+      sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", executable)
+      if (index(executable, app) == 1) print pid
+    }
+  ' |
   sort -n > "$EVIDENCE_DIR/pids.txt"
 cat "$EVIDENCE_DIR/pids.txt"
 ```
