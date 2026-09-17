@@ -199,6 +199,8 @@ export interface CrewAPI {
   // synchronous helpers
   /** Absolute filesystem path of a dropped/dragged File (Electron webUtils). */
   pathForFile(file: File): string
+  /** Latest app-wide activity state cached by preload before React mounts. */
+  getAppActivity(): boolean
 
   // events (main -> renderer)
   onOutput(cb: (e: OutputEvent) => void): Unsubscribe

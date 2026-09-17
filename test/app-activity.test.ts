@@ -87,4 +87,15 @@ describe('AppActivityCoordinator', () => {
     expect(source).not.toContain('class AppActivityCoordinator')
     expect(source).not.toContain('interface FocusableWindow')
   })
+
+  it('seeds each renderer with the current activity before React mounts', () => {
+    const main = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
+    const preload = readFileSync(new URL('../src/preload/index.ts', import.meta.url), 'utf8')
+    const renderer = readFileSync(new URL('../src/renderer/app-activity.tsx', import.meta.url), 'utf8')
+
+    expect(main).toContain('--crew-app-active=')
+    expect(preload).toContain('initialAppActivity(process.argv)')
+    expect(preload).toContain('getAppActivity: () => appActivity.current()')
+    expect(renderer).toContain('useState(() => window.crew.getAppActivity())')
+  })
 })

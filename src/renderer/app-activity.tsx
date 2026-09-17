@@ -6,7 +6,7 @@ import { applyAppActivity } from './app-activity-state'
 const AppActivityContext = createContext(true)
 
 export function AppActivityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const [active, setActive] = useState(true)
+  const [active, setActive] = useState(() => window.crew.getAppActivity())
 
   useEffect(
     () =>

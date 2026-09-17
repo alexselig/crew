@@ -190,7 +190,8 @@ Object.assign(window, {
       controls.customViewUpdates.push({ id, input: structuredClone(input) })
       if (controls.failCustomViewWrites) throw new Error('Synthetic update failure')
       await waitForCustomViewWrite()
-      return customViews.map((view) =>
+      const views = id === organizerView.id ? [...customViews, organizerView] : customViews
+      return views.map((view) =>
         view.id === id ? { ...view, ...input, updatedAt: view.updatedAt + 1 } : view
       )
     },

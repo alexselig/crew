@@ -4,7 +4,7 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/types'
 import type { CrewAPI, CustomViewCreateResult, Unsubscribe } from '../shared/api'
-import { ReplayValue } from './replay-value'
+import { initialAppActivity, ReplayValue } from './replay-value'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
   const listener = (_e: IpcRendererEvent, payload: T): void => cb(payload)
@@ -12,7 +12,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
-const appActivity = new ReplayValue(true)
+const appActivity = new ReplayValue(initialAppActivity(process.argv))
 ipcRenderer.on(IPC.EVT_APP_ACTIVITY, (_event, active: boolean) => appActivity.publish(active))
 
 const api: CrewAPI = {
@@ -91,6 +91,7 @@ const api: CrewAPI = {
   resize: (id, cols, rows) => ipcRenderer.send(IPC.SESSION_RESIZE, { id, cols, rows }),
 
   pathForFile: (file) => webUtils.getPathForFile(file),
+  getAppActivity: () => appActivity.current(),
 
   onOutput: (cb) => subscribe(IPC.EVT_OUTPUT, cb),
   onState: (cb) => subscribe(IPC.EVT_STATE, cb),

@@ -132,6 +132,7 @@ export function GroupPicker({
                 {active && (
                   <button
                     type="button"
+                    role="menuitem"
                     className="group-menu__edit"
                     onClick={() => {
                       onEditCustomView(view.id, triggerRef.current)

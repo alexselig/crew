@@ -8,9 +8,20 @@ export class ReplayValue<T> {
     for (const listener of this.listeners) listener(value)
   }
 
+  current(): T {
+    return this.value
+  }
+
   subscribe(listener: (value: T) => void): () => void {
     listener(this.value)
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
+}
+
+export function initialAppActivity(args: readonly string[]): boolean {
+  const value = args
+    .find((arg) => arg.startsWith('--crew-app-active='))
+    ?.slice('--crew-app-active='.length)
+  return value !== '0'
 }

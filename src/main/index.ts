@@ -224,6 +224,7 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
+      additionalArguments: [`--crew-app-active=${appActivity.current() ? '1' : '0'}`],
       // Enables the <webview> tag used by the session "App" pane to render a
       // session's local dev server. Hardened below in will-attach-webview.
       webviewTag: true

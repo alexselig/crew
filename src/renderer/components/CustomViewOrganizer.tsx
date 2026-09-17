@@ -102,6 +102,17 @@ export function CustomViewOrganizer({
   }, [saving])
 
   useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent): void {
+      if (event.key !== 'Escape' || saving) return
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape, true)
+    return () => document.removeEventListener('keydown', closeOnEscape, true)
+  }, [onClose, saving])
+
+  useEffect(() => {
     function containFocus(event: FocusEvent): void {
       const dialog = dialogRef.current
       if (!dialog || dialog.contains(event.target as Node)) return
@@ -246,12 +257,6 @@ export function CustomViewOrganizer({
   }
 
   function onDialogKeyDown(event: React.KeyboardEvent<HTMLFormElement>): void {
-    if (event.key === 'Escape' && !saving) {
-      event.preventDefault()
-      event.stopPropagation()
-      onClose()
-      return
-    }
     if (event.key === 'Tab') {
       const focusable = Array.from(
         event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)

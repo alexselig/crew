@@ -5,7 +5,8 @@ export interface ActivityPoller {
 
 export function createActivityPoller(
   intervalMs: number,
-  run: () => void | Promise<void>
+  run: () => void | Promise<void>,
+  onError: (error: unknown) => void = (error) => console.error('Activity poll failed', error)
 ): ActivityPoller {
   let active = false
   let disposed = false
@@ -20,14 +21,19 @@ export function createActivityPoller(
       return
     }
     inFlight = true
-    void Promise.resolve(run())
-      .finally(() => {
+    void (async () => {
+      try {
+        await run()
+      } catch (error) {
+        onError(error)
+      } finally {
         inFlight = false
         if (active && pending && !disposed) {
           pending = false
           tick()
         }
-      })
+      }
+    })()
   }
 
   return {

@@ -254,6 +254,7 @@ const crew: CrewAPI = {
   wake: noop,
   resize: noop,
   pathForFile: () => '',
+  getAppActivity: () => true,
   onOutput: () => noop,
   onState: () => noop,
   onRoster: (callback) => {
