@@ -187,7 +187,8 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
 
   it('uses an architecture-specific archive for notarization', () => {
     const { dir, run } = fixture()
-    run()
+    const result = run()
+    expect(result.status, result.stderr).not.toBeNull()
     expect(existsSync(join(dir, 'signed.marker'))).toBe(true)
     expect(readFileSync(join(dir, 'notary.args'), 'utf8')).toContain('dist/.crew-notarize-arm64.zip')
   })
@@ -244,7 +245,7 @@ printf '%s\n' "$@" > "$CREW_TEST_ARGS"
     const count = join(dir, 'count')
     writeFileSync(fake, `#!/bin/bash
 case "$1" in
-  --verify) exit 0 ;;
+  --verify) [ -f "$CREW_TEST_COUNT" ] && exit 0 || exit 1 ;;
   -d*)
     echo "Authority=$CREW_EXPECTED_AUTHORITY" >&2
     echo "Timestamp=Sep 17, 2026 at 8:29:45 AM" >&2
@@ -271,5 +272,66 @@ exit 1
 
     expect(result.status).toBe(0)
     expect(readFileSync(count, 'utf8').trim()).toBe('1')
+  })
+
+  it('does not submit an already valid timestamped signature again', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'crew-codesign-skip-valid-'))
+    directories.push(dir)
+    const fake = join(dir, 'codesign')
+    const submitted = join(dir, 'submitted')
+    writeFileSync(fake, `#!/bin/bash
+case "$1" in
+  --verify) exit 0 ;;
+  -d*)
+    echo "Authority=$CREW_EXPECTED_AUTHORITY" >&2
+    echo "Timestamp=Sep 17, 2026 at 8:29:45 AM" >&2
+    exit 0
+    ;;
+esac
+touch "$CREW_TEST_SUBMITTED"
+exit 1
+`, { mode: 0o700 })
+
+    const result = spawnSync('/bin/bash', [resolve('scripts/codesign-retry.sh'), '--sign', 'fixture', '--timestamp', 'locale.pak'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CREW_REAL_CODESIGN: fake,
+        CREW_EXPECTED_AUTHORITY: 'Developer ID Application: Test Signer (TEAMID)',
+        CREW_CODESIGN_RETRIES: '1',
+        CREW_TEST_SUBMITTED: submitted
+      }
+    })
+
+    expect(result.status).toBe(0)
+    expect(existsSync(submitted)).toBe(false)
+  })
+
+  it('does not replace a requested deep verification with the signature shortcut', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'crew-codesign-verify-'))
+    directories.push(dir)
+    const fake = join(dir, 'codesign')
+    writeFileSync(fake, `#!/bin/bash
+if [ "$1" = "--verify" ] && [ "$2" = "--deep" ]; then exit 1; fi
+if [ "$1" = "--verify" ]; then exit 0; fi
+if [[ "$1" = -d* ]]; then
+  echo "Authority=$CREW_EXPECTED_AUTHORITY" >&2
+  echo "Timestamp=Sep 17, 2026 at 8:29:45 AM" >&2
+  exit 0
+fi
+exit 1
+`, { mode: 0o700 })
+
+    const result = spawnSync('/bin/bash', [resolve('scripts/codesign-retry.sh'), '--verify', '--deep', 'Crew.app'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CREW_REAL_CODESIGN: fake,
+        CREW_EXPECTED_AUTHORITY: 'Developer ID Application: Test Signer (TEAMID)',
+        CREW_CODESIGN_RETRIES: '1'
+      }
+    })
+
+    expect(result.status).not.toBe(0)
   })
 })

@@ -8,8 +8,12 @@ DELAY="${CREW_CODESIGN_RETRY_DELAY:-10}"
 EXPECTED_AUTHORITY="${CREW_EXPECTED_AUTHORITY:-}"
 ARGS=()
 TARGET="${!#}"
+IS_SIGNING=0
 
 for arg in "$@"; do
+  if [ "$arg" = "--sign" ]; then
+    IS_SIGNING=1
+  fi
   if [ "$arg" = "--timestamp" ]; then
     ARGS+=("--timestamp=$TIMESTAMP_URL")
   else
@@ -17,15 +21,25 @@ for arg in "$@"; do
   fi
 done
 
+has_valid_signature() {
+  local signature
+  [ -n "$EXPECTED_AUTHORITY" ] &&
+    "$REAL_CODESIGN" --verify --strict "$TARGET" >/dev/null 2>&1 &&
+    signature="$("$REAL_CODESIGN" -dvvv "$TARGET" 2>&1)" &&
+    grep -Fq "Authority=$EXPECTED_AUTHORITY" <<<"$signature" &&
+    grep -Fq "Timestamp=" <<<"$signature"
+}
+
+if [ "$IS_SIGNING" = "1" ] && has_valid_signature; then
+  echo "    $TARGET already has a valid timestamped signature." >&2
+  exit 0
+fi
+
 for ((attempt = 1; attempt <= RETRIES; attempt++)); do
   if "$REAL_CODESIGN" "${ARGS[@]}"; then
     exit 0
   fi
-  if [ -n "$EXPECTED_AUTHORITY" ] &&
-      "$REAL_CODESIGN" --verify --strict "$TARGET" >/dev/null 2>&1 &&
-      SIGNATURE="$("$REAL_CODESIGN" -dvvv "$TARGET" 2>&1)" &&
-      grep -Fq "Authority=$EXPECTED_AUTHORITY" <<<"$SIGNATURE" &&
-      grep -Fq "Timestamp=" <<<"$SIGNATURE"; then
+  if [ "$IS_SIGNING" = "1" ] && has_valid_signature; then
     echo "    codesign reported failure, but $TARGET already has a valid timestamped signature." >&2
     exit 0
   fi
