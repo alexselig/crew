@@ -49,7 +49,6 @@ import { listCopilotModels } from './copilot-models'
 import { BoundedErrorReporter, createShellActions, installPreviewBoundary } from './main-boundaries'
 import { registerCustomViewIpc } from './custom-view-ipc'
 import { handleNeedsYouTransition } from './notification-integration'
-import { AppActivityCoordinator } from './app-activity'
 
 let tray: CrewTray | null = null
 let manager: SessionManager
@@ -132,6 +131,54 @@ protocol.registerSchemesAsPrivileged([
 
 function broadcast(channel: string, payload?: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload)
+}
+
+interface FocusableWindow {
+  isFocused(): boolean
+}
+
+type Defer = (run: () => void) => void
+
+const deferMicrotask: Defer =
+  typeof queueMicrotask === 'function'
+    ? queueMicrotask
+    : (run) => {
+        void Promise.resolve().then(run)
+      }
+
+class AppActivityCoordinator<W extends FocusableWindow> {
+  private last: boolean | undefined
+  private scheduled = false
+
+  constructor(
+    private readonly windows: () => readonly W[],
+    private readonly broadcast: (active: boolean) => void,
+    private readonly defer: Defer = deferMicrotask
+  ) {}
+
+  current(): boolean {
+    return this.windows().some((window) => window.isFocused())
+  }
+
+  recompute(): void {
+    const active = this.current()
+    if (active === this.last) return
+    this.last = active
+    this.broadcast(active)
+  }
+
+  schedule(): void {
+    if (this.scheduled) return
+    this.scheduled = true
+    this.defer(() => {
+      this.scheduled = false
+      this.recompute()
+    })
+  }
+
+  sendCurrent(send: (active: boolean) => void): void {
+    send(this.current())
+  }
 }
 
 const appActivity = new AppActivityCoordinator(

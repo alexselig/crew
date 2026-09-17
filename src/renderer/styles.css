@@ -527,6 +527,15 @@ button {
   -webkit-app-region: no-drag;
 }
 
+/* Main reports global inactivity. Preserve semantic state, but stop compositor
+   and animation work until any Crew window regains focus. */
+.crew-inactive *,
+.crew-inactive *::before,
+.crew-inactive *::after {
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+
 .session-header .pane-toggle__btn.is-active {
   background: transparent;
   border-color: var(--accent);

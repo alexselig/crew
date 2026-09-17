@@ -4,6 +4,13 @@ export interface FocusableWindow {
 
 type Defer = (run: () => void) => void
 
+const deferMicrotask: Defer =
+  typeof queueMicrotask === 'function'
+    ? queueMicrotask
+    : (run) => {
+        void Promise.resolve().then(run)
+      }
+
 export class AppActivityCoordinator<W extends FocusableWindow> {
   private last: boolean | undefined
   private scheduled = false
@@ -11,7 +18,7 @@ export class AppActivityCoordinator<W extends FocusableWindow> {
   constructor(
     private readonly windows: () => readonly W[],
     private readonly broadcast: (active: boolean) => void,
-    private readonly defer: Defer = queueMicrotask
+    private readonly defer: Defer = deferMicrotask
   ) {}
 
   current(): boolean {
