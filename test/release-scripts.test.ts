@@ -233,6 +233,13 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
       expect(run().status).not.toBe(0)
       expect(existsSync(join(dir, 'published.marker'))).toBe(false)
     })
+
+    it('attaches Windows assets one at a time and confirms each against the release', () => {
+      const workflow = readFileSync(resolve('.github/workflows/build-windows.yml'), 'utf8')
+      expect(workflow).not.toMatch(/gh release upload \$tag \$assets/)
+      expect(workflow).toContain('gh release upload $tag $asset --repo $repo --clobber')
+      expect(workflow).toContain('is still not stored after 5 attempts')
+    })
   })
 
   it('uses an architecture-specific archive for notarization', () => {

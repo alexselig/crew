@@ -104,5 +104,27 @@ jobs:
           # before Crew-Setup.exe was attached.
           $assets = Get-ChildItem -Path dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | ForEach-Object { $_.FullName }
           Write-Host "Uploading assets:`n$($assets -join "`n")"
-          gh release upload $tag $assets --repo $repo --clobber
-          if ($LASTEXITCODE -ne 0) { throw "Release upload failed." }
+          # Upload one asset at a time and skip anything already stored intact.
+          # A bulk --clobber deletes every asset first, so one transient 500 from
+          # uploads.github.com discards the whole batch. Confirm each upload by
+          # re-reading the release rather than trusting gh's exit status.
+          $releaseId = gh api "repos/$repo/releases" --jq "map(select(.tag_name == ""$tag"" and .draft))[0].id"
+          if (!$releaseId) { throw "Could not resolve the draft release id for $tag." }
+          function Get-StoredAsset($name, $length) {
+            $raw = gh api "repos/$repo/releases/$releaseId" --jq "(.assets // []) | map(select(.name == ""$name"" and .state == ""uploaded"" and .size == $length))[0].id"
+            if ($LASTEXITCODE -ne 0) { return $null }
+            return $raw
+          }
+          foreach ($asset in $assets) {
+            $name = Split-Path $asset -Leaf
+            $length = (Get-Item $asset).Length
+            $attempt = 1
+            while (!(Get-StoredAsset $name $length)) {
+              if ($attempt -gt 5) { throw "$name is still not stored after 5 attempts." }
+              Write-Host "Uploading $name (attempt $attempt)"
+              gh release upload $tag $asset --repo $repo --clobber
+              $attempt++
+              if (!(Get-StoredAsset $name $length)) { Start-Sleep -Seconds 15 }
+            }
+            Write-Host "Stored $name"
+          }
