@@ -387,7 +387,7 @@ exit 1
   })
 
   it('does not re-resolve a timestamp url the caller pinned explicitly', () => {
-    const { dir, run } = fixture()
+    const { dir } = fixture()
     const result = spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
       cwd: dir, encoding: 'utf8', timeout: 5000,
       env: {
