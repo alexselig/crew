@@ -4,12 +4,16 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/types'
 import type { CrewAPI, Unsubscribe } from '../shared/api'
+import { ReplayValue } from './replay-value'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
   const listener = (_e: IpcRendererEvent, payload: T): void => cb(payload)
   ipcRenderer.on(channel, listener)
   return () => ipcRenderer.removeListener(channel, listener)
 }
+
+const appActivity = new ReplayValue(true)
+ipcRenderer.on(IPC.EVT_APP_ACTIVITY, (_event, active: boolean) => appActivity.publish(active))
 
 const api: CrewAPI = {
   createSession: (req) => ipcRenderer.invoke(IPC.SESSION_CREATE, req),
@@ -95,6 +99,7 @@ const api: CrewAPI = {
   onWorkspace: (cb) => subscribe(IPC.EVT_WORKSPACE, cb),
   onWorkspaces: (cb) => subscribe(IPC.EVT_WORKSPACES, cb),
   onCustomViews: (cb) => subscribe(IPC.EVT_CUSTOM_VIEWS, cb),
+  onAppActivity: (cb) => appActivity.subscribe(cb),
   onOpenWorkspaces: (cb) => subscribe(IPC.EVT_OPEN_WORKSPACES, () => cb()),
   onAgents: (cb) => subscribe(IPC.EVT_AGENTS, cb),
   onAgentRun: (cb) => subscribe(IPC.EVT_AGENT_RUN, cb),

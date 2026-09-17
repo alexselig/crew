@@ -356,6 +356,7 @@ export const IPC = {
   EVT_WORKSPACE: 'evt:workspace',
   EVT_WORKSPACES: 'evt:workspaces',
   EVT_CUSTOM_VIEWS: 'evt:customViews',
+  EVT_APP_ACTIVITY: 'evt:appActivity',
   EVT_OPEN_WORKSPACES: 'evt:openWorkspaces',
   EVT_AGENTS: 'evt:agents',
   EVT_AGENT_RUN: 'evt:agentRun',

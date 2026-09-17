@@ -265,6 +265,7 @@ const crew: CrewAPI = {
     customViewListeners.add(callback)
     return () => customViewListeners.delete(callback)
   },
+  onAppActivity: () => noop,
   onOpenWorkspaces: () => noop,
   onAgents: () => noop,
   onAgentRun: () => noop,

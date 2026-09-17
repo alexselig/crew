@@ -207,6 +207,8 @@ export interface CrewAPI {
   onWorkspaces(cb: (list: Workspace[]) => void): Unsubscribe
   /** The custom-view list changed (created/edited/deleted). */
   onCustomViews(cb: (list: CustomView[]) => void): Unsubscribe
+  /** Whether any Crew window is currently focused. */
+  onAppActivity(cb: (active: boolean) => void): Unsubscribe
   /** File › Workspaces… — open the Workspace Manager. */
   onOpenWorkspaces(cb: () => void): Unsubscribe
   /** The agent list changed (created/edited/deleted/reordered). */

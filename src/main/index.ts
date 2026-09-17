@@ -49,6 +49,7 @@ import { listCopilotModels } from './copilot-models'
 import { BoundedErrorReporter, createShellActions, installPreviewBoundary } from './main-boundaries'
 import { registerCustomViewIpc } from './custom-view-ipc'
 import { handleNeedsYouTransition } from './notification-integration'
+import { AppActivityCoordinator } from './app-activity'
 
 let tray: CrewTray | null = null
 let manager: SessionManager
@@ -133,13 +134,18 @@ function broadcast(channel: string, payload?: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload)
 }
 
+const appActivity = new AppActivityCoordinator(
+  () => BrowserWindow.getAllWindows(),
+  (active) => broadcast(IPC.EVT_APP_ACTIVITY, active)
+)
+
 /** The window the user is most likely acting on: the focused one, else any. */
 function focusedWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
 }
 
 function isCrewForeground(): boolean {
-  return BrowserWindow.getAllWindows().some((window) => window.isFocused())
+  return appActivity.current()
 }
 
 function debounce(fn: () => void, ms: number): () => void {
@@ -223,6 +229,13 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
       webviewTag: true
     }
   })
+  w.on('focus', () => appActivity.schedule())
+  w.on('blur', () => appActivity.schedule())
+  w.on('closed', () => appActivity.schedule())
+  w.on('show', () => appActivity.schedule())
+  w.on('hide', () => appActivity.schedule())
+  w.on('minimize', () => appActivity.schedule())
+  w.on('restore', () => appActivity.schedule())
 
   w.on('ready-to-show', () => {
     w.show()
@@ -280,6 +293,7 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
   // Resume the previous session set once the renderer is ready to receive their
   // output. Guarded so it only happens once per app lifetime (the first window).
   w.webContents.once('did-finish-load', () => {
+    appActivity.sendCurrent((active) => w.webContents.send(IPC.EVT_APP_ACTIVITY, active))
     // Match this window to the app-wide workspace filter (the renderer also
     // persists its own per-window copy across reloads).
     if (activeWorkspace != null) w.webContents.send(IPC.EVT_WORKSPACE, activeWorkspace)
