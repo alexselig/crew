@@ -3,7 +3,11 @@ import type { Preset, CreateSessionRequest, SessionSet, Workspace } from '../../
 import type { AgentStatus } from '../../shared/api'
 import { SessionSetChips } from './SessionSetChips'
 import { Icon } from './Icon'
-import { DEFAULT_COPILOT_MODEL, withCopilotModel, type CopilotModelCatalog } from '../../shared/copilot-models'
+import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
+import {
+  getCopilotLaunchArgs,
+  getCopilotModelSelection
+} from '../new-session-model'
 
 interface Props {
   presets: Preset[]
@@ -35,7 +39,6 @@ export function NewSessionModal({
   const [cwd, setCwd] = useState<string>(defaultCwd || homeDir)
   const [model, setModel] = useState(DEFAULT_COPILOT_MODEL)
   const [catalog, setCatalog] = useState<CopilotModelCatalog | null>(null)
-  const [modelRetry, setModelRetry] = useState(0)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [command, setCommand] = useState('')
@@ -78,7 +81,7 @@ export function NewSessionModal({
       }
     )
     return () => { current = false }
-  }, [presetId, modelRetry])
+  }, [presetId])
 
   // Group chips: existing groups plus a freshly-typed one (so it shows selected).
   const groupChips =
@@ -131,9 +134,11 @@ export function NewSessionModal({
 
   const isCustom = presetId === CUSTOM
   const isCopilot = presetId === 'copilot-cli'
+  const modelSelection = getCopilotModelSelection(catalog, model)
+  const catalogModels = catalog?.models ?? []
   const cwdOk = cwd.trim().length > 0
   const commandOk = !isCustom || command.trim().length > 0
-  const modelOk = !isCopilot || (catalog != null && !catalog.error && catalog.models.includes(model))
+  const modelOk = !isCopilot || modelSelection.valid
   const canCreate = cwdOk && commandOk && modelOk && !creating
 
   async function submit(e: React.FormEvent): Promise<void> {
@@ -156,7 +161,9 @@ export function NewSessionModal({
       : {
           presetId: preset!.id,
           command: preset!.command,
-          args: isCopilot ? withCopilotModel(preset!.args, model) : preset!.args,
+          args: isCopilot
+            ? getCopilotLaunchArgs(preset!.args, catalog, model)
+            : preset!.args,
           cwd: cwd.trim(),
           label: label.trim() || undefined,
           initialPrompt: initialPrompt.trim() || undefined,
@@ -317,38 +324,27 @@ export function NewSessionModal({
             })()}
         </label>
 
-        {isCopilot && (
+        {isCopilot && modelSelection.visible && (
           <div className="field">
             <label className="field__label" htmlFor="new-session-model">Model</label>
             <select
               id="new-session-model"
               aria-label="Model"
               className="field__input"
-              value={catalog && !catalog.error ? model : ''}
-              disabled={!catalog || !!catalog.error || creating}
+              value={model}
+              disabled={creating}
               onChange={(e) => setModel(e.target.value)}
             >
-              {!catalog || catalog.error ? (
-                <option value="">{catalog?.error ? 'Models unavailable' : 'Loading CLI models…'}</option>
-              ) : (
-                <>
-                  {!catalog.models.includes(model) && (
-                    <option value={model} disabled>Astra (not listed by this CLI)</option>
-                  )}
-                  {catalog.models.map((id) => (
-                    <option key={id} value={id}>
-                      {id === DEFAULT_COPILOT_MODEL ? 'GPT-6 Astra (default)' : id === 'auto' ? 'Auto — let Copilot choose' : id}
-                    </option>
-                  ))}
-                </>
+              {!catalogModels.includes(model) && (
+                <option value={model} disabled>Astra (not listed by this CLI)</option>
               )}
+              {catalogModels.map((id) => (
+                <option key={id} value={id}>
+                  {id === DEFAULT_COPILOT_MODEL ? 'GPT-6 Astra (default)' : id === 'auto' ? 'Auto — let Copilot choose' : id}
+                </option>
+              ))}
             </select>
-            {catalog?.error ? (
-              <>
-                <span className="agent-status agent-status--missing" role="alert">{catalog.error}</span>
-                <button type="button" className="btn" onClick={() => setModelRetry((n) => n + 1)}>Retry models</button>
-              </>
-            ) : catalog && !catalog.models.includes(model) ? (
+            {!catalogModels.includes(model) ? (
               <span className="agent-status agent-status--missing" role="alert">
                 Astra is not listed by this CLI. Choose another model or update Copilot CLI.
               </span>
