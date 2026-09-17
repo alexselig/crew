@@ -13,4 +13,16 @@ describe('applyAppActivity', () => {
     expect(terminal).toHaveBeenCalledWith(false)
     expect(publish).toHaveBeenCalledWith(false)
   })
+
+  it('runs every resource synchronizer before publishing React state', () => {
+    const order: string[] = []
+
+    applyAppActivity(
+      true,
+      [() => order.push('terminal'), () => order.push('clock')],
+      () => order.push('publish')
+    )
+
+    expect(order).toEqual(['terminal', 'clock', 'publish'])
+  })
 })

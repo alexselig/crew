@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { setNowClockActive } from './now-clock'
 import { setTerminalRenderingActive } from './terminal/facade'
 import { applyAppActivity } from './app-activity-state'
 
@@ -10,7 +11,7 @@ export function AppActivityProvider({ children }: { children: ReactNode }): JSX.
   useEffect(
     () =>
       window.crew.onAppActivity((next) =>
-        applyAppActivity(next, [setTerminalRenderingActive], setActive)
+        applyAppActivity(next, [setTerminalRenderingActive, setNowClockActive], setActive)
       ),
     []
   )

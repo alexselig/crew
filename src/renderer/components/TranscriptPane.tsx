@@ -5,6 +5,8 @@ import { Transcript } from '../transcript'
 import type { TranscriptBlock, PermissionResolution } from '../transcript'
 import type { AgentBlock } from '../../shared/agent-events'
 import { DEMO_BLOCKS_DEBUG } from '../transcript/fixtures'
+import { useAppActivity } from '../app-activity'
+import { createActivityPoller, type ActivityPoller } from '../activity-poller'
 import { getTranscript, recordInput } from '../terminal/facade'
 import { meterInput } from '../input-meter'
 import './TranscriptPane.css'
@@ -110,9 +112,11 @@ export function TranscriptPane({
   character?: CharacterDef
   agentLabel?: string
 }): JSX.Element {
+  const active = useAppActivity()
   const [blocks, setBlocks] = useState<TranscriptBlock[]>(() =>
     DEMO ? DEMO_BLOCKS_DEBUG : getTranscript(sessionId)
   )
+  const pollerRef = useRef<ActivityPoller | null>(null)
 
   useEffect(() => {
     if (DEMO) return
@@ -161,23 +165,19 @@ export function TranscriptPane({
       if (alive) commit(getTranscript(sessionId))
     }
 
-    void tick()
-    // Guard against overlapping ticks: if a poll's IPC round-trip runs longer
-    // than the 500ms interval, skip the next tick rather than stacking in-flight
-    // requests (which would compound under load).
-    let inFlight = false
-    const t = setInterval(() => {
-      if (inFlight) return
-      inFlight = true
-      void tick().finally(() => {
-        inFlight = false
-      })
-    }, 500)
+    const poller = createActivityPoller(500, tick)
+    pollerRef.current = poller
+    poller.setActive(active)
     return () => {
       alive = false
-      clearInterval(t)
+      poller.dispose()
+      if (pollerRef.current === poller) pollerRef.current = null
     }
   }, [sessionId, agentSessionId])
+
+  useEffect(() => {
+    pollerRef.current?.setActive(active)
+  }, [active])
 
   const handlers = useMemo(
     () => ({
