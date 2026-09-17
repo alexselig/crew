@@ -29,6 +29,7 @@ function fixture(version = '0.6.0', architecture = 'arm64', bundleId = 'com.alex
 <key>CFBundleIdentifier</key><string>${bundleId}</string>
 </dict></plist>`)
   copyFileSync(resolve('scripts/sign-notarize.sh'), join(dir, 'scripts', 'sign-notarize.sh'))
+  copyFileSync(resolve('scripts/codesign-retry.sh'), join(dir, 'scripts', 'codesign-retry.sh'))
   const executable = (path: string, body: string) => writeFileSync(path, `#!/bin/bash\n${body}\n`, { mode: 0o700 })
   executable(join(dir, 'node_modules', '.bin', 'electron-osx-sign'), 'touch signed.marker')
   executable(join(bin, 'codesign'), 'exit 0')
@@ -37,7 +38,14 @@ function fixture(version = '0.6.0', architecture = 'arm64', bundleId = 'com.alex
   executable(join(bin, 'ditto'), 'exit 0')
   const run = (arch = 'arm64') => spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
     cwd: dir, encoding: 'utf8', timeout: 5000,
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CREW_APP: app, CREW_ARCH: arch }
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      CREW_APP: app,
+      CREW_ARCH: arch,
+      CREW_REAL_CODESIGN: join(bin, 'codesign'),
+      CREW_CODESIGN_RETRY_DELAY: '0'
+    }
   })
   return { dir, run }
 }
@@ -189,5 +197,37 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     expect(source).toContain('TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"')
     expect(source).toContain('--timestamp="$TIMESTAMP_URL"')
     expect(source).toContain('--timestamp="$TIMESTAMP_URL" "$DMG"')
+  })
+
+  it('retries each codesign operation and expands a bare timestamp argument', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'crew-codesign-retry-'))
+    directories.push(dir)
+    const fake = join(dir, 'codesign')
+    const count = join(dir, 'count')
+    const args = join(dir, 'args')
+    writeFileSync(fake, `#!/bin/bash
+count=0
+[ ! -f "$CREW_TEST_COUNT" ] || count="$(cat "$CREW_TEST_COUNT")"
+count=$((count + 1))
+echo "$count" > "$CREW_TEST_COUNT"
+printf '%s\n' "$@" > "$CREW_TEST_ARGS"
+[ "$count" -ge 2 ]
+`, { mode: 0o700 })
+
+    const result = spawnSync('/bin/bash', [resolve('scripts/codesign-retry.sh'), '--force', '--timestamp', 'Crew.app'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CREW_REAL_CODESIGN: fake,
+        CREW_CODESIGN_RETRIES: '2',
+        CREW_CODESIGN_RETRY_DELAY: '0',
+        CREW_TEST_COUNT: count,
+        CREW_TEST_ARGS: args
+      }
+    })
+
+    expect(result.status).toBe(0)
+    expect(readFileSync(count, 'utf8').trim()).toBe('2')
+    expect(readFileSync(args, 'utf8')).toContain('--timestamp=http://timestamp.apple.com/ts01')
   })
 })
