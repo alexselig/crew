@@ -38,6 +38,7 @@ VERSION="$(node -p "require('./package.json').version")"
 SIGN_BIN="$(mktemp -d)"
 ln -s "$REPO_DIR/scripts/codesign-retry.sh" "$SIGN_BIN/codesign"
 export CREW_TIMESTAMP_URL="$TIMESTAMP_URL"
+export CREW_EXPECTED_AUTHORITY="$IDENTITY"
 export PATH="$SIGN_BIN:$PATH"
 trap 'rm -rf "$SIGN_BIN"' EXIT
 # Which macOS architecture to sign/package. electron-builder --dir emits arm64 to
