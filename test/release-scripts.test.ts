@@ -106,6 +106,20 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     'release create') touch created.marker; printf '%s\\n' "$*" > create.args ;;
     'release upload')
       if [ "$CREW_TEST_MODE" = missing ] && [ ! -f created.marker ]; then exit 1; fi
+      if [ "$CREW_TEST_MODE" = never-uploads ]; then exit 0; fi
+      shift
+      shift
+      for arg in "$@"; do
+        case "$arg" in dist/*|install.sh) ;; *) continue ;; esac
+        if [ "$CREW_TEST_MODE" = flaky ] && [ "$(basename "$arg")" = Crew-0.6.0-x64.dmg ] && [ ! -f flaked.marker ]; then
+          touch flaked.marker
+          echo "$arg" >> upload.log
+          echo 'HTTP 500: Error saving asset' >&2
+          exit 1
+        fi
+        basename "$arg" >> uploaded.list
+        echo "$arg" >> upload.log
+      done
       touch uploaded.marker ;;
     'release download')
       while [ "$1" != --dir ]; do shift; done
@@ -118,7 +132,11 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     executable('curl', 'exit 0')
     writeFileSync(join(dir, 'release-fixture.cjs'), `
   const fs = require('node:fs'), crypto = require('node:crypto')
+  const tracked = ['missing', 'flaky', 'never-uploads'].includes(process.env.CREW_TEST_MODE)
+  const staged = fs.existsSync('uploaded.list')
+    ? fs.readFileSync('uploaded.list', 'utf8').split('\\n').filter(Boolean) : []
   const assets = [...fs.readdirSync('dist').map(name => ['dist/' + name, name]), ['install.sh', 'install.sh']]
+    .filter(([, name]) => !tracked || staged.includes(name))
     .map(([file, name]) => {
       const bytes = fs.readFileSync(file)
       return { name, size: bytes.length, state: 'uploaded', digest: process.env.CREW_TEST_MODE === 'corrupt'
@@ -133,7 +151,8 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
         cwd: dir, encoding: 'utf8', timeout: 10000,
         env: {
           ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
-          CREW_SKIP_SIGN: '1', CREW_PUBLISH: publish ? '1' : '0', CREW_TEST_MODE: mode
+          CREW_SKIP_SIGN: '1', CREW_PUBLISH: publish ? '1' : '0', CREW_TEST_MODE: mode,
+          CREW_UPLOAD_RETRIES: '3', CREW_UPLOAD_RETRY_DELAY: '0'
         }
       })
     return { dir, run }
@@ -183,6 +202,36 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
       const { dir, run } = publisherFixture('draft', true)
       expect(run(true).status).toBe(0)
       expect(existsSync(join(dir, 'published.marker'))).toBe(true)
+    })
+
+    // A bulk --clobber re-sends every artifact, so one transient 422 or 500 on a
+    // slow link discards hundreds of megabytes of completed uploads.
+    it('uploads assets one at a time rather than in a single batch', () => {
+      const { dir, run } = publisherFixture()
+      expect(run().status).toBe(0)
+      const calls = readFileSync(join(dir, 'upload.log'), 'utf8').trim().split('\n')
+      expect(calls).toHaveLength(8)
+      expect(new Set(calls).size).toBe(8)
+    })
+
+    it('does not re-upload assets whose uploaded digest already matches', () => {
+      const { dir, run } = publisherFixture('draft')
+      expect(run().status).toBe(0)
+      expect(existsSync(join(dir, 'upload.log'))).toBe(false)
+    })
+
+    it('retries an asset the release still does not report as uploaded', () => {
+      const { dir, run } = publisherFixture('flaky', true)
+      expect(run().status).toBe(0)
+      const calls = readFileSync(join(dir, 'upload.log'), 'utf8').trim().split('\n')
+      expect(calls.filter(c => c.endsWith('Crew-0.6.0-x64.dmg'))).toHaveLength(2)
+      expect(existsSync(join(dir, 'flaked.marker'))).toBe(true)
+    })
+
+    it('fails when an asset cannot be uploaded within the retry budget', () => {
+      const { dir, run } = publisherFixture('never-uploads')
+      expect(run().status).not.toBe(0)
+      expect(existsSync(join(dir, 'published.marker'))).toBe(false)
     })
   })
 

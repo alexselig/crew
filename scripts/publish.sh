@@ -79,7 +79,43 @@ if [ -z "$RELEASE" ]; then
   RELEASE_ID="$(release_id)"
   [ -n "$RELEASE_ID" ] || { echo "ERROR: the created draft could not be resolved." >&2; exit 1; }
 fi
-gh release upload "$TAG" "${ASSETS[@]}" --repo "$REPO" --clobber
+RELEASE="$(gh api "repos/$REPO/releases/$RELEASE_ID")"
+
+# Upload one asset at a time and skip anything already stored intact. A bulk
+# --clobber re-sends every artifact, so a single transient 422 or 500 discards
+# hundreds of megabytes of completed work. Confirm each upload against the API
+# rather than gh's exit status, which can report failure after a successful save.
+pending_assets() {
+  node - "$RELEASE" "$@" <<'NODE'
+const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto')
+const release = JSON.parse(process.argv[2])
+for (const file of process.argv.slice(3)) {
+  const bytes = fs.readFileSync(file)
+  const digest = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex')
+  const asset = release.assets.find(a => a.name === path.basename(file))
+  if (!asset || asset.state !== 'uploaded' || asset.size !== bytes.length || asset.digest !== digest) {
+    console.log(file)
+  }
+}
+NODE
+}
+
+UPLOAD_RETRIES="${CREW_UPLOAD_RETRIES:-5}"
+UPLOAD_RETRY_DELAY="${CREW_UPLOAD_RETRY_DELAY:-10}"
+for FILE in "${ASSETS[@]}"; do
+  ATTEMPT=1
+  while [ -n "$(pending_assets "$FILE")" ]; do
+    if [ "$ATTEMPT" -gt "$UPLOAD_RETRIES" ]; then
+      echo "ERROR: $FILE is still not stored after $UPLOAD_RETRIES attempts." >&2
+      exit 1
+    fi
+    echo "==> Uploading $(basename "$FILE") (attempt $ATTEMPT)"
+    gh release upload "$TAG" "$FILE" --repo "$REPO" --clobber || true
+    RELEASE="$(gh api "repos/$REPO/releases/$RELEASE_ID")"
+    ATTEMPT=$((ATTEMPT + 1))
+    [ -z "$(pending_assets "$FILE")" ] || sleep "$UPLOAD_RETRY_DELAY"
+  done
+done
 RELEASE="$(gh api "repos/$REPO/releases/$RELEASE_ID")"
 
 # GitHub provides a SHA-256 digest for uploaded release assets.
