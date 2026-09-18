@@ -124,6 +124,34 @@ Checks 4 to 6 are the visual contract. `content-visibility` changes when the
 browser does layout and paint, so a mistake shows up as wrong geometry rather
 than as a crash — it has to be looked at, not just measured.
 
+## Reviewing the visual contract without a signed build
+
+Checks 4 to 6 above need a running app, but they only exercise CSS, and the
+renderer is Chromium. `scripts/make-review-page.py` writes a static page that
+loads the real `src/renderer/styles.css` and the real line art out of
+`src/renderer/character-art.tsx`, then renders a 115-card roster with the
+mascots animating:
+
+```bash
+python3 scripts/make-review-page.py /tmp/crew-roster-review
+cd /tmp/crew-roster-review && python3 -m http.server 8931 --bind 127.0.0.1
+```
+
+Open <http://127.0.0.1:8931/> in an ordinary browser. This is not an unsigned
+Crew build and not an Electron or Playwright run — it is a web page, so the rule
+at the top of this document does not apply to it.
+
+The toolbar toggles between the current CSS and a baseline that reverts only the
+two properties under review, reports the number of cards Chromium is currently
+skipping (read from its own `contentvisibilityautostatechange` event rather than
+inferred), forces the drag-over state so the drop line can be confirmed to
+survive paint containment, and applies `.crew-inactive` to confirm animations
+pause. A scroll FPS readout covers check 4.
+
+What the page cannot tell you: it has no xterm and no React, so it isolates the
+CSS rather than reproducing app load, and the GPU memory figure in check 3 still
+has to come from the sampling procedure above against a signed build.
+
 ## What this does not cover
 
 Renderer JS cost is not addressed here. The roster re-renders every card when
