@@ -236,6 +236,24 @@ button {
   cursor: pointer;
   transition: background 0.12s;
   text-align: left;
+  /* A roster is an unwindowed list and every card carries an illustrated mascot
+     worth hundreds of vector paths, so a 100+ session roster would otherwise
+     lay out and rasterize thousands of paths that are nowhere near the
+     viewport. content-visibility lets the browser skip all of that for cards
+     scrolled out of view. `auto` in contain-intrinsic-size makes it remember
+     each card's real height once measured, so the estimate below only ever
+     applies to a card that has never been on screen — the scrollbar stays
+     stable instead of jumping as cards are skipped and restored. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
+}
+
+/* content-visibility implies paint containment, which clips to the padding box.
+   The drop indicator is drawn at top: -1px (deliberately outside that box), so
+   the card being dragged over opts out. It is on screen by definition, so the
+   skipped-rendering optimization has nothing to save here anyway. */
+.card.is-drag-over {
+  content-visibility: visible;
 }
 
 /* Pull the label toward the mascot — the mascot glyph box carries built-in
@@ -534,6 +552,11 @@ button {
 .crew-inactive *::after {
   animation-play-state: paused !important;
   transition: none !important;
+  /* Paused animations still hold their compositor layers, and a promoted layer
+     costs GPU memory for a frame that can no longer change. Releasing the hint
+     while the app is in the background hands that memory back; focusing the
+     window re-promotes before the animation resumes. */
+  will-change: auto !important;
 }
 
 .session-header .pane-toggle__btn.is-active {
@@ -696,6 +719,12 @@ button {
 .character--run .character__art {
   animation: char-work 1.5s ease-in-out infinite;
   transform-origin: 50% 55%;
+  /* The line art is inline SVG (hundreds of vector paths), and char-work scales
+     it. Scaling vector content re-tessellates and re-rasterizes every path on
+     each frame unless the element owns a compositor layer with a pinned raster
+     scale — which is what will-change buys here. Without it a roster of running
+     sessions re-rasterizes its whole cast at animation frame rate. */
+  will-change: transform;
 }
 
 .character--start .character__glyph,
