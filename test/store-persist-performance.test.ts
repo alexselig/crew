@@ -167,9 +167,12 @@ describe('session metadata persistence durability choices', () => {
     store.saveSessions([session('c', 'Third roster')])
 
     // Three atomic writes happen (.bak2, .bak, primary) but only the primary
-    // is durable, so exactly two fsyncs should occur: the store file and its
-    // parent directory. Six would mean the backups are being fsynced again.
-    expect(vi.mocked(fsyncSync).mock.calls.length).toBe(2)
+    // is durable, so the primary's file is fsynced plus - on platforms that
+    // can flush a directory - its parent. Windows cannot, so it does one
+    // fsync where Unix does two. A multiple of that would mean the backups
+    // are being fsynced again.
+    const perDurableWrite = process.platform === 'win32' ? 1 : 2
+    expect(vi.mocked(fsyncSync).mock.calls.length).toBe(perDurableWrite)
     expect(JSON.parse(readFileSync(path, 'utf8')).sessions[0].label).toBe('Third roster')
     expect(JSON.parse(readFileSync(`${path}.bak`, 'utf8')).sessions[0].label).toBe('Second roster')
   })
