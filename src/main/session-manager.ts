@@ -335,8 +335,14 @@ export class SessionManager extends EventEmitter {
       const spawnArgs = [...launchArgs, ...idArgs, ...resumeExtra, ...(hook?.extraArgs ?? []), ...contextArgs]
       proc = pty.spawn(command, spawnArgs, {
         name: 'xterm-256color',
-        cols: DEFAULT_COLS,
-        rows: DEFAULT_ROWS,
+        // The size the pane last reported, not a fixed default. A pane that was
+        // already on screen when the session started reported its size before
+        // this process existed; spawning at a default it never has a reason to
+        // correct leaves the program drawing a 100-column layout into a much
+        // wider grid — wrapped lines, right-aligned columns stranded mid-pane,
+        // and in-place status redraws piling up instead of overwriting.
+        cols: managed.cols,
+        rows: managed.rows,
         cwd,
         env: { ...process.env, TERM: 'xterm-256color', ...(hook?.env ?? {}) } as Record<string, string>
       })
@@ -612,10 +618,16 @@ export class SessionManager extends EventEmitter {
 
   resize(id: string, cols: number, rows: number): void {
     const m = this.sessions.get(id)
-    if (!m || !m.proc) return
+    if (!m) return
     if (cols < 1 || rows < 1) return
+    // Record the size even when there is no process yet. Panes report their
+    // size as soon as they are laid out, which for a session the user has not
+    // started is before the PTY exists, and a pane that has not changed size
+    // never sends the number again. Dropping it here is what left processes
+    // running at the default for their whole life.
     m.cols = cols
     m.rows = rows
+    if (!m.proc) return
     try {
       m.proc.resize(cols, rows)
     } catch {
