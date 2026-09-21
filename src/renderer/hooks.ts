@@ -11,7 +11,7 @@ import type {
   AgentRun
 } from '../shared/types'
 import type { GroupMode } from './grouping'
-import { writeTo, disposePooled, setEngineMode } from './terminal/facade'
+import { writeTo, disposePooled, setEngineMode, disposeTerminalFacade } from './terminal/facade'
 import { clearInputMeter } from './input-meter'
 import { windowSlot, readViewPref, writeViewPref } from './window-scope'
 import { nextSelection } from '../shared/selection'
@@ -389,6 +389,7 @@ export function useCrew(): CrewState {
       offOpenWorkspaces()
       offAgents()
       offAgentRun()
+      disposeTerminalFacade()
     }
   }, [])
 

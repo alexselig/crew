@@ -7,11 +7,13 @@ const { legacy, crew } = vi.hoisted(() => ({
   legacy: {
     writeTo: vi.fn(),
     focusTerminal: vi.fn(),
-    disposePooled: vi.fn()
+    disposePooled: vi.fn(),
+    retireAllPooled: vi.fn()
   },
   crew: {
     writeTo: vi.fn(),
     focusTerminal: vi.fn(),
+    retireAllPooled: vi.fn(),
     disposePooled: vi.fn(),
     getBlocks: vi.fn(() => [{ id: 1, state: 'done', startedAt: 0 }]),
     jumpToPrompt: vi.fn(() => true),
@@ -30,11 +32,13 @@ import {
   disposePooled,
   getBlocks,
   jumpToPrompt,
-  copySelection
+  copySelection,
+  disposeTerminalFacade,
+  ENGINE_MODE_DISPOSE_GRACE_MS
 } from '../src/renderer/terminal/facade'
 
 beforeEach(() => {
-  setEngineMode('legacy')
+  disposeTerminalFacade()
   vi.clearAllMocks()
 })
 
@@ -84,5 +88,79 @@ describe('terminal facade — app-wide engine routing', () => {
     setEngineMode('crew')
     expect(jumpToPrompt('s1', 'next')).toBe(true)
     expect(await copySelection('s1')).toBe('sel')
+  })
+
+  it('schedules but does not immediately dispose the outgoing pool when the engine changes', () => {
+    vi.useFakeTimers()
+    try {
+      setEngineMode('crew')
+
+      expect(getEngineMode()).toBe('crew')
+      expect(legacy.retireAllPooled).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(ENGINE_MODE_DISPOSE_GRACE_MS - 1)
+      expect(legacy.retireAllPooled).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('disposes the outgoing pool after the grace period elapses', () => {
+    vi.useFakeTimers()
+    try {
+      setEngineMode('crew')
+      vi.advanceTimersByTime(ENGINE_MODE_DISPOSE_GRACE_MS)
+
+      expect(legacy.retireAllPooled).toHaveBeenCalledTimes(1)
+      expect(crew.retireAllPooled).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels pending disposal when toggling back before the grace period expires', () => {
+    vi.useFakeTimers()
+    try {
+      setEngineMode('crew')
+      vi.advanceTimersByTime(ENGINE_MODE_DISPOSE_GRACE_MS / 2)
+      setEngineMode('legacy')
+      vi.advanceTimersByTime(ENGINE_MODE_DISPOSE_GRACE_MS)
+
+      expect(legacy.retireAllPooled).not.toHaveBeenCalled()
+      expect(crew.retireAllPooled).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('never disposes the pool that is active when the timer fires', () => {
+    vi.useFakeTimers()
+    try {
+      setEngineMode('crew')
+      setEngineMode('legacy')
+      setEngineMode('crew')
+      vi.advanceTimersByTime(ENGINE_MODE_DISPOSE_GRACE_MS)
+
+      expect(legacy.retireAllPooled).toHaveBeenCalledTimes(1)
+      expect(crew.retireAllPooled).not.toHaveBeenCalled()
+      expect(getEngineMode()).toBe('crew')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears pending engine-disposal timers on teardown', () => {
+    vi.useFakeTimers()
+    try {
+      setEngineMode('crew')
+      disposeTerminalFacade()
+      vi.advanceTimersByTime(ENGINE_MODE_DISPOSE_GRACE_MS)
+
+      expect(legacy.retireAllPooled).not.toHaveBeenCalled()
+      expect(crew.retireAllPooled).not.toHaveBeenCalled()
+      expect(getEngineMode()).toBe('legacy')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
