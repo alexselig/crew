@@ -6,9 +6,9 @@
 //
 // Routing is by CURRENT mode, so writeTo/focusTerminal follow the toggle. On a
 // real session close, disposePooled clears BOTH pools (the session id is gone
-// forever), so neither pool leaks. Switching modes at runtime does NOT dispose —
-// each pool keeps its terminals (and scrollback) so toggling back is instant;
-// the React views re-key on mode so they remount into the active pool.
+// forever), so neither pool leaks. Switching modes gives the outgoing pool a
+// short grace period before retirement, so active A/B toggles stay instant while
+// one-time toggles release their xterms/WebGL contexts.
 
 import * as legacy from '../terminal-pool'
 import * as crew from './pool'
@@ -17,14 +17,48 @@ import type { TranscriptBlock } from '../transcript/types'
 
 export type EngineMode = 'legacy' | 'crew'
 
+export const ENGINE_MODE_DISPOSE_GRACE_MS = 30_000
+
 let mode: EngineMode = 'legacy'
+let pendingInactiveDispose: ReturnType<typeof setTimeout> | null = null
+let pendingInactiveMode: EngineMode | null = null
+
+function poolFor(engineMode: EngineMode): typeof legacy | typeof crew {
+  return engineMode === 'crew' ? crew : legacy
+}
+
+function clearPendingInactiveDispose(): void {
+  if (pendingInactiveDispose) clearTimeout(pendingInactiveDispose)
+  pendingInactiveDispose = null
+  pendingInactiveMode = null
+}
+
+function scheduleInactiveDispose(inactive: EngineMode): void {
+  pendingInactiveMode = inactive
+  pendingInactiveDispose = setTimeout(() => {
+    const target = pendingInactiveMode
+    pendingInactiveDispose = null
+    pendingInactiveMode = null
+    if (!target || mode === target) return
+    poolFor(target).retireAllPooled()
+  }, ENGINE_MODE_DISPOSE_GRACE_MS)
+}
 
 export function setEngineMode(next: EngineMode): void {
+  if (next === mode) return
+  const outgoing = mode
+  clearPendingInactiveDispose()
   mode = next
+  scheduleInactiveDispose(outgoing)
 }
 
 export function getEngineMode(): EngineMode {
   return mode
+}
+
+export function disposeTerminalFacade(): void {
+  clearPendingInactiveDispose()
+  mode = 'legacy'
 }
 
 export function writeTo(id: string, data: string): void {

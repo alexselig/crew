@@ -8,8 +8,8 @@
 // nobody was watching, which exhausted the renderer's memory and made Blink
 // abort ("Oilpan: Large allocation ... out of memory"). Beyond the cap a session
 // goes *dormant*: it keeps its OSC parse state, semantic blocks, typed
-// transcript and a bounded replay tail, but owns no emulator until someone looks
-// at it. See lru.ts for the retirement policy.
+// transcript and replayable reattach context, but owns no emulator until someone
+// looks at it. See lru.ts for the retirement policy.
 //
 // Beyond rendering, the pool feeds the same PTY stream through the pure OSC
 // parser + block tracker (shared/), so every session accrues a semantic command
@@ -31,9 +31,9 @@ import type { TranscriptBlock } from '../transcript/types'
 
 /**
  * Everything Crew knows about a session's terminal that is NOT the emulator:
- * the OSC parse state, semantic blocks, the typed transcript, and a bounded
- * tail of raw output. All of it is plain data, so it survives when the engine
- * is retired and makes a retired session cheap to bring back.
+ * the OSC parse state, semantic blocks, the typed transcript, and replayable
+ * terminal context. All of it is plain data, so it survives when the engine is
+ * retired and makes a retired session cheap to bring back.
  */
 export interface Semantic {
   parser: OscParser
@@ -54,6 +54,10 @@ export interface Semantic {
    *  every PTY chunk, for every session, is itself a CPU sink. */
   tailParts: string[]
   tailLen: number
+  /** Plain-text terminal buffer snapshot captured before an engine is retired.
+   * Replayed before post-retirement tail chunks so mode switches do not drop
+   * scrollback older than the bounded raw-output tail. */
+  scrollbackSnapshot: string
   /** When a human last had this terminal on screen — drives retirement. Set by
    *  touch() on mount, never by output (see lru.ts for why). */
   lastUsed: number
@@ -82,7 +86,7 @@ let renderingActive = true
 /**
  * How many terminal emulators may exist at once. Everything above this is
  * retired to `dormant`, which costs a session nothing user-visible beyond
- * scrollback older than its replay tail. Well above the number of panes any
+ * decorations tied to the old xterm buffer. Well above the number of panes any
  * grid layout shows, so ordinary use never retires anything; it only bites on
  * the large rosters that were exhausting the renderer.
  */
@@ -118,8 +122,13 @@ function newSemantic(): Semantic {
     txSeq: 0,
     tailParts: [],
     tailLen: 0,
+    scrollbackSnapshot: '',
     lastUsed: Date.now()
   }
+}
+
+function replayableSnapshot(text: string): string {
+  return text ? text.replace(/\r?\n/g, '\r\n') : ''
 }
 
 /** Append raw output to the bounded replay tail. */
@@ -145,13 +154,16 @@ function pushTail(s: Semantic, data: string): void {
 
 /**
  * Dispose a session's emulator but keep the session: its parse state, blocks,
- * transcript and replay tail move to `dormant`, so output keeps accruing and
- * reopening restores context. Markers are dropped — they anchor to rows in the
- * buffer being destroyed.
+ * transcript and replayable context move to `dormant`, so output keeps accruing
+ * and reopening restores context. Markers are dropped — they anchor to rows in
+ * the buffer being destroyed.
  */
 function retire(id: string): void {
   const p = pool.get(id)
   if (!p) return
+  const scrollbackSnapshot = replayableSnapshot(p.engine.getVisibleText())
+  const tailParts = scrollbackSnapshot ? [] : p.tailParts
+  const tailLen = scrollbackSnapshot ? 0 : p.tailLen
   try {
     p.linkSub.dispose()
     p.engine.dispose()
@@ -166,8 +178,9 @@ function retire(id: string): void {
     transcript: p.transcript,
     lastInputLine: p.lastInputLine,
     txSeq: p.txSeq,
-    tailParts: p.tailParts,
-    tailLen: p.tailLen,
+    tailParts,
+    tailLen,
+    scrollbackSnapshot,
     lastUsed: p.lastUsed
   })
 }
@@ -214,6 +227,7 @@ export function getPooled(id: string): Pooled {
     pool.set(id, p)
     // Replay recent output straight into the engine — not through writeTo,
     // which would re-parse it and duplicate blocks already recorded.
+    if (p.scrollbackSnapshot) engine.write(p.scrollbackSnapshot)
     if (p.tailLen > 0) engine.write(p.tailParts.join(''))
     enforceCap()
   }
@@ -292,9 +306,9 @@ export function bufferText(id: string): string {
  */
 export function previewText(id: string, maxLines?: number): string[] {
   const p = pool.get(id)
-  if (p) return previewLines(p.tailParts.join(''), maxLines)
+  if (p) return previewLines(p.scrollbackSnapshot + p.tailParts.join(''), maxLines)
   const d = dormant.get(id)
-  return d ? previewLines(d.tailParts.join(''), maxLines) : []
+  return d ? previewLines(d.scrollbackSnapshot + d.tailParts.join(''), maxLines) : []
 }
 
 /**
@@ -435,6 +449,13 @@ export function disposePooled(id: string): void {
   }
   dormant.delete(id)
   tombstones.add(id)
+}
+
+/** Retire every live engine while preserving reattach context. Used when the
+ * app-wide terminal engine toggle moves this pool inactive after its grace
+ * period. This is not a session close, so tombstones are untouched. */
+export function retireAllPooled(): void {
+  for (const id of [...pool.keys()]) retire(id)
 }
 
 export function setRenderingActive(active: boolean): void {

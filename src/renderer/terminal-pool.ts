@@ -9,7 +9,9 @@
 // nobody was watching, until the renderer exhausted its memory and Blink aborted
 // ("Oilpan: Large allocation ... out of memory"). A renderer that keeps dying and
 // reloading is what the user sees as flicker. Past the cap a session keeps only a
-// bounded tail of raw output, replayed into a fresh terminal when it is reopened.
+// bounded tail of raw output (or, when a live terminal is retired, a plain-text
+// snapshot of its current xterm buffer), replayed into a fresh terminal when it
+// is reopened.
 // See terminal/lru.ts for the retirement policy.
 
 import { Terminal } from '@xterm/xterm'
@@ -33,12 +35,18 @@ export interface Pooled {
    *  session, is itself a CPU sink. */
   tailParts: string[]
   tailLen: number
+  /** Plain-text terminal buffer snapshot captured before this terminal is
+   * retired, replayed before post-retirement tail chunks on reattach. */
+  scrollbackSnapshot: string
 }
 
 const pool = new Map<string, Pooled>()
-// Raw output tails for sessions whose terminal has been retired. The session is
+// Reattach data for sessions whose terminal has been retired. The session is
 // alive and still producing output — it just has no emulator until reopened.
-const dormant = new Map<string, { tailParts: string[]; tailLen: number; lastUsed: number }>()
+const dormant = new Map<
+  string,
+  { tailParts: string[]; tailLen: number; scrollbackSnapshot: string; lastUsed: number }
+>()
 // Ids of sessions whose terminals have been disposed. A killed PTY can emit one
 // last chunk *after* the session left the roster; without this guard writeTo →
 // getPooled would recreate ("resurrect") a terminal that is never attached or
@@ -78,6 +86,20 @@ const THEME = {
 const PROMPT_BG = '#FFF9C4'
 const PROMPT_FG = '#000000'
 const PROMPT_RULER = '#FFCC00'
+
+function replayableSnapshot(text: string): string {
+  return text ? text.replace(/\r?\n/g, '\r\n') : ''
+}
+
+function terminalText(term: Terminal): string {
+  const buf = term.buffer.active
+  const lines: string[] = []
+  for (let y = 0; y < buf.length; y++) {
+    const line = buf.getLine(y)
+    lines.push(line ? line.translateToString(true) : '')
+  }
+  return lines.join('\n')
+}
 
 export function getPooled(id: string): Pooled {
   let p = pool.get(id)
@@ -122,14 +144,24 @@ export function getPooled(id: string): Pooled {
         cb(links.length ? links : undefined)
       }
     })
-    p = { term, fit, opened: false, lastUsed: Date.now(), tailParts: [], tailLen: 0 }
+    p = {
+      term,
+      fit,
+      opened: false,
+      lastUsed: Date.now(),
+      tailParts: [],
+      tailLen: 0,
+      scrollbackSnapshot: ''
+    }
     const d = dormant.get(id)
     if (d) {
-      // Reopening a retired session: carry its tail over and replay it so the
-      // terminal shows recent context instead of an empty screen.
+      // Reopening a retired session: carry its retained buffer plus tail over
+      // and replay them so the terminal shows context instead of an empty screen.
       dormant.delete(id)
       p.tailParts = d.tailParts
       p.tailLen = d.tailLen
+      p.scrollbackSnapshot = d.scrollbackSnapshot
+      if (d.scrollbackSnapshot) term.write(d.scrollbackSnapshot)
       if (d.tailLen > 0) term.write(d.tailParts.join(''))
     }
     pool.set(id, p)
@@ -158,18 +190,21 @@ function pushTail(t: { tailParts: string[]; tailLen: number }, data: string): vo
   }
 }
 
-/** Dispose a session's emulator but keep a replay tail so reopening it is cheap
- *  and still shows recent output. */
+/** Dispose a session's emulator but keep reattach data so reopening is cheap
+ *  and still shows the retained scrollback plus any later output. */
 function retire(id: string): void {
   const p = pool.get(id)
   if (!p) return
+  const scrollbackSnapshot = replayableSnapshot(terminalText(p.term))
+  const tailParts = scrollbackSnapshot ? [] : p.tailParts
+  const tailLen = scrollbackSnapshot ? 0 : p.tailLen
   try {
     p.term.dispose()
   } catch {
     /* already disposed */
   }
   pool.delete(id)
-  dormant.set(id, { tailParts: p.tailParts, tailLen: p.tailLen, lastUsed: p.lastUsed })
+  dormant.set(id, { tailParts, tailLen, scrollbackSnapshot, lastUsed: p.lastUsed })
 }
 
 /** Retire least-recently-viewed unmounted terminals until the pool fits the cap. */
@@ -200,7 +235,7 @@ export function writeTo(id: string, data: string): void {
   if (!renderingActive) {
     let dormantSession = dormant.get(id)
     if (!dormantSession) {
-      dormantSession = { tailParts: [], tailLen: 0, lastUsed: Date.now() }
+      dormantSession = { tailParts: [], tailLen: 0, scrollbackSnapshot: '', lastUsed: Date.now() }
       dormant.set(id, dormantSession)
     }
     pushTail(dormantSession, data)
@@ -224,7 +259,7 @@ export function writeTo(id: string, data: string): void {
   // At the cap, output for an unviewed session accrues as a tail only. This is
   // the case that used to allocate an emulator per session and kill the renderer.
   if (!d) {
-    d = { tailParts: [], tailLen: 0, lastUsed: Date.now() }
+    d = { tailParts: [], tailLen: 0, scrollbackSnapshot: '', lastUsed: Date.now() }
     dormant.set(id, d)
   }
   pushTail(d, data)
@@ -234,21 +269,15 @@ export function writeTo(id: string, data: string): void {
 export function bufferText(id: string): string {
   const p = pool.get(id)
   if (!p) return ''
-  const buf = p.term.buffer.active
-  const lines: string[] = []
-  for (let y = 0; y < buf.length; y++) {
-    const line = buf.getLine(y)
-    lines.push(line ? line.translateToString(true) : '')
-  }
-  return lines.join('\n')
+  return terminalText(p.term)
 }
 
 /** Recent output as plain text lines, for a tile with no live terminal. */
 export function previewText(id: string, maxLines?: number): string[] {
   const p = pool.get(id)
-  if (p) return previewLines(p.tailParts.join(''), maxLines)
+  if (p) return previewLines(p.scrollbackSnapshot + p.tailParts.join(''), maxLines)
   const d = dormant.get(id)
-  return d ? previewLines(d.tailParts.join(''), maxLines) : []
+  return d ? previewLines(d.scrollbackSnapshot + d.tailParts.join(''), maxLines) : []
 }
 
 /** Focus a session's terminal (e.g. after inserting a skill invocation). */
@@ -293,6 +322,13 @@ export function disposePooled(id: string): void {
   }
   dormant.delete(id)
   tombstones.add(id)
+}
+
+/** Retire every live terminal while preserving reattach context. Used when the
+ * app-wide terminal engine toggle moves this pool inactive after its grace
+ * period. This is not a session close, so tombstones are untouched. */
+export function retireAllPooled(): void {
+  for (const id of [...pool.keys()]) retire(id)
 }
 
 export function setRenderingActive(active: boolean): void {

@@ -68,6 +68,7 @@ import {
   disposePooled,
   liveEngineCount,
   dormantCount,
+  retireAllPooled,
   resetPoolForTests,
   setRenderingActive,
   MAX_LIVE_ENGINES,
@@ -261,6 +262,31 @@ describe('bounded terminal engine pool', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('retiring the whole pool preserves visible scrollback for reattach', () => {
+    writeTo('mode-switch', 'old scrollback\n')
+    writeTo('mode-switch', 'new output\n')
+    const first = getPooled('mode-switch')
+
+    retireAllPooled()
+
+    expect(liveEngineCount()).toBe(0)
+    expect(dormantCount()).toBe(1)
+    expect(asFake(first.engine).disposed).toBe(true)
+
+    const reopened = getPooled('mode-switch')
+    expect(asFake(reopened.engine).written.join('')).toContain('old scrollback')
+    expect(asFake(reopened.engine).written.join('')).toContain('new output')
+  })
+
+  it('retiring the whole pool disposes every engine so renderer resources are released', () => {
+    for (let i = 0; i < 4; i++) getPooled(`webgl-${i}`)
+
+    retireAllPooled()
+
+    expect(liveEngineCount()).toBe(0)
+    expect(engines.slice(0, 4).every((engine) => engine.disposed)).toBe(true)
   })
 
   it('forgets a closed session entirely, live or dormant', () => {
