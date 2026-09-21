@@ -26,9 +26,15 @@ export function syncParentDirectory(path: string): void {
   }
 }
 
-/** Publish a fully flushed file and directory entry. The caller creates the
- * directory; a failed write before rename never truncates the existing target. */
-export function atomicWriteFile(path: string, contents: string | Buffer): void {
+export interface AtomicWriteOptions {
+  /** When false, keep temp-file + rename atomicity but skip file/directory fsync. */
+  fsync?: boolean
+}
+
+/** Publish a file via temp-file + rename. By default the file and directory
+ * entry are fully flushed; callers may opt out of fsync for routine metadata. */
+export function atomicWriteFile(path: string, contents: string | Buffer, options: AtomicWriteOptions = {}): void {
+  const shouldFsync = options.fsync ?? true
   const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`)
   let fd: number | undefined
   let created = false
@@ -37,13 +43,13 @@ export function atomicWriteFile(path: string, contents: string | Buffer): void {
     fd = openSync(temporary, 'wx', 0o600)
     created = true
     writeFileSync(fd, contents)
-    fsyncSync(fd)
+    if (shouldFsync) fsyncSync(fd)
     closeSync(fd)
     fd = undefined
     renameSync(temporary, path)
     created = false
     published = true
-    syncParentDirectory(path)
+    if (shouldFsync) syncParentDirectory(path)
   } catch (error) {
     throw new AtomicWriteError(path, published, error)
   } finally {

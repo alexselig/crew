@@ -5,13 +5,26 @@
 // Privacy: we persist ONLY labels, character map and settings — never terminal
 // output, prompts, env values, or secrets (see SPEC §11).
 
-import { readFileSync, mkdirSync, existsSync, renameSync, readdirSync, unlinkSync } from 'node:fs'
+import { readFileSync, mkdirSync, existsSync, renameSync, readdirSync, unlinkSync, statSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, join, basename } from 'node:path'
 import type { Agent, CustomView, CustomViewItem, CustomViewMode, Settings, SessionSet } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
 import { AtomicWriteError, atomicWriteFile, syncParentDirectory } from './atomic-file'
+
+interface PersistOptions {
+  durable?: boolean
+}
+
+interface PersistInternalOptions extends PersistOptions {
+  throwOnFailure?: boolean
+}
+
+interface FileFingerprint {
+  size: number
+  mtimeMs: number
+}
 
 export interface CharacterAssignment {
   characterId: string
@@ -376,11 +389,16 @@ export class Store {
   private saveBlocked: string | undefined
   private dirty = false
   private batch: { failure?: { error: unknown } } | undefined
+  private lastSerialized: string | undefined
+  private backupSerialized: string | null | undefined
+  private primaryFingerprint: FileFingerprint | undefined
 
   /** onError may run during construction; saves retain unsaved memory on failure. */
   constructor(private readonly path: string, private readonly onError?: (message: string) => void) {
-    const { data, migrated } = this.load()
+    const { data, migrated, serialized, fingerprint } = this.load()
     this.data = data
+    this.lastSerialized = serialized
+    this.primaryFingerprint = fingerprint
     // Snapshot what we just loaded, before anything can overwrite it. The .bak
     // rotation only survives two saves, and the store is rewritten on nearly
     // every event — so a bug that prunes the roster destroys all three copies
@@ -424,7 +442,7 @@ export class Store {
     return result
   }
 
-  private load(): { data: StoreData; migrated: boolean } {
+  private load(): { data: StoreData; migrated: boolean; serialized?: string; fingerprint?: FileFingerprint } {
     let corruptPrimary = false
     let failed = false
     try {
@@ -437,8 +455,10 @@ export class Store {
         this.report(`could not read store ${this.path}`, err)
       }
     }
-    const recover = (candidate: string): { data: StoreData; migrated: boolean } | undefined => {
-      let recovered: { data: StoreData; migrated: boolean }
+    const recover = (
+      candidate: string
+    ): { data: StoreData; migrated: boolean; serialized?: string; fingerprint?: FileFingerprint } | undefined => {
+      let recovered: { data: StoreData; migrated: boolean; serialized: string; fingerprint: FileFingerprint }
       try {
         recovered = this.readFrom(candidate)
       } catch (err) {
@@ -459,7 +479,7 @@ export class Store {
         }
       }
       this.report(`recovered store from ${candidate}${this.saveBlocked ? '; saving is disabled' : ''}`)
-      return { ...recovered, migrated: true }
+      return { data: recovered.data, migrated: true, serialized: recovered.serialized }
     }
     for (const candidate of [`${this.path}.bak`, `${this.path}.bak2`]) {
       const recovered = recover(candidate)
@@ -499,8 +519,10 @@ export class Store {
 
   /** Parse a store file into a fully-defaulted StoreData. Throws when the file
    * is missing or unparseable, so callers can fall through to a backup. */
-  private readFrom(path: string): { data: StoreData; migrated: boolean } {
-    const raw = parseStore(readFileSync(path, 'utf8'))
+  private readFrom(path: string): { data: StoreData; migrated: boolean; serialized: string; fingerprint: FileFingerprint } {
+    const serialized = readFileSync(path, 'utf8')
+    const raw = parseStore(serialized)
+    const stats = statSync(path)
     const data: StoreData = {
       characters: raw.characters ?? {},
       settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
@@ -514,10 +536,12 @@ export class Store {
       migrations: [...(raw.migrations ?? [])]
     }
     const migrated = runMigrations(data)
-    return { data, migrated }
+    return { data, migrated, serialized, fingerprint: { size: stats.size, mtimeMs: stats.mtimeMs } }
   }
 
-  private persist(throwOnFailure = false): void {
+  private persist(options: PersistInternalOptions = {}): void {
+    const durable = options.durable ?? true
+    const throwOnFailure = options.throwOnFailure ?? false
     this.dirty = true
     if (this.batch) return
     if (this.saveBlocked) {
@@ -528,13 +552,18 @@ export class Store {
     }
     try {
       mkdirSync(dirname(this.path), { recursive: true })
+      this.refreshPrimaryCacheForRotation()
       // Keep the previous good copy before overwriting. The roster is the only
       // record of which conversation each session maps to, and it is rewritten
       // on nearly every event — so a single bad write (or a bug that prunes the
       // list) would otherwise be unrecoverable. Cheap insurance: one .bak, one
       // .bak2, rotated on each save.
-      this.rotateBackups()
-      atomicWriteFile(this.path, JSON.stringify(this.data, null, 2))
+      this.rotateBackups({ durable })
+      const serialized = JSON.stringify(this.data)
+      atomicWriteFile(this.path, serialized, { fsync: durable })
+      this.lastSerialized = serialized
+      const stats = statSync(this.path)
+      this.primaryFingerprint = { size: stats.size, mtimeMs: stats.mtimeMs }
       this.dirty = false
     } catch (err) {
       if (throwOnFailure) throw err
@@ -562,14 +591,14 @@ export class Store {
     let result: T
     try {
       result = mutate()
-      this.persist(true)
+      this.persist({ throwOnFailure: true, durable: true })
       return result
     } catch (error) {
       const published = error instanceof AtomicWriteError &&
         error.path === this.path &&
         error.published
       if (published) {
-        const committed = Buffer.from(JSON.stringify(this.data, null, 2))
+        const committed = Buffer.from(JSON.stringify(this.data))
         try {
           this.restorePrimary(previousPrimary)
         } catch (rollbackError) {
@@ -608,6 +637,9 @@ export class Store {
   private restorePrimary(previous: Buffer | undefined): void {
     if (previous !== undefined) {
       atomicWriteFile(this.path, previous)
+      this.lastSerialized = previous.toString('utf8')
+      const stats = statSync(this.path)
+      this.primaryFingerprint = { size: stats.size, mtimeMs: stats.mtimeMs }
       return
     }
     try {
@@ -616,15 +648,24 @@ export class Store {
       if (!isMissing(error)) throw error
     }
     syncParentDirectory(this.path)
+    this.lastSerialized = undefined
+    this.primaryFingerprint = undefined
   }
 
   private publishPrimary(contents: Buffer): 'durable' | 'uncertain' | 'failed' {
     try {
       atomicWriteFile(this.path, contents)
+      this.lastSerialized = contents.toString('utf8')
+      const stats = statSync(this.path)
+      this.primaryFingerprint = { size: stats.size, mtimeMs: stats.mtimeMs }
       return 'durable'
     } catch {
       try {
-        return readFileSync(this.path).equals(contents) ? 'uncertain' : 'failed'
+        if (!readFileSync(this.path).equals(contents)) return 'failed'
+        this.lastSerialized = contents.toString('utf8')
+        const stats = statSync(this.path)
+        this.primaryFingerprint = { size: stats.size, mtimeMs: stats.mtimeMs }
+        return 'uncertain'
       } catch {
         return 'failed'
       }
@@ -643,26 +684,62 @@ export class Store {
 
   /** Fail the save if its safety copy cannot be published. Never truncate a
    * rotation in place or rotate an externally corrupted primary over good data. */
-  private rotateBackups(): void {
-    let primary: Buffer
+  private previousBackupSerialized(): string | null {
+    if (this.backupSerialized !== undefined) return this.backupSerialized
     try {
-      primary = readFileSync(this.path)
-      parseStore(primary.toString('utf8'))
-    } catch (err) {
-      if (isMissing(err)) return
-      throw err
-    }
-    let previous: Buffer | undefined
-    try {
-      const contents = readFileSync(`${this.path}.bak`)
-      parseStore(contents.toString('utf8'))
-      previous = contents
+      const contents = readFileSync(`${this.path}.bak`, 'utf8')
+      parseStore(contents)
+      this.backupSerialized = contents
     } catch (err) {
       if (err instanceof InvalidStoreError) this.report('skipping corrupt store rotation', err)
       else if (!isMissing(err)) throw err
+      this.backupSerialized = null
     }
-    if (previous) atomicWriteFile(`${this.path}.bak2`, previous)
-    atomicWriteFile(`${this.path}.bak`, primary)
+    return this.backupSerialized
+  }
+
+  private skipCachedPrimary(message: string, err?: unknown): void {
+    this.lastSerialized = undefined
+    this.primaryFingerprint = undefined
+    this.report(message, err)
+  }
+
+  private refreshPrimaryCacheForRotation(): void {
+    if (!this.primaryFingerprint || this.lastSerialized === undefined) return
+    let stats: ReturnType<typeof statSync>
+    try {
+      stats = statSync(this.path)
+    } catch (err) {
+      this.skipCachedPrimary(
+        isMissing(err)
+          ? 'store file disappeared before backup rotation; skipping rotation for this save'
+          : 'could not inspect store before backup rotation; skipping rotation for this save',
+        err
+      )
+      return
+    }
+    if (stats.size === this.primaryFingerprint.size && stats.mtimeMs === this.primaryFingerprint.mtimeMs) return
+    try {
+      const serialized = readFileSync(this.path, 'utf8')
+      parseStore(serialized)
+      const refreshed = statSync(this.path)
+      this.lastSerialized = serialized
+      this.primaryFingerprint = { size: refreshed.size, mtimeMs: refreshed.mtimeMs }
+    } catch (err) {
+      this.skipCachedPrimary(
+        'live store changed outside Crew but could not be validated; skipping backup rotation for this save',
+        err
+      )
+    }
+  }
+
+  private rotateBackups(options: Required<PersistOptions>): void {
+    const primary = this.lastSerialized
+    if (primary === undefined) return
+    const previous = this.previousBackupSerialized()
+    if (previous) atomicWriteFile(`${this.path}.bak2`, previous, { fsync: options.durable })
+    atomicWriteFile(`${this.path}.bak`, primary, { fsync: options.durable })
+    this.backupSerialized = primary
   }
 
   /** The directory holding dated snapshots. */
@@ -773,9 +850,9 @@ export class Store {
     return this.data.sessions
   }
 
-  saveSessions(list: PersistedSession[]): void {
+  saveSessions(list: PersistedSession[], options: PersistOptions = {}): void {
     this.data.sessions = list
-    this.persist()
+    this.persist(options)
   }
 
   get sets(): SessionSet[] {

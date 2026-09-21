@@ -423,7 +423,7 @@ describe('store fault recovery', () => {
     expect(fs.readdirSync(dir).filter((file) => file.endsWith('.tmp'))).toEqual([])
   })
 
-  it('does not rotate an externally corrupted primary over a healthy backup', () => {
+  it('heals an externally corrupted primary from memory without rotating it over a healthy backup', () => {
     const path = join(dir, 'store.json')
     const store = new Store(path)
     store.saveSessions([session])
@@ -431,7 +431,7 @@ describe('store fault recovery', () => {
     const backup = fs.readFileSync(`${path}.bak`, 'utf8')
     fs.writeFileSync(path, 'external damage')
     store.saveSessions([])
-    expect(fs.readFileSync(path, 'utf8')).toBe('external damage')
+    expect(JSON.parse(fs.readFileSync(path, 'utf8')).sessions).toEqual([])
     expect(fs.readFileSync(`${path}.bak`, 'utf8')).toBe(backup)
   })
 
