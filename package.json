@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
@@ -39,9 +40,12 @@
     "electron": "^31.3.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^2.3.0",
+    "pixelmatch": "^7.2.0",
     "playwright": "1.49",
+    "pngjs": "^7.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "svgo": "^4.1.0",
     "typescript": "^5.5.4",
     "vite": "^5.3.5",
     "vitest": "^2.0.5"
