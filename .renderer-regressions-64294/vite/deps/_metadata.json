@@ -1,0 +1,79 @@
+{
+  "hash": "ccda282b",
+  "configHash": "eb059a2d",
+  "lockfileHash": "217db9ca",
+  "browserHash": "ec231138",
+  "optimized": {
+    "@xterm/addon-fit": {
+      "src": "../../../node_modules/@xterm/addon-fit/lib/addon-fit.js",
+      "file": "@xterm_addon-fit.js",
+      "fileHash": "ca4d900b",
+      "needsInterop": true
+    },
+    "@xterm/addon-image": {
+      "src": "../../../node_modules/@xterm/addon-image/lib/addon-image.js",
+      "file": "@xterm_addon-image.js",
+      "fileHash": "88f3d15d",
+      "needsInterop": true
+    },
+    "@xterm/addon-unicode11": {
+      "src": "../../../node_modules/@xterm/addon-unicode11/lib/addon-unicode11.js",
+      "file": "@xterm_addon-unicode11.js",
+      "fileHash": "ea8ebfbb",
+      "needsInterop": true
+    },
+    "@xterm/addon-webgl": {
+      "src": "../../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js",
+      "file": "@xterm_addon-webgl.js",
+      "fileHash": "37d96f59",
+      "needsInterop": true
+    },
+    "@xterm/xterm": {
+      "src": "../../../node_modules/@xterm/xterm/lib/xterm.js",
+      "file": "@xterm_xterm.js",
+      "fileHash": "1f34f56f",
+      "needsInterop": true
+    },
+    "react": {
+      "src": "../../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "ea5a63fa",
+      "needsInterop": true
+    },
+    "react-dom": {
+      "src": "../../../node_modules/react-dom/index.js",
+      "file": "react-dom.js",
+      "fileHash": "7a388e40",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "d4545ef7",
+      "needsInterop": true
+    },
+    "react/jsx-runtime": {
+      "src": "../../../node_modules/react/jsx-runtime.js",
+      "file": "react_jsx-runtime.js",
+      "fileHash": "63827d54",
+      "needsInterop": true
+    },
+    "react/jsx-dev-runtime": {
+      "src": "../../../node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "54741bfd",
+      "needsInterop": true
+    }
+  },
+  "chunks": {
+    "chunk-UOSWYDE5": {
+      "file": "chunk-UOSWYDE5.js"
+    },
+    "chunk-EEZG7H6C": {
+      "file": "chunk-EEZG7H6C.js"
+    },
+    "chunk-BUSYA2B4": {
+      "file": "chunk-BUSYA2B4.js"
+    }
+  }
+}
