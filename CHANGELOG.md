@@ -3,6 +3,31 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.1 — 2026-09-21
+
+### Fixed
+- **Agent panes no longer render wrapped, fragmented, half-blank output.** The
+  terminal process was always started at a fixed 100×30 while the pane it draws
+  into is whatever the window fitted — commonly around 160 columns. An agent
+  writing a 160-column layout into a grid it believed was 100 wide left
+  durations stranded in the middle of the pane, status lines piling up as
+  repeated prefixes instead of overwriting themselves, and long lines wrapping
+  early with most of the pane blank. Sessions now start at the size of the pane
+  they belong to. A pane reports its size as soon as it appears, which for a
+  session started from an already-open pane happened before the process existed;
+  that report is no longer discarded.
+
+### Changed
+- **Crew skips render work for session cards that are off screen.**
+- **Saving the roster is roughly three times faster.** The rotated backup copies
+  are no longer flushed to disk individually; the live store still is, so a
+  power loss cannot lose committed work.
+- **The idle terminal pool is retired 30 seconds after the engine is toggled,**
+  with scrollback preserved and replayed, instead of being held for the whole
+  session.
+- **Character art is smaller.** Per-character precision, gated on a pixel
+  comparison, removes 13% of the art path data with no visible change.
+
 ## 0.7.0 — 2026-09-17
 
 ### Added
