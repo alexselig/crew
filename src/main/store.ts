@@ -13,11 +13,7 @@ import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type W
 import { BUILTIN_AGENTS } from '../shared/agents'
 import { AtomicWriteError, atomicWriteFile, syncParentDirectory } from './atomic-file'
 
-interface PersistOptions {
-  durable?: boolean
-}
-
-interface PersistInternalOptions extends PersistOptions {
+interface PersistInternalOptions {
   throwOnFailure?: boolean
 }
 
@@ -540,7 +536,6 @@ export class Store {
   }
 
   private persist(options: PersistInternalOptions = {}): void {
-    const durable = options.durable ?? true
     const throwOnFailure = options.throwOnFailure ?? false
     this.dirty = true
     if (this.batch) return
@@ -558,9 +553,12 @@ export class Store {
       // on nearly every event — so a single bad write (or a bug that prunes the
       // list) would otherwise be unrecoverable. Cheap insurance: one .bak, one
       // .bak2, rotated on each save.
-      this.rotateBackups({ durable })
+      this.rotateBackups()
+      // Compact rather than pretty-printed. This is machine-written state that
+      // is rewritten constantly; the indentation cost real bytes on every
+      // fsync for the benefit of nobody.
       const serialized = JSON.stringify(this.data)
-      atomicWriteFile(this.path, serialized, { fsync: durable })
+      atomicWriteFile(this.path, serialized)
       this.lastSerialized = serialized
       const stats = statSync(this.path)
       this.primaryFingerprint = { size: stats.size, mtimeMs: stats.mtimeMs }
@@ -591,7 +589,7 @@ export class Store {
     let result: T
     try {
       result = mutate()
-      this.persist({ throwOnFailure: true, durable: true })
+      this.persist({ throwOnFailure: true })
       return result
     } catch (error) {
       const published = error instanceof AtomicWriteError &&
@@ -733,12 +731,26 @@ export class Store {
     }
   }
 
-  private rotateBackups(options: Required<PersistOptions>): void {
+  /**
+   * Rotate the previous good copy into `.bak`, and the one before that into
+   * `.bak2`.
+   *
+   * These are written WITHOUT fsync, which is where almost all of the old cost
+   * of a save lived: two fsynced atomic writes, ~16ms of the ~24ms total. The
+   * live store below still fsyncs, so committed state survives a crash. The
+   * backups do not need the same guarantee - each one is a superseded copy, and
+   * the temp-file + rename is still atomic, so the worst a power failure can do
+   * is leave a backup one generation stale. It can never leave a partial file.
+   *
+   * The backups exist to recover from a corrupt primary or a bug that prunes
+   * the roster, and neither of those is a durability problem.
+   */
+  private rotateBackups(): void {
     const primary = this.lastSerialized
     if (primary === undefined) return
     const previous = this.previousBackupSerialized()
-    if (previous) atomicWriteFile(`${this.path}.bak2`, previous, { fsync: options.durable })
-    atomicWriteFile(`${this.path}.bak`, primary, { fsync: options.durable })
+    if (previous) atomicWriteFile(`${this.path}.bak2`, previous, { fsync: false })
+    atomicWriteFile(`${this.path}.bak`, primary, { fsync: false })
     this.backupSerialized = primary
   }
 
@@ -850,9 +862,9 @@ export class Store {
     return this.data.sessions
   }
 
-  saveSessions(list: PersistedSession[], options: PersistOptions = {}): void {
+  saveSessions(list: PersistedSession[]): void {
     this.data.sessions = list
-    this.persist(options)
+    this.persist()
   }
 
   get sets(): SessionSet[] {

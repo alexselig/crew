@@ -142,12 +142,12 @@ function legacyPersist(store) {
   return metrics
 }
 
-function currentPersist(store, cache, durable) {
+function currentPersist(store, cache, durable, durableBackups = durable) {
   const metrics = { rotateBackups: 0, stringify: 0, atomicWriteFile: 0, total: 0 }
   const totalStart = performance.now()
   timed(metrics, 'rotateBackups', () => {
-    if (cache.backup) atomicWriteFile(`${path}.bak2`, cache.backup, { fsync: durable })
-    if (cache.primary) atomicWriteFile(`${path}.bak`, cache.primary, { fsync: durable })
+    if (cache.backup) atomicWriteFile(`${path}.bak2`, cache.backup, { fsync: durableBackups })
+    if (cache.primary) atomicWriteFile(`${path}.bak`, cache.primary, { fsync: durableBackups })
     cache.backup = cache.primary
   })
   const serialized = timed(metrics, 'stringify', () => JSON.stringify(store))
@@ -205,6 +205,10 @@ print(runCase('before: legacy pretty + primary re-read + durable fsync', store, 
 const primary = seedFiles(store, false)
 const durableCache = { primary, backup: readFileSync(`${path}.bak`, 'utf8') }
 print(runCase('after: compact + cached backups + durable fsync', store, () => currentPersist(store, durableCache, true)))
+
+const primaryOnly = seedFiles(store, false)
+const primaryOnlyCache = { primary: primaryOnly, backup: readFileSync(`${path}.bak`, 'utf8') }
+print(runCase('after: compact + cached + fsync PRIMARY ONLY (backups not fsynced)', store, () => currentPersist(store, primaryOnlyCache, true, false)))
 
 const routinePrimary = seedFiles(store, false)
 const routineCache = { primary: routinePrimary, backup: readFileSync(`${path}.bak`, 'utf8') }

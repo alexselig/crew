@@ -39,7 +39,6 @@ import { crewHookFor } from './crew-hook'
 import { withoutCopilotModel } from '../shared/copilot-models'
 
 const TICK_MS = 250
-const SESSION_PERSIST_DEBOUNCE_MS = 2000
 const DEFAULT_COLS = 100
 const DEFAULT_ROWS = 30
 const EVENT_CAP = 2000
@@ -131,10 +130,10 @@ export class SessionManager extends EventEmitter {
   private readonly events: ActivityEvent[] = []
   // Coalesces cost-driven roster updates into the tick loop (max ~4/s).
   private rosterDirty = false
-  // Set when routine session metadata that must survive restart changes (e.g. a
-  // prompt stamps lastPromptAt); flushed after a short debounce without fsync.
+  // Set when session metadata that must survive restart changes (e.g. a prompt
+  // stamps lastPromptAt); flushed to disk on the tick so we don't writeFile on
+  // every keystroke.
   private persistDirty = false
-  private persistTimer: ReturnType<typeof setTimeout> | null = null
   // Detects autopilot from each agent's own state: Claude Code's acceptEdits from
   // its transcript; Copilot's "autopilot" mode from its session event log.
   private readonly autopilot = new AutopilotWatcher()
@@ -476,7 +475,7 @@ export class SessionManager extends EventEmitter {
     if (data.includes('\r') || data.includes('\n')) {
       m.info.lastPromptAt = Date.now()
       this.rosterDirty = true
-      this.scheduleRoutinePersist()
+      this.persistDirty = true
     }
   }
 
@@ -797,7 +796,7 @@ export class SessionManager extends EventEmitter {
     // Capture the freshest state (e.g. a lastPromptAt stamped since the last
     // persist-triggering action) while sessions are still active — before we
     // freeze persistence and kill the procs.
-    this.persistSessions({ durable: true })
+    this.persistSessions()
     // Freeze persistence first: the kills below fire onExit handlers that would
     // otherwise save an empty session list and wipe the resume state.
     this.disposing = true
@@ -826,33 +825,11 @@ export class SessionManager extends EventEmitter {
       clearInterval(this.timer)
       this.timer = null
     }
-    if (this.persistTimer) {
-      clearTimeout(this.persistTimer)
-      this.persistTimer = null
-    }
   }
 
   /** Snapshot the current active sessions so they can be resumed next launch. */
-  private scheduleRoutinePersist(): void {
-    this.persistDirty = true
-    if (this.persistTimer) return
-    this.persistTimer = setTimeout(() => {
-      this.persistTimer = null
-      if (!this.persistDirty) return
-      this.persistDirty = false
-      this.persistSessions({ durable: false })
-    }, SESSION_PERSIST_DEBOUNCE_MS)
-  }
-
-  private persistSessions(options: { durable?: boolean } = {}): void {
+  private persistSessions(): void {
     if (this.disposing || this.restoring) return
-    if (options.durable !== false) {
-      this.persistDirty = false
-      if (this.persistTimer) {
-        clearTimeout(this.persistTimer)
-        this.persistTimer = null
-      }
-    }
     // Persist every session still on the roster, whatever its status. An agent
     // that died (crashed on resume, killed by a failing MCP server, exited with
     // an error) must NOT be erased from the saved roster: status is transient,
@@ -878,7 +855,7 @@ export class SessionManager extends EventEmitter {
         createdAt: m.info.createdAt,
         lastPromptAt: m.info.lastPromptAt
       }))
-    this.store.saveSessions(list, { durable: options.durable ?? true })
+    this.store.saveSessions(list)
   }
 
   /**
@@ -1027,6 +1004,12 @@ export class SessionManager extends EventEmitter {
       if (this.rosterDirty) {
         this.rosterDirty = false
         this.emitRoster()
+      }
+      // Flush metadata that must survive restart (e.g. lastPromptAt from a
+      // prompt) at most once per tick.
+      if (this.persistDirty) {
+        this.persistDirty = false
+        this.persistSessions()
       }
     }, TICK_MS)
   }

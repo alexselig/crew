@@ -27,7 +27,9 @@ export function syncParentDirectory(path: string): void {
 }
 
 export interface AtomicWriteOptions {
-  /** When false, keep temp-file + rename atomicity but skip file/directory fsync. */
+  /** When false, keep temp-file + rename atomicity but skip file/directory
+   *  fsync. Only safe for files whose loss on power failure is acceptable —
+   *  in practice the rotated backups, never the live store. */
   fsync?: boolean
 }
 

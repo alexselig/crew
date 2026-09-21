@@ -151,7 +151,30 @@ describe('store persist performance invariants', () => {
 })
 
 describe('session metadata persistence durability choices', () => {
-  it('debounces routine metadata flushes for about 2 seconds and skips fsync', async () => {
+  // Durability was deliberately chosen over throughput for the LIVE store: it
+  // is fsynced on every save, on the 250ms tick, with no debounce. The speed
+  // comes from the backups instead, which are not fsynced - each is a
+  // superseded copy, the rename keeps them atomic, and they exist to recover
+  // from a corrupt primary or a roster-pruning bug, neither of which is a
+  // durability problem. Measured: ~24ms -> ~8ms per save, primary still safe.
+  it('fsyncs the live store but not the rotated backups', () => {
+    const path = storePath()
+    const store = new Store(path)
+    store.saveSessions([session('a', 'First roster')])
+    store.saveSessions([session('b', 'Second roster')])
+    resetCounters()
+
+    store.saveSessions([session('c', 'Third roster')])
+
+    // Three atomic writes happen (.bak2, .bak, primary) but only the primary
+    // is durable, so exactly two fsyncs should occur: the store file and its
+    // parent directory. Six would mean the backups are being fsynced again.
+    expect(vi.mocked(fsyncSync).mock.calls.length).toBe(2)
+    expect(JSON.parse(readFileSync(path, 'utf8')).sessions[0].label).toBe('Third roster')
+    expect(JSON.parse(readFileSync(`${path}.bak`, 'utf8')).sessions[0].label).toBe('Second roster')
+  })
+
+  it('flushes routine metadata on the tick and still fsyncs it', async () => {
     const path = storePath()
     const store = new Store(path)
     const manager = new SessionManager(store)
@@ -161,13 +184,11 @@ describe('session metadata persistence durability choices', () => {
 
     await vi.advanceTimersByTimeAsync(1)
     manager.input(created.id, '\r')
-    await vi.advanceTimersByTimeAsync(1999)
-    expect(lastPromptAt(path)).toBe(beforePrompt)
+    await vi.advanceTimersByTimeAsync(250)
 
-    await vi.advanceTimersByTimeAsync(1)
     expect(lastPromptAt(path)).toBeTypeOf('number')
     expect(lastPromptAt(path)).not.toBe(beforePrompt)
-    expect(vi.mocked(fsyncSync)).not.toHaveBeenCalled()
+    expect(vi.mocked(fsyncSync).mock.calls.length).toBeGreaterThan(0)
 
     manager.disposeAll()
   })
