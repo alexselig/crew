@@ -250,6 +250,31 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     expect(readFileSync(join(dir, 'notary.args'), 'utf8')).toContain('dist/.crew-notarize-arm64.zip')
   })
 
+  it('falls back to APPLE_* credentials when the notary keychain profile is missing', () => {
+    // store-credentials can validate against Apple and still fail to write the
+    // keychain item, which left a signed build that could not be notarized.
+    const { dir } = fixture()
+    spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
+      cwd: dir, encoding: 'utf8', timeout: 5000,
+      env: {
+        ...process.env,
+        PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
+        CREW_APP: join(dir, 'dist', 'mac-arm64', 'Crew.app'),
+        CREW_ARCH: 'arm64',
+        CREW_REAL_CODESIGN: join(dir, 'bin', 'codesign'),
+        CREW_CODESIGN_RETRY_DELAY: '0',
+        CREW_NOTARY_PROFILE: 'definitely-not-a-stored-profile',
+        APPLE_ID: 'someone@example.com',
+        APPLE_APP_SPECIFIC_PASSWORD: 'abcd-efgh-ijkl-mnop',
+        APPLE_TEAM_ID: 'TEAMID1234'
+      }
+    })
+    const args = readFileSync(join(dir, 'notary.args'), 'utf8')
+    expect(args).toContain('--apple-id someone@example.com')
+    expect(args).toContain('--team-id TEAMID1234')
+    expect(args).not.toContain('--keychain-profile')
+  })
+
   it('uses Apple timestamp service explicitly for app and DMG signatures', () => {
     const source = readFileSync(resolve('scripts/sign-notarize.sh'), 'utf8')
     expect(source).toContain('TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-$(bash "$REPO_DIR/scripts/resolve-timestamp-url.sh" http://timestamp.apple.com/ts01)}"')

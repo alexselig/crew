@@ -33,6 +33,23 @@ cd "$REPO_DIR"
 
 IDENTITY="${CREW_SIGN_IDENTITY:-Developer ID Application: Aaron Selig (42KAR3VVM7)}"
 PROFILE="${CREW_NOTARY_PROFILE:-crew-notary}"
+# Notarization credentials. The stored keychain profile is the norm, but it can
+# go missing, and `notarytool store-credentials` can validate against Apple and
+# still fail to write the keychain item — leaving a release signed but
+# un-notarizable. The APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+# variables documented in MACOS-SIGNING.md are accepted as a fallback so the
+# release is never blocked on the keychain, and the absence of both is reported
+# BEFORE the multi-minute signing run rather than after it.
+NOTARY_ARGS=(--keychain-profile "$PROFILE")
+if ! security find-generic-password -s "com.apple.gke.notary.tool" -a "$PROFILE" >/dev/null 2>&1; then
+  if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+    NOTARY_ARGS=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
+    echo "==> Notary profile '$PROFILE' is not in the keychain; using APPLE_* environment credentials."
+  else
+    echo "WARNING: notary profile '$PROFILE' is not in the keychain, and APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID are not set." >&2
+    echo "         Signing will proceed but notarization will fail. See MACOS-SIGNING.md." >&2
+  fi
+fi
 TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-$(bash "$REPO_DIR/scripts/resolve-timestamp-url.sh" http://timestamp.apple.com/ts01)}"
 VERSION="$(node -p "require('./package.json').version")"
 SIGN_BIN="$(mktemp -d)"
@@ -100,7 +117,7 @@ codesign --verify --deep --strict "$APP"
 
 echo "==> Notarizing app (Apple, ~1-5 min)"
 ditto -c -k --keepParent "$APP" "$NOTARY_ZIP"
-xcrun notarytool submit "$NOTARY_ZIP" --keychain-profile "$PROFILE" --wait
+xcrun notarytool submit "$NOTARY_ZIP" "${NOTARY_ARGS[@]}" --wait
 rm -f "$NOTARY_ZIP"
 xcrun stapler staple "$APP"
 spctl -a -vvv -t exec "$APP"
@@ -125,7 +142,7 @@ for attempt in 1 2 3 4 5; do
 done
 [ "$signed" = "1" ] || { echo "ERROR: DMG signing failed after 5 attempts." >&2; exit 1; }
 codesign --verify --strict "$DMG"
-xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
+xcrun notarytool submit "$DMG" "${NOTARY_ARGS[@]}" --wait
 xcrun stapler staple "$DMG"
 spctl -a -vvv -t open --context context:primary-signature "$DMG"
 
