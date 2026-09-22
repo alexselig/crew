@@ -132,6 +132,38 @@ html = f"""<!doctype html>
 
   /* Keeps the motion, replaces the per-frame alpha-analysing drop-shadow with a
      static halo painted behind the art, which rasterises once. */
+  /* Keeps the shipped glow EXACTLY, and spends the motion instead: the glow
+     itself becomes the autopilot signal. */
+  html.shadowstatic .character--run .character__art {{ animation: none; }}
+
+  /* Halo tunings, tightest -> softest, for picking the closest visual match. */
+  /* Restores the pre-fix drop-shadow so the shipped CSS can be measured
+     against what it replaced, in a single run on one machine. */
+  html.oldfilter .character--autopilot {{ background: none; }}
+  html.oldfilter .character--autopilot .character__art,
+  html.oldfilter .character--autopilot .character__glyph {{
+    filter: drop-shadow(0 0 2.5px var(--accent));
+  }}
+
+  /* Does will-change: transform actually earn its keep? Every other variant
+     keeps it, so 'the scale is free' could be true only because of it. */
+  html.nowillchange .character--run .character__art {{ will-change: auto; }}
+  html.nowillchange_noshadow .character--run .character__art {{ will-change: auto; }}
+  html.nowillchange_noshadow .character--autopilot .character__art {{ filter:none; }}
+
+  html.halo1 .character--autopilot .character__art {{ filter:none; }}
+  html.halo1 .character--autopilot {{
+    background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 42%, transparent) 0%, transparent 46%);
+  }}
+  html.halo2 .character--autopilot .character__art {{ filter:none; }}
+  html.halo2 .character--autopilot {{
+    background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 34%, transparent) 0%, transparent 54%);
+  }}
+  html.halo3 .character--autopilot .character__art {{ filter:none; }}
+  html.halo3 .character--autopilot {{
+    background: radial-gradient(circle at 50% 52%, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 64%);
+  }}
+
   html.glowbg .character--autopilot .character__art {{ filter:none; }}
   /* Exact-look candidate: the filter input stops changing because the art no
      longer animates -- the PARENT carries the motion instead, so Chromium can
@@ -154,7 +186,7 @@ html = f"""<!doctype html>
 <div class="bar">variant <b id="v">base</b> &middot; visible <b>{VISIBLE}</b> &middot; paths <b id="p">-</b></div>
 <div class="grid">{''.join(cards)}</div>
 <script>
-const VARIANTS = ['base','noshadow','noscale','opacityonly','static','shadowop','glowbg','animparent','filterlayer']
+const VARIANTS = ['base','noshadow','noscale','opacityonly','static','shadowop','glowbg','animparent','filterlayer','shadowstatic','halo1','halo2','halo3','nowillchange','nowillchange_noshadow','oldfilter']
 function apply() {{
   const v = (location.hash || '#base').slice(1)
   document.documentElement.className = VARIANTS.includes(v) && v !== 'base' ? v : ''

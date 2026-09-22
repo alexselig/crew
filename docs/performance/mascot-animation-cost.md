@@ -53,6 +53,8 @@ drop-shadow all land on one element.
 | `animparent` | filter static, move animation to the parent | 47.0% | **+68.8%** |
 | `noshadow` | remove the drop-shadow only | 8.2% | **-70.6%** |
 | `glowbg` | drop-shadow -> painted halo, motion kept | 8.6% | **-72.8%** |
+| `halo1` | tuned halo, closest visual match | 8.2% | **-74.1%** |
+| `shadowstatic` | keep the glow, drop the motion | 0.7% | **-97.8%** |
 | `static` | no animation at all | 0.1% | -99.6% |
 
 A non-autopilot cast — base art, no filter, same `char-work` motion — measures
@@ -81,37 +83,87 @@ vector art has to re-analyse the source alpha, and anything that invalidates
 the frame pays for it again. The filter has to go, or be replaced by something
 that rasterises once.
 
-## 4. Two things previously written down are wrong
+## 4. One thing previously written down is wrong — and one nearly was
 
-**`will-change: transform` on `.character--run .character__art` is not earning
-its keep.** Its comment says that without it "a roster of running sessions
-re-rasterizes its whole cast at animation frame rate". Removing the scale
-altogether (`noscale`) changes nothing, so the scale is not what costs — which
-means the hint is defending against a cost that measurement cannot find. It is
-also not free: `will-change` forces a permanent compositor layer per mascot,
-which is part of the memory this document is otherwise trying to reduce.
+**`will-change: transform` is load-bearing. Do not remove it.**
 
-**PERF-04's premise was false.** Path simplification was re-ranked "the most
-valuable remaining item" on the reasoning that scaling re-rasterizes every path
-each frame, so cutting node count cuts per-frame cost. Measurement says the
-scale is free and the filter is not. That is consistent with what PERF-04
-actually delivered: a bundle-size win and no measurable frame-cost win. The
-honest conclusion is that it was correctly *shipped* and incorrectly *ranked*.
+An earlier draft of this document claimed the opposite, reasoning that since
+removing the scale (`noscale`) changed nothing, the hint was defending against
+a cost that could not be measured. That reasoning was broken: *every* variant
+above keeps the hint, so all `noscale` proved is that the scale is cheap **given
+the pinned layer**. Measuring it directly says the opposite:
 
-## 5. What to do next
+| Variant | GPU median |
+| --- | --- |
+| `noshadow` — no filter, hint present | **8.4%** |
+| `nowillchange_noshadow` — no filter, hint removed | **32.3%** |
+| `nowillchange` — filter present, hint removed | **42.0%** |
 
-Replace `filter: drop-shadow(0 0 2.5px var(--accent))` on
-`.character--autopilot` with a halo painted behind the art, which rasterises
-once and survives the animation. Measured at **-72.8%** GPU with the motion
-fully intact.
+Removing the hint costs **3.8x**. Its comment in `styles.css` is exactly right:
+without it, scaling the inline SVG re-rasterizes the line art every frame. The
+claim was retracted before it could be acted on, which is the only reason it is
+written up here rather than silently deleted — acting on it would have tripled
+the cost it was trying to reduce.
 
-This is a visual change, not a free one: the shipped filter hugs the stroke
-outline, while a painted halo reads as a softer radial bloom. It needs a design
-decision before it ships, which is why this document stops at the measurement.
+**PERF-04 was still re-ranked on a false premise, but a subtler one.** It was
+promoted to "the most valuable remaining item" because mascots "re-rasterize at
+animation frame rate, and that cost is directly proportional to path
+complexity". With `will-change` present, the art is rasterized once into a
+pinned layer and the animation only composites it, so per-frame cost does *not*
+track path count. Cutting node count cuts the one-time raster and the layer
+memory — real, but not the per-frame win that justified the ranking. That
+matches what PERF-04 delivered: a bundle-size win and no measurable frame-cost
+win.
 
-If the exact glow must be preserved, the remaining lever is **how many
-filtered mascots are on screen at once** — because per-element, nothing makes
-`drop-shadow` cheap.
+The two mechanisms are independent: the layer hint neutralizes the scale, and
+nothing neutralizes the filter.
+
+## 5. What to do, and what was rejected
+
+**Shipped here:** replace `filter: drop-shadow(0 0 2.5px var(--accent))` on
+`.character--autopilot` with a halo painted behind the mascot. It rasterizes
+once and survives the animation, measuring **8.2%** against a **31.6%** base —
+about **-74%** — with the motion fully intact.
+
+The halo is tuned to the shipped glow rather than eyeballed. Rendering both and
+differencing the pixels picked the tightest of three candidates:
+
+| Tuning | mean pixel difference | pixels differing by >8/255 |
+| --- | --- | --- |
+| **`halo1` (shipped)** | **0.94** | **4.1%** |
+| `halo2` | 3.78 | 8.1% |
+| `halo3` | 4.23 | 10.0% |
+
+It is not pixel-identical: the filter hugs the stroke outline, the halo is a
+soft disc behind it. At a 2.5px spread on a 48px mascot that reads as a very
+slightly softer glow, and it is the only visual change.
+
+### How the shipped CSS was verified
+
+The number above was measured on a harness variant, not on the stylesheet. To
+close that gap, `styles.css` was patched first and the harness regenerated
+*from the patched file*, so its `base` variant is the real shipped rule. Diffing
+that render against the pre-fix glow reproduces the `halo1` row exactly — mean
+0.94 vs 0.90, 4.1% vs 4.1% of pixels — so what shipped is the thing that was
+measured, not a retyped approximation of it.
+
+`scripts/make-animation-ab-page.py` now also carries an `oldfilter` variant that
+restores the drop-shadow on top of current CSS, so the before/after can be
+re-run on one machine in one session.
+
+**Not captured:** a fresh guarded before/after on the shipped CSS. MSTeams held
+focus through every retry, and the guard correctly refused to emit numbers from
+an occluded window rather than reporting the spectacular fake wins described in
+section 3. The claim therefore rests on the four earlier guarded base runs plus
+the pixel-diff equivalence above, not on a fifth measurement.
+
+**Rejected: `shadowstatic`, which keeps the glow exactly and drops the motion
+instead.** It is far cheaper (0.7%) and preserves the signature glow pixel for
+pixel, so it is tempting. It was rejected because it collapses a distinction the
+UI depends on: `char-work` is what separates an autopilot session that is
+*working* from one that is merely *on autopilot and idle*. Both would become a
+still, glowing mascot. That trades an information signal for an aesthetic one,
+which is a worse deal than softening a glow by 4% of its pixels.
 
 ## Reproducing
 
