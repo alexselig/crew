@@ -97,6 +97,10 @@ they are on screen.
   complexity — currently 578 paths and 151,713 coordinates across the cast.
   Cutting node count cuts per-frame raster cost everywhere it matters.
 
+  > **Superseded.** Measurement later showed the scale animation is free and
+  > the `drop-shadow` filter is the cost, so this re-ranking was wrong. See
+  > [mascot-animation-cost.md](./mascot-animation-cost.md) §4.
+
 - **Roster IPC deltas (PERF-07) are confirmed as not addressing this.** The
   renderer drops to 0.2% CPU when backgrounded while the main process keeps
   emitting the roster. The foreground 16.3% is paint, not IPC or JavaScript.
@@ -105,7 +109,18 @@ they are on screen.
 - **There is nothing to fix in the GPU process itself.** It is behaving
   correctly; it is being asked to composite too much.
 
-## Still open
+## Answered: how much PR #14 removed
+
+The question below was answered against the signed 0.7.1 build. The short
+version: **`content-visibility` bought memory, not CPU** — GPU CPU moved only
+28.1% -> 24.6% while GPU memory fell 573 -> 347 MB. The remaining CPU is spent
+on *visible* mascots, and roughly two thirds of it is the `drop-shadow` filter
+on autopilot characters, not path complexity and not the scale animation.
+
+See [mascot-animation-cost.md](./mascot-animation-cost.md), which also corrects
+the PERF-04 ranking made below.
+
+## Still open (as written before that measurement)
 
 The one question this could not answer: **how much of the 28.1% PR #14 already
 removes.** Answering it needs a signed build containing PR #14, measured with

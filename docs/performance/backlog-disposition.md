@@ -102,6 +102,10 @@ animations (`char-run`, `char-work`, `char-blink` in `styles.css`) plus a
 `drop-shadow` filter on autopilot characters, multiplied by however many
 characters are on screen.
 
+> **Now measured.** Of those, the `drop-shadow` is roughly two thirds of the
+> cost and the animations themselves are the cheap part. See
+> [mascot-animation-cost.md](./mascot-animation-cost.md).
+
 The honest next step is to reduce *how much is animated at once* or how
 expensive each animated element is to rasterise - not to keep shaving JS.
 
