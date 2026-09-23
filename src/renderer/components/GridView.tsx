@@ -8,6 +8,7 @@ import { Character } from './Character'
 import { ResumeSets } from './ResumeSets'
 import { groupSessions, existingGroups, partitionHidden, splitMinimized, isSessionHidden, type GroupMode } from '../grouping'
 import { useCardDnd } from '../useCardDnd'
+import { revealInline, revealKey, type RevealRequest } from '../reveal'
 import { useNowTick } from '../hooks'
 import type { ViewMode, GridDensity } from '../hooks'
 
@@ -15,6 +16,12 @@ interface Props {
   roster: SessionInfo[]
   characters: CharacterDef[]
   selectedId: string | null
+  /**
+   * The most recent deliberate navigation. When it names the selected session,
+   * that session's tile is aligned to the grid's left edge rather than merely
+   * scrolled into view.
+   */
+  revealRequest?: RevealRequest | null
   gridDensity: GridDensity
   /** Active workspace filter name (null = All), shown in the top bar. */
   activeWorkspace?: string | null
@@ -69,6 +76,7 @@ export function GridView({
   roster,
   characters,
   selectedId,
+  revealRequest = null,
   gridDensity,
   activeWorkspace,
   groupMode,
@@ -155,11 +163,20 @@ export function GridView({
       : '__all__'
 
   // Keep the selected tile visible: on select, and whenever it moves group/bucket.
+  // A deliberate navigation (the nav, the command palette, an external jump)
+  // aligns the tile to the grid's left edge; an incidental reveal only moves as
+  // far as it must, so clicking a tile never yanks the layout under the cursor.
+  const inline = revealInline(selectedId, revealRequest)
+  const revealAt = revealKey(selectedId, revealRequest)
   useEffect(() => {
     if (!selectedId) return
     const el = document.querySelector(`.tile[data-session-id="${CSS.escape(selectedId)}"]`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
-  }, [selectedId, selectedGroupKey])
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline })
+    // `inline` is derived from the two values below; listing it as a dependency
+    // would not add a trigger, and `revealAt` is what makes re-navigating to the
+    // already-selected session re-align it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, selectedGroupKey, revealAt])
 
   if (roster.length === 0) {
     return (

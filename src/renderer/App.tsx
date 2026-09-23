@@ -432,6 +432,7 @@ export function App(): JSX.Element {
           }}
           characters={c.characters}
           selectedId={c.selectedId}
+          revealRequest={c.revealRequest}
           gridDensity={c.gridDensity}
           activeWorkspace={activeWorkspaceName}
           groupMode={builtinPresentation.mode}
