@@ -21,6 +21,7 @@ import type {
   RowMark,
   TerminalEngine
 } from './engine'
+import { decideFit } from './fit-guard'
 
 const THEME = {
   background: '#0A0A0B',
@@ -315,18 +316,40 @@ export class XtermEngine implements TerminalEngine {
     this.term.resize(cols, rows)
   }
 
-  fit(contentHeightPx: number): FitResult {
-    this.fitAddon.fit()
-    // FitAddon measures padding on the .xterm element, but Crew's padding lives
-    // on the parent mount (border-box), so it proposes one row too many and the
-    // bottom row (input prompt / footer) gets clipped. Cap rows to the mount's
-    // true content height so the last row is always fully visible.
-    const cellH = cellHeightOf(this.term)
-    if (cellH > 0 && contentHeightPx > 0) {
-      const maxRows = Math.max(1, Math.floor(contentHeightPx / cellH))
-      if (this.term.rows > maxRows) this.term.resize(this.term.cols, maxRows)
+  /**
+   * Fit the terminal to its mount, or return null and change nothing.
+   *
+   * Never calls FitAddon.fit(), because that applies its own proposal before
+   * anyone can inspect it -- and a proposal taken from a collapsed mount is a
+   * plausible-looking 2 columns or 1 row rather than an obvious error. See
+   * fit-guard.ts for what that did to live sessions.
+   *
+   * Iterates because one pass does not converge: FitAddon subtracts the
+   * viewport scrollbar width, whose existence depends on the size being
+   * proposed, so a pane that has just regained its size can settle wider than
+   * the box that shows it. Measured at 129 columns in a container that fits
+   * 125. Two passes is enough to reach a fixed point; the third is a stop.
+   */
+  fit(contentHeightPx: number): FitResult | null {
+    const host = this.term.element?.parentElement ?? null
+    const box = host
+      ? { connected: host.isConnected, clientWidth: host.clientWidth, clientHeight: host.clientHeight }
+      : null
+
+    let applied: FitResult | null = null
+    for (let pass = 0; pass < 3; pass++) {
+      const next = decideFit({
+        proposed: this.fitAddon.proposeDimensions(),
+        host: box,
+        contentHeightPx,
+        cellHeightPx: cellHeightOf(this.term)
+      })
+      if (!next) return null
+      applied = next
+      if (this.term.cols === next.cols && this.term.rows === next.rows) break
+      this.term.resize(next.cols, next.rows)
     }
-    return { cols: this.term.cols, rows: this.term.rows }
+    return applied
   }
 
   focus(): void {

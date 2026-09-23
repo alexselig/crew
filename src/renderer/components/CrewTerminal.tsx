@@ -4,10 +4,11 @@ import { getPooled, touch, focusTerminal, markPrompt, jumpToPrompt, recordInput 
 import { quotePaths } from '../../shared/shell-quote'
 import { meterInput } from '../input-meter'
 import { TerminalFocusRegistry } from '../terminal-focus'
+import { DropTracker, dragHasFiles } from '../terminal/drop-tracker'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
 function hasFiles(e: React.DragEvent): boolean {
-  return Array.from(e.dataTransfer.types).includes('Files')
+  return dragHasFiles(e.dataTransfer.types)
 }
 
 // Tracked at module scope so a DOM re-parent can restore focus. Binding follows
@@ -32,9 +33,29 @@ export function CrewTerminal({
   // Rough per-line accumulator of what the human types, flushed to the typed
   // Transcript on Enter. Heuristic (ignores cursor movement / escape sequences).
   const lineRef = useRef('')
-  // dragenter/leave fire for every child; a depth counter avoids flicker.
-  const depth = useRef(0)
+  // dragenter/leave fire for every child; the tracker counts them and, crucially,
+  // clears outright whenever a drag ends (see terminal/drop-tracker.ts).
+  const drop = useRef(new DropTracker())
   const [dragOver, setDragOver] = useState(false)
+
+  // A drag that ends outside this pane -- cancelled with Esc, dropped on another
+  // window, or simply gone from the window -- sends the pane no further events,
+  // so without these the overlay would stay up and blank the terminal.
+  useEffect(() => {
+    const clear = (): void => setDragOver(drop.current.end())
+    const onWindowDragLeave = (e: DragEvent): void => {
+      // relatedTarget is null exactly when the drag leaves the window.
+      if (!e.relatedTarget) clear()
+    }
+    window.addEventListener('drop', clear)
+    window.addEventListener('dragend', clear)
+    window.addEventListener('dragleave', onWindowDragLeave)
+    return () => {
+      window.removeEventListener('drop', clear)
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('dragleave', onWindowDragLeave)
+    }
+  }, [])
 
   useEffect(() => {
     const host = hostRef.current
@@ -64,8 +85,13 @@ export function CrewTerminal({
           host.clientHeight -
           parseFloat(cs.paddingTop || '0') -
           parseFloat(cs.paddingBottom || '0')
-        const { cols, rows } = p.engine.fit(contentH)
-        window.crew.resize(id, cols, rows)
+        const fitted = p.engine.fit(contentH)
+        // null means the mount is not laid out (collapsed pane, mid-transition,
+        // detached). Keep the PTY's last good size rather than resizing the
+        // agent to a pane nobody can see -- the ResizeObserver fires again the
+        // moment it regains a real size. See terminal/fit-guard.ts.
+        if (!fitted) return
+        window.crew.resize(id, fitted.cols, fitted.rows)
       } catch {
         /* container not measurable yet */
       }
@@ -148,8 +174,7 @@ export function CrewTerminal({
   function onDragEnter(e: React.DragEvent): void {
     if (!hasFiles(e)) return
     e.preventDefault()
-    depth.current++
-    setDragOver(true)
+    setDragOver(drop.current.enter(true))
   }
   function onDragOver(e: React.DragEvent): void {
     if (!hasFiles(e)) return
@@ -157,15 +182,15 @@ export function CrewTerminal({
     e.dataTransfer.dropEffect = 'copy'
   }
   function onDragLeave(e: React.DragEvent): void {
-    if (!hasFiles(e)) return
-    depth.current = Math.max(0, depth.current - 1)
-    if (depth.current === 0) setDragOver(false)
+    setDragOver(drop.current.leave(hasFiles(e)))
   }
   function onDrop(e: React.DragEvent): void {
+    // Clear first, unconditionally. Returning early on a payload that does not
+    // advertise files used to strand the overlay over the terminal for the rest
+    // of the session. See terminal/drop-tracker.ts.
+    setDragOver(drop.current.end())
     if (!hasFiles(e)) return
     e.preventDefault()
-    depth.current = 0
-    setDragOver(false)
     const paths = Array.from(e.dataTransfer.files)
       .map((f) => window.crew.pathForFile(f))
       .filter(Boolean)

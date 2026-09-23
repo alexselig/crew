@@ -70,7 +70,8 @@ export interface TerminalEngine {
    * height (border-box minus padding) so the bottom row is never clipped.
    * Returns the chosen grid size (already applied).
    */
-  fit(contentHeightPx: number): FitResult
+  /** Fit to the mount, or null when the mount is not laid out (see fit-guard). */
+  fit(contentHeightPx: number): FitResult | null
   focus(): void
   onFocus(cb: () => void): Disposable
   /** Intercept keydown before the terminal handles it; return false to consume it. */
