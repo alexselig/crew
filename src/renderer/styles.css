@@ -697,9 +697,30 @@ button {
   display: none;
 }
 
-.character--autopilot .character__art,
-.character--autopilot .character__glyph {
-  filter: drop-shadow(0 0 2.5px var(--accent));
+/* The autopilot glow is PAINTED BEHIND the mascot, not applied to it as a
+   drop-shadow filter. A drop-shadow over the line art has to re-analyse the
+   source alpha whenever the frame is invalidated, and .character--run animates
+   the art continuously, so the filter was being re-evaluated every frame: it
+   measured as roughly two thirds of all foreground GPU cost, making an
+   autopilot mascot ~3.7x the cost of a plain one.
+
+   Every attempt to keep the filter and make it cheap failed — dropping the
+   scale, animating opacity only (so the geometry never changes at all),
+   hinting a cached layer, and moving the motion to the parent were all within
+   noise or worse. A background gradient rasterizes once and survives the
+   animation: same cast, 31.6% -> 8.2% GPU.
+
+   This is not pixel-identical. The filter hugs the stroke outline; this is a
+   soft disc behind it. The stop positions below are the closest of three
+   tunings measured by pixel-differencing against the old filter (mean
+   difference 0.94/255, 4.1% of pixels). See
+   docs/performance/mascot-animation-cost.md. */
+.character--autopilot {
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    transparent 46%
+  );
 }
 
 .tile__char {

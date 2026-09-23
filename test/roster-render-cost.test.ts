@@ -44,8 +44,22 @@ describe('roster render cost contract', () => {
     // inline SVG re-tessellates and re-rasterizes every vector path unless the
     // element is promoted to its own compositor layer with a pinned raster
     // scale, which is what will-change: transform does.
+    //
+    // Measured, because this was once wrongly called unnecessary: removing the
+    // hint takes the same cast from 8.4% to 32.3% GPU, i.e. 3.8x. Every other
+    // variant kept the hint, so "the scale is free" was only ever true BECAUSE
+    // of it. See docs/performance/mascot-animation-cost.md section 4.
     const art = ruleFor('.character--run .character__art')
     expect(art).toContain('will-change: transform')
+  })
+
+  it('paints the autopilot glow behind the mascot instead of filtering it', () => {
+    // A drop-shadow over the line art is re-evaluated on every animation frame
+    // -- roughly two thirds of foreground GPU cost. A background gradient
+    // rasterizes once and survives the animation: 31.6% -> 8.2% GPU.
+    const autopilot = ruleFor('.character--autopilot')
+    expect(autopilot).toContain('radial-gradient')
+    expect(css).not.toMatch(/\.character--autopilot[^{]*\{[^}]*drop-shadow/)
   })
 
   it('releases the promoted layers while the app is in the background', () => {
