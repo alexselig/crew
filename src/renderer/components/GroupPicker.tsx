@@ -34,6 +34,7 @@ export function GroupPicker({
 }: Props): JSX.Element {
   const [open, setOpen] = useState(false)
   const [dropUp, setDropUp] = useState(false)
+  const [dropStart, setDropStart] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -55,19 +56,31 @@ export function GroupPicker({
   }, [open])
 
   // Flip the flyout above the button when it would overflow the bottom of the
-  // viewport (e.g. the roster toolbar sits at the bottom of the screen).
+  // viewport (e.g. the roster toolbar sits at the bottom of the screen), and
+  // flip it to open rightward when right-anchoring would push it off the left
+  // edge. The picker sits at the left end of the roster toolbar, so a menu
+  // anchored `right: 0` grows leftward and escapes a ~280px sidebar as soon as
+  // the "Edit view" button widens it.
+  //
+  // Both edges are derived from the anchor and the menu's own width, never from
+  // the menu's current position — reading the flipped position back would make
+  // the decision depend on its own outcome and oscillate.
   useLayoutEffect(() => {
     if (!open) {
       setDropUp(false)
+      setDropStart(false)
       return
     }
     const anchor = rootRef.current?.getBoundingClientRect()
-    const menuHeight = menuRef.current?.offsetHeight ?? 0
-    if (!anchor) return
+    const menu = menuRef.current
+    if (!anchor || !menu) return
+    const menuHeight = menu.offsetHeight
     const spaceBelow = window.innerHeight - anchor.bottom
     const spaceAbove = anchor.top
     setDropUp(spaceBelow < menuHeight + 8 && spaceAbove > spaceBelow)
-  }, [open])
+    // Where the right-anchored menu's left edge would land.
+    setDropStart(anchor.right - menu.offsetWidth < 8)
+  }, [open, customViews.length])
 
   function chooseBuiltin(mode: GroupMode): void {
     onChoose({ kind: 'builtin', mode })
@@ -93,7 +106,11 @@ export function GroupPicker({
         <Icon name="sort" />
       </button>
       {open && (
-        <div ref={menuRef} className={`group-menu ${dropUp ? 'group-menu--up' : ''}`} role="menu">
+        <div
+          ref={menuRef}
+          className={`group-menu ${dropUp ? 'group-menu--up' : ''} ${dropStart ? 'group-menu--start' : ''}`}
+          role="menu"
+        >
           {GROUP_OPTIONS.map((o) => (
             <button
               type="button"

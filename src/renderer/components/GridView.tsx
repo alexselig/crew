@@ -103,8 +103,18 @@ export function GridView({
   onSetColor
 }: Props): JSX.Element {
   // Tiles hold static positions (roster order) the user can rearrange by dragging.
-  const grouped = presentation.kind === 'builtin' && groupMode !== 'none'
-  useNowTick(grouped && groupMode === 'recent')
+  // A custom view carries its own groupBy; honouring it here keeps the grid's
+  // buckets identical to the nav's rather than letting the two disagree.
+  const activeCustomView =
+    presentation.kind === 'custom'
+      ? (customViews.find((v) => v.id === presentation.viewId) ?? null)
+      : null
+  const effectiveGroupMode: GroupMode =
+    presentation.kind === 'custom'
+      ? ((activeCustomView?.groupBy ?? 'none') === 'recent' ? 'recent' : 'none')
+      : groupMode
+  const grouped = effectiveGroupMode !== 'none'
+  useNowTick(grouped && effectiveGroupMode === 'recent')
   // Per-bucket "show more" reveal state (bucket name, or '__all__' when ungrouped).
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const toggleExpand = (key: string): void =>
@@ -121,12 +131,12 @@ export function GridView({
   // they stay tucked behind each bucket's "show more" alongside stale ones.
   const { gridRoster, minimizedList } = splitMinimized(roster, minimized, minimizedAsList)
   const isHidden = (s: SessionInfo): boolean =>
-    isSessionHidden(s, { minimized, revealed, groupMode, staleHideHours, staleCutoff })
+    isSessionHidden(s, { minimized, revealed, groupMode: effectiveGroupMode, staleHideHours, staleCutoff })
   // `density` sets the flat grid's density class on <main> + the grid. Grouped view
   // scrolls horizontally instead (each group is a column-major band via
   // `grid--g-${gridDensity}`), so it leaves <main> without the density class.
   const density = grouped ? null : gridDensity
-  const groups = grouped ? groupSessions(gridRoster, groupMode, groupOrder) : []
+  const groups = grouped ? groupSessions(gridRoster, effectiveGroupMode, groupOrder) : []
   const dnd = useCardDnd(
     roster,
     presentation.kind === 'custom' ? 'disabled' : groupMode,

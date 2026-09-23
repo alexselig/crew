@@ -54,6 +54,37 @@ export function removeFromView(ids: string[], sessionId: string): string[] {
   return ids.filter((id) => id !== sessionId)
 }
 
+/**
+ * Map a nav drag-and-drop onto a view's ranked item order: drop `dragId` onto
+ * `targetId`'s slot, preserving direction (dragging downward lands after the
+ * target, upward lands before it) to match the roster's own reorder feel.
+ *
+ * Two cases are specific to 'ranked-plus-all', where the nav also shows
+ * sessions the view has not ranked:
+ * - dragging an unranked session onto a ranked one *pins* it at that slot;
+ * - dropping onto an unranked session appends to the end of the ranked block,
+ *   since there is no ranked slot to aim at.
+ *
+ * Returns the original array when nothing would change, so callers can skip a
+ * pointless write.
+ */
+export function reorderViewItems(
+  items: readonly CustomViewItem[],
+  dragId: string,
+  targetId: string,
+  labelFor: (sessionId: string) => string
+): CustomViewItem[] {
+  if (dragId === targetId) return [...items]
+  const ids = items.map((item) => item.sessionId)
+  const targetIndex = ids.indexOf(targetId)
+  const next = moveIntoView(ids, dragId, targetIndex === -1 ? ids.length : targetIndex)
+  if (next.length === ids.length && next.every((id, i) => id === ids[i])) return [...items]
+  const bySession = new Map(items.map((item) => [item.sessionId, item] as const))
+  return next.map(
+    (id) => bySession.get(id) ?? { sessionId: id, labelSnapshot: labelFor(id) }
+  )
+}
+
 export function searchCustomViewSessions(input: {
   sessions: SessionInfo[]
   query: string

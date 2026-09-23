@@ -151,6 +151,7 @@ describe('custom view store persistence', () => {
         id: expect.any(String),
         name: 'Today',
         mode: 'curated-only',
+        groupBy: 'none',
         items: [
           { sessionId: 's-1', labelSnapshot: 'Alpha' },
           { sessionId: 's-2', labelSnapshot: 'Beta' }
@@ -166,6 +167,7 @@ describe('custom view store persistence', () => {
         id: created.id,
         name: 'Today',
         mode: 'curated-only',
+        groupBy: 'none',
         items: [
           { sessionId: 's-1', labelSnapshot: 'Alpha' },
           { sessionId: 's-2', labelSnapshot: 'Beta' }
@@ -211,6 +213,7 @@ describe('custom view store persistence', () => {
         id: created.id,
         name: 'Release',
         mode: 'ranked-plus-all',
+        groupBy: 'none',
         items: [
           { sessionId: 's-2', labelSnapshot: 'Beta' },
           { sessionId: 's-1', labelSnapshot: 'Alpha' }

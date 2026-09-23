@@ -42,6 +42,7 @@ function moveNextTo(ids: string[], dragId: string, targetId: string): string[] {
  * Card drag-and-drop shared by the nav roster and the grid.
  *
  * - mode 'none':  drag to reorder.
+ * - onMove:        report the move instead of rewriting the whole order.
  * - mode 'tag':   drag to reorder AND retag — dropping on a card in another
  *                 group (or on a group header) moves the session to that group.
  * - mode 'needs': off (groups are state-derived; a drop can't change state).
@@ -51,7 +52,11 @@ export function useCardDnd(
   roster: SessionInfo[],
   mode: GroupMode | 'disabled',
   onReorder: (ids: string[]) => void,
-  onSetTag: (id: string, tag: string) => void
+  onSetTag: (id: string, tag: string) => void,
+  /** When supplied, a drop reports the move instead of rewriting the whole
+   * list. Custom views persist an item order of their own, so rewriting the
+   * shared roster order would be wrong there. */
+  onMove?: (dragId: string, targetId: string) => void
 ): CardDnd {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -71,7 +76,8 @@ export function useCardDnd(
       const targetTag = (target.tag ?? '').trim()
       if (dragged && (dragged.tag ?? '').trim() !== targetTag) onSetTag(draggingId, targetTag)
     }
-    onReorder(moveNextTo(roster.map((s) => s.id), draggingId, target.id))
+    if (onMove) onMove(draggingId, target.id)
+    else onReorder(moveNextTo(roster.map((s) => s.id), draggingId, target.id))
     reset()
   }
 

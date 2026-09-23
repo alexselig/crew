@@ -341,10 +341,12 @@ function HookFallbackFixture() {
   )
 }
 
-function ComponentsFixture() {
+function ComponentsFixture({ groupBy }: { groupBy?: CustomView['groupBy'] } = {}) {
+  const views = customViews.map((v) => (v.id === 'focus' ? { ...v, groupBy } : v))
   return (
     <div className="app">
       <Roster
+        onReorderCustomView={noop}
         roster={exitedRoster}
         characters={[]}
         presets={[]}
@@ -359,7 +361,7 @@ function ComponentsFixture() {
         onNavWidth={noop}
         groupMode="none"
         presentation={{ kind: 'custom', viewId: 'focus' }}
-        customViews={customViews}
+        customViews={views}
         onChoosePresentation={noop}
         onCreateCustomView={noop}
         onEditCustomView={noop}
@@ -396,7 +398,7 @@ function ComponentsFixture() {
         selectedId={null}
         gridDensity="two"
         presentation={{ kind: 'custom', viewId: 'focus' }}
-        customViews={customViews}
+        customViews={views}
         onChoosePresentation={noop}
         onCreateCustomView={noop}
         onEditCustomView={noop}
@@ -468,6 +470,7 @@ createRoot(document.getElementById('root')!).render(
   kind === 'picker' ? <PickerFixture /> :
   kind === 'hook-fallback' ? <HookFallbackFixture /> :
   kind === 'components' ? <ComponentsFixture /> :
+  kind === 'components-grouped' ? <ComponentsFixture groupBy="recent" /> :
   kind === 'settings' ? <SettingsFixture /> :
   kind === 'organizer-new' ? <OrganizerFixture view={null} /> :
   kind === 'organizer-edit' ? <OrganizerFixture view={organizerView} /> :

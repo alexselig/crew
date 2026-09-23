@@ -73,7 +73,7 @@ export interface TranscriptMatch {
   line: string
 }
 
-export type CustomViewInput = Pick<CustomView, 'name' | 'mode' | 'items'>
+export type CustomViewInput = Pick<CustomView, 'name' | 'mode' | 'groupBy' | 'items'>
 
 export interface CustomViewCreateResult {
   created: CustomView
