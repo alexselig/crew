@@ -4,6 +4,7 @@ import type {
   CustomView,
   CustomViewItem,
   CustomViewMode,
+  CustomViewGroupBy,
   Preset,
   SessionInfo,
   SessionStatus,
@@ -69,6 +70,7 @@ export function CustomViewOrganizer({
 }: Props): JSX.Element {
   const [name, setName] = useState(view?.name ?? '')
   const [mode, setMode] = useState<CustomViewMode>(view?.mode ?? 'ranked-plus-all')
+  const [groupBy, setGroupBy] = useState<CustomViewGroupBy>(view?.groupBy ?? 'none')
   const [items, setItems] = useState<CustomViewItem[]>(() =>
     view?.items.map((item) => ({ ...item })) ?? []
   )
@@ -226,7 +228,7 @@ export function CustomViewOrganizer({
     setSaving(true)
     setError(null)
     try {
-      const input = { name: trimmedName, mode, items }
+      const input = { name: trimmedName, mode, groupBy, items }
       if (view) {
         const views = await window.crew.updateCustomView(view.id, input)
         const saved = views.find((item) => item.id === view.id)
@@ -343,6 +345,19 @@ export function CustomViewOrganizer({
             >
               <option value="ranked-plus-all">Ranked first, then all sessions</option>
               <option value="curated-only">Ranked sessions only</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field__label">Group by</span>
+            <select
+              className="field__input"
+              aria-label="Group by"
+              value={groupBy}
+              onChange={(event) => setGroupBy(event.target.value as CustomViewGroupBy)}
+              disabled={saving}
+            >
+              <option value="none">List order</option>
+              <option value="recent">Recent activity</option>
             </select>
           </label>
         </div>

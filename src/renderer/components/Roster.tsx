@@ -70,6 +70,8 @@ interface Props {
   onRestart: (id: string) => void
   onClose: (id: string) => void
   onReorder: (orderedIds: string[]) => void
+  /** Reorder within the active custom view: move `dragId` to `targetId`'s slot. */
+  onReorderCustomView: (viewId: string, dragId: string, targetId: string) => void
   onSetTag: (id: string, tag: string) => void
   /** Active workspace filter (null = All), shown as a clearable indicator. */
   activeWorkspace?: string | null
@@ -128,6 +130,7 @@ export function Roster(props: Props): JSX.Element {
     onRestart,
     onClose,
     onReorder,
+    onReorderCustomView,
     onSetTag,
     activeWorkspace,
     hiddenByWorkspace = 0,
@@ -212,13 +215,32 @@ export function Roster(props: Props): JSX.Element {
   // session order AND group headers — so the two views stay aligned. The rail
   // just renders each header compactly (truncated title + underline; the count
   // and chevron are hidden via CSS).
-  const applyGrouping = presentation.kind === 'builtin' && groupMode !== 'none'
-  useNowTick(applyGrouping && groupMode === 'recent')
+  //
+  // A custom view carries its own `groupBy`: 'none' keeps the hand-picked order,
+  // 'recent' reuses the built-in recency buckets unchanged so the group names
+  // match "By recent" exactly.
+  const activeCustomView =
+    presentation.kind === 'custom'
+      ? (customViews.find((v) => v.id === presentation.viewId) ?? null)
+      : null
+  const customGroupBy = activeCustomView?.groupBy ?? 'none'
+  const effectiveGroupMode: GroupMode =
+    presentation.kind === 'custom' ? (customGroupBy === 'recent' ? 'recent' : 'none') : groupMode
+  const applyGrouping = effectiveGroupMode !== 'none'
+  useNowTick(applyGrouping && effectiveGroupMode === 'recent')
+  // Hand-reordering a custom view edits the view's item order, not the global
+  // roster order every other view shares — so it reports the move and App
+  // persists it. It is off while the view is grouped, because the buckets come
+  // from lastPromptAt and would silently discard the drop.
+  const customReorder = activeCustomView != null && !railed && customGroupBy === 'none'
   const dnd = useCardDnd(
     roster,
-    railed || presentation.kind === 'custom' ? 'disabled' : groupMode,
+    railed ? 'disabled' : presentation.kind === 'custom' ? (customReorder ? 'none' : 'disabled') : groupMode,
     onReorder,
-    onSetTag
+    onSetTag,
+    customReorder && activeCustomView
+      ? (dragId, targetId) => onReorderCustomView(activeCustomView.id, dragId, targetId)
+      : undefined
   )
 
   function renderCard(s: SessionInfo): JSX.Element {
@@ -251,7 +273,7 @@ export function Roster(props: Props): JSX.Element {
     )
   }
 
-  const groups = applyGrouping ? groupSessions(roster, groupMode, groupOrder) : []
+  const groups = applyGrouping ? groupSessions(roster, effectiveGroupMode, groupOrder) : []
   const gdnd = useGroupReorder(
     groups.map((g) => g.name),
     onReorderGroups
@@ -278,7 +300,7 @@ export function Roster(props: Props): JSX.Element {
   // visible list. In the rail the "show more" collapses to a compact "+N" chip.
   const staleCutoff = Date.now() - staleHideHours * 60 * 60 * 1000
   const isHidden = (s: SessionInfo): boolean =>
-    isSessionHidden(s, { minimized, revealed, groupMode, staleHideHours, staleCutoff })
+    isSessionHidden(s, { minimized, revealed, groupMode: effectiveGroupMode, staleHideHours, staleCutoff })
   function renderBucket(items: SessionInfo[], key: string): React.ReactNode {
     const { visible, hidden } = partitionHidden(items, isHidden)
     const open = expandedStale.has(key)

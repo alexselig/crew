@@ -21,7 +21,7 @@ import { Icon } from './components/Icon'
 import { Character } from './components/Character'
 import { focusTerminal } from './terminal/facade'
 import { byRecent, existingGroups, recencyOf } from './grouping'
-import { composeCustomView } from '../shared/custom-views'
+import { composeCustomView, reorderViewItems } from '../shared/custom-views'
 import { arrowNavIntent } from './gridNav'
 import { NEEDS_YOU } from '../shared/types'
 import { nextSelection } from '../shared/selection'
@@ -145,6 +145,29 @@ export function App(): JSX.Element {
   function focusSession(id: string): void {
     c.navigateToSession(id)
     c.setViewMode('single')
+  }
+
+  // Hand-reordering inside a custom view edits that view's own item order. It
+  // must not go through window.crew.reorder, which rewrites the global session
+  // order every other view shares.
+  function reorderCustomView(viewId: string, dragId: string, targetId: string): void {
+    const view = c.customViews.find((v) => v.id === viewId)
+    if (!view) return
+    const items = reorderViewItems(
+      view.items,
+      dragId,
+      targetId,
+      (id) => c.roster.find((s) => s.id === id)?.label ?? id
+    )
+    if (items.length === view.items.length && items.every((it, i) => it.sessionId === view.items[i].sessionId)) {
+      return
+    }
+    void window.crew.updateCustomView(viewId, {
+      name: view.name,
+      mode: view.mode,
+      groupBy: view.groupBy ?? 'none',
+      items
+    })
   }
 
   // Return keyboard focus to the terminal whenever overlays (modals/palette)
@@ -372,7 +395,7 @@ export function App(): JSX.Element {
         revealed={c.revealed}
         groupOrder={c.groupOrder}
         onReorderGroups={c.reorderGroups}
-        onSelect={c.selectSession}
+        onSelect={c.navigateToSession}
         onNew={() => c.setShowNew(true)}
         onReplayIntro={() => setShowIntro(true)}
         onOpenSettings={() => setShowSettings(true)}
@@ -393,6 +416,7 @@ export function App(): JSX.Element {
         onRestart={restart}
         onClose={close}
         onReorder={(ids) => void window.crew.reorder(ids)}
+        onReorderCustomView={reorderCustomView}
         onSetTag={(id, tag) => void window.crew.setTag(id, tag)}
         activeWorkspace={activeWorkspaceName}
         onClearWorkspace={() => c.setActiveWorkspace(null)}

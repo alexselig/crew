@@ -1502,6 +1502,7 @@ button {
   right: 0;
   z-index: 50;
   min-width: 150px;
+  max-width: min(320px, calc(100vw - 16px));
   padding: 5px;
   display: flex;
   flex-direction: column;
@@ -1515,6 +1516,14 @@ button {
 .group-menu--up {
   top: auto;
   bottom: calc(100% + 6px);
+}
+
+/* The picker sits at the left end of the roster toolbar, so a right-anchored
+   menu grows leftward and off-screen once "Edit view" widens it. Opening
+   rightward instead keeps it inside the window. */
+.group-menu--start {
+  right: auto;
+  left: 0;
 }
 
 .group-menu__item {
@@ -1580,11 +1589,15 @@ button {
 
 .group-menu__label {
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .group-menu__meta {
   color: var(--text-faint);
   font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .group-menu__edit {

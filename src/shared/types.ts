@@ -216,6 +216,12 @@ export interface SessionInfo {
 
 export type CustomViewMode = 'curated-only' | 'ranked-plus-all'
 
+/** How a custom view's composed sessions are laid out in the nav.
+ * 'none' (the default, and what a view stored before this field existed reads
+ * as) keeps the view's hand-picked order. 'recent' buckets them with the same
+ * grouping the built-in "By recent" view uses. */
+export type CustomViewGroupBy = 'none' | 'recent'
+
 export interface CustomViewItem {
   sessionId: string
   labelSnapshot: string
@@ -225,6 +231,9 @@ export interface CustomView {
   id: string
   name: string
   mode: CustomViewMode
+  /** Optional so views stored before this field existed load unchanged;
+   * undefined is read as 'none'. */
+  groupBy?: CustomViewGroupBy
   items: CustomViewItem[]
   createdAt: number
   updatedAt: number

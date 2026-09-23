@@ -314,13 +314,28 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
     }
   })
 
-  it('disables ordinary roster and grid drag while a custom view is active', async () => {
+  it('allows roster drag inside a custom view so its order can be edited, but not grid drag', async () => {
     const page = await open('components')
     try {
-      expect(await page.locator('.roster .card[draggable="true"]').count()).toBe(0)
+      // Dragging here reorders the *view's* items (via onReorderCustomView),
+      // not the global roster order every other view shares.
+      expect(await page.locator('.roster .card[draggable="true"]').count()).toBe(2)
+      expect(await page.locator('.roster .card[draggable="false"]').count()).toBe(0)
+      // The grid still has no per-view reorder path, so it stays disabled.
       expect(await page.locator('.gridview .tile__header[draggable="true"]').count()).toBe(0)
-      expect(await page.locator('.roster .card[draggable="false"]').count()).toBe(2)
       expect(await page.locator('.gridview .tile__header[draggable="false"]').count()).toBe(2)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('disables roster drag when the custom view groups by recency', async () => {
+    const page = await open('components-grouped')
+    try {
+      // The buckets come from lastPromptAt, so a drop has nowhere to land and
+      // would be silently discarded — better to refuse the drag outright.
+      expect(await page.locator('.roster .card[draggable="true"]').count()).toBe(0)
+      expect(await page.locator('.roster .card[draggable="false"]').count()).toBe(2)
     } finally {
       await page.close()
     }
@@ -707,6 +722,7 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
           input: {
             name: 'Ship queue',
             mode: 'curated-only',
+            groupBy: 'none',
             items: [
               { sessionId: 'b1', labelSnapshot: 'Gamma docs' },
               { sessionId: 'a2', labelSnapshot: 'Beta review' },
@@ -744,6 +760,7 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
         {
           name: 'Fresh queue',
           mode: 'ranked-plus-all',
+          groupBy: 'none',
           items: [{ sessionId: 'b2', labelSnapshot: 'Delta test' }]
         }
       ])

@@ -8,7 +8,7 @@
 import { readFileSync, mkdirSync, existsSync, renameSync, readdirSync, unlinkSync, statSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, join, basename } from 'node:path'
-import type { Agent, CustomView, CustomViewItem, CustomViewMode, Settings, SessionSet } from '../shared/types'
+import type { Agent, CustomView, CustomViewGroupBy, CustomViewItem, CustomViewMode, Settings, SessionSet } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
 import { AtomicWriteError, atomicWriteFile, syncParentDirectory } from './atomic-file'
@@ -214,10 +214,18 @@ const isNumber = (value: unknown): value is number => typeof value === 'number' 
 const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString)
 const CUSTOM_VIEW_MODES: readonly CustomViewMode[] = ['curated-only', 'ranked-plus-all']
 
-type CustomViewInput = Pick<CustomView, 'name' | 'mode' | 'items'>
+type CustomViewInput = Pick<CustomView, 'name' | 'mode' | 'groupBy' | 'items'>
 
 function isCustomViewMode(value: unknown): value is CustomViewMode {
   return isString(value) && CUSTOM_VIEW_MODES.includes(value as CustomViewMode)
+}
+
+const CUSTOM_VIEW_GROUP_BYS: readonly CustomViewGroupBy[] = ['none', 'recent']
+
+/** `undefined` is valid and means 'none' — views stored before groupBy existed
+ * have no such field and must still load. */
+function isCustomViewGroupBy(value: unknown): value is CustomViewGroupBy | undefined {
+  return value === undefined || (isString(value) && CUSTOM_VIEW_GROUP_BYS.includes(value as CustomViewGroupBy))
 }
 
 function validateCustomViewItems(items: unknown): CustomViewItem[] {
@@ -252,6 +260,9 @@ function normalizeCustomViewInput(
   const name = input.name.trim()
   if (name.length === 0) throw new Error('custom view name is required')
   if (!isCustomViewMode(input.mode)) throw new Error(`invalid custom view mode: ${String(input.mode)}`)
+  if (!isCustomViewGroupBy(input.groupBy)) {
+    throw new Error(`invalid custom view groupBy: ${String(input.groupBy)}`)
+  }
   const nameKey = name.toLocaleLowerCase()
   if (existing.some((view) => view.id !== currentId && view.name.trim().toLocaleLowerCase() === nameKey)) {
     throw new Error(`custom view "${name}" already exists`)
@@ -259,6 +270,7 @@ function normalizeCustomViewInput(
   return {
     name,
     mode: input.mode,
+    groupBy: input.groupBy ?? 'none',
     items: validateCustomViewItems(input.items)
   }
 }
@@ -277,6 +289,7 @@ function isCustomView(value: unknown): value is CustomView {
     isString(value.name) &&
     value.name.trim().length > 0 &&
     isCustomViewMode(value.mode) &&
+    isCustomViewGroupBy(value.groupBy) &&
     Array.isArray(value.items) &&
     value.items.every(isCustomViewItem) &&
     isNumber(value.createdAt) &&
@@ -905,6 +918,7 @@ export class Store {
       id: randomUUID(),
       name: normalized.name,
       mode: normalized.mode,
+      groupBy: normalized.groupBy ?? 'none',
       items: normalized.items,
       createdAt: now,
       updatedAt: now
@@ -923,6 +937,7 @@ export class Store {
       ...current,
       name: normalized.name,
       mode: normalized.mode,
+      groupBy: normalized.groupBy ?? 'none',
       items: normalized.items,
       updatedAt: Date.now()
     }
