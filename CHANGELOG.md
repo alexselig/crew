@@ -3,6 +3,44 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.2 — 2026-09-23
+
+### Added
+- **Custom views can be reordered directly in the sidebar.** Dragging a session
+  in a custom view now edits that view's own order rather than the global
+  session order every other view shares. In a "ranked first, then all sessions"
+  view, dragging an unranked session into the list pins it.
+- **Custom views can group by recent activity.** A per-view "Group by" control
+  in the view editor switches between the hand-picked list order and the same
+  recency buckets the built-in "By recent" view uses. Existing views are
+  unaffected and keep their list order.
+
+### Fixed
+- **The view menu no longer opens off the edge of the window.** The menu is
+  anchored to a button at the left of the sidebar toolbar and grew leftward, so
+  the extra width of the "Edit view" button pushed it past the window edge —
+  which happened precisely when a custom view was active, because that is when
+  the button appears. The menu now flips to open rightward when it would
+  overflow, the same way it already flipped upward near the bottom of the
+  screen, and a long view name can no longer widen it without bound.
+- **Clicking a session in the sidebar now navigates the same way as everywhere
+  else.** The sidebar was the only place that merely selected a session instead
+  of going to it, so it alone could leave a workspace or custom-view filter
+  applied that hides what you just clicked.
+- **Agent panes no longer show stray escape codes or a stuck drag overlay.** A
+  pane whose size collapses to zero while still laid out reported a plausible
+  but wrong size to the terminal process, which then drew cursor-positioning
+  codes as visible text. Sizes that cannot be real are no longer forwarded, and
+  a repeated resize now settles instead of drifting a few columns wide.
+  Separately, dragging something that is not a file over a pane and releasing it
+  left that pane tinted and unresponsive until restart.
+
+### Changed
+- **The autopilot mascot's glow costs about a quarter of what it did.** The glow
+  was a per-frame filter applied to an animating element; it is now painted
+  behind the mascot, which measured 8.2% of a frame instead of 32.3%. The
+  working/idle distinction the glow carries is preserved.
+
 ## 0.7.1 — 2026-09-21
 
 ### Fixed
