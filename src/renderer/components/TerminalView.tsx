@@ -3,10 +3,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getPooled, touch, focusTerminal, markPrompt } from '../terminal-pool'
 import { quotePaths } from '../../shared/shell-quote'
 import { meterInput } from '../input-meter'
+import { decideFit } from '../terminal/fit-guard'
+import { DropTracker, dragHasFiles } from '../terminal/drop-tracker'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
 function hasFiles(e: React.DragEvent): boolean {
-  return Array.from(e.dataTransfer.types).includes('Files')
+  return dragHasFiles(e.dataTransfer.types)
 }
 
 /** xterm's rendered cell height in CSS px (from its render service), or 0 when
@@ -43,9 +45,29 @@ export function TerminalView({
   focusOnMount?: boolean
 }): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
-  // dragenter/leave fire for every child; a depth counter avoids flicker.
-  const depth = useRef(0)
+  // dragenter/leave fire for every child; the tracker counts them and, crucially,
+  // clears outright whenever a drag ends (see terminal/drop-tracker.ts).
+  const drop = useRef(new DropTracker())
   const [dragOver, setDragOver] = useState(false)
+
+  // A drag that ends outside this pane -- cancelled with Esc, dropped on another
+  // window, or simply gone from the window -- sends the pane no further events,
+  // so without these the overlay would stay up and blank the terminal.
+  useEffect(() => {
+    const clear = (): void => setDragOver(drop.current.end())
+    const onWindowDragLeave = (e: DragEvent): void => {
+      // relatedTarget is null exactly when the drag leaves the window.
+      if (!e.relatedTarget) clear()
+    }
+    window.addEventListener('drop', clear)
+    window.addEventListener('dragend', clear)
+    window.addEventListener('dragleave', onWindowDragLeave)
+    return () => {
+      window.removeEventListener('drop', clear)
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('dragleave', onWindowDragLeave)
+    }
+  }, [])
 
   useEffect(() => {
     const host = hostRef.current
@@ -82,21 +104,34 @@ export function TerminalView({
       const host = hostRef.current
       if (!host) return
       try {
-        p.fit.fit()
-        // FitAddon subtracts padding measured on the .xterm element, but ours
-        // lives on the parent .term-mount (border-box), so it proposes one row too
-        // many and the bottom row (the input prompt / footer) gets clipped by the
-        // tile edge. Cap rows to the mount's true content height so the last row
-        // is always fully visible.
-        const cellH = cellHeightOf(p.term as unknown as { _core?: unknown })
-        if (cellH > 0) {
-          const cs = getComputedStyle(host)
-          const contentH =
-            host.clientHeight - parseFloat(cs.paddingTop || '0') - parseFloat(cs.paddingBottom || '0')
-          const maxRows = Math.max(1, Math.floor(contentH / cellH))
-          if (p.term.rows > maxRows) p.term.resize(p.term.cols, maxRows)
+        // Never call p.fit.fit() -- it applies its own proposal before anyone
+        // can inspect it, and a proposal read from a collapsed mount is a
+        // plausible 2 columns / 1 row rather than an obvious error. Iterate to
+        // a fixed point because FitAddon's scrollbar-width term does not
+        // converge in one pass. See terminal/fit-guard.ts.
+        const cs = getComputedStyle(host)
+        const contentH =
+          host.clientHeight - parseFloat(cs.paddingTop || '0') - parseFloat(cs.paddingBottom || '0')
+        const box = {
+          connected: host.isConnected,
+          clientWidth: host.clientWidth,
+          clientHeight: host.clientHeight
         }
-        window.crew.resize(id, p.term.cols, p.term.rows)
+        let applied: { cols: number; rows: number } | null = null
+        for (let pass = 0; pass < 3; pass++) {
+          const next = decideFit({
+            proposed: p.fit.proposeDimensions(),
+            host: box,
+            contentHeightPx: contentH,
+            cellHeightPx: cellHeightOf(p.term as unknown as { _core?: unknown })
+          })
+          if (!next) return
+          applied = next
+          if (p.term.cols === next.cols && p.term.rows === next.rows) break
+          p.term.resize(next.cols, next.rows)
+        }
+        if (!applied) return
+        window.crew.resize(id, applied.cols, applied.rows)
       } catch {
         /* container not measurable yet */
       }
@@ -161,8 +196,7 @@ export function TerminalView({
   function onDragEnter(e: React.DragEvent): void {
     if (!hasFiles(e)) return
     e.preventDefault()
-    depth.current++
-    setDragOver(true)
+    setDragOver(drop.current.enter(true))
   }
 
   function onDragOver(e: React.DragEvent): void {
@@ -172,16 +206,16 @@ export function TerminalView({
   }
 
   function onDragLeave(e: React.DragEvent): void {
-    if (!hasFiles(e)) return
-    depth.current = Math.max(0, depth.current - 1)
-    if (depth.current === 0) setDragOver(false)
+    setDragOver(drop.current.leave(hasFiles(e)))
   }
 
   function onDrop(e: React.DragEvent): void {
+    // Clear first, unconditionally -- returning early on a payload that does
+    // not advertise files used to strand the overlay over the terminal for the
+    // rest of the session. See terminal/drop-tracker.ts.
+    setDragOver(drop.current.end())
     if (!hasFiles(e)) return
     e.preventDefault()
-    depth.current = 0
-    setDragOver(false)
     const paths = Array.from(e.dataTransfer.files)
       .map((f) => window.crew.pathForFile(f))
       .filter(Boolean)
