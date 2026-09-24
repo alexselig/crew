@@ -206,6 +206,74 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
     }
   })
 
+  it('scrolls a session picked in the nav to the grid\u2019s left column', async () => {
+    const page = await open('reveal')
+    try {
+      const offsetOf = (id: string) =>
+        page.evaluate((sessionId) => {
+          const sc = document.querySelector('.gridview__scroll')
+          const tile = document.querySelector(`.tile[data-session-id="${sessionId}"]`)
+          if (!sc || !tile) return null
+          return Math.round(tile.getBoundingClientRect().left - sc.getBoundingClientRect().left)
+        }, id)
+
+      // b5 sits well off to the right of the two visible columns, but is not
+      // the final column: the last column can never reach the left edge,
+      // because there is nothing after it to scroll into view.
+      const before = await offsetOf('b5')
+      expect(before).not.toBeNull()
+      expect(before as number).toBeGreaterThan(100)
+
+      await page.click('.roster .card[data-session-id="b5"]', { timeout: 5000 })
+
+      // Smooth scrolling settles asynchronously; poll rather than sleep.
+      await page.waitForFunction(
+        () => {
+          const sc = document.querySelector('.gridview__scroll')
+          const tile = document.querySelector('.tile[data-session-id="b5"]')
+          if (!sc || !tile) return false
+          return Math.abs(tile.getBoundingClientRect().left - sc.getBoundingClientRect().left) <= 2
+        },
+        { timeout: 8000 }
+      )
+      expect(Math.abs((await offsetOf('b5')) as number)).toBeLessThanOrEqual(2)
+    } finally {
+      await page.close()
+    }
+  }, 30000)
+
+  it('leaves the grid where it is when a visible tile itself is clicked', async () => {
+    const page = await open('reveal')
+    try {
+      await page.waitForSelector('.tile[data-session-id="a1"]', { timeout: 8000, state: 'attached' })
+      const scrollLeft = () =>
+        page.evaluate(() => {
+          const sc = document.querySelector('.gridview__scroll')
+          return sc ? Math.round(sc.scrollLeft) : null
+        })
+      // Clicking a tile records no navigation, so a fully visible tile must not
+      // drag the layout out from under the cursor.
+      const visible = await page.evaluate(() => {
+        const sc = document.querySelector('.gridview__scroll')
+        if (!sc) return null
+        const box = sc.getBoundingClientRect()
+        const tile = Array.from(document.querySelectorAll<HTMLElement>('.tile[data-session-id]')).find((t) => {
+          const r = t.getBoundingClientRect()
+          return r.width > 0 && r.left >= box.left - 1 && r.right <= box.right + 1
+        })
+        return tile?.getAttribute('data-session-id') ?? null
+      })
+      expect(visible).not.toBeNull()
+
+      const before = await scrollLeft()
+      await page.click(`.tile[data-session-id="${visible}"]`)
+      await page.waitForTimeout(800)
+      expect(await scrollLeft()).toBe(before)
+    } finally {
+      await page.close()
+    }
+  }, 30000)
+
   it.each(['Meta', 'Control'])('%s shortcuts use the latest workspace without a roster or selection change', async (modifier) => {
     const page = await open('app')
     try {

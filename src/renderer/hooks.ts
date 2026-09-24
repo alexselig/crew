@@ -16,6 +16,7 @@ import { clearInputMeter } from './input-meter'
 import { windowSlot, readViewPref, writeViewPref } from './window-scope'
 import { nextSelection } from '../shared/selection'
 import { navigateToSession as navigateToVisibleSession } from './session-navigation'
+import type { RevealRequest } from './reveal'
 
 export type ViewMode = 'single' | 'grid'
 /** Grid density (all horizontal-scroll): `two` = 1 row (2 tiles), `four` = 2 rows
@@ -102,6 +103,11 @@ export interface CrewState {
   selectSession: (id: string) => void
   /** Reveal a session across workspace/presentation filters, then select it. */
   navigateToSession: (id: string) => void
+  /**
+   * The most recent deliberate navigation. The grid aligns that session's tile
+   * to its left edge; a bare selection only moves it as far as it must.
+   */
+  revealRequest: RevealRequest | null
   showNew: boolean
   setShowNew: (v: boolean) => void
   viewMode: ViewMode
@@ -161,6 +167,8 @@ export function useCrew(): CrewState {
   const [characters, setCharacters] = useState<CharacterDef[]>([])
   const [homeDir, setHomeDir] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [revealRequest, setRevealRequest] = useState<RevealRequest | null>(null)
+  const revealSeq = useRef(0)
   const [showNew, setShowNew] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('single')
   const [gridDensity, setGridDensityState] = useState<GridDensity>(() => {
@@ -327,6 +335,8 @@ export function useCrew(): CrewState {
       { id, ...navigationState.current },
       { setActiveWorkspace, setPresentation, selectSession, setShowNew }
     )
+    revealSeq.current += 1
+    setRevealRequest({ id, seq: revealSeq.current })
   }
   const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]): void => {
     void window.crew.updateSettings({ [key]: value } as Partial<Settings>).then(setSettings)
@@ -433,6 +443,7 @@ export function useCrew(): CrewState {
     setSelectedId,
     selectSession,
     navigateToSession,
+    revealRequest,
     showNew,
     setShowNew,
     viewMode,

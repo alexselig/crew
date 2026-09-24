@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../styles.css'
 import { App } from '../App'
@@ -14,6 +14,7 @@ import { setEngineMode } from '../terminal/facade'
 import { meterInput, pendingInputTokens } from '../input-meter'
 import { useSessionDrag } from '../useSessionDrag'
 import { useCrew as useLiveCrew, type CrewState } from '../hooks'
+import type { RevealRequest } from '../reveal'
 import type { SessionInfo, CustomView, SessionPresentation, Settings } from '../../shared/types'
 import type { RendererRegressionControls } from '../../../test/fixtures/renderer-regression-types'
 
@@ -155,6 +156,7 @@ Object.assign(window, {
   regression: controls,
   crew: {
     sendInput: (id: string, data: string) => controls.sent.push({ id, data }),
+    listSkills: async () => [],
     openWindow: () => { controls.windows++ },
     reorder: (ids: string[]) => { controls.reorders.push(ids) },
     createCustomView: async (input: Parameters<typeof window.crew.createCustomView>[0]) => {
@@ -211,6 +213,8 @@ export function useCrew(): CrewState {
   const [groupMode, setGroupMode] = useState<'none' | 'needs' | 'tag' | 'recent'>('recent')
   const [presentation, setPresentation] = useState<SessionPresentation>({ kind: 'builtin', mode: 'recent' })
   const [selectedId, setSelectedId] = useState<string | null>('a1')
+  const [revealRequest, setRevealRequest] = useState<RevealRequest | null>(null)
+  const revealSeq = useRef(0)
   const [customViewList, setCustomViewList] = useState(customViews)
   const [showCustomViewEditor, setShowCustomViewEditor] = useState<string | 'new' | null>(null)
   controls.activeWorkspace = activeWorkspace
@@ -228,6 +232,7 @@ export function useCrew(): CrewState {
   return {
     roster, activeWorkspace, selectedId, characters: [],
     presets: [], homeDir: '/synthetic', setSelectedId,
+    revealRequest,
     customViews: customViewList,
     presentation,
     setPresentation: (next) => controls.present(JSON.stringify(next)),
@@ -253,6 +258,8 @@ export function useCrew(): CrewState {
     navigateToSession: (id: string) => {
       controls.selected.push(id)
       setSelectedId(id)
+      revealSeq.current += 1
+      setRevealRequest({ id, seq: revealSeq.current })
     },
     setViewMode: (mode: string) => {
       controls.modes.push(mode)
@@ -464,6 +471,99 @@ function SettingsFixture() {
   )
 }
 
+// Real Roster + real GridView with the real reveal wiring, and enough sessions
+// that the grid actually scrolls horizontally. The `app` fixture stubs both
+// components, so it cannot exercise scroll alignment. Sessions are exited so
+// tiles render without standing up 18 live terminals.
+const revealRoster: SessionInfo[] = roster.map((s) => ({
+  ...s,
+  status: 'exited' as const,
+  state: 'EXITED' as const,
+  pid: null,
+  exitCode: 0
+}))
+
+function RevealFixture() {
+  const [selectedId, setSelectedId] = useState<string | null>('a1')
+  const [revealRequest, setRevealRequest] = useState<RevealRequest | null>(null)
+  const seq = useRef(0)
+  const navigate = (id: string) => {
+    setSelectedId(id)
+    seq.current += 1
+    setRevealRequest({ id, seq: seq.current })
+  }
+  const common = {
+    roster: revealRoster,
+    characters: [],
+    customViews: [],
+    presentation: { kind: 'builtin', mode: 'none' } as SessionPresentation,
+    groupMode: 'none' as const,
+    onChoosePresentation: noop,
+    onCreateCustomView: noop,
+    onEditCustomView: noop,
+    collapsedGroups: new Set<string>(),
+    onToggleGroup: noop,
+    minimized: new Set<string>(),
+    onToggleMinimize: noop,
+    revealed: new Set<string>(),
+    groupOrder: [],
+    onReorderGroups: noop,
+    staleHideHours: 72,
+    showSpend: false,
+    showCredits: false,
+    onNew: noop,
+    onOpenSettings: noop,
+    onBroadcast: noop,
+    onAnalytics: noop,
+    onOpenTracker: noop,
+    onReorder: noop,
+    onSetTag: noop
+  }
+  return (
+    <div className="app" style={{ height: '100vh' }}>
+      <Roster
+        {...common}
+        onReorderCustomView={noop}
+        presets={[]}
+        selectedId={selectedId}
+        viewMode="grid"
+        onSetViewMode={noop}
+        onGridRepeat={noop}
+        gridDensity="two"
+        collapsed={false}
+        onSetCollapsed={noop}
+        navWidth={300}
+        onNavWidth={noop}
+        agents={[]}
+        runs={{}}
+        onInvokeAgent={noop}
+        onAddAgent={noop}
+        onEditAgent={noop}
+        budgetUsd={0}
+        onRestart={noop}
+        onClose={noop}
+        onSelect={navigate}
+      />
+      <GridView
+        {...common}
+        selectedId={selectedId}
+        revealRequest={revealRequest}
+        gridDensity="two"
+        minimizedAsList={false}
+        enhancedTerminal={false}
+        githubButton={{ show: false, opensRepo: false }}
+        onSelect={setSelectedId}
+        onExpand={noop}
+        onClose={noop}
+        onSetViewMode={noop}
+        onGridRepeat={noop}
+        onSetCharacter={noop}
+        onSetColor={noop}
+      />
+    </div>
+  )
+}
+
 createRoot(document.getElementById('root')!).render(
   kind === 'workspace' ? <WorkspaceFixture /> :
   kind === 'composer' ? <TranscriptPane sessionId="composer" enhanced /> :
@@ -471,6 +571,7 @@ createRoot(document.getElementById('root')!).render(
   kind === 'hook-fallback' ? <HookFallbackFixture /> :
   kind === 'components' ? <ComponentsFixture /> :
   kind === 'components-grouped' ? <ComponentsFixture groupBy="recent" /> :
+  kind === 'reveal' ? <RevealFixture /> :
   kind === 'settings' ? <SettingsFixture /> :
   kind === 'organizer-new' ? <OrganizerFixture view={null} /> :
   kind === 'organizer-edit' ? <OrganizerFixture view={organizerView} /> :
