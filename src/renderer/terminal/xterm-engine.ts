@@ -299,6 +299,18 @@ export class XtermEngine implements TerminalEngine {
     this.term.write(data)
   }
 
+  /**
+   * Throw away everything on screen and in scrollback.
+   *
+   * Used by the repair action: output an agent drew at the wrong width is
+   * already wrapped and fragmented in the buffer, and no later redraw rewrites
+   * history. Only the visible record is lost -- the agent's own conversation
+   * lives in its transcript, not here.
+   */
+  clear(): void {
+    this.term.reset()
+  }
+
   onInput(cb: (data: string) => void): Disposable {
     return toDisposable(this.term.onData(cb))
   }

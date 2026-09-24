@@ -924,6 +924,9 @@ function registerIpc(): void {
   ipcMain.on(IPC.SESSION_RESIZE, (_e, p: { id: string; cols: number; rows: number }) =>
     manager.resize(p.id, p.cols, p.rows)
   )
+  ipcMain.handle(IPC.SESSION_REPAIR, (_e, p: { id?: string }) =>
+    p?.id ? (manager.repair(p.id) ? 1 : 0) : manager.repairAll()
+  )
 }
 
 // One running Crew owns the tray, sessions and windows. A second launch (the

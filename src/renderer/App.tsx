@@ -15,6 +15,8 @@ import { AgentEditor } from './components/AgentEditor'
 import { AgentRunPanel } from './components/AgentRunPanel'
 import { CustomViewOrganizer } from './components/CustomViewOrganizer'
 import { CommandPalette, type PaletteItem } from './components/CommandPalette'
+import { repairRendering } from './terminal/repair'
+import { clearPane } from './terminal/pool'
 import { UpdateBanner } from './components/UpdateBanner'
 import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
@@ -324,6 +326,19 @@ export function App(): JSX.Element {
         keywords: 'agent specialist run critique review',
         run: () => setInvokeAgentId(a.id)
       })),
+      {
+        id: 'act-repair',
+        label: 'Repair session rendering',
+        icon: <Icon name="refresh" />,
+        hint: 'all sessions',
+        keywords: 'repair fix redraw render garbled wrapped broken layout cleanup reset',
+        run: () =>
+          void repairRendering(
+            activeRoster.map((s) => s.id),
+            clearPane,
+            (id) => window.crew.repair(id)
+          )
+      },
       { id: 'act-transcripts', label: 'Search transcripts…', icon: <Icon name="search" />, run: () => setShowTranscripts(true) },
       { id: 'act-settings', label: 'Open Settings', icon: <Icon name="settings" />, run: () => setShowSettings(true) }
     ]

@@ -4,6 +4,7 @@ import { getPooled, touch, focusTerminal, markPrompt } from '../terminal-pool'
 import { quotePaths } from '../../shared/shell-quote'
 import { meterInput } from '../input-meter'
 import { decideFit } from '../terminal/fit-guard'
+import { startPaneSession } from '../terminal/start-pane'
 import { DropTracker, dragHasFiles } from '../terminal/drop-tracker'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
@@ -76,11 +77,6 @@ export function TerminalView({
     // A human is looking at this session now — keep it out of the retirement
     // queue ahead of terminals nobody has opened (see terminal/lru.ts).
     touch(id)
-    // Showing a real terminal is the moment a restored session needs its agent
-    // running. Sessions come back asleep so a large roster costs nothing at
-    // launch; opening one is what starts it.
-    window.crew.wake(id)
-
     if (!p.opened) {
       p.term.open(host)
       p.opened = true
@@ -99,10 +95,10 @@ export function TerminalView({
     }
 
     let disposed = false
-    const fit = (): void => {
-      if (disposed) return
+    const fit = (): { cols: number; rows: number } | null => {
+      if (disposed) return null
       const host = hostRef.current
-      if (!host) return
+      if (!host) return null
       try {
         // Never call p.fit.fit() -- it applies its own proposal before anyone
         // can inspect it, and a proposal read from a collapsed mount is a
@@ -125,19 +121,28 @@ export function TerminalView({
             contentHeightPx: contentH,
             cellHeightPx: cellHeightOf(p.term as unknown as { _core?: unknown })
           })
-          if (!next) return
+          if (!next) return null
           applied = next
           if (p.term.cols === next.cols && p.term.rows === next.rows) break
           p.term.resize(next.cols, next.rows)
         }
-        if (!applied) return
+        if (!applied) return null
         window.crew.resize(id, applied.cols, applied.rows)
+        return applied
       } catch {
         /* container not measurable yet */
+        return null
       }
     }
 
-    // Fit after layout settles.
+    // Showing a real terminal is the moment a restored session needs its agent
+    // running. Sessions come back asleep so a large roster costs nothing at
+    // launch; opening one is what starts it -- but only after the fit above has
+    // told the main process how wide this pane is, or the agent boots into a
+    // terminal of the wrong width and draws its first layout for it.
+    startPaneSession(id, fit, (sid) => window.crew.wake(sid))
+
+    // Fit again after layout settles, in case the mount was not measurable yet.
     const raf = requestAnimationFrame(fit)
     // The monospace web font (JetBrains Mono) loads asynchronously; xterm measures
     // its cell height at open() time, so when the real font swaps in, the row

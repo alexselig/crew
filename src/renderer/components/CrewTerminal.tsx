@@ -4,6 +4,7 @@ import { getPooled, touch, focusTerminal, markPrompt, jumpToPrompt, recordInput 
 import { quotePaths } from '../../shared/shell-quote'
 import { meterInput } from '../input-meter'
 import { TerminalFocusRegistry } from '../terminal-focus'
+import { startPaneSession } from '../terminal/start-pane'
 import { DropTracker, dragHasFiles } from '../terminal/drop-tracker'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
@@ -64,10 +65,6 @@ export function CrewTerminal({
     // A human is looking at this session now — keep it out of the retirement
     // queue ahead of terminals nobody has opened (see terminal/lru.ts).
     touch(id)
-    // Showing a real terminal is the moment a restored session needs its agent
-    // running. Sessions come back asleep so a large roster costs nothing at
-    // launch; opening one is what starts it.
-    window.crew.wake(id)
     p.engine.mount(host)
 
     // Remember this terminal as the focus target whenever it gains focus, so a
@@ -75,10 +72,10 @@ export function CrewTerminal({
     focusRegistry.bind(id, p.engine)
 
     let disposed = false
-    const fit = (): void => {
-      if (disposed) return
+    const fit = (): { cols: number; rows: number } | null => {
+      if (disposed) return null
       const host = hostRef.current
-      if (!host) return
+      if (!host) return null
       try {
         const cs = getComputedStyle(host)
         const contentH =
@@ -90,14 +87,23 @@ export function CrewTerminal({
         // detached). Keep the PTY's last good size rather than resizing the
         // agent to a pane nobody can see -- the ResizeObserver fires again the
         // moment it regains a real size. See terminal/fit-guard.ts.
-        if (!fitted) return
+        if (!fitted) return null
         window.crew.resize(id, fitted.cols, fitted.rows)
+        return fitted
       } catch {
         /* container not measurable yet */
+        return null
       }
     }
 
-    // Fit after layout settles.
+    // Showing a real terminal is the moment a restored session needs its agent
+    // running. Sessions come back asleep so a large roster costs nothing at
+    // launch; opening one is what starts it -- but only after the fit above has
+    // told the main process how wide this pane is, or the agent boots into a
+    // terminal of the wrong width and draws its first layout for it.
+    startPaneSession(id, fit, (sid) => window.crew.wake(sid))
+
+    // Fit again after layout settles, in case the mount was not measurable yet.
     const raf = requestAnimationFrame(fit)
     // JetBrains Mono loads asynchronously; the engine measures cell height at
     // open() time, so re-fit once fonts are ready or the bottom row clips.

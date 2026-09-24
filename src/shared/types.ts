@@ -294,6 +294,7 @@ export const IPC = {
   SESSION_INPUT: 'session:input',
   SESSION_WAKE: 'session:wake',
   SESSION_RESIZE: 'session:resize',
+  SESSION_REPAIR: 'session:repair',
   SESSION_RENAME: 'session:rename',
   SESSION_SET_CHARACTER: 'session:setCharacter',
   SESSION_SET_COLOR: 'session:setColor',

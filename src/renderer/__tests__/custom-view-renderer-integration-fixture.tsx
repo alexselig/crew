@@ -253,6 +253,7 @@ const crew: CrewAPI = {
   sendInput: noop,
   wake: noop,
   resize: noop,
+  repair: async () => 0,
   pathForFile: () => '',
   getAppActivity: () => true,
   onOutput: () => noop,
