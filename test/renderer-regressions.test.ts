@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { chromium, type Browser } from 'playwright'
 import { createServer, optimizeDeps, resolveConfig, type InlineConfig, type ViteDevServer } from 'vite'
 import { mkdirSync, rmSync } from 'node:fs'
@@ -8,6 +8,16 @@ import './fixtures/renderer-regression-types'
 let server: ViteDevServer
 let browser: Browser
 let origin: string
+/**
+ * Every test here drives a real browser against a Vite dev server. The first
+ * page load compiles the renderer on demand, which on a cold CI runner takes
+ * well over vitest's 5s default, and the whole file then fails on the clock
+ * rather than on anything it asserts. Windows CI hit exactly that once the file
+ * grew past ~25 tests.
+ */
+const BROWSER_TIMEOUT_MS = 30_000
+vi.setConfig({ testTimeout: BROWSER_TIMEOUT_MS, hookTimeout: 120_000 })
+
 const artifacts = resolve(`.renderer-regressions-${process.pid}`)
 const fixture = '/src/renderer/__tests__/renderer-regressions.tsx'
 const skipBrowserTests = process.env.CREW_SKIP_BROWSER_TESTS === '1'
@@ -176,7 +186,7 @@ async function open(kind: string) {
           : kind === 'hook-fallback'
             ? '.hook-presentation'
             : '.app',
-      { timeout: 5000, state: 'attached' }
+      { timeout: BROWSER_TIMEOUT_MS, state: 'attached' }
     )
   } catch (error) {
     await page.close()
