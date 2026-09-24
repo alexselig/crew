@@ -436,6 +436,37 @@ export async function copySelection(id: string): Promise<string> {
   return sel
 }
 
+/**
+ * Discard a pane's mangled rendering so it can be redrawn clean.
+ *
+ * Clearing the emulator alone is not enough: a retired engine is rebuilt from
+ * `scrollbackSnapshot` plus the raw tail, so wrapped and fragmented output
+ * drawn at the wrong width would come straight back the next time the pane was
+ * retired and reopened. Marks are row landmarks into a buffer that no longer
+ * exists, so they go too.
+ *
+ * Blocks and the transcript are deliberately kept. They are the session's real
+ * history, they are not what the width bug damaged, and dropping them would
+ * turn a rendering repair into data loss.
+ */
+export function clearPane(id: string): void {
+  const p = pool.get(id)
+  if (p) {
+    try {
+      p.engine.clear()
+    } catch {
+      /* already disposed */
+    }
+    p.marks.length = 0
+  }
+  const sem: Semantic | undefined = p ?? dormant.get(id)
+  if (sem) {
+    sem.scrollbackSnapshot = ''
+    sem.tailParts.length = 0
+    sem.tailLen = 0
+  }
+}
+
 export function disposePooled(id: string): void {
   const p = pool.get(id)
   if (p) {

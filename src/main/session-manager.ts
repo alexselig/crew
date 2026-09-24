@@ -194,7 +194,7 @@ export class SessionManager extends EventEmitter {
 
   create(
     req: CreateSessionRequest,
-    restore?: { id?: string; agentSessionId?: string; priorSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; workspaceIds?: string[]; description?: string; createdAt?: number; lastPromptAt?: number; defer?: boolean }
+    restore?: { id?: string; agentSessionId?: string; priorSessionId?: string; characterId?: string; color?: string; extraArgs?: string[]; tag?: string; sets?: string[]; workspaceIds?: string[]; description?: string; createdAt?: number; lastPromptAt?: number; cols?: number; rows?: number; defer?: boolean }
   ): SessionInfo {
     const preset = getPreset(req.presetId)
     const command = req.command || preset?.command || defaultShell()
@@ -282,7 +282,17 @@ export class SessionManager extends EventEmitter {
     const credits = new CostParser({ costRegex: compileRegex(DEFAULT_CREDITS_REGEX_SRC) })
 
     const detector = new StateDetector(now, cfg, (state, reason) => this.onState(id, state, reason))
-    const managed: Managed = { info, proc: null, detector: null, cost, credits, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
+    // A restored session reuses the size its pane last reported, so its agent
+    // spawns at the width it is about to be drawn into rather than the default.
+    const managed: Managed = {
+      info,
+      proc: null,
+      detector: null,
+      cost,
+      credits,
+      cols: restore?.cols && restore.cols > 0 ? restore.cols : DEFAULT_COLS,
+      rows: restore?.rows && restore.rows > 0 ? restore.rows : DEFAULT_ROWS
+    }
     const start = (): void => {
     let proc: pty.IPty
     try {
@@ -620,6 +630,7 @@ export class SessionManager extends EventEmitter {
     const m = this.sessions.get(id)
     if (!m) return
     if (cols < 1 || rows < 1) return
+    const changed = m.cols !== cols || m.rows !== rows
     // Record the size even when there is no process yet. Panes report their
     // size as soon as they are laid out, which for a session the user has not
     // started is before the PTY exists, and a pane that has not changed size
@@ -627,12 +638,52 @@ export class SessionManager extends EventEmitter {
     // running at the default for their whole life.
     m.cols = cols
     m.rows = rows
+    // Save the new size so a relaunch spawns at the width the pane will have,
+    // instead of falling back to the default. Flagged rather than written: this
+    // fires continuously while a window edge is dragged, and the tick collapses
+    // that into at most one write.
+    if (changed) this.persistDirty = true
     if (!m.proc) return
     try {
       m.proc.resize(cols, rows)
     } catch {
       /* exited */
     }
+  }
+
+  /**
+   * Force a running agent to redraw at the pane's real size.
+   *
+   * Sessions started before the pane reported its width booted into a terminal
+   * of the wrong size and drew their first layout for it: wrapped lines, split
+   * boxes, half-blank panes. Correcting the size alone does not fix what is
+   * already on screen, and an agent that is already at the right size gets no
+   * signal at all, so this nudges the width by one column and back. Both steps
+   * raise SIGWINCH, which is what makes a TUI re-render from its own model.
+   *
+   * Nothing mangled is ever stored -- Crew does not replay saved bytes into a
+   * terminal -- so this plus clearing the pane's scrollback is a full repair.
+   * Returns false when there is no live process to signal.
+   */
+  repair(id: string): boolean {
+    const m = this.sessions.get(id)
+    if (!m || !m.proc) return false
+    const { cols, rows } = m
+    if (cols < 2 || rows < 1) return false
+    try {
+      m.proc.resize(cols - 1, rows)
+      m.proc.resize(cols, rows)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** Repair every live session. Returns how many were signalled. */
+  repairAll(): number {
+    let n = 0
+    for (const id of this.sessions.keys()) if (this.repair(id)) n++
+    return n
   }
 
   rename(id: string, label: string): void {
@@ -865,7 +916,9 @@ export class SessionManager extends EventEmitter {
         agentSessionId: m.info.agentSessionId,
         priorSessionId: m.info.priorSessionId,
         createdAt: m.info.createdAt,
-        lastPromptAt: m.info.lastPromptAt
+        lastPromptAt: m.info.lastPromptAt,
+        cols: m.cols,
+        rows: m.rows
       }))
     this.store.saveSessions(list)
   }
@@ -941,6 +994,8 @@ export class SessionManager extends EventEmitter {
         description: p.description,
         createdAt: p.createdAt,
         lastPromptAt: p.lastPromptAt,
+        cols: p.cols,
+        rows: p.rows,
         defer: true
       }
     )

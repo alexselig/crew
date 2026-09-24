@@ -89,6 +89,7 @@ const api: CrewAPI = {
   sendInput: (id, data) => ipcRenderer.send(IPC.SESSION_INPUT, { id, data }),
   wake: (id) => ipcRenderer.send(IPC.SESSION_WAKE, id),
   resize: (id, cols, rows) => ipcRenderer.send(IPC.SESSION_RESIZE, { id, cols, rows }),
+  repair: (id) => ipcRenderer.invoke(IPC.SESSION_REPAIR, { id }),
 
   pathForFile: (file) => webUtils.getPathForFile(file),
   getAppActivity: () => appActivity.current(),

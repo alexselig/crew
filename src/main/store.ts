@@ -62,6 +62,14 @@ export interface PersistedSession {
   createdAt?: number
   /** Epoch ms of the user's last prompt, so 'recent' grouping survives restart. */
   lastPromptAt?: number
+  /**
+   * The last size the pane reported, so a restored session's agent spawns at
+   * the width it will actually be drawn into. Without this every relaunch
+   * resets every session to the built-in default and the agent's first layout
+   * is drawn for the wrong terminal.
+   */
+  cols?: number
+  rows?: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {

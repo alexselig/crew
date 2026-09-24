@@ -195,6 +195,11 @@ export interface CrewAPI {
    */
   wake(id: string): void
   resize(id: string, cols: number, rows: number): void
+  /**
+   * Make a running agent redraw at its pane's real size. Pass no id to repair
+   * every live session at once. Resolves with how many were signalled.
+   */
+  repair(id?: string): Promise<number>
 
   // synchronous helpers
   /** Absolute filesystem path of a dropped/dragged File (Electron webUtils). */

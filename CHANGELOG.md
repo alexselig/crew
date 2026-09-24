@@ -3,6 +3,27 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## Unreleased
+
+### Added
+
+- **Repair session rendering** (⌘K palette). Re-syncs every running agent to the
+  real size of its pane and makes it redraw, then clears the mangled scrollback
+  it drew earlier. For sessions already damaged by the sizing bug below, which
+  correcting the spawn size cannot retroactively fix.
+
+### Fixed
+
+- Agent panes still rendering wrapped and fragmented after 0.7.1. Opening a pane
+  woke the session *before* reporting how wide the pane was, so a restored
+  session's agent spawned at the 100×30 default and learned the real width a
+  frame later, after it had already drawn its first layout. Panes now measure,
+  report, then wake. 0.7.1 only covered sessions started from an already-open
+  pane; every session restored from disk took the broken path.
+- Pane size is saved across restarts. It was never persisted, so every relaunch
+  reset every session to the built-in default no matter what its pane had
+  reported before.
+
 ## 0.7.2 — 2026-09-23
 
 ### Added
