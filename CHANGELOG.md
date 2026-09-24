@@ -3,7 +3,7 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
-## Unreleased
+## 0.7.3 — 2026-09-24
 
 ### Added
 
@@ -23,6 +23,14 @@ running and supervising multiple AI CLI agent sessions at a glance.
 - Pane size is saved across restarts. It was never persisted, so every relaunch
   reset every session to the built-in default no matter what its pane had
   reported before.
+
+### Changed
+- **Clicking a session in the sidebar now pulls it into the grid's left column.**
+  It previously scrolled the smallest distance that put any part of the tile on
+  screen, so a click often nudged the grid a few pixels and left the session at
+  the far edge. A deliberate navigation — the sidebar, the command palette, an
+  external jump — now aligns the tile to the left edge; clicking a tile directly
+  still only moves as far as it must, so the layout never yanks under the cursor.
 
 ## 0.7.2 — 2026-09-23
 
