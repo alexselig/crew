@@ -197,19 +197,28 @@ export function Roster(props: Props): JSX.Element {
     // the panel out from under the click.
     leaveTimer.current = setTimeout(() => setNavHover(false), 220)
   }
-  // The collapsed-rail controls (expand / new session) are a no-float zone: while
-  // the cursor is over them the panel must not float open, otherwise the hover
-  // swaps the expand button out before the user can click it.
-  function onHeadEnter(): void {
+  // The collapsed-rail controls (expand / new session) and the toolbar (view
+  // toggle) are no-float zones: while the cursor is over them the panel must not
+  // float open, otherwise the hover swaps the button out from under the click —
+  // and summons the nav over the very content the click was meant to reveal.
+  function onNoFloatEnter(): void {
     clearTimeout(hoverTimer.current)
   }
-  function onHeadLeave(e: React.MouseEvent): void {
+  function onNoFloatLeave(e: React.MouseEvent): void {
     const aside = (e.currentTarget as HTMLElement).closest('.roster')
     // Re-arm the float only when moving deeper into the rail (the session list);
     // if the cursor is leaving the rail entirely, onRailLeave handles collapse.
     if (aside && e.relatedTarget instanceof Node && aside.contains(e.relatedTarget)) {
       startFloat()
     }
+  }
+  // Switching view is a layout command, not a request to browse sessions, so an
+  // already-floated rail retracts: the whole point of the click is to see the
+  // view change behind it.
+  function closeFloat(): void {
+    clearTimeout(hoverTimer.current)
+    clearTimeout(leaveTimer.current)
+    setNavHover(false)
   }
   // Grouping applies in both the expanded nav and the collapsed rail — same
   // session order AND group headers — so the two views stay aligned. The rail
@@ -339,7 +348,7 @@ export function Roster(props: Props): JSX.Element {
     >
       <div className="roster__header">
         {railed ? (
-          <div className="roster__collapsed-head" onMouseEnter={onHeadEnter} onMouseLeave={onHeadLeave}>
+          <div className="roster__collapsed-head" onMouseEnter={onNoFloatEnter} onMouseLeave={onNoFloatLeave}>
             {viewMode === 'single' ? (
               <button
                 type="button"
@@ -459,8 +468,19 @@ export function Roster(props: Props): JSX.Element {
         <AgentShelf agents={agents} runs={runs} railed={railed} onInvoke={onInvokeAgent} onAddAgent={onAddAgent} onEditAgent={onEditAgent} />
       </div>
 
-      <div className="roster__toolbar">
-        <ViewToggle mode={viewMode} density={gridDensity} onChange={onSetViewMode} onGridRepeat={onGridRepeat} />
+      <div className="roster__toolbar" onMouseEnter={onNoFloatEnter} onMouseLeave={onNoFloatLeave}>
+        <ViewToggle
+          mode={viewMode}
+          density={gridDensity}
+          onChange={(m) => {
+            closeFloat()
+            onSetViewMode(m)
+          }}
+          onGridRepeat={() => {
+            closeFloat()
+            onGridRepeat()
+          }}
+        />
         {!railed && (
           <div className="roster__tools">
             <GroupPicker
