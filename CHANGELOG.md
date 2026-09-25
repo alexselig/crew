@@ -3,6 +3,16 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## Unreleased
+
+### Fixed
+
+- The focus/grid view toggle summoning the collapsed nav. The hover-to-float
+  rail arms its dwell timer on the whole nav panel, toolbar included, so
+  reaching for the toggle slid the nav open over the content the click was
+  meant to reveal. The toolbar is now a no-float zone, and using the toggle
+  retracts a rail that is already floating.
+
 ## 0.7.3 — 2026-09-24
 
 ### Added
