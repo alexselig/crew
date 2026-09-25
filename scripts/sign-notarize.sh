@@ -40,8 +40,13 @@ PROFILE="${CREW_NOTARY_PROFILE:-crew-notary}"
 # variables documented in MACOS-SIGNING.md are accepted as a fallback so the
 # release is never blocked on the keychain, and the absence of both is reported
 # BEFORE the multi-minute signing run rather than after it.
+#
+# The probe must be `notarytool` itself. notarytool keeps profiles in the
+# data-protection keychain, which `security(1)` cannot enumerate at all, so
+# `security find-generic-password` reports a perfectly good profile as missing
+# and sends the release down the env-var path it does not need.
 NOTARY_ARGS=(--keychain-profile "$PROFILE")
-if ! security find-generic-password -s "com.apple.gke.notary.tool" -a "$PROFILE" >/dev/null 2>&1; then
+if ! xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
   if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
     NOTARY_ARGS=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
     echo "==> Notary profile '$PROFILE' is not in the keychain; using APPLE_* environment credentials."
