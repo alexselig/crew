@@ -564,6 +564,68 @@ function RevealFixture() {
   )
 }
 
+// A real Roster in the collapsed, hover-to-float state. The float is a hover
+// state machine with timers, so only a real browser can exercise it: the rail
+// must open over the session list but stay shut under the toolbar controls.
+function NavFloatFixture() {
+  const [viewMode, setViewMode] = useState<'single' | 'grid'>('single')
+  return (
+    <div className="app app--nav-floating" style={{ height: '100vh' }}>
+      <Roster
+        roster={revealRoster}
+        characters={[]}
+        presets={[]}
+        customViews={[]}
+        presentation={{ kind: 'builtin', mode: 'none' } as SessionPresentation}
+        groupMode="none"
+        onChoosePresentation={noop}
+        onCreateCustomView={noop}
+        onEditCustomView={noop}
+        collapsedGroups={new Set<string>()}
+        onToggleGroup={noop}
+        minimized={new Set<string>()}
+        onToggleMinimize={noop}
+        revealed={new Set<string>()}
+        groupOrder={[]}
+        onReorderGroups={noop}
+        staleHideHours={0}
+        showSpend={false}
+        showCredits={false}
+        onNew={noop}
+        onOpenSettings={noop}
+        onBroadcast={noop}
+        onAnalytics={noop}
+        onOpenTracker={noop}
+        onReorder={noop}
+        onReorderCustomView={noop}
+        onSetTag={noop}
+        selectedId="a1"
+        viewMode={viewMode}
+        onSetViewMode={(m) => {
+          controls.modes.push(m)
+          setViewMode(m)
+        }}
+        onGridRepeat={() => controls.modes.push('repeat')}
+        gridDensity="two"
+        collapsed
+        hoverExpand
+        onSetCollapsed={noop}
+        navWidth={72}
+        onNavWidth={noop}
+        agents={[]}
+        runs={{}}
+        onInvokeAgent={noop}
+        onAddAgent={noop}
+        onEditAgent={noop}
+        budgetUsd={0}
+        onRestart={noop}
+        onClose={noop}
+        onSelect={noop}
+      />
+    </div>
+  )
+}
+
 createRoot(document.getElementById('root')!).render(
   kind === 'workspace' ? <WorkspaceFixture /> :
   kind === 'composer' ? <TranscriptPane sessionId="composer" enhanced /> :
@@ -572,6 +634,7 @@ createRoot(document.getElementById('root')!).render(
   kind === 'components' ? <ComponentsFixture /> :
   kind === 'components-grouped' ? <ComponentsFixture groupBy="recent" /> :
   kind === 'reveal' ? <RevealFixture /> :
+  kind === 'nav-float' ? <NavFloatFixture /> :
   kind === 'settings' ? <SettingsFixture /> :
   kind === 'organizer-new' ? <OrganizerFixture view={null} /> :
   kind === 'organizer-edit' ? <OrganizerFixture view={organizerView} /> :

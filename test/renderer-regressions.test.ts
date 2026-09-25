@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { chromium, type Browser } from 'playwright'
+import { chromium, type Browser, type Page } from 'playwright'
 import { createServer, optimizeDeps, resolveConfig, type InlineConfig, type ViteDevServer } from 'vite'
 import { mkdirSync, rmSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -279,6 +279,62 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
       await page.click(`.tile[data-session-id="${visible}"]`)
       await page.waitForTimeout(800)
       expect(await scrollLeft()).toBe(before)
+    } finally {
+      await page.close()
+    }
+  }, 30000)
+
+  // The float opens on a dwell timer (300ms) and closes on a grace timer
+  // (220ms); these waits must clear both.
+  const FLOAT_OPEN_MS = 600
+  const expanded = (page: Page) =>
+    page.evaluate(() => document.querySelector('.roster')?.classList.contains('is-expanded') ?? null)
+
+  it('floats the collapsed nav open when the cursor rests on the session list', async () => {
+    const page = await open('nav-float')
+    try {
+      expect(await expanded(page)).toBe(false)
+      await page.hover('.roster__list')
+      await page.waitForTimeout(FLOAT_OPEN_MS)
+      expect(await expanded(page)).toBe(true)
+    } finally {
+      await page.close()
+    }
+  }, 30000)
+
+  it('keeps the collapsed nav shut while the cursor is on the view toggle', async () => {
+    const page = await open('nav-float')
+    try {
+      await page.hover('.view-toggle')
+      await page.waitForTimeout(FLOAT_OPEN_MS)
+      expect(await expanded(page)).toBe(false)
+    } finally {
+      await page.close()
+    }
+  }, 30000)
+
+  it('switches view from the toggle without the nav covering the result', async () => {
+    const page = await open('nav-float')
+    try {
+      await page.click('.view-toggle__btn:last-child')
+      await page.waitForTimeout(FLOAT_OPEN_MS)
+      expect(await page.evaluate(() => globalThis.regression.modes)).toEqual(['grid'])
+      expect(await expanded(page)).toBe(false)
+    } finally {
+      await page.close()
+    }
+  }, 30000)
+
+  it('retracts an already-floated nav when the view toggle is used', async () => {
+    const page = await open('nav-float')
+    try {
+      await page.hover('.roster__list')
+      await page.waitForTimeout(FLOAT_OPEN_MS)
+      expect(await expanded(page)).toBe(true)
+      await page.click('.view-toggle__btn:last-child')
+      await page.waitForTimeout(FLOAT_OPEN_MS)
+      expect(await page.evaluate(() => globalThis.regression.modes)).toEqual(['grid'])
+      expect(await expanded(page)).toBe(false)
     } finally {
       await page.close()
     }
