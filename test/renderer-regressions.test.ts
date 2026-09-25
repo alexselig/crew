@@ -340,6 +340,42 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
     }
   }, 30000)
 
+  // A retired session is rebuilt from a snapshot and then keeps receiving the
+  // agent's live output, which is drawn relative to the cursor. If the snapshot
+  // does not restore the screen the agent thinks it is drawing on, that output
+  // lands in the wrong place and rows composite on top of each other — the
+  // duplicated/overlapping lines reported in session panes.
+  it('leaves a rebuilt terminal identical to one that was never retired', async () => {
+    const page = await open('snapshot-replay')
+    try {
+      await page.waitForSelector('.replay-done', { timeout: BROWSER_TIMEOUT_MS })
+      const replay = await page.evaluate(() => globalThis.regression.replay)
+      expect(replay).not.toBeNull()
+      expect(replay!.control).toContain('done.')
+      expect(replay!.rebuilt).toBe(replay!.control)
+    } finally {
+      await page.close()
+    }
+  }, 30000)
+
+  // A full-screen TUI runs on the alternate buffer. Snapshotting the wrong
+  // buffer — or dropping alt mode on rebuild — puts the agent's next repaint on
+  // a different screen from the one it drew.
+  it('restores a full-screen TUI on the alternate buffer across a rebuild', async () => {
+    const page = await open('snapshot-replay')
+    try {
+      await page.waitForSelector('.replay-done', { timeout: BROWSER_TIMEOUT_MS })
+      const alt = await page.evaluate(() => globalThis.regression.replayAlt)
+      expect(alt).not.toBeNull()
+      expect(alt!.controlAlt).toBe(true)
+      expect(alt!.rebuiltAlt).toBe(alt!.controlAlt)
+      expect(alt!.control).toContain('> two')
+      expect(alt!.rebuilt).toBe(alt!.control)
+    } finally {
+      await page.close()
+    }
+  }, 30000)
+
   it.each(['Meta', 'Control'])('%s shortcuts use the latest workspace without a roster or selection change', async (modifier) => {
     const page = await open('app')
     try {

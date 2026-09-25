@@ -97,6 +97,13 @@ export interface TerminalEngine {
    * active. Primarily for tests/inspection. */
   getVisibleText(): string
 
+  /** Escape-sequence snapshot that reproduces this terminal (attributes and
+   * cursor position included) when written to a fresh one. '' when unavailable.
+   * `scrollback` caps how many lines above the viewport are included; the
+   * viewport itself is always serialized, because that is what correctness
+   * depends on. */
+  serialize(scrollback?: number): string
+
   // links
   registerLinkProvider(p: LinkProvider): Disposable
   /** Handler for OSC-8 hyperlinks (opened externally, not in-app). */

@@ -7,6 +7,17 @@ running and supervising multiple AI CLI agent sessions at a glance.
 
 ### Fixed
 
+- Session panes showing duplicated, overlapping rows — a line the agent had
+  already replaced left on screen while its replacement was drawn again lower
+  down. To bound memory, Crew retires the emulator of a session nobody is
+  watching and replays a snapshot when it comes back; that snapshot was plain
+  text, which cannot restore a terminal. Losing the cursor position meant the
+  agent's next repaint (`ESC[1A`, erase, rewrite) landed on the wrong row. The
+  snapshot is now a real escape-sequence serialization, preserving cursor
+  position, colours and alternate-buffer state. This is the third and
+  structural cause behind the pane rendering reports, after the ordering fixes
+  in 0.7.1 and 0.7.3.
+
 - The focus/grid view toggle summoning the collapsed nav. The hover-to-float
   rail arms its dwell timer on the whole nav panel, toolbar included, so
   reaching for the toggle slid the nav open over the content the click was

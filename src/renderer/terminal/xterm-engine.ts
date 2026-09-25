@@ -11,6 +11,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { ImageAddon } from '@xterm/addon-image'
+import { SerializeAddon } from '@xterm/addon-serialize'
 import '@xterm/xterm/css/xterm.css'
 import type {
   Disposable,
@@ -145,6 +146,7 @@ export class XtermEngine implements TerminalEngine {
   private readonly fitAddon = new FitAddon()
   private opened = false
   private webgl: WebglAddon | null = null
+  private serializer: SerializeAddon | null = null
   private webglCanvas: HTMLCanvasElement | null = null
   private linkActivator: (uri: string) => void = () => {}
   readonly capabilities: EngineCapabilities = { webgl: false, images: false }
@@ -423,6 +425,32 @@ export class XtermEngine implements TerminalEngine {
 
   getSelection(): string {
     return this.term.getSelection()
+  }
+
+  /**
+   * The terminal's state as an escape-sequence stream that reproduces it when
+   * written to a fresh terminal — colours, attributes AND cursor position.
+   *
+   * This is what a retired session is rebuilt from, so it cannot be plain text.
+   * A CLI agent repaints relative to the cursor (`ESC[1A`, erase, rewrite); if
+   * the rebuild leaves the cursor somewhere else, that repaint lands on the
+   * wrong row and the screen composites instead of updating.
+   *
+   * Returns '' if serialization fails, which the caller treats as "no snapshot"
+   * rather than replaying something malformed.
+   */
+  serialize(scrollback?: number): string {
+    try {
+      if (!this.serializer) {
+        this.serializer = new SerializeAddon()
+        this.term.loadAddon(this.serializer)
+      }
+      return this.serializer.serialize(
+        typeof scrollback === 'number' ? { scrollback } : undefined
+      )
+    } catch {
+      return ''
+    }
   }
 
   getVisibleText(): string {

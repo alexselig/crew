@@ -19,7 +19,7 @@
 
 import { createXtermEngine } from './xterm-engine'
 import { selectEvictions } from './lru'
-import type { Disposable, EngineMarker, LinkProvider } from './engine'
+import type { Disposable, EngineMarker, LinkProvider, TerminalEngine } from './engine'
 import { OscParser, type OscEvent } from '../../shared/osc'
 import { BlockTracker, type Block } from '../../shared/blocks'
 import { pickJumpTarget } from '../../shared/nav'
@@ -95,6 +95,18 @@ export const MAX_LIVE_ENGINES = 12
 /** Maximum UTF-16 code units replayed into a rebuilt engine. */
 export const TAIL_LIMIT = 64 * 1024
 
+/**
+ * Scrollback lines kept in a retired session's snapshot.
+ *
+ * A snapshot with attributes is far denser than the plain text it replaced, and
+ * one is held for every dormant session — over a hundred of them on a large
+ * roster. Bounding it keeps that store smaller than the text version it
+ * replaces, which matters because an unbounded renderer heap is what the pool
+ * exists to prevent. The viewport is always included regardless of this cap;
+ * only the history above it is trimmed.
+ */
+const SNAPSHOT_SCROLLBACK = 1000
+
 // Cap navigable landmarks per session; xterm also auto-disposes markers when
 // their row leaves scrollback, so this only bounds the array itself.
 const MAX_MARKS = 500
@@ -131,6 +143,24 @@ function replayableSnapshot(text: string): string {
   return text ? text.replace(/\r?\n/g, '\r\n') : ''
 }
 
+/**
+ * The exact bytes replayed into a rebuilt engine for a retired session.
+ *
+ * Exported so tests exercise the real thing rather than a copy of it: this is
+ * the contract that decides whether a session survives retirement intact.
+ *
+ * It must be an escape-sequence stream, not text. A live agent keeps drawing
+ * relative to the cursor after the rebuild, so a snapshot that restores only
+ * the characters — losing the cursor position, colours and attributes — leaves
+ * the agent repainting rows that are no longer where it left them.
+ *
+ * Flat text remains the fallback for engines that cannot serialize, which is
+ * degraded but never worse than what it replaced.
+ */
+export function snapshotOf(engine: TerminalEngine): string {
+  return engine.serialize(SNAPSHOT_SCROLLBACK) || replayableSnapshot(engine.getVisibleText())
+}
+
 /** Append raw output to the bounded replay tail. */
 function pushTail(s: Semantic, data: string): void {
   if (!data) return
@@ -161,7 +191,7 @@ function pushTail(s: Semantic, data: string): void {
 function retire(id: string): void {
   const p = pool.get(id)
   if (!p) return
-  const scrollbackSnapshot = replayableSnapshot(p.engine.getVisibleText())
+  const scrollbackSnapshot = snapshotOf(p.engine)
   const tailParts = scrollbackSnapshot ? [] : p.tailParts
   const tailLen = scrollbackSnapshot ? 0 : p.tailLen
   try {
