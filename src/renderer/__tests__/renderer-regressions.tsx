@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../styles.css'
 import { App } from '../App'
@@ -9,7 +9,8 @@ import { WorkspaceSessionCard } from '../components/WorkspaceSessionCard'
 import { TranscriptPane } from '../components/TranscriptPane'
 import { CustomViewOrganizer } from '../components/CustomViewOrganizer'
 import { SettingsModal } from '../components/SettingsModal'
-import { getPooled, getTranscript, writeTo } from '../terminal/pool'
+import { getPooled, getTranscript, writeTo, snapshotOf } from '../terminal/pool'
+import { createXtermEngine } from '../terminal/xterm-engine'
 import { setEngineMode } from '../terminal/facade'
 import { meterInput, pendingInputTokens } from '../input-meter'
 import { useSessionDrag } from '../useSessionDrag'
@@ -111,6 +112,8 @@ const defaultSettings: Settings = {
   githubButtonOpensRepo: true
 }
 const controls: RendererRegressionControls = {
+  replay: null,
+  replayAlt: null,
   activeWorkspace: 'a',
   currentSelected: null,
   selected: [],
@@ -626,6 +629,96 @@ function NavFloatFixture() {
   )
 }
 
+// A retired session's emulator is rebuilt from a snapshot and then keeps
+// receiving the agent's live output, which is drawn RELATIVE to the cursor. So
+// the snapshot must restore the screen the agent believes it is drawing on —
+// not just its text. This fixture replays a cursor-addressed redraw against a
+// terminal that was round-tripped, and against one that never was, so the two
+// can be compared.
+function SnapshotReplayFixture() {
+  const ref = useRef<HTMLDivElement>(null)
+  const [done, setDone] = useState(false)
+  useEffect(() => {
+    const host = ref.current
+    if (!host) return
+    // A CLI agent's output: styled lines, then a status line it will later
+    // repaint in place by moving the cursor up — exactly what Copilot CLI does.
+    const stream = 'first line\r\n\x1b[32msecond line\x1b[0m\r\nthinking...\r\n'
+    // Move up one row, clear it, and write the resolved status.
+    const redraw = '\x1b[1A\r\x1b[2Kdone.\r\n'
+
+    const make = () => {
+      const el = document.createElement('div')
+      el.style.width = '800px'
+      el.style.height = '400px'
+      host.appendChild(el)
+      const e = createXtermEngine()
+      e.mount(el)
+      e.resize(80, 24)
+      return e
+    }
+
+    // Control: never retired.
+    const control = make()
+    control.write(stream)
+    control.write(redraw)
+
+    // Round-tripped: snapshot, dispose, rebuild, then the SAME redraw.
+    const before = make()
+    before.write(stream)
+
+    // Second scenario: a full-screen TUI on the alternate buffer, which is a
+    // different buffer from the one scrollback lives in.
+    const altEnter = '\x1b[?1049h\x1b[H'
+    const altDraw = 'MENU\r\n> one\r\n  two\r\n'
+    const altRedraw = '\x1b[2;1H\x1b[2K  one\r\n\x1b[K> two\r\n'
+    function runAlt(): void {
+      const altControl = make()
+      altControl.write(altEnter + altDraw)
+      altControl.write(altRedraw)
+
+      const altBefore = make()
+      altBefore.write(altEnter + altDraw)
+      setTimeout(() => {
+        const snap = snapshotOf(altBefore)
+        altBefore.dispose()
+        const altAfter = make()
+        altAfter.write(snap)
+        altAfter.write(altRedraw)
+        setTimeout(() => {
+          controls.replayAlt = {
+            control: altControl.getVisibleText().replace(/\s+$/, ''),
+            rebuilt: altAfter.getVisibleText().replace(/\s+$/, ''),
+            controlAlt: altControl.altActive,
+            rebuiltAlt: altAfter.altActive
+          }
+          setDone(true)
+        }, 150)
+      }, 150)
+    }
+    setTimeout(() => {
+      const snapshot = snapshotOf(before)
+      before.dispose()
+      const after = make()
+      after.write(snapshot)
+      after.write(redraw)
+      setTimeout(() => {
+        controls.replay = {
+          control: control.getVisibleText().replace(/\s+$/, ''),
+          rebuilt: after.getVisibleText().replace(/\s+$/, '')
+        }
+        runAlt()
+      }, 150)
+    }, 150)
+  }, [])
+  return (
+    <div className="app">
+      <div ref={ref} />
+      {done ? <div className="replay-done" /> : null}
+    </div>
+  )
+}
+
 createRoot(document.getElementById('root')!).render(
   kind === 'workspace' ? <WorkspaceFixture /> :
   kind === 'composer' ? <TranscriptPane sessionId="composer" enhanced /> :
@@ -634,6 +727,7 @@ createRoot(document.getElementById('root')!).render(
   kind === 'components' ? <ComponentsFixture /> :
   kind === 'components-grouped' ? <ComponentsFixture groupBy="recent" /> :
   kind === 'reveal' ? <RevealFixture /> :
+  kind === 'snapshot-replay' ? <SnapshotReplayFixture /> :
   kind === 'nav-float' ? <NavFloatFixture /> :
   kind === 'settings' ? <SettingsFixture /> :
   kind === 'organizer-new' ? <OrganizerFixture view={null} /> :

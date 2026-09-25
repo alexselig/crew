@@ -37,6 +37,8 @@ export interface RendererRegressionControls {
   transcript: () => TranscriptBlock[]
   complete: () => void
   pending: () => number
+  replay: { control: string; rebuilt: string } | null
+  replayAlt: { control: string; rebuilt: string; controlAlt: boolean; rebuiltAlt: boolean } | null
 }
 
 declare global {

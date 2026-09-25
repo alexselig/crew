@@ -42,6 +42,10 @@ const { engines, createXtermEngine } = vi.hoisted(() => {
       decorate: () => ({ dispose() {} }),
       focus() {},
       getVisibleText: () => e.written.join(''),
+      // The real engine returns an escape-sequence snapshot; the fake keeps it
+      // as the written text, which is enough for the pool-level behaviour under
+      // test here (the sequence's fidelity is covered by a browser test).
+      serialize: () => e.written.join(''),
       get altActive() {
         return false
       },
