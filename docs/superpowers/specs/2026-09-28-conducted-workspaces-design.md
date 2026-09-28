@@ -26,7 +26,7 @@ honest ones:
 |---|---|
 | Two lanes cannot *publish* to the integration branch concurrently | **Guaranteed** — single-flight owner plus compare-and-swap on the ref |
 | Two lanes cannot edit the same working copy | **Guaranteed** — separate worktrees |
-| Textually conflicting check-ins are caught before landing | **Guaranteed** — publication rebases onto the pinned base, or fails |
+| Textually conflicting check-ins are caught before landing | **Guaranteed** — publication merges onto the pinned base in a worktree Crew owns, or fails |
 | *Semantic* conflicts are prevented | **NOT guaranteed.** Two lanes can change an interface in non-overlapping hunks and both land clean. The test command is a best-effort net, not a proof |
 | Agents cannot run `git` on their own | **NOT guaranteed.** Member sessions are full PTYs. The publication lock binds *Crew*, not the agents. External mutation is detected (by the ref compare-and-swap), not prevented |
 | Every agent works from an accurate picture | **NOT guaranteed.** Bulletins are delivered at a turn boundary, so awareness is eventual, not immediate |
@@ -96,7 +96,7 @@ What this buys:
 
 - Two agents cannot edit the same working copy (separate worktrees).
 - Two lanes cannot publish simultaneously (single-flight owner + ref CAS).
-- A lane that publishes second is rebased onto the first one's work by Crew, so
+- A lane that publishes second is merged onto the first one's work by Crew, so
   a textual conflict is caught before it lands, and goes back to the agent that
   wrote the code while it still has context.
 - "What is this workspace doing?" always has an answer: N lanes working, ≤1
@@ -208,10 +208,12 @@ LLM:
 
 > **Lane `reviewer` landed `a1b2c3d`:** "Fix pagination off-by-one".
 > Touched `src/list.ts`, `test/list.test.ts`.
-> Your branch is now 1 commit behind; Crew will rebase it before your next
-> publication.
+> Your branch is now 1 commit behind. Sync your lane to pick it up.
 
-Note what changed: the bulletin is **status, not an instruction to run git**.
+Note what changed: the bulletin is **status, not an instruction to run git**,
+and it does not promise that Crew will merge their work into your lane — Crew
+only ever moves the integration ref. Picking up a teammate's work is an explicit
+Sync.
 Bulletins are coalesced to one merged message per lane per turn boundary.
 
 **Bulletins are eventual.** An agent mid-turn learns at the end of that turn.
@@ -278,8 +280,6 @@ export type LaneId = string
 export interface Role {
   id: RoleId
   name: string
-  /** The session spawned for this role, in its lane worktree. */
-  sessionId: string | null
   order: number
 }
 
@@ -299,13 +299,18 @@ export interface Pipeline {
   roles: Role[]
   edges: Edge[]
   integrationBranch: string
-  /** Crew-owned worktree that is the ONLY checkout of integrationBranch. */
+  /** Crew-owned worktree, permanently DETACHED. integrationBranch is
+   *  deliberately checked out nowhere. */
   integrationWorktree: string
   test: TestRecipe | null
   limits: Limits
 }
 
 export interface TestRecipe {
+  /** Run once per integration worktree, keyed on a hash of the lockfile.
+   *  Without this the integration worktree has no dependencies installed and
+   *  every `tests-pass` fails on a Node repo. */
+  setup?: { command: string; args: string[]; timeoutMs: number }
   command: string
   args: string[]
   cwd: string          // relative to the worktree root
@@ -328,24 +333,42 @@ export interface Limits {
 export interface Run {
   id: string
   pipelineOf: string          // workspace id
+  /** The pipeline as it was when the run started. Config edits during a run
+   *  would otherwise make a journal entry reference a branch or role that no
+   *  longer exists, and reconcile against the wrong ref. */
+  pipelineSnapshot: Pipeline
   lanes: Lane[]
+  /** Which session fills which role, for THIS run. Runtime state does not
+   *  belong on Role, which is config. */
+  assignment: Record<RoleId, string>
   /** Single-flight publication owner. */
   publishing: LaneId | null
-  /** Lanes awaiting publication. Explicit — the waiter must be wakeable. */
+  /** Lanes awaiting publication. The single source of queue position. */
   ready: LaneId[]
+  /** Work items parked against a busy target, drained by readiness-changed. */
+  parked: Array<{ to: RoleId; workItemId: string }>
   handoffs: number
   dispatches: number
   edgeTraversals: Record<string, number>
   startedAt: number
-  /** Durable record of in-flight effects. See Durability. */
-  journal: JournalEntry[]
   state: 'idle' | 'running' | 'paused' | 'stopped' | 'needs-recovery'
 }
 ```
 
 Separating `Pipeline` (config) from `Run` (state) is a review requirement: the
 original put counters in one structure and persisted another, so restart could
-not explain what had happened.
+not explain what had happened. Two consequences follow, and both are rules:
+
+- **A run snapshots its pipeline at start**, and pipeline edits are rejected
+  while the run is not `idle` or `stopped`. `Role.sessionId` moved to
+  `Run.assignment` for the same reason — it was runtime state living in a
+  structure documented as never mutated by a run.
+- **The journal is not part of `Run` and not in the main store.** `store.ts`
+  quarantines the entire file on corruption, and a per-effect append is the
+  most frequently written and most corruption-exposed data here. It gets its
+  own bounded file, written with the existing durable-write pattern
+  (`mutateCustomViewsDurably`). A damaged journal must not cost the user their
+  sessions, layouts and workspaces.
 
 ## The router
 
@@ -369,7 +392,8 @@ original draft had `route()` read `integrating: null` and return a grant — two
 concurrent events could both observe `null` across an `await` and both act.
 **Main-thread JavaScript does not serialise across `await`.**
 
-`require-rebase` is gone: Crew rebases, agents do not.
+`require-rebase` is gone: Crew integrates; agents are never asked to run git as
+a routine step of the pipeline.
 
 **No IO inside `route()`.** Facts are gathered first and passed as a snapshot —
 and are **revalidated at act time**, because gathering is async and the tree can
@@ -379,15 +403,18 @@ change underneath a decision:
 export interface Facts {
   /** Commits on the lane branch not on the pinned base. Replaces diffLines. */
   ahead: number
-  /** Uncommitted changes present (staged, unstaged or untracked). */
-  dirty: boolean
+  /** Tracked modifications only. Advisory — publication works on a frozen
+   *  commit, so this warns, it does not gate. */
+  dirtyTracked: boolean
+  /** Untracked files present. Purely informational. */
+  untracked: boolean
   behind: number
   /** SHA of the lane branch tip these facts describe. */
   laneTip: string
   /** SHA of integrationBranch these facts were computed against. */
   baseSha: string
   testsExitCode: number | null
-  /** Which recipe produced testsExitCode, so stale results are detectable. */
+  /** Which candidate produced testsExitCode, so stale results are detectable. */
   testedTip: string | null
 }
 ```
@@ -398,12 +425,22 @@ work, and has no line counts for binaries. A lane that committed its work (clean
 tree) scored zero and would hold forever; a lane that had not committed scored
 nonzero and would "publish" nothing.
 
+`dirty` was then split and demoted. Publication freezes a commit, so an
+uncommitted tree cannot contaminate it; blocking on a boolean that includes
+untracked files would stall a lane permanently on `coverage/`, `.DS_Store`, or
+notes an agent left itself.
+
 ```ts
 export interface ConductorEvent {
-  kind: 'work-result' | 'publication-settled' | 'lock-released' | 'deadline'
+  kind: 'work-result' | 'publication-settled' | 'lock-released'
+      | 'readiness-changed' | 'deadline'
   role: RoleId
   lane: LaneId
-  workItemId: string
+  /** Present only on 'work-result'. Crew mints it when it dispatches work and
+   *  matches the result back to that outstanding dispatch — no CLI emits one,
+   *  and an id minted per detected turn would change on every screen redraw
+   *  and so deduplicate nothing. */
+  workItemId?: string
   facts: Facts
 }
 
@@ -416,14 +453,16 @@ export interface ConductorState {
 
 `sessionStatus` now distinguishes `ready` from `busy`: the original enum could
 not express "the target is alive but mid-turn", so a handoff could be delivered
-into an agent that was working.
+into an agent that was working. `readiness-changed` is what drains the queue of
+work items parked for a busy target — without it, "queue the work item" was
+another hold that nothing could wake.
 
 **Gates:**
 
 | Gate | Passes when |
 |---|---|
 | `always` | unconditionally — an ungated transition, *not* permission to ignore a blocked lane |
-| `has-commits` | `ahead > 0 && !dirty` |
+| `has-commits` | `ahead > 0` |
 | `tests-pass` | `testsExitCode === 0 && testedTip === laneTip` |
 
 `tests-pass` is only evaluated inside the publication transaction, never as a
@@ -434,22 +473,31 @@ ports and caches between lanes.
 
 | Situation | Decision |
 |---|---|
-| work result, gate passes, lock free | `recommend-publish` (runtime CAS decides) |
-| work result, gate passes, lock held | `hold` + **lane enters `ready`** |
-| gate fails because the lane is dirty | `block` — "commit your work"; the agent is told |
+| work result, gate passes, lock free, **`ready` empty** | `recommend-publish` (runtime CAS decides) |
+| work result, gate passes, lock free, **`ready` non-empty** | `hold` + lane joins the **tail** of `ready` |
+| work result, gate passes, lock held | `hold` + lane joins the tail of `ready` |
+| `ahead == 0` (nothing to publish) | `hold` — idle, not an error |
 | gate fails on tests | `block` with the failing gate named |
 | no test recipe configured but gate needs one | `block` naming the missing recipe — never a silent hold |
-| `lock-released` and `ready` is non-empty | `recommend-publish` for the head of `ready` (FIFO) |
+| `lock-released` (success **or** failure) | dequeue the head of `ready` → `recommend-publish` |
+| `readiness-changed` to `ready` with a parked work item | deliver it |
+| lane `blocked`, a later work result changes `laneTip` | leave `blocked`, re-evaluate |
 | publication settled, onward edge exists, target `ready` | `handoff` |
-| publication settled, onward edge exists, target `busy` | `hold`; queue the work item |
+| publication settled, onward edge exists, target `busy` | `hold`; park the item until `readiness-changed` |
 | publication settled, edge target is `done` | lane `done`; run stops only when **all** lanes are done |
 | any limit exceeded (`maxDispatches`, `runDeadlineMs`, …) | `stop` |
 | event whose `laneTip` no longer matches | `hold` (stale event, dropped) |
 
-Two corrections from review are encoded here. First, a `hold` now **always**
-either enters the `ready` set or blocks with a stated reason — the original had
-holds that nothing could ever wake. Second, one lane reaching `done` no longer
-stops the run while others are still working.
+Three corrections are encoded here. First, every `hold` either joins `ready`,
+parks against a `readiness-changed` event, or blocks with a stated reason — no
+hold exists that nothing can wake. Second, one lane reaching `done` no longer
+stops the run while others work. Third, **only `lock-released` dequeues**: a
+lane that has just published must not race its own next candidate against a
+waiting lane's wakeup and win the CAS repeatedly, starving it.
+
+`Run.ready[]` is the single source of truth for queue position. `Lane.status`
+renders it; it never independently decides it — the same rule applied to
+`behind` below.
 
 > The claim "there is no scheduler to deadlock" was wrong. An event-driven
 > dispatcher with a ready set **is** a scheduler. It is specified as one, with
@@ -487,50 +535,136 @@ All git runs with `GIT_TERMINAL_PROMPT=0`, `GIT_EDITOR=true`,
 `GIT_SEQUENCE_EDITOR=true`. An editor or credential prompt with no TTY hangs
 until the timeout, which is precisely the lost-lock failure.
 
-1. **Precondition:** lane is clean and `ahead > 0`. If dirty, the lane is
-   blocked and its agent is asked to commit. **Crew never runs `git add -A` on an
-   agent's behalf** — it cannot know what belongs in the commit.
+1. **Precondition:** `ahead > 0`. Untracked and unstaged files are **warned
+   about, not blocking**: publication operates on a frozen commit, so a dirty
+   working tree cannot leak into it, and blocking on `dirty` would stall
+   indefinitely on `coverage/`, `.DS_Store` or an agent's scratch notes.
+   **Crew never runs `git add -A` on an agent's behalf** — it cannot know what
+   belongs in the commit.
 2. **Pin the base.** Record `baseSha = rev-parse integrationBranch`.
 3. **Freeze the candidate.** Record `laneTip`. The candidate is that SHA, not
    "whatever the branch points at later".
-4. **Rebase** the candidate onto `baseSha` in the integration worktree.
-   On conflict: abort the rebase, release the lock, mark the lane `blocked`, and
-   send the conflicting paths back to the lane's own agent. The lock is never
-   held across a conflict.
-5. **Test** the rebased candidate with the recipe. Record `testedTip`.
+4. **Merge** the candidate into `baseSha` in the integration worktree, whose
+   HEAD stays **detached** throughout (see below). Fast-forward when possible,
+   otherwise a real merge commit. On conflict: abort the merge, release the
+   lock, mark the lane `blocked`, and send the conflicting paths back to the
+   lane's own agent. The lock is never held across a conflict.
+5. **Test** the merge result with the recipe. Record `testedTip`.
    On failure: same treatment as a conflict.
-6. **Publish by compare-and-swap:** `update-ref integrationBranch <new> <baseSha>`.
+6. **Journal `resultSha`** — a second write, after the merge result exists.
+   Intent alone cannot be reconciled, because the resulting SHA is not knowable
+   before step 4 runs.
+7. **Check no worktree has the branch checked out** (`git worktree list
+   --porcelain`). Refuse if one does.
+8. **Publish by compare-and-swap:** `update-ref integrationBranch <resultSha> <baseSha>`.
    If the old value no longer matches, someone mutated the branch externally —
    abort, surface it, do not retry blindly.
-7. **Record completion in the journal before any dependent effect.**
-8. **Bulletin** every other active lane.
-9. **Release the lock** — only after the git child is confirmed exited — and emit
-   `lock-released`, which wakes the head of `ready`.
+9. **Record completion in the journal before any dependent effect.**
+10. **Bulletin** every other active lane.
+11. **Release the lock** — only after the git child is confirmed exited — and
+    emit `lock-released`, which dequeues the head of `ready`.
 
-**The lock is released on every exit path**, and release is structured so that a
-timeout **kills the process group and reaps it before** clearing ownership. A
-timeout that clears ownership while `git rebase` is still running is a
-double-grant, not a recovery — the next lane then meets `index.lock` or a moving
-ref.
+### Why merge, not rebase
+
+The previous draft rebased the candidate and published the rewritten commits.
+That is broken, and it breaks on a lane's *second* publication:
+
+- Rebasing rewrites the candidate into new SHAs, but **the lane branch still
+  points at the originals**. `ahead` therefore never returns to 0, the lane
+  stays eligible to publish with no new work, and the gate is permanently
+  satisfied.
+- On the next publication, `git rebase` drops commits whose patch-id already
+  exists upstream — but once a teammate's change has altered the surrounding
+  context lines, the patch-ids no longer match. The lane's already-landed
+  commits get replayed on top of themselves and conflict, on every subsequent
+  publication.
+
+Merging makes the lane's commits **ancestors** of the integration branch, so
+`ahead` resets by itself and no history is rewritten.
+
+### Sync: how a lane receives its teammates' work
+
+Merging into the integration branch does not put teammates' work into the
+lane. Without a way back, a lane edits stale code indefinitely, `behind` grows
+without bound, and semantic conflicts become the normal case rather than the
+exception.
+
+So there is an explicit **Sync lane** operation: merge `integrationBranch` into
+the lane branch. It is a button in Phase 1, and it runs only when the lane is
+quiescent. It is safe for an agent to run too — the publication CAS is what
+protects the shared ref.
+
+This retires the "agents never touch git" framing, which was an overcorrection.
+The accurate rule is narrower and enforceable:
+
+> **Only Crew moves the integration ref.** What an agent does on its own lane
+> branch is its business.
+
+### The integration worktree's HEAD
+
+The integration worktree's HEAD is **permanently detached**, and
+`integrationBranch` is deliberately **checked out nowhere**.
+
+If HEAD sat on `integrationBranch`, `update-ref` would advance the ref while
+leaving that worktree's index and files behind it — the same desynchronisation
+that makes merging into the user's own checkout unsafe. And git only refuses a
+checkout when another worktree holds the branch as HEAD, so leaving it checked
+out nowhere is also what keeps the user free to check it out themselves without
+colliding with a publication in flight. Hence the explicit `git worktree list`
+check immediately before the CAS.
+
+After publishing, the integration worktree is left detached at the new commit.
+
+### The process supervisor
+
+"Copy the `tracker.ts` pattern" is not sufficient here, and the spec previously
+said it was. `tracker.ts` uses `execFile` with a timeout and `SIGKILL` but
+**does not put the child in its own process group**, so a wedged `git` can leave
+descendants running. `agent-runner.ts` does spawn `detached: true` and kills
+with `process.kill(-pid)`, but it marks the run finished *before* the process
+exits and then ignores the exit event — precisely the early release this design
+forbids.
+
+Neither existing pattern meets the requirement, so the lane manager needs a
+small supervisor of its own: own process group, timeout, `SIGTERM` then
+`SIGKILL`, and a promise that resolves **only on confirmed exit**. Ownership is
+released after that promise settles, never before.
+
+**The lock is released on every exit path.** A timeout that clears ownership
+while `git merge` is still running is a double-grant, not a recovery — the next
+lane then meets `index.lock` or a moving ref.
 
 ### Durability and recovery
 
 `finally` does not run when the process is killed. Electron apps get quit.
 
-**Journal intent before every effect**, including operation id, lane, phase,
-`baseSha`, `laneTip`, and expected resulting ref. The store's workspace save does
-not currently acknowledge durability — persistence failure must **fail closed**
-and prevent the effect, rather than reporting success from memory.
+**The journal is written twice per publication, not once.**
+
+1. **Intent**, before anything runs: operation id, lane, phase, `baseSha`,
+   `laneTip`.
+2. **`resultSha`**, after the merge produces a commit but *before* the CAS.
+
+One write is not enough, and the previous draft's "journal the expected
+resulting ref before the effect" was impossible: the resulting SHA does not
+exist until the merge has run. Without the second write there is nothing to
+compare the ref against, so "committed but unrecorded" is unclassifiable — the
+single most dangerous recovery state, because redoing it double-applies work.
+
+Persistence failure must **fail closed** and prevent the effect, rather than
+reporting success from memory as the current store save does.
 
 On launch, a run never auto-resumes. It enters `needs-recovery` and reconciles
 the journal against reality:
 
 | Journal says | On-disk reality | Classification |
 |---|---|---|
-| intent recorded, no completion | refs unchanged, no rebase metadata | **not started** — safe to redo |
-| intent recorded, no completion | `rebase-merge/` present in the integration worktree | **interrupted** — offer continue or abort; never silently restart |
-| intent recorded, no completion | ref already equals the expected SHA | **committed but unrecorded** — record it, do not republish |
-| any | ref differs from both old and expected | **externally modified** — stop, surface, require human |
+| intent, no `resultSha` | refs unchanged, no merge metadata | **not started** — safe to redo |
+| intent, no `resultSha` | `MERGE_HEAD` present in the integration worktree | **interrupted** — offer continue or abort; never silently restart |
+| `resultSha` recorded | ref still equals `baseSha` | **merged but unpublished** — safe to retry the CAS |
+| `resultSha` recorded | ref equals `resultSha` | **published but unrecorded** — record it and send the bulletin; never republish |
+| `resultSha` recorded, no bulletin | ref equals `resultSha` | **published, teammates uninformed** — send the bulletin |
+| any | ref differs from both `baseSha` and `resultSha` | **externally modified** — stop, surface, require human |
+| test phase journalled | integration worktree dirty, test processes possibly orphaned | **interrupted tests** — reset the worktree to `baseSha`, reap strays, redo |
 | delivery journalled, no ack | — | **delivery unknown** — never assume received |
 
 Only after reconciliation may the user press Step or Resume. "Cleared lock
@@ -580,18 +714,25 @@ shells out to git itself.
 export interface LaneManager {
   create(repo: string, branch: string): Promise<Lane>
   facts(lane: Lane, base: string): Promise<Facts>
-  rebaseInIntegration(candidate: string, base: string): Promise<RebaseResult>
+  /** Merge the frozen candidate into the base, in the detached integration
+   *  worktree. Never rebases: rewriting history strands the lane branch. */
+  mergeInIntegration(candidate: string, base: string): Promise<MergeResult>
+  /** Bring the integration branch INTO a lane. The only way a lane receives
+   *  its teammates' work. Runs only when the lane is quiescent. */
+  syncLane(lane: Lane, base: string): Promise<MergeResult>
+  /** Compare-and-swap the integration ref. Refuses if any worktree has the
+   *  branch checked out. */
   publish(newSha: string, expectedOld: string): Promise<PublishResult>
   destroy(lane: Lane, opts: { force: boolean }): Promise<void>
 }
 
-export type RebaseResult =
-  | { ok: true; resultSha: string }
+export type MergeResult =
+  | { ok: true; resultSha: string; fastForward: boolean }
   | { ok: false; conflictPaths: string[]; message: string }
 
 export type PublishResult =
   | { ok: true; commit: string; touchedPaths: string[] }
-  | { ok: false; reason: 'ref-moved' | 'error'; message: string }
+  | { ok: false; reason: 'ref-moved' | 'branch-checked-out' | 'error'; message: string }
 ```
 
 Rules:
@@ -606,9 +747,28 @@ Rules:
   and a refused destroy **must not** leave the run holding the lock.
 - Lane teardown quiesces the lane's agent first; it never races a live git child.
 
+## What a conducted workspace does to its members
+
+The adoption model is gone, and this needs stating plainly because two
+requirements below are leftovers of it.
+
+`session-manager.ts` sets `cwd` at spawn and uses `identityKey(presetId, cwd)`.
+There is no `setCwd`. **An existing session cannot be relocated into a lane
+worktree.** So:
+
+- Conducting a workspace does **not** convert its existing member sessions into
+  lanes. They stay exactly as they are, in their own directories, unconducted.
+- A lane is created by **spawning a new session** in a freshly created worktree.
+  Lanes are additive.
+- **The repository comes from the workspace's conductor settings**, chosen once
+  when the toggle is switched on — not inferred from member sessions, which may
+  legitimately be scattered across directories.
+
+Exclusivity therefore constrains *lane* sessions, which Crew created and owns.
+
 ## Exclusivity
 
-A session may belong to many workspaces but **at most one conducted** workspace.
+A lane session belongs to **at most one conducted** workspace.
 
 The "only one workspace is open at a time" intuition does **not** hold:
 `activeWorkspace` is a *per-window* view preference (`readViewPref`, namespaced
@@ -631,21 +791,23 @@ Additional requirements from review:
 - Enforcement must be a **single transactional validator in the main process**
   covering *every* membership mutation path — `set`, `add`, `remove`, `move`,
   `archive` — not only the toggle.
-- **All member sessions must resolve to the same repository**, or the toggle
-  fails: `LaneManager.create` has no repo to act on otherwise.
-- At most one session per role, and one active lane per role.
+- At most one active lane per role.
 - The store validator must **fail closed** on a malformed `Run`. It currently
   accepts unknown workspace fields, so a corrupt run would otherwise load and be
   conducted.
 
 ## UI
 
-- **Workspace editor:** a `Conducted` toggle; role list; per-edge gate; the
-  integration branch; the test recipe (command, args, cwd, timeout) as explicit
-  user-confirmed fields. Rejected toggles show the conflict inline.
-- **Roster:** lane status and commits-behind per lane. `behind` is derived from
-  `rev-list` only — never incremented by bulletins, which would give the UI and
-  the router two disagreeing sources.
+- **Workspace editor:** a `Conducted` toggle; the repository and integration
+  branch; role list; per-edge gate; the test recipe (setup, command, args, cwd,
+  timeout) as explicit user-confirmed fields. Rejected toggles show the conflict
+  inline.
+- **Roster:** per lane — status, `ahead`, `behind`, and a warning (never a
+  block) when the lane has uncommitted or untracked files. `behind` is derived
+  from `rev-list` only, never incremented by bulletins, which would give the UI
+  and the router two disagreeing sources.
+- **Lane actions:** **Publish this lane** and **Sync this lane**. In Phase 1
+  these are the only triggers; nothing fires automatically.
 - **Conductor panel:** the decision log, plus **Pause**, **Step**, **Stop**, and
   — when `needs-recovery` — the reconciliation report with explicit
   continue/abort choices per interrupted operation.
@@ -658,21 +820,25 @@ Step permits exactly one decision; follow-up events queue until the next Step.
 |---|---|
 | target session exited | `stop` with a reason; notify |
 | target session asleep | queue; deliver only once readiness is `ready` |
-| target session busy | queue the work item; do not interrupt |
+| target session busy | park the work item; drained by `readiness-changed` |
 | detector reports `WAITING_APPROVAL` | never write; an injected newline would approve it |
 | human types into a conducted session | human takes the input lock; automation pauses for that session |
 | briefing run fails | templated report; verified facts still travel |
 | test recipe missing but required | lane `block`ed naming the missing recipe |
-| lane is dirty at publication | `block`; agent asked to commit; Crew never stages |
-| rebase conflict | abort rebase, release lock, lane `blocked`, paths returned to the agent |
-| tests fail | same as conflict |
+| lane has uncommitted files | **warn only** — publication uses a frozen commit, so it cannot be contaminated |
+| merge conflict | abort merge, release lock, lane `blocked`, paths returned to the agent |
+| lane is behind and wants teammates' work | explicit **Sync lane**; Crew never merges into a lane unasked |
+| tests fail | same as a conflict |
 | `update-ref` CAS fails | external mutation — stop and surface; never blind retry |
+| `integrationBranch` is checked out somewhere | refuse to publish; the worktree check runs immediately before the CAS |
 | publication times out | kill process group, **confirm exit**, then release lock; journal `interrupted` |
 | Crew quits mid-publication | run enters `needs-recovery`; reconcile journal vs refs before any Step |
-| two lanes ready at once | one publishes, the other enters `ready`; woken by `lock-released` |
+| two lanes ready at once | one publishes, the other joins `ready`; dequeued by `lock-released` |
 | publication fails | `lock-released` is still emitted — the waiter must never starve on a failure path |
 | lane teardown refused (dirty) | lane retained and shown; lock never leaked |
 | a lane finishes while others work | that lane is `done`; the run continues |
+| pipeline edited mid-run | rejected; the run holds a snapshot |
+| integration branch drifts from `main` | manual **Refresh base** (merge `main` in, under the lock). Nothing does this automatically |
 
 ## Testing
 
@@ -680,22 +846,29 @@ Seams, all injectable: **clock, AgentTransport, LaneManager/facts provider,
 TestRunner, RunStore, process supervisor, BriefingService.**
 
 - **Unit (`conductor-route.ts`):** the decision table exhaustively — both-ready,
-  stale-event, dirty-lane, missing-recipe, limit-exceeded, one-lane-done.
-- **Unit (`conductor-membership.ts`):** exclusivity, multi-window, mixed-repo
-  rejection, every mutation path.
-- **Lane manager, against a real temporary git repo:** create/rebase/publish/
-  destroy, a deliberate conflict, CAS rejection when the ref moved, refusal to
-  destroy dirty, non-interactive env. Real git is required — rebase metadata and
+  FIFO not bypassed by the publisher's own next candidate, `ahead == 0`,
+  stale-event, missing-recipe, limit-exceeded, one-lane-done, parked item
+  drained by `readiness-changed`.
+- **Unit (`conductor-membership.ts`):** exclusivity, multi-window, every
+  mutation path.
+- **Lane manager, against a real temporary git repo:** create / merge-publish /
+  sync / destroy; a deliberate conflict; CAS rejection when the ref moved;
+  refusal when the branch is checked out; **a lane publishing twice in a row**
+  (the regression that rebase-publishing caused: `ahead` must return to 0 and
+  the second publication must not replay the first's commits); refusal to
+  destroy dirty; non-interactive env. Real git is required — merge metadata and
   ref semantics cannot be faked credibly.
 - **Runtime, adversarial:** concurrent CAS attempts; publication failure wakes
   the waiter; crash immediately before and after `update-ref`; restart with
-  `rebase-merge/` present; store write failure before an effect; duplicate and
-  late events after pause/stop/removal; retry exhaustion with zero handoffs;
-  delivery into a busy session; the five detector traces above.
+  `MERGE_HEAD` present; killed during tests leaving a dirty integration
+  worktree; store write failure before an effect; duplicate and late events
+  after pause/stop/removal; retry exhaustion with zero handoffs; delivery into a
+  busy session; the five detector traces above.
 - **E2E:** two fake-CLI lanes touching one file. Assert concurrent work,
-  serialized publication, the second lane rebased onto the first, the bulletin
-  naming the first's commit, both commits on the integration branch, the user's
-  own checkout untouched, and a clean recovery from a simulated mid-publication
+  serialized publication, the second lane's work merged onto the first, the
+  bulletin naming the first's commit, both commits on the integration branch,
+  the user's own checkout untouched, and a clean recovery from a simulated
+  mid-publication
   kill.
 
 ## Non-goals (v1)
@@ -708,28 +881,80 @@ TestRunner, RunStore, process supervisor, BriefingService.**
 - Cross-workspace or cross-repository conducting.
 - Conflict *resolution* by the conductor.
 
+## Unresolved: when does review happen?
+
+Flagged in round two and **deliberately left open**, because it changes the
+Phase 2 data model and nothing in Phase 1 depends on it.
+
+As the decision table stands, a handoff fires on `publication-settled` — so a
+reviewer role would first see code **that has already landed** on the
+integration branch, and a `needs-changes` verdict would have nothing left to
+block. The reviewer also gets a lane, a branch and a `has-commits` gate, none of
+which fit: a reviewer has no commits of its own and cannot express "I approve
+somebody else's".
+
+The two coherent answers:
+
+- **Review before publication.** The handoff fires on a frozen candidate SHA,
+  and publication is gated on a verdict for *that exact* SHA. Non-authoring
+  roles get no lane branch at all.
+- **Review after publication**, accepting that review is a follow-up commit
+  rather than a gate.
+
+The first matches what people mean by "reviewer" and is the likely answer, but
+it makes `Lane`, `Edge` and the gate set look different. **This is why Phase 1
+does not freeze `Role`, `Edge` or `Pipeline`** — it exercises none of them.
+
 ## Phasing
 
-All three reviews independently concluded the original Phase 1 — toggle, roles,
+All four reviews independently concluded the original Phase 1 — toggle, roles,
 worktrees, router, baton, briefings, bulletins, decision log, pause/step,
 exclusivity — was the whole product, built on git machinery that does not exist
 and a turn boundary that is not trustworthy. Re-phased so each layer ships on top
 of something already watched working:
 
-**Phase 1 — the publication mutex, manually triggered.** One repo, validated.
-Lane worktrees on their own branches; a dedicated integration worktree; the
-user's checkout never a merge target. At most two lanes. Single-flight lock,
-CAS publication, journal and recovery, non-interactive git, process-group kill.
-The UI shows ahead/behind/dirty per lane and a **Publish this lane** button.
+**Phase 1 — the publication mutex, manually triggered.** One repo, chosen in the
+workspace's conductor settings. Lane worktrees on their own branches; a
+permanently detached integration worktree; the user's checkout never a merge
+target. At most two lanes. Single-flight lock, merge-based publication with a
+ref CAS, Sync lane, the two-write journal and recovery, non-interactive git, and
+a process supervisor that reaps before releasing.
+
+The UI shows `ahead`/`behind`/dirty per lane with **Publish this lane** and
+**Sync this lane** buttons.
+
+Phase 1's data model is **only** `Lane`, `Run`, the integration branch and the
+`TestRecipe`. `Role`, `Edge`, `Pipeline` edges and the gate set are *not* frozen
+now — the review-ordering question above will change them, and Phase 1 uses
+none of them.
 
 No PTY injection, no LLM briefings, no bulletins that instruct git, no question
 relay, no detector-triggered automation. This is the part that can corrupt a
 production repo, and it is fully testable against a temp git repo with no agent
 in the loop.
 
+**Phase 1b — the transport spike (runs in parallel, time-boxed).** Phase 1
+cannot prove or disprove Phase 2's riskiest assumption: *that a trustworthy
+completion signal exists per preset*. So a one-to-two-week spike **measures**
+signals without building the transport:
+
+- **Shell already has one.** `src/main/crew-hook/index.ts` emits OSC 133
+  (FinalTerm) semantic marks including `D;exit`. That is a real, zero-risk
+  baseline that the earlier rounds overlooked entirely.
+- **Claude Code:** its hooks (a `Stop` hook) are the mechanism for *interactive*
+  sessions. Note the earlier draft's reasoning — "richest structured output" —
+  described `-p`/stream-json, which is headless and irrelevant to a PTY session.
+  Any injected hook config must live **outside** the worktree (via a settings
+  flag, to be confirmed), since an untracked file inside it would show the lane
+  as dirty.
+- **Copilot CLI:** unknown. If the spike finds no reliable signal, Phase 2 is
+  Claude-and-shell only — and it is far better to know that before designing a
+  multi-preset transport than after.
+
 **Phase 2 — automation.** The `AgentTransport` contract with a real completion
 signal per preset, readiness-gated delivery, the input lock, work-result
-handoffs, bulletins, the dispatcher and ready set, autonomy bounds.
+handoffs, bulletins, the dispatcher and ready set, autonomy bounds. Resolve the
+review-ordering question first.
 
 **Phase 3 — briefings and relay.** The LLM briefing on handoff; then the question
 relay with request ids, correlation and expiry.
@@ -742,12 +967,12 @@ relay with request ids, correlation and expiry.
    integration problem and supports builder/reviewer. Limits on stored worktrees,
    active agents, briefing runs and test processes are separate counters.
 2. **Gates:** three are enough, but `diff-nonempty` is replaced by
-   `has-commits` (`ahead > 0 && !dirty`), and `tests-pass` is evaluated only
-   inside the publication transaction. A reviewer's `needs-changes` outcome
-   blocks a transition even when tests pass — approval is never inferred from
-   quiescence.
+   `has-commits` (`ahead > 0`), and `tests-pass` is evaluated only inside the
+   publication transaction. A reviewer's `needs-changes` outcome blocks a
+   transition even when tests pass — approval is never inferred from quiescence.
 3. **Test command:** an explicit, user-confirmed per-workspace `TestRecipe`,
-   executed with `execFile` and no shell. `package.json` scripts may be
+   executed with `execFile` and no shell, **with a setup step** so the
+   integration worktree has dependencies. `package.json` scripts may be
    *suggested*, never silently executed: they are arbitrary code, monorepos have
    several, and not every repo is Node. Missing recipe is a visible `block`.
 4. **Restart:** never auto-resume — but **reconciliation must precede Step or
@@ -758,8 +983,14 @@ relay with request ids, correlation and expiry.
 ## Open question for the user
 
 **Phase 1 as re-scoped has no agent automation in it** — it is the git safety
-layer with a manual button. That is what all three reviewers recommended
-shipping first. If the priority is instead to *see agents coordinating* sooner,
-the alternative is to build Phase 2's transport for one preset only (Claude
-Code, which has the richest structured output) and accept manual publication
-for longer. Which ordering do you want?
+layer with a manual button. All four reviewers recommended shipping it first,
+and the round-two reviewer recommended running the **Phase 1b transport spike
+alongside it** rather than after, so that Phase 2's riskiest assumption is
+measured while Phase 1 is being built. That is the plan of record above.
+
+The alternative, if seeing agents coordinate sooner matters more than sequencing
+risk, is to build the transport for the shell preset first — it already emits
+OSC 133 `D;exit` marks — and demo coordination with shell lanes while agent
+presets stay manual.
+
+Which ordering do you want?
