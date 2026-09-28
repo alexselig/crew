@@ -386,6 +386,16 @@ export interface LaneManager {
   merge(lane: Lane, base: string): Promise<MergeResult>
   destroy(lane: Lane): Promise<void>                    // git worktree remove
 }
+
+/** Conflicts are data, not exceptions: the conductor must report the paths to
+ *  the agent that wrote them, so they are part of the normal return type. */
+export type RebaseResult =
+  | { ok: true; rebased: number }
+  | { ok: false; conflictPaths: string[]; message: string }
+
+export type MergeResult =
+  | { ok: true; commit: string; touchedPaths: string[] }
+  | { ok: false; message: string }
 ```
 
 Rules learned from this repository's own worktree setup, which the manager must
@@ -442,13 +452,16 @@ export function canConduct(
 ## UI
 
 - **Workspace editor:** a `Conducted` toggle. When on, a compact role list
-  (drag to order, each row picks a member session) and the gate per edge.
-  Rejected toggles show the naming conflict inline.
-- **Roster:** a conducted workspace is marked in the header; the baton-holding
-  session gets a distinct indicator so "who is working" is readable at a glance.
-- **Conductor panel:** the decision log — a plain list of `role → role (gate,
-  reason)` entries, plus Pause and Step. Pause stops routing without touching
-  the sessions; Step permits exactly one handoff.
+  (drag to order, each row picks a member session), the gate per edge, the
+  integration branch, and the test command. Rejected toggles show the naming
+  conflict inline.
+- **Roster:** a conducted workspace is marked in the header. Each lane shows its
+  status (`working` / `ready` / `integrating` / `blocked`) and how many commits
+  it is behind, so "who is working, who is waiting to check in, and who is
+  stale" is readable at a glance.
+- **Conductor panel:** the decision log — a plain list of
+  `lane → decision (gate, reason)` entries — plus Pause and Step. Pause stops
+  routing without touching the sessions; Step permits exactly one decision.
 
 Pause is the safety valve: the answer to "it is doing something I do not like"
 must never be "quit Crew".
@@ -463,47 +476,65 @@ must never be "quit Crew".
 | gate's test command missing | gate evaluates false → `hold`, with a reason naming the missing command |
 | role has no session | `stop`, not a crash |
 | ping-pong between two roles | `maxEdgeTraversals` → `stop` |
-| session removed from workspace mid-flight | baton cleared; `stop` |
-| Crew quits mid-pipeline | pipeline state persists; baton is **not** auto-resumed on launch — resuming requires an explicit Step or Resume, so a restart never silently restarts autonomous work |
+| **rebase conflict** | conflict handed back to the lane's own agent; baton released; lane `blocked` |
+| **tests fail at integration** | same as a conflict — back to the lane, baton released |
+| **integration crashes or times out** | baton released in a `finally`; lane `blocked`; never a permanent stall |
+| **two lanes ready at once** | one gets `grant-integration`, the other `hold`; re-evaluated on `integration-complete` |
+| **a lane is behind** | `require-rebase` before the baton is ever granted |
+| worktree creation fails (dirty repo, bad branch) | lane not created; `stop` with the git error surfaced |
+| `node_modules` symlink missing in a worktree | lane refuses to start; repaired and retried once |
+| session removed from workspace mid-flight | its lane is torn down (refusing to discard uncommitted work); others continue |
+| Crew quits mid-pipeline | pipeline state persists; worktrees are left intact; the baton is **not** auto-resumed on launch — resuming requires an explicit Step or Resume, so a restart never silently restarts autonomous work |
 | a human types into a conducted session | treated as a turn like any other; the human is simply another participant |
 
 ## Testing
 
-- **Unit (`shared/conductor-route.ts`):** the decision table above, exhaustively.
-  Pure input → output, no mocks, no LLM, no clock.
+- **Unit (`shared/conductor-route.ts`):** the decision table above, exhaustively,
+  including both-lanes-ready, behind-lane, and baton-held cases. Pure input →
+  output, no mocks, no LLM, no clock.
 - **Unit (`shared/conductor-membership.ts`):** exclusivity accept/reject cases,
   including the multi-window scenario that motivates it.
+- **Lane manager (`src/main/lanes.ts`):** against a real temporary git
+  repository — create/rebase/merge/destroy, a deliberately conflicting rebase,
+  the `node_modules` symlink invariant, and the refusal to destroy a dirty
+  worktree. Git is fast enough that these stay unit-test speed.
 - **Runner (`src/main/conductor.ts`):** a fake `SessionManager` and a fake base
   command (a node script emitting a canned briefing) drive
-  turn-complete → facts → decision → input, plus the briefing-failure fallback.
-- **E2E:** a conducted workspace of two fake-CLI sessions completes a
-  builder → reviewer → done pipeline; assert the baton moves, the reviewer
-  receives text, the decision log has three entries, and 0 renderer errors.
+  turn-complete → facts → decision → input, plus the briefing-failure fallback
+  and **baton release on every failure path**.
+- **E2E:** a conducted workspace of two fake-CLI sessions working in two lanes
+  that touch the same file. Assert both work concurrently, their check-ins are
+  serialized, the second receives a rebase instruction and a bulletin naming the
+  first's commit, the integration branch ends with both commits, and 0 renderer
+  errors.
 
 ## Non-goals (v1 — YAGNI)
 
-- Parallel lanes and git worktree isolation (Phase 2).
-- The conductor opening PRs or merging. The pipeline ends at `done`; the human
-  merges. Autonomous merge is a trust step to take separately, after the routing
-  has been watched working.
+- The conductor opening PRs or merging to `main`. The pipeline integrates onto
+  its own branch; the human ships it. Autonomous merge is a trust step to take
+  separately, after the coordination has been watched working.
 - Agent-to-agent messaging without Crew in the middle.
 - Cross-workspace conducting.
-- More than one trigger kind.
+- Cross-repository lanes.
+- Conflict *resolution* by the conductor — conflicts always go back to the agent
+  that wrote the code.
 
 ## Phasing
 
-- **Phase 1 (this spec):** conducted toggle, roles, linear pipeline, pure router,
-  briefing, decision log, pause/step, exclusivity.
-- **Phase 2:** lanes — N batons with a git worktree each, joining at a stage.
-  This is where the diagram's parallel Feature A ∥ Feature B arrives.
-- **Phase 3:** gated auto-merge — the pipeline runs tests and opens the PR.
+- **Phase 1 (this spec):** conducted toggle, roles, lanes with git worktrees,
+  pure router, the integration baton, briefings and bulletins, decision log,
+  pause/step, exclusivity.
+- **Phase 2:** the question relay, richer gates, and lane auto-scaling (spawn a
+  lane per queued task rather than per declared role).
+- **Phase 3:** gated auto-merge — the pipeline opens the PR once it is trusted.
 
 ## Open questions for review
 
-1. **The baton:** is serial-for-now acceptable for v1, with parallel lanes in
-   Phase 2? This is the load-bearing assumption; parallel-in-v1 pulls git
-   worktree management into scope and roughly doubles the work.
+1. **Lane count:** what is a sensible `maxLanes` default? Each lane is a full
+   worktree (disk) plus a running agent (CPU, tokens). Three?
 2. **Gates:** are `always` / `diff-nonempty` / `tests-pass` enough to start?
 3. **Test command:** where does it come from — a per-workspace field, or detected
    from `package.json`?
 4. **Restart:** is "never auto-resume a pipeline on launch" the right default?
+5. **Question relay:** worth having in v1, or is Phase 2 right? It is the most
+   speculative piece, since it depends on agents emitting a marker reliably.
