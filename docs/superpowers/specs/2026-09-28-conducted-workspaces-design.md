@@ -7,13 +7,18 @@
 ## Summary
 
 Add a **conducted** toggle to a workspace. In a conducted workspace the member
-sessions stop being independent coworkers and become a **pipeline**: when one
-finishes its turn, Crew decides who works next, writes that agent a briefing
-describing what just happened, and types it into their session.
+sessions stop being independent coworkers and become a **coordinated team**:
+they work in parallel on isolated branches, they are kept informed of what the
+others have landed, and their check-ins are serialized so two agents can never
+commit conflicting work.
 
-The conductor is a **hybrid**: Crew decides *when* and *whether* work moves
-(deterministic, testable, free); a single headless LLM run decides *what to say*
-when it moves (the one job rules are bad at).
+Crew sits in the middle of every exchange. It decides *when* work moves and
+*who may check in* (deterministic, testable, free); a single headless LLM run
+writes *what one agent tells another* (the one job rules are bad at).
+
+The feature's purpose is coordination: **no conflicting check-ins, and every
+agent working from an accurate picture of what its teammates have done.**
+
 
 ## Why hybrid
 
@@ -38,27 +43,91 @@ failure mode lands where it is cheap: a bad routing decision is impossible
 agent asks a question; you see it in the transcript). Cost is one small run per
 edge traversed, not continuous supervision.
 
-## The baton
+## Lanes and the integration baton
 
-**Exactly one session in a conducted workspace holds the baton.** Routing is
-only ever the question *who gets the baton next*.
+The design rests on one split:
 
-This is the simplifying constraint the whole design rests on:
+> **Work happens in parallel. Integration happens one at a time.**
 
-- Two agents can never edit concurrently, so **git worktree isolation is not a
-  v1 prerequisite**. One writer at a time can share a working directory safely.
-  (Crew has no worktree machinery today; `github.ts` only resolves remotes. This
-  constraint removes what would otherwise be the single largest piece of work.)
-- There is always exactly one answer to "what is this workspace doing?"
-- Deadlock and interleaving bugs are structurally impossible rather than tested
-  against.
+**A lane** is a unit of parallel work: one role, one git **worktree**, one
+branch. Because each lane is a separate directory, two agents editing at once is
+structurally impossible — not a race that messaging has to win. This is why
+worktree management is **in v1**: it is not an optimisation, it is the mechanism
+that makes concurrency safe.
 
-**The cost, stated plainly:** v1 is serial. Two independent features run one
-after the other, not at once.
+**The integration baton** is a single token. A lane may only `git` check in —
+rebase, commit, push, merge to the integration branch — while holding it.
+Exactly one lane holds it at a time, so **check-ins are serialized even though
+work is parallel**. This is precisely how a functioning human team avoids
+stepping on each other, and it is the smallest mechanism that makes conflicting
+check-ins impossible rather than merely unlikely.
 
-Parallelism is the natural Phase 2: N batons ("lanes"), one git worktree each,
-converging at a join stage. The v1 data model is deliberately shaped so a lane id
-can be added without reshaping routing.
+What this buys:
+
+- Two agents cannot edit the same file simultaneously (separate worktrees).
+- Two agents cannot commit simultaneously (one baton).
+- A lane that integrates second always rebases onto the first one's work, so it
+  *sees* the conflict during its own turn, while it has the context to fix it —
+  rather than a human discovering it later in a merge.
+- "What is this workspace doing?" always has an answer: N lanes working, ≤1
+  integrating.
+
+The baton is a scheduling token, not a queue position: the router decides who
+gets it next from the same pure decision table as everything else.
+
+
+## How agents talk to each other
+
+Agents do not message each other directly — the CLIs have no protocol for it,
+and a hand-rolled one would depend on each agent reliably emitting structured
+markers, which they do not. **Every exchange is conductor-mediated**, which is
+also what makes it observable and testable. Crew is always in the middle.
+
+There are three kinds of message, and only the first is a handoff.
+
+### 1. Briefing (directed, on handoff)
+
+When work moves from role A to role B, one headless LLM run summarises what A
+did and what B must do, and Crew types it into B's session. Details below.
+
+### 2. Bulletin (broadcast, on integration)
+
+The coordination mechanism. When a lane lands work on the integration branch,
+every *other* active lane is told — deterministically, no LLM:
+
+> **Lane `reviewer` landed `a1b2c3d`:** "Fix pagination off-by-one".
+> Touched `src/list.ts`, `test/list.test.ts`.
+> Your branch is now 1 commit behind. Rebase before you check in.
+
+This is what keeps agents from working on stale assumptions. An agent that
+learns mid-task that a teammate just rewrote the file it is editing can adapt
+*during* its turn, instead of discovering it at integration.
+
+Bulletins are delivered via `SessionManager.input()` like any other text, and
+are **coalesced**: a lane that is mid-turn receives one merged bulletin at the
+end of its turn rather than an interruption per commit. Interrupting a working
+agent with a wall of notifications is how you get worse output, not better
+coordination.
+
+### 3. Question relay (directed, on request)
+
+An agent that needs something from a teammate — "did you intend `parse()` to
+return null?" — emits a marker line. The conductor routes the question to the
+owning lane, waits for that lane's next turn to complete, and relays the answer
+back.
+
+The marker is a fenced, unambiguous token (`@crew ask <role>: <question>`)
+scanned for in the agent's own output. **A missed marker degrades to nothing** —
+the agent simply proceeds on its own assumption, exactly as it would today. The
+relay is therefore an enhancement that cannot deadlock the pipeline, never a
+dependency of it. Unanswerable or unrouteable questions are logged and dropped,
+not retried.
+
+### What is deliberately absent
+
+No shared scratchpad file, no agents writing to each other's directories, no
+agent invoking another agent. Each is a way for two autonomous processes to
+corrupt shared state without Crew being able to see it happen.
 
 ## Existing machinery this builds on
 
@@ -72,7 +141,13 @@ Most of the primitives already exist, which is why the new surface is small.
 | workspace membership | `shared/workspaces.ts` — first-class `Workspace` ids, `sessionInWorkspaceId` |
 | autonomy state | `autopilot.ts` — knows when an agent is running unattended |
 
-New code is the router, the conductor runtime, and the store fields.
+The genuinely new machinery is **git worktree management**, which Crew does not
+have at all today (`github.ts` only resolves remote URLs). Lane creation,
+rebasing, and teardown are the largest single piece of work in this spec —
+larger than the router.
+
+New code is the router, the conductor runtime, the git lane manager, and the
+store fields.
 
 ## Data model
 
@@ -91,12 +166,25 @@ export interface Workspace {
 }
 
 export type RoleId = string
+export type LaneId = string
 
 export interface Role {
   id: RoleId
   name: string              // "Builder", "Reviewer"
   sessionId: string | null  // which session fills this role
   order: number
+}
+
+/** One unit of parallel work: a role, a worktree, a branch. */
+export interface Lane {
+  id: LaneId
+  role: RoleId
+  /** Absolute path to this lane's git worktree. */
+  worktree: string
+  branch: string
+  /** Commits on the integration branch this lane has not yet rebased onto. */
+  behind: number
+  status: 'working' | 'ready' | 'integrating' | 'blocked' | 'done'
 }
 
 export interface Edge {
@@ -110,14 +198,18 @@ export type GateId = 'always' | 'diff-nonempty' | 'tests-pass'
 export interface Pipeline {
   roles: Role[]
   edges: Edge[]
-  /** Who currently holds the baton. null = idle, nothing in flight. */
-  baton: RoleId | null
+  lanes: Lane[]
+  /** The single integration baton: the lane permitted to check in, or null. */
+  integrating: LaneId | null
+  /** Branch every lane rebases onto and merges into. */
+  integrationBranch: string
   limits: Limits
 }
 
 export interface Limits {
   maxHandoffs: number       // total, per run
   maxEdgeTraversals: number // per edge — kills builder/reviewer ping-pong
+  maxLanes: number          // concurrent worktrees; bounds disk and CPU
 }
 ```
 
@@ -134,9 +226,15 @@ export function route(state: ConductorState, event: ConductorEvent): Decision
 
 export type Decision =
   | { kind: 'handoff'; from: RoleId; to: RoleId; reason: string }
+  | { kind: 'grant-integration'; lane: LaneId; reason: string }
+  | { kind: 'require-rebase'; lane: LaneId; behind: number; reason: string }
   | { kind: 'hold'; reason: string }
   | { kind: 'stop'; reason: string }
 ```
+
+`grant-integration` is the baton moving. `require-rebase` is the conductor
+telling a lane it is stale before it may check in — the mechanism that makes
+conflicting check-ins impossible.
 
 **No IO inside `route()`.** It never shells out, never reads a clock, never
 randomises. Crew gathers facts *first* and passes them on the event as a plain
@@ -146,11 +244,14 @@ snapshot:
 export interface Facts {
   diffLines: number            // git diff --numstat, summed
   testsExitCode: number | null // null = not run
+  /** Commits on the integration branch this lane has not rebased onto. */
+  behind: number
 }
 
 export interface ConductorEvent {
-  kind: 'turn-complete'
+  kind: 'turn-complete' | 'integration-complete'
   role: RoleId
+  lane: LaneId
   facts: Facts
 }
 
@@ -169,7 +270,8 @@ This is what makes the engine testable with fake sessions and zero LLM calls —
 which matters, because this codebase's safety net is 839 fast tests and an
 LLM-in-the-loop router would not be coverable by them.
 
-**One trigger in v1:** `turn-complete`. `detection.ts` already produces it. No
+**One trigger family in v1:** `turn-complete` (from `detection.ts`, which already
+produces it) and `integration-complete` (from the conductor's own git step). No
 timers, no polling.
 
 **Gates are pure predicates over `Facts`:**
@@ -191,12 +293,20 @@ decision log.
 
 | Situation | Decision |
 |---|---|
-| gate passes, next role has a session | `handoff` |
-| gate fails | `hold` (the human sees the workspace idle with a reason) |
+| lane finished, gate passes, baton free, lane up to date | `grant-integration` |
+| lane finished, gate passes, baton free, lane is behind | `require-rebase` |
+| lane finished, gate passes, **baton held by another lane** | `hold` (wait your turn — this is the serialization) |
+| gate fails | `hold`, with the failing gate named |
+| integration completed, an onward edge exists | `handoff` to the next role |
+| integration completed, edge target is `done` | `stop` (`'pipeline complete'`) |
 | next role has no session assigned | `stop` |
 | `maxHandoffs` or `maxEdgeTraversals` exceeded | `stop` |
-| event from a role that does not hold the baton | `hold` (stale event) |
+| event from a lane the state does not know | `hold` (stale event) |
 | target role's session has exited | `stop` |
+
+Note that the baton being held is a `hold`, never a queue or a wait primitive.
+Routing stays a pure function of current state; the waiting lane is simply
+re-evaluated when the next event arrives. There is no scheduler to deadlock.
 
 ## The conductor runtime
 
@@ -204,19 +314,47 @@ decision log.
 
 On `turn-complete` for a conducted session:
 
-1. **Gather facts** — `git diff --numstat` in the session cwd; the test command
-   if the edge's gate needs it. Bounded and cached, in the style of
-   `github.ts`'s per-cwd TTL, so a busy workspace does not spawn a `git` per
-   event.
+1. **Gather facts** — `git diff --numstat` and `rev-list --count` for `behind`,
+   in the lane's worktree; the test command if the edge's gate needs it. Bounded
+   and cached, in the style of `github.ts`'s per-cwd TTL, so a busy workspace
+   does not spawn a `git` per event.
 2. **Call `route()`** — pure, instant.
-3. **On `handoff`:** ask the LLM for a briefing (below), then
-   `SessionManager.input(targetSessionId, briefing + '\r')`. Move the baton.
-4. **On `hold` / `stop`:** update state, surface it in the UI, and — for `stop` —
-   notify, since the pipeline has finished or given up while the human was away.
+3. **Act on the decision** (below).
+4. **Log it** — every decision is appended to a bounded **decision log** (lane,
+   role, gate, outcome, reason, timestamp) that the UI renders. This is the
+   debugging surface: you can always read back exactly why the baton moved.
 
-Every decision is appended to a bounded in-memory **decision log** (role, gate,
-outcome, reason, timestamp) that the UI renders. This is the debugging surface:
-you can always read back exactly why the baton moved.
+### Acting on each decision
+
+| Decision | Action |
+|---|---|
+| `require-rebase` | type a rebase instruction into the lane's session; it stays `working` |
+| `grant-integration` | take the baton, run the integration procedure |
+| `handoff` | briefing run → `SessionManager.input(target, briefing)` |
+| `hold` | update UI state only; no session is touched |
+| `stop` | release the baton, notify, mark the pipeline finished |
+
+### The integration procedure
+
+Runs only while the lane holds the baton, in the lane's worktree:
+
+1. `git fetch` the integration branch.
+2. **Rebase.** On conflict: hand the conflict *back to the lane's own agent* as
+   a message, release the baton, and mark the lane `blocked`. The agent that
+   wrote the code resolves the conflict, with full context, during its own turn.
+   The baton is never held across a conflict — that would stall every other
+   lane behind a stuck one.
+3. Run the workspace's test command. On failure: same treatment as a conflict —
+   back to the lane, release the baton.
+4. Merge into the integration branch (fast-forward).
+5. **Broadcast a bulletin** to every other active lane, incrementing their
+   `behind` counts.
+6. Release the baton and emit `integration-complete`, which re-enters `route()`
+   and lets the next waiting lane in.
+
+**The baton is released on every exit path, including failure.** A conductor
+that can lose the baton is a conductor that deadlocks, so release is structured
+as a `finally`, and a lane's claim on it is additionally bounded by a timeout.
 
 ### The briefing (the only LLM call)
 
@@ -231,7 +369,35 @@ the diff stat, and a tail of the outgoing session's transcript.
 
 **If the briefing run fails or times out, fall back to a templated summary**
 (role names, task, diff stat). A degraded handoff, never a stalled pipeline —
-the pipeline's liveness must not depend on an LLM call succeeding.
+the pipeline's liveness must not depend on an LLM call succeeding. Bulletins and
+rebase instructions are templated and never involve an LLM at all, so the
+coordination that prevents conflicts has no LLM in its path.
+
+## The lane manager
+
+`src/main/lanes.ts` — the new git machinery, isolated behind a narrow interface
+so the conductor never shells out to git itself.
+
+```ts
+export interface LaneManager {
+  create(repo: string, branch: string): Promise<Lane>   // git worktree add
+  behind(lane: Lane, base: string): Promise<number>     // rev-list --count
+  rebase(lane: Lane, base: string): Promise<RebaseResult>
+  merge(lane: Lane, base: string): Promise<MergeResult>
+  destroy(lane: Lane): Promise<void>                    // git worktree remove
+}
+```
+
+Rules learned from this repository's own worktree setup, which the manager must
+respect:
+
+- Worktrees live under `.worktrees/` and that directory is git-ignored.
+- **`node_modules` inside a worktree is a symlink to the root's.** Anything that
+  replaces it with a real directory breaks the worktree and pollutes the commit.
+  The manager creates the symlink on `create` and verifies it before handing the
+  lane to an agent.
+- `destroy` refuses to remove a worktree with uncommitted changes unless
+  explicitly forced, so a crash never silently discards an agent's work.
 
 ## Exclusivity
 
