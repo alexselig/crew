@@ -519,11 +519,11 @@
 
       <!-- ============================================ -->
       <section id="models">
-        <p class="eyebrow">New — not yet in the spec</p>
+        <p class="eyebrow">Your steer, now in the spec</p>
         <h2>Thirty models, one transport</h2>
         <div class="chip-row">
-          <span class="chip provisional">Proposed</span>
-          <span class="chip provisional">Needs your nod</span>
+          <span class="chip verified">In the spec</span>
+          <span class="chip verified">Lane.agent = (preset, model)</span>
         </div>
         <p class="dek">Your sketch used three different CLIs to get three
           different minds. Copilot CLI already offers thirty models across six
@@ -596,18 +596,18 @@
             <text x="344" y="222" class="d-meta">Read from the installed CLI at runtime — the list is not hardcoded,</text>
             <text x="344" y="238" class="d-meta">so new models appear on their own.</text>
 
-            <rect x="16" y="252" width="848" height="48" fill="#fbfaf7" stroke="#c9a084" stroke-dasharray="4 3"/>
-            <text x="32" y="272" class="d-text">Proposal: a lane's identity becomes <tspan class="d-mono">(preset, model)</tspan> — so "builder on Opus 5.5,</text>
-            <text x="32" y="291" class="d-text">reviewer on GPT-6 Astra" is a lane setting rather than a new integration.</text>
+            <rect x="16" y="252" width="848" height="48" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="32" y="272" class="d-text" fill="#3f6b5f">A lane's identity is <tspan class="d-mono">Lane.agent = (presetId, model)</tspan> — so "builder on Opus 5.5,</text>
+            <text x="32" y="291" class="d-text" fill="#3f6b5f">reviewer on GPT-6 Astra" is a lane setting rather than a new integration.</text>
           </svg>
           <figcaption>
             Counts read live from the installed CLI on
             <time datetime="2026-09-28">28 Sep 2026</time> via
             <code>copilot completion bash</code>.
             <b>This also shrinks the riskiest unknown in the whole plan</b> — see
-            Phase 1b in <a href="#phases">section 10</a>. Cross-vendor review
-            (one model's work checked by a different vendor's model) stops being
-            a three-integration project and becomes a dropdown.
+            Phase 1b in <a href="#phases">section 10</a>, where Copilot CLI is now
+            the priority target rather than the afterthought. Cross-vendor review
+            stops being a three-integration project and becomes a dropdown.
           </figcaption>
         </figure>
       </section>
@@ -824,11 +824,14 @@
         </div>
 
         <div class="note open">
-          <p class="note-label">3 — And one smaller confirmation</p>
-          <p><a href="#models">Section 7</a> is a new proposal, not yet in the
-            committed spec: make a lane's identity <code>(preset, model)</code> so
-            multi-model review works through the one CLI. Say the word and I will
-            fold it into the spec.</p>
+          <p class="note-label">3 — Confirm the cross-model default</p>
+          <p><a href="#models">Section 7</a> is now in the spec: a lane's
+            identity is <code>(presetId, model)</code>. The part worth your
+            confirmation is the <em>recommendation</em> that a reviewer runs on
+            a different vendor's model than the author. This document is the
+            evidence for it — three reviewers agreed with each other, and the
+            fourth, from a different vendor, found the bug that broke the
+            publication lifecycle.</p>
         </div>
 
         <p>Once you have answered, the next step is an implementation plan — no

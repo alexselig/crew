@@ -286,9 +286,21 @@ export interface Role {
 export interface Lane {
   id: LaneId
   role: RoleId
+  /** Which agent, and which mind, runs this lane. See "Which agent runs a
+   *  lane". Captured per lane because cross-model review is the main reason
+   *  to run more than one. */
+  agent: LaneAgent
   worktree: string
   branch: string
   status: 'working' | 'ready' | 'publishing' | 'blocked' | 'done'
+}
+
+export interface LaneAgent {
+  /** A Crew preset id: 'copilot-cli' | 'claude-code' | 'shell'. */
+  presetId: string
+  /** Copilot CLI only. An id from the CLI's own catalogue, or null to take
+   *  the CLI default. Never a hardcoded list — see listCopilotModels(). */
+  model: string | null
 }
 
 export interface Edge { from: RoleId; to: RoleId | 'done'; gate: GateId }
@@ -766,6 +778,49 @@ worktree.** So:
 
 Exclusivity therefore constrains *lane* sessions, which Crew created and owns.
 
+## Which agent runs a lane
+
+The original sketch fanned out to three different CLIs — Claude Code, Codex CLI
+and OpenCode. Two of those are not Crew presets (only `copilot-cli`,
+`claude-code` and `shell` exist), but the *intent* behind the sketch was
+reasoning diversity: have a different mind review the work than wrote it.
+
+That intent is already satisfiable without writing a single new integration.
+**Copilot CLI is a multi-model front end**, and Crew already drives it:
+
+| Capability | Where it already lives |
+|---|---|
+| Model catalogue, read from the installed CLI's completion script, validated and cached 5 min | `src/main/copilot-models.ts` |
+| `withCopilotModel()` injecting `--model` into the launch args | `src/shared/copilot-models.ts` |
+| Per-session model picker, hidden when the catalogue is unavailable | `src/renderer/new-session-model.ts` |
+| `--session-id=` both setting and resuming a session id | `src/main/presets.ts` |
+
+At the time of writing the installed CLI reported **30 models across six
+vendors** — Claude, GPT, Gemini, Grok, Kimi and MAI families. The list is read
+at runtime and is never hardcoded, so new models appear without a Crew change.
+
+Therefore:
+
+- A lane's identity is **`(presetId, model)`**, carried on `Lane.agent`.
+  "Builder on `claude-opus-5.5`, reviewer on `gpt-6-astra`" is a lane setting,
+  not a new transport.
+- **Cross-model review is the default recommendation** once roles exist: a
+  reviewer on a different vendor's model is materially more likely to catch
+  what the author's model missed. This design document is itself the evidence —
+  three reviewers converged on one set of findings and a fourth, from a
+  different vendor, found the bug that broke the publication lifecycle.
+- The catalogue is **advisory, exactly as it is today**. If the CLI does not
+  report models, the picker hides and the lane launches on the CLI default.
+  A conductor run must never fail because a model list could not be parsed.
+- `model` is meaningless for `claude-code` and `shell` and is held `null` for
+  them. It is not a general "pick any model" abstraction; it is the Copilot CLI
+  flag, and pretending otherwise would invent a capability that does not exist.
+
+**This also shrinks Phase 1b.** The transport spike's risk was needing a
+completion signal per preset. If `copilot-cli` alone reaches thirty models,
+then solving *one* transport delivers the entire diversity story, and
+`claude-code` becomes an enhancement rather than a prerequisite.
+
 ## Exclusivity
 
 A lane session belongs to **at most one conducted** workspace.
@@ -947,9 +1002,12 @@ signals without building the transport:
   Any injected hook config must live **outside** the worktree (via a settings
   flag, to be confirmed), since an untracked file inside it would show the lane
   as dirty.
-- **Copilot CLI:** unknown. If the spike finds no reliable signal, Phase 2 is
-  Claude-and-shell only — and it is far better to know that before designing a
-  multi-preset transport than after.
+- **Copilot CLI — now the priority target, not the afterthought.** It is Crew's
+  default preset *and* the multi-model front end (see "Which agent runs a
+  lane"), so a completion signal here alone delivers the whole cross-model
+  story. Its signal is still unknown and must be measured first. If none
+  exists, that is the single most important thing the spike can tell us, and it
+  is far better learned before a multi-preset transport is designed than after.
 
 **Phase 2 — automation.** The `AgentTransport` contract with a real completion
 signal per preset, readiness-gated delivery, the input lock, work-result
