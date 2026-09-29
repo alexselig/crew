@@ -206,7 +206,128 @@ describe('publishLane', () => {
     expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
     expect(conductor.isPublishing()).toBe(false)
   })
+
+  // Finding 1: newOpId() used to run AFTER the lock was acquired but BEFORE
+  // the try/finally that releases it. A throw there left `publishing` set
+  // forever, refusing every later publishLane/syncLane/reconcile. Forcing
+  // the throw in exactly that gap and then proving the lock is free
+  // afterwards is the only way to catch a regression back to that ordering
+  // — this fails against the pre-fix code, where isPublishing() stays true
+  // and the second publishLane call below returns { reason: 'busy' } forever
+  // instead of succeeding.
+  it('releases the lock (never acquires it) when newOpId throws before the try/finally', async () => {
+    const lanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    let shouldThrow = true
+    const conductor = createConductor({
+      lanes, journal, settings,
+      newOpId: () => {
+        if (shouldThrow) {
+          shouldThrow = false
+          throw new Error('newOpId boom')
+        }
+        return 'op-recovered'
+      }
+    })
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const failed = await conductor.publishLane(lane)
+    expect(failed.ok).toBe(false)
+    expect(journal.read()).toHaveLength(0)
+    // Load-bearing: on the pre-fix ordering this is `true` (stuck) and the
+    // retry below returns `{ reason: 'busy' }` instead of succeeding.
+    expect(conductor.isPublishing()).toBe(false)
+
+    const retried = await conductor.publishLane(lane)
+    expect(retried.ok).toBe(true)
+    expect(conductor.isPublishing()).toBe(false)
+  })
+
+  // Finding 3: the 'tests' journal write used to be best-effort — if it
+  // failed, tests ran anyway, so a crash mid-test would be misclassified as
+  // merged-unpublished ("safe to redo") rather than interrupted-tests. This
+  // forces the write to fail (the chmod-based technique already established
+  // in test/conductor-journal.test.ts) and asserts the tests never started
+  // at all. Load-bearing: on the pre-fix best-effort write, `testsRan`
+  // below becomes `true` and the outcome is `{ reason: 'tests-failed' }`
+  // (the injected runTests below always fails) instead of `journal-failed`
+  // with the test never invoked.
+  it('fails closed and never runs tests when the tests-phase journal write cannot be made durable', async () => {
+    const lanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    let testsRan = false
+    settings.test = { command: 'sh', args: ['-c', 'exit 1'], cwd: '.', timeoutMs: 10_000 }
+    const conductor = createConductor({
+      lanes, journal, settings,
+      runTests: async () => {
+        testsRan = true
+        return { ok: false, output: 'should never run' }
+      }
+    })
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const before = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    chmodSync(root, 0o500)
+    try {
+      const outcome = await conductor.publishLane(lane)
+      expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
+    } finally {
+      chmodSync(root, 0o700)
+    }
+    expect(testsRan).toBe(false)
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
+    expect(conductor.isPublishing()).toBe(false)
+  })
+
+  // Finding 3 (aborted-write half): the 'aborted' record for a genuine
+  // tests-failed outcome is no longer best-effort either. Forcing THAT
+  // write to fail must abort before the integration worktree is reset, and
+  // the returned message must carry both failures — the original
+  // tests-failed cause and the fact the abort could not be recorded — per
+  // the atomicity convention (propagate the original error, never mask it
+  // with a cleanup error).
+  it('fails closed on the aborted-write for a genuine test failure and reports both failures', async () => {
+    const lanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    settings.test = { command: 'sh', args: ['-c', 'exit 1'], cwd: '.', timeoutMs: 10_000 }
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    // Let 'intent', 'merged' and 'tests' land normally (they must, or tests
+    // would never run at all — see the previous test), then make only the
+    // 'aborted' append fail by revoking write access right as tests run.
+    let testsStarted = false
+    const conductor = createConductor({
+      lanes, journal, settings,
+      runTests: async () => {
+        testsStarted = true
+        chmodSync(root, 0o500)
+        return { ok: false, output: 'deliberate test failure' }
+      }
+    })
+
+    try {
+      const outcome = await conductor.publishLane(lane)
+      expect(testsStarted).toBe(true)
+      expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
+      if (!outcome.ok && outcome.reason === 'journal-failed') {
+        // Both halves, per the atomicity convention.
+        expect(outcome.message).toMatch(/tests failed/i)
+        expect(outcome.message).toMatch(/abort/i)
+      }
+    } finally {
+      chmodSync(root, 0o700)
+    }
+    expect(conductor.isPublishing()).toBe(false)
+  })
 })
+
+
 
 describe('syncLane', () => {
   it('brings the integration branch into the lane', async () => {
@@ -272,6 +393,29 @@ describe('syncLane', () => {
     expect((await publishPromise).ok).toBe(true)
     await expect(conductor.reconcile()).resolves.toMatchObject({ needsAttention: false })
   })
+
+  // Finding 4: syncLane's busy message used to always say "a publication is
+  // in flight" even when the lock was actually held by something else
+  // (here, reconcile()). Load-bearing on the message text itself — the
+  // pre-fix code returns the publication-specific wording even though no
+  // publishLane call is involved anywhere in this test.
+  it('reports a generic busy message from syncLane when reconcile, not a publish, holds the lock', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const a = await lanes.create('a', { presetId: 'shell', model: null })
+    // An empty journal makes reconcile() return almost immediately after
+    // acquiring the lock, but the lock is still held synchronously the
+    // instant syncLane's own synchronous prefix runs.
+    expect(journal.read()).toHaveLength(0)
+    const reconcilePromise = conductor.reconcile()
+    const syncOutcome = await conductor.syncLane(a)
+    expect(syncOutcome).toMatchObject({ ok: false, reason: 'busy' })
+    if (!syncOutcome.ok && syncOutcome.reason === 'busy') {
+      expect(syncOutcome.message).toBe('conductor is busy')
+      expect(syncOutcome.message).not.toMatch(/publication/i)
+    }
+    await reconcilePromise
+  })
 })
 
 describe('reconcile', () => {
@@ -315,6 +459,52 @@ describe('reconcile', () => {
       classification: 'merged-unpublished'
     })
   })
+
+  // Finding 2: a crash INSIDE the 'merged' append itself, not merely between
+  // two completed writes. Only 'intent' is ever journaled — the merge
+  // itself really did run and commit in the (permanently detached)
+  // integration worktree, but the durable record of it never landed. Before
+  // this fix, reconcile() had no way to see that the integration worktree's
+  // HEAD had moved past baseSha, so it read the ref unmoved + no MERGE_HEAD
+  // + clean worktree as "nothing happened" and classified not-started —
+  // silently orphaning a real merge commit and, worse, telling the operator
+  // it is safe to just publish again. Load-bearing: reverting the
+  // integrationHeadSha plumbing in conductor.ts (or the classifier check
+  // that reads it) makes this assert 'not-started' instead.
+  it('classifies a crash inside the merged-append itself as needing a human, not not-started', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const facts = await lanes.facts(lane)
+    // The real merge really runs and really commits in the integration
+    // worktree — this is not a simulation of the commit, only of the
+    // journal write that (in production) is supposed to follow it
+    // immediately but here never happens.
+    const merged = await lanes.mergeInIntegration(facts.laneTip, facts.baseSha)
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+    journal.append({
+      opId: 'op-crash-mid-append', laneId: lane.id, phase: 'intent',
+      baseSha: facts.baseSha, laneTip: facts.laneTip, at: 1
+    })
+    // Deliberately no 'merged' entry: this is the crash-during-append window.
+
+    const before = git(['rev-parse', 'crew/integration'], settings.repo)
+    const report = await conductor.reconcile()
+    expect(report.needsAttention).toBe(true)
+    expect(report.operations[0]).toMatchObject({
+      opId: 'op-crash-mid-append',
+      requiresHuman: true,
+      safeToRedo: false
+    })
+    expect(report.operations[0].classification).not.toBe('not-started')
+    // reconcile() only reports; the orphaned merge commit and the untouched
+    // ref are both left exactly as reconcile found them.
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
+  })
+
 
   it('classifies an externally moved ref as needing a human', async () => {
     const { lanes, journal, conductor } = build()
@@ -461,10 +651,12 @@ describe('reconcile', () => {
       'git', ['status', '--porcelain', '--untracked-files=no'],
       { cwd: settings.integrationWorktree, encoding: 'utf8' }
     )
+    const integrationHeadSha = git(['rev-parse', 'HEAD'], settings.integrationWorktree)
     const classification = classifyOperation(midFlightEntries! as RecoveryJournalEntry[], {
       refSha,
       mergeHeadPresent,
-      integrationDirty: status.trim().length > 0
+      integrationDirty: status.trim().length > 0,
+      integrationHeadSha
     })
     // Load-bearing: the wrong answer here (not-started) is exactly the bug
     // Finding 1 describes — a merge that happened, misclassified as one

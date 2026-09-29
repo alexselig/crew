@@ -45,6 +45,23 @@ export interface OperationReality {
   /** The integration worktree has modifications (only ever produced by a
    *  test run in this feature — see classifyOperation). */
   integrationDirty: boolean
+  /**
+   * What the integration worktree's own HEAD points at right now. The
+   * worktree is permanently DETACHED (see conductor.ts), so this can differ
+   * from refSha even when nothing is wrong: mergeInIntegration() detaches at
+   * baseSha and commits a merge there BEFORE the compare-and-swap ever
+   * touches integrationBranch. Finding 2: if the process dies during the
+   * 'merged' journal append itself — after the merge commit exists but
+   * before any durable write carries its resultSha — the journal shows only
+   * 'intent', the ref is still at baseSha, MERGE_HEAD is gone (the merge
+   * completed), and the worktree is clean (a completed merge, not a
+   * conflict). Every OTHER field in this shape then reads exactly like
+   * nothing ran, and restart would classify not-started for a merge that
+   * actually happened. This field is what makes that window observable:
+   * when it disagrees with baseSha, a commit exists in the integration
+   * worktree that the journal has no record of.
+   */
+  integrationHeadSha: string
 }
 
 export interface RecoveryAction {
@@ -217,11 +234,20 @@ function validateAndOrder(
  *        integration worktree dirty                   -> interrupted-tests
  *     e. ref === baseSha, otherwise                    -> merged-unpublished
  *     f. ref is none of the above                      -> externally-modified
- *  4. no resultSha recorded (merge never produced a commit):
+ *  4. no resultSha recorded (no durable record of a merge commit):
  *     a. ref !== baseSha                                -> externally-modified
  *     b. MERGE_HEAD present                             -> interrupted-merge
- *     c. integration worktree dirty                     -> interrupted-tests
- *     d. otherwise                                      -> not-started
+ *     c. integration worktree HEAD !== baseSha           -> externally-modified
+ *        (Finding 2: a commit exists in the integration worktree that no
+ *        journal entry ever recorded — the crash landed inside the
+ *        'merged' append itself. There is no dedicated "merged, unrecorded,
+ *        pre-CAS" row in this union, and nothing here can tell that commit
+ *        apart from an unrelated stray commit some other process left in a
+ *        DETACHED worktree, so this fails closed to the same row an
+ *        unexplained ref gets, rather than reusing merged-unpublished — see
+ *        the module-level note above classifyOperation's export.)
+ *     d. integration worktree dirty                     -> interrupted-tests
+ *     e. otherwise                                      -> not-started
  */
 export function classifyOperation(
   entries: readonly RecoveryJournalEntry[],
@@ -275,10 +301,27 @@ export function classifyOperation(
     return 'externally-modified'
   }
 
-  // No commit was ever produced for this merge. A moved ref with nothing to
-  // explain it is the same "someone else changed this" signal as above.
+  // No durable resultSha was ever recorded for this merge. A moved ref with
+  // nothing to explain it is the same "someone else changed this" signal as
+  // above.
   if (reality.refSha !== baseSha) return 'externally-modified'
   if (reality.mergeHeadPresent) return 'interrupted-merge'
+  // Finding 2: the crash landed inside the 'merged' append itself — after
+  // the merge commits (MERGE_HEAD is already gone, ruled out just above) but
+  // before any durable write carries its resultSha. The journal alone is
+  // indistinguishable from not-started here; the integration worktree's own
+  // HEAD is the only observation that tells them apart, because
+  // mergeInIntegration() commits there BEFORE the journal write. This
+  // fails closed to externally-modified rather than merged-unpublished: the
+  // classifier cannot verify from structural inputs alone that this commit
+  // is actually the recorded baseSha merged with the recorded laneTip
+  // (validateAndOrder never ran a git command, by design), so treating it
+  // as the same known-safe shape 'merged-unpublished' promises would be a
+  // guess dressed up as a fact. externally-modified's own recovery action
+  // — stop, this needs a human, never safe to redo automatically — is the
+  // correct posture for "something changed that this table cannot fully
+  // explain from its inputs".
+  if (reality.integrationHeadSha !== baseSha) return 'externally-modified'
   // In this feature the integration worktree is only ever written to by a
   // test run (the merge step commits cleanly or leaves MERGE_HEAD, handled
   // above); a dirty worktree with the ref unmoved and no MERGE_HEAD is

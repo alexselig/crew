@@ -95,9 +95,25 @@ export function createConductor(deps: ConductorDeps): Conductor {
 
   const publishLane = async (lane: ConductorLane): Promise<PublishOutcome> => {
     if (publishing !== null) return { ok: false, reason: 'busy' }
-    publishing = lane.id
 
-    const opId = newOpId()
+    // Finding 1: newOpId() is fallible (it is caller-injectable, e.g. in
+    // tests) and used to sit AFTER `publishing = lane.id` but BEFORE the
+    // try/finally that releases it. If it threw, the lock was set and
+    // nothing ever cleared it: every later publishLane/syncLane/reconcile
+    // would be refused forever. Computing it here, before the lock is
+    // acquired and while nothing has been reserved yet, means a throw here
+    // never leaves anything to release. If it throws, this is reported the
+    // same way any other pre-flight failure is (reason: 'error'), rather
+    // than becoming an unhandled rejection out of a function every other
+    // path resolves from.
+    let opId: string
+    try {
+      opId = newOpId()
+    } catch (error) {
+      return { ok: false, reason: 'error', message: error instanceof Error ? error.message : String(error) }
+    }
+
+    publishing = lane.id
     let journalledIntent = false
 
     try {
@@ -175,15 +191,59 @@ export function createConductor(deps: ConductorDeps): Conductor {
 
       // 6. Test the merge result, not the lane in isolation. The 'tests'
       //    entry is written before runTests() starts, for the same reason:
-      //    the record precedes the next effect, always.
+      //    the record precedes the next effect, always — and, per Finding
+      //    3, this write is now fail-closed the same way 'intent' and
+      //    'merged' already are: if it cannot be recorded, tests must not
+      //    start, because a crash mid-test with no durable 'tests' entry is
+      //    exactly the state the classifier reads as merged-unpublished
+      //    ("safe to retry the compare-and-swap") instead of
+      //    interrupted-tests. Best-effort here would silently reopen that
+      //    hole.
       if (settings.test) {
-        safeWrite(write, 'tests', merged.resultSha)
+        try {
+          write('tests', merged.resultSha)
+        } catch (error) {
+          await resetIntegrationTo(baseSha)
+          return {
+            ok: false,
+            reason: 'journal-failed',
+            message: error instanceof Error ? error.message : String(error)
+          }
+        }
         const tested = await runTests(settings.integrationWorktree, settings.test)
         if (!tested.ok) {
           lane.status = 'blocked'
           lane.blockedReason = 'tests failed on the merge result'
+          // Finding 3: the 'aborted' record here is NOT best-effort, and it
+          // is written BEFORE resetIntegrationTo, not after. If the reset
+          // ran first and the crash landed in the gap before this write
+          // durably landed, restart would see intent+merged+tests against a
+          // ref still at baseSha and a worktree already clean — exactly
+          // the reality the classifier reads as merged-unpublished, i.e.
+          // "safe to republish", for a merge that just failed its tests.
+          // Recording the failure before undoing anything closes that
+          // window; if the record itself cannot be made durable, the reset
+          // must not run either, and both failures are reported together so
+          // neither is masked — per the atomicity rule, this propagates the
+          // original failure (tests failed) and appends what needs manual
+          // attention, rather than silently continuing as the old
+          // best-effort write did.
+          try {
+            write('aborted', merged.resultSha, 'tests failed')
+          } catch (writeError) {
+            const writeMessage = writeError instanceof Error ? writeError.message : String(writeError)
+            lane.blockedReason =
+              `tests failed on the merge result, and the failure could not be recorded ` +
+              `(${writeMessage}); integration worktree at ${settings.integrationWorktree} needs manual attention`
+            return {
+              ok: false,
+              reason: 'journal-failed',
+              message:
+                `tests failed on the merge result (${tested.output}); ` +
+                `additionally failed to record the abort: ${writeMessage}`
+            }
+          }
           await resetIntegrationTo(baseSha)
-          safeWrite(write, 'aborted', merged.resultSha, 'tests failed')
           return { ok: false, reason: 'tests-failed', output: tested.output }
         }
       }
@@ -278,7 +338,12 @@ export function createConductor(deps: ConductorDeps): Conductor {
   // correctness one, and Phase 1 has no concurrent-sync requirement to trade
   // it away for.
   const syncLane = async (lane: ConductorLane): Promise<SyncOutcome> => {
-    if (publishing !== null) return { ok: false, reason: 'busy', message: 'a publication is in flight' }
+    // Finding 4: the message used to read "a publication is in flight" even
+    // when the lock was actually held by reconcile() or another syncLane —
+    // 'busy' does not imply 'publishLane'. `reason: 'busy'` still lets a
+    // caller distinguish busy from failed programmatically; only the
+    // human-readable text changes here.
+    if (publishing !== null) return { ok: false, reason: 'busy', message: 'conductor is busy' }
     publishing = lane.id
     try {
       const facts = await lanes.facts(lane)
@@ -333,10 +398,17 @@ export function createConductor(deps: ConductorDeps): Conductor {
     const status = await runGit(['status', '--porcelain', '--untracked-files=no'], {
       cwd: settings.integrationWorktree
     })
+    // Finding 2: the integration worktree is permanently detached, so its own
+    // HEAD can be ahead of integrationBranch even when nothing is wrong
+    // (mergeInIntegration() commits there before the CAS ever runs). Reading
+    // it here is what lets classifyOperation tell "a merge commit exists
+    // with no journal record of it" apart from "nothing happened at all".
+    const integrationHead = await runGit(['rev-parse', 'HEAD'], { cwd: settings.integrationWorktree })
     const reality = {
       refSha,
       mergeHeadPresent: mergeHead.code === 0 && mergeHead.stdout.trim().length > 0,
-      integrationDirty: status.stdout.trim().length > 0
+      integrationDirty: status.stdout.trim().length > 0,
+      integrationHeadSha: integrationHead.stdout.trim()
     }
 
     const byOp = new Map<string, typeof entries>()

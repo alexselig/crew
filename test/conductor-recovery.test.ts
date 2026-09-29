@@ -20,7 +20,7 @@ const entry = (
 })
 
 const reality = (over: Partial<OperationReality> = {}): OperationReality => ({
-  refSha: BASE, mergeHeadPresent: false, integrationDirty: false, ...over
+  refSha: BASE, mergeHeadPresent: false, integrationDirty: false, integrationHeadSha: BASE, ...over
 })
 
 describe('classifyOperation', () => {
@@ -31,6 +31,41 @@ describe('classifyOperation', () => {
   it('classifies a present MERGE_HEAD as an interrupted merge', () => {
     expect(classifyOperation([entry('intent')], reality({ mergeHeadPresent: true })))
       .toBe('interrupted-merge')
+  })
+
+  // Finding 2: the crash landed inside the 'merged' append itself — the
+  // merge commit exists in the (permanently detached) integration worktree,
+  // but no journal entry ever recorded it, because the append never
+  // finished. Every field BUT integrationHeadSha reads exactly like nothing
+  // happened (ref unmoved, no MERGE_HEAD, clean worktree): this is the
+  // load-bearing assertion that integrationHeadSha alone is what surfaces
+  // the merge. Fails against the pre-fix classifier/reality shape, which had
+  // no way to express "integration worktree HEAD moved" and would return
+  // not-started here.
+  it('classifies journal-only-intent with an advanced integration HEAD as externally-modified, not not-started', () => {
+    const entries = [entry('intent')]
+    expect(classifyOperation(entries, reality({ integrationHeadSha: RESULT })))
+      .toBe('externally-modified')
+  })
+
+  // Regression guard for the same window: MERGE_HEAD present rules out "the
+  // merge already committed" by definition (a merge only clears MERGE_HEAD
+  // at the moment it commits), so an advanced integration HEAD must never
+  // even be consulted while MERGE_HEAD is still there — interrupted-merge
+  // must win.
+  it('still classifies a present MERGE_HEAD as interrupted-merge even if integrationHeadSha also looks advanced', () => {
+    const entries = [entry('intent')]
+    expect(classifyOperation(entries, reality({ mergeHeadPresent: true, integrationHeadSha: RESULT })))
+      .toBe('interrupted-merge')
+  })
+
+  // Unmoved integration HEAD (the overwhelmingly common case: no merge ever
+  // attempted, or a prior one already reset back to base) must still fall
+  // through to the existing dirty/not-started checks untouched.
+  it('still classifies intent with an unmoved integration HEAD and a dirty worktree as interrupted-tests', () => {
+    const entries = [entry('intent')]
+    expect(classifyOperation(entries, reality({ integrationDirty: true })))
+      .toBe('interrupted-tests')
   })
 
   it('classifies a recorded result with an unmoved ref as merged-unpublished', () => {
