@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, isAbsolute, resolve } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
 import type { ConductorSettings } from '../src/shared/conductor'
 
@@ -195,6 +195,63 @@ describe('syncLane', () => {
     const result = await lanes.syncLane(lane, merged.resultSha)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.conflictPaths).toContain('shared.txt')
+    expect(git(['status', '--porcelain'], lane.worktree)).toBe('')
+  })
+
+  // A linked worktree's .git is a file pointing at repo/.git/worktrees/<name>,
+  // not a directory of its own; `merge --abort` needs to write there
+  // (MERGE_HEAD, the index lock, ORIG_HEAD). Making that admin directory
+  // read-only forces the abort itself to fail, deterministically, without
+  // mocking anything: it's the same technique test/installer.test.ts uses to
+  // force a real write failure via chmodSync.
+  it('reports both the original conflict and a failed abort, and leaves the worktree usable once permissions are restored', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    const other = await lanes.create('other', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'shared.txt', 'lane\n', 'lane work')
+    commit(other.worktree, 'shared.txt', 'other\n', 'other work')
+
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+    const merged = await lanes.mergeInIntegration(
+      git(['rev-parse', other.branch as string], settings.repo), base
+    )
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+
+    // Pre-create the real conflict with raw git, while the worktree's git
+    // dir is still writable: this leaves MERGE_HEAD and an unmerged
+    // shared.txt in place, exactly as a genuinely conflicted merge would.
+    expect(() => gitExpectFailure(['merge', '--no-edit', merged.resultSha], lane.worktree)).toThrow()
+
+    const gitDirOut = git(['rev-parse', '--git-dir'], lane.worktree)
+    const gitDir = isAbsolute(gitDirOut) ? gitDirOut : resolve(lane.worktree, gitDirOut)
+    expect(gitDir).toContain(join('.git', 'worktrees'))
+
+    chmodSync(gitDir, 0o500)
+    let caught: unknown
+    try {
+      // syncLane's own merge attempt now runs against the already-conflicted
+      // worktree: git refuses ("you have not concluded your merge"), the
+      // pre-existing unmerged paths are still there, and the abort it then
+      // tries fails because it cannot write into the read-only git dir.
+      await lanes.syncLane(lane, merged.resultSha)
+    } catch (err) {
+      caught = err
+    } finally {
+      // Must run even if an assertion above throws, or the temp dir left by
+      // afterEach's rmSync becomes unremovable.
+      chmodSync(gitDir, 0o700)
+    }
+
+    expect(caught).toBeInstanceOf(Error)
+    const message = (caught as Error).message
+    expect(message).toMatch(/manual attention/)
+    expect(message).toMatch(/shared\.txt/)
+    expect(message).toMatch(/merge --abort/)
+
+    // Permissions restored: the worktree can now actually be untangled.
+    git(['merge', '--abort'], lane.worktree)
     expect(git(['status', '--porcelain'], lane.worktree)).toBe('')
   })
 

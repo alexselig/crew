@@ -168,11 +168,12 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     // after us, so it must never be swallowed as though it were a conflict.
     const abort = await runGit(['merge', '--abort'], { cwd })
     if (abort.code !== 0) {
+      const originalFailure = merge.stderr.trim() || merge.stdout.trim() || 'no output'
+      const abortFailure = abort.stderr.trim() || abort.stdout.trim() || 'no output'
       throw new GitError(
         ['merge', '--abort'],
-        `integration worktree at ${cwd} needs manual attention: merge --abort failed after a conflicted merge: ${
-          abort.stderr.trim() || abort.stdout.trim() || 'no output'
-        }`
+        `integration worktree at ${cwd} needs manual attention: original merge of ${target} failed (${originalFailure}), ` +
+          `conflicting paths: ${conflictPaths.join(', ')}; merge --abort then also failed (${abortFailure})`
       )
     }
     return {
