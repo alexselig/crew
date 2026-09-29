@@ -6,7 +6,7 @@ import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { runGit } from './supervise'
-import type { ConductorLane, ConductorSettings, LaneFacts, LaneAgent, MergeResult } from '../shared/conductor'
+import type { ConductorLane, ConductorSettings, LaneFacts, LaneAgent, MergeResult, PublishResult } from '../shared/conductor'
 
 export interface LaneManager {
   /** Create the Crew-owned integration worktree if absent. Always detached. */
@@ -20,6 +20,9 @@ export interface LaneManager {
   /** Bring the integration branch INTO a lane. The only way a lane receives
    *  its teammates' work. Runs only when the lane is quiescent. */
   syncLane(lane: ConductorLane, base: string): Promise<MergeResult>
+  /** Compare-and-swap the integration ref. Refuses if any worktree has the
+   *  branch checked out. */
+  publish(newSha: string, expectedOld: string): Promise<PublishResult>
   destroy(lane: ConductorLane, opts: { force: boolean }): Promise<void>
 }
 
@@ -199,6 +202,43 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     return mergeAt(lane.worktree, base)
   }
 
+  const branchIsCheckedOut = async (): Promise<boolean> => {
+    const list = await inRepo(['worktree', 'list', '--porcelain'])
+    return list.split('\n').some((line) => line.trim() === `branch refs/heads/${settings.integrationBranch}`)
+  }
+
+  const publish = async (newSha: string, expectedOld: string): Promise<PublishResult> => {
+    // Immediately before the CAS: update-ref on a branch that is somebody's
+    // HEAD advances the ref and leaves their index and files behind it.
+    if (await branchIsCheckedOut()) {
+      return {
+        ok: false,
+        reason: 'branch-checked-out',
+        message: `${settings.integrationBranch} is checked out in a worktree; refusing to publish`
+      }
+    }
+
+    const ref = `refs/heads/${settings.integrationBranch}`
+    // The three-argument form IS the compare-and-swap: git refuses unless the
+    // ref still equals expectedOld.
+    const cas = await runGit(['update-ref', ref, newSha, expectedOld], { cwd: settings.repo })
+    if (cas.code !== 0) {
+      const current = await inRepo(['rev-parse', settings.integrationBranch])
+      return {
+        ok: false,
+        reason: current === expectedOld ? 'error' : 'ref-moved',
+        message: cas.stderr.trim() || `expected ${expectedOld}, found ${current}`
+      }
+    }
+
+    const diff = await inRepo(['diff', '--name-only', expectedOld, newSha])
+    return {
+      ok: true,
+      commit: newSha,
+      touchedPaths: diff.split('\n').map((line) => line.trim()).filter(Boolean)
+    }
+  }
+
   const destroy = async (lane: ConductorLane, opts: { force: boolean }): Promise<void> => {
     if (!opts.force) {
       const dirty = await inDir(lane.worktree, ['status', '--porcelain', '--untracked-files=no'])
@@ -221,5 +261,5 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     }
   }
 
-  return { ensureIntegrationWorktree, create, facts, mergeInIntegration, syncLane, destroy }
+  return { ensureIntegrationWorktree, create, facts, mergeInIntegration, syncLane, publish, destroy }
 }
