@@ -44,6 +44,8 @@ Copied verbatim from `docs/superpowers/specs/2026-09-28-conducted-workspaces-des
 | `src/main/conductor-compose.ts` | Creates a conducted workspace: integration worktree, then a lane and a session per row, all-or-nothing. |
 | `src/shared/conductor-proposal.ts` | Pure parse + reconcile of an agent-written roster against the live model catalogue and installed presets. |
 | `src/renderer/components/ConductorComposer.tsx` | The creation form. Opens empty, or pre-filled from a proposal. |
+| `src/renderer/conductor-plan-document.ts` | Pure: arranges a reconciled proposal for reading — bands, roster rows, notes attached to the rows they concern. |
+| `src/renderer/components/ConductorPlanDialog.tsx` | Renders that document. Escaped text only; never renders agent-supplied markup. |
 
 **The new-session dialog is not modified by any task in this plan.** Conducting is a property of the workspace, so the composer lives in the workspace creation flow; every ordinary session in Crew, including ordinary sessions inside a conducted workspace, behaves exactly as it does today.
 
@@ -3946,8 +3948,16 @@ export interface ProposalRow {
   rationale: string
 }
 
+export interface ProposalSection {
+  heading: string
+  body: string
+}
+
 export interface PlanProposal {
   summary: string
+  /** The conductor's argument for the plan. Plain text only — it is rendered
+   *  as escaped text, never as markup. Absent is normal, not an error. */
+  narrative: ProposalSection[]
   rows: ProposalRow[]
 }
 
@@ -3964,6 +3974,7 @@ export interface ProposalNote {
 
 export interface ReconciledRoster {
   summary: string
+  narrative: ProposalSection[]
   rows: (RosterRow & { rationale: string })[]
   notes: ProposalNote[]
 }
@@ -4006,10 +4017,24 @@ export function parseProposal(text: string): ParseResult {
     })
   }
 
+  const narrative: ProposalSection[] = []
+  if (Array.isArray(candidate.narrative)) {
+    for (const entry of candidate.narrative) {
+      if (typeof entry !== 'object' || entry === null) continue
+      const section = entry as Record<string, unknown>
+      const heading = typeof section.heading === 'string' ? section.heading : ''
+      const body = typeof section.body === 'string' ? section.body : ''
+      // A section with neither heading nor body renders as an empty band.
+      if (!heading && !body) continue
+      narrative.push({ heading, body })
+    }
+  }
+
   return {
     ok: true,
     proposal: {
       summary: typeof candidate.summary === 'string' ? candidate.summary : '',
+      narrative,
       rows
     }
   }
@@ -4062,7 +4087,7 @@ export function reconcileProposal(
     }
   })
 
-  return { summary: proposal.summary, rows: reconciled, notes }
+  return { summary: proposal.summary, narrative: proposal.narrative, rows: reconciled, notes }
 }
 ```
 
@@ -4079,6 +4104,8 @@ Nothing about the manual path changes. With no `initial`, the composer behaves p
 
 Add a **Load a plan file…** control that reads a `.json` from disk through `parseProposal` + `reconcileProposal`. This is the Phase 1 way to exercise the whole path with no agent running, and it stays useful afterwards.
 
+`narrative` is carried through untouched here and is **not** rendered by the composer — Task 13 owns the reading experience. The composer stays a form.
+
 - [ ] **Step 7: Run the full gate and commit**
 
 Run: `npx vitest run && npm run typecheck && npm run build`
@@ -4086,6 +4113,337 @@ Run: `npx vitest run && npm run typecheck && npm run build`
 ```bash
 git add src/shared/conductor-proposal.ts src/renderer/components/ConductorComposer.tsx test/conductor-proposal.test.ts test/fixtures/conductor-proposals
 git commit -m "feat(conductor): parse and reconcile an agent-proposed roster"
+```
+
+---
+
+### Task 13: The plan view — rendering a proposal as a document you read
+
+A reconciled roster is a table. The question the user is actually in a position
+to disagree with is *why this decomposition*, and a table cannot answer it. This
+task turns a `ReconciledRoster` into a readable document and renders it — in
+Crew, from structured data, with every value escaped. The conductor supplies no
+markup at any point.
+
+**Files:**
+- Create: `src/renderer/conductor-plan-document.ts`
+- Create: `src/renderer/components/ConductorPlanDialog.tsx`
+- Create: `test/conductor-plan-document.test.ts`
+
+**Interfaces:**
+- Consumes: `ReconciledRoster`, `ProposalSection`, `ProposalNote` from `src/shared/conductor-proposal` (Task 12); `ConductorComposer` from Task 11.
+- Produces: `buildPlanDocument(roster: ReconciledRoster): PlanDocument`, and `ConductorPlanDialog`.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `test/conductor-plan-document.test.ts`:
+
+```ts
+import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { buildPlanDocument } from '../src/renderer/conductor-plan-document'
+import type { ReconciledRoster } from '../src/shared/conductor-proposal'
+
+function roster(over: Partial<ReconciledRoster> = {}): ReconciledRoster {
+  return {
+    summary: 'Split the importer from the renderer.',
+    narrative: [],
+    rows: [
+      {
+        roleName: 'importer',
+        kind: 'author',
+        agent: { presetId: 'claude', model: 'opus' },
+        rationale: 'Long refactor, needs the strongest model.'
+      }
+    ],
+    notes: [],
+    ...over
+  }
+}
+
+describe('buildPlanDocument', () => {
+  it('opens with the summary', () => {
+    const doc = buildPlanDocument(roster())
+    expect(doc.bands[0]).toEqual({
+      kind: 'summary',
+      heading: 'The plan',
+      paragraphs: ['Split the importer from the renderer.']
+    })
+  })
+
+  it('omits the summary band when there is no summary', () => {
+    const doc = buildPlanDocument(roster({ summary: '   ' }))
+    expect(doc.bands).toHaveLength(0)
+  })
+
+  it('keeps narrative sections in order after the summary', () => {
+    const doc = buildPlanDocument(
+      roster({
+        narrative: [
+          { heading: 'Approach', body: 'One lane per seam.' },
+          { heading: 'Risks', body: 'The importer touches the schema.' }
+        ]
+      })
+    )
+    expect(doc.bands.map((b) => b.heading)).toEqual(['The plan', 'Approach', 'Risks'])
+    expect(doc.bands[1].kind).toBe('section')
+  })
+
+  it('splits a body into paragraphs on blank lines', () => {
+    const doc = buildPlanDocument(
+      roster({ narrative: [{ heading: 'Approach', body: 'First.\n\n\nSecond.\n' }] })
+    )
+    expect(doc.bands[1].paragraphs).toEqual(['First.', 'Second.'])
+  })
+
+  it('treats markup in a body as literal text, never as structure', () => {
+    const body = '<script>alert(1)</script> **not bold**'
+    const doc = buildPlanDocument(roster({ narrative: [{ heading: 'h', body }] }))
+    expect(doc.bands[1].paragraphs).toEqual([body])
+  })
+
+  it('labels a null model rather than inventing one', () => {
+    const r = roster()
+    r.rows[0].agent.model = null
+    const doc = buildPlanDocument(r)
+    expect(doc.rows[0].modelLabel).toBe('default model')
+  })
+
+  it('attaches a blocking note to its own row and refuses Create', () => {
+    const doc = buildPlanDocument(
+      roster({ notes: [{ row: 0, severity: 'blocking', message: 'opus is not an available model — choose one' }] })
+    )
+    expect(doc.rows[0].problems).toEqual(['opus is not an available model — choose one'])
+    expect(doc.blockingCount).toBe(1)
+    expect(doc.canCreate).toBe(false)
+  })
+
+  it('lets warnings through — they inform, they do not block', () => {
+    const doc = buildPlanDocument(
+      roster({ notes: [{ row: 0, severity: 'warning', message: 'no reviewer proposed' }] })
+    )
+    expect(doc.rows[0].warnings).toEqual(['no reviewer proposed'])
+    expect(doc.canCreate).toBe(true)
+  })
+
+  it('collects roster-wide notes separately from row notes', () => {
+    const doc = buildPlanDocument(
+      roster({ notes: [{ row: -1, severity: 'warning', message: 'proposed 5 lanes; 3 were dropped' }] })
+    )
+    expect(doc.rosterNotes).toEqual(['proposed 5 lanes; 3 were dropped'])
+    expect(doc.rows[0].warnings).toEqual([])
+  })
+
+  it('ignores a note pointing at a row that does not exist', () => {
+    const doc = buildPlanDocument(
+      roster({ notes: [{ row: 7, severity: 'blocking', message: 'stale' }] })
+    )
+    expect(doc.rows[0].problems).toEqual([])
+    expect(doc.canCreate).toBe(true)
+  })
+
+  it('never hands agent text to the DOM as markup', () => {
+    const source = readFileSync('src/renderer/components/ConductorPlanDialog.tsx', 'utf8')
+    expect(source).not.toContain('dangerouslySetInnerHTML')
+  })
+})
+```
+
+- [ ] **Step 2: Run it and watch it fail**
+
+Run: `npx vitest run test/conductor-plan-document.test.ts`
+Expected: FAIL — `Failed to resolve import ".../conductor-plan-document"`.
+
+- [ ] **Step 3: Write the document model**
+
+Create `src/renderer/conductor-plan-document.ts`:
+
+```ts
+// A reconciled proposal, arranged for reading. Pure: no DOM, no React, no IO.
+//
+// Everything here is plain text. The conductor never supplies markup and this
+// module never interprets any: a body containing HTML comes out as a literal
+// paragraph string and React escapes it on render. That is the whole security
+// posture of the plan view, and the test above is what holds it in place.
+
+import type { ReconciledRoster } from '../shared/conductor-proposal'
+
+export interface PlanDocumentBand {
+  kind: 'summary' | 'section'
+  heading: string
+  paragraphs: string[]
+}
+
+export interface PlanDocumentRow {
+  roleName: string
+  kindLabel: 'Author' | 'Reviewer'
+  presetId: string
+  modelLabel: string
+  rationale: string
+  problems: string[]
+  warnings: string[]
+}
+
+export interface PlanDocument {
+  bands: PlanDocumentBand[]
+  rows: PlanDocumentRow[]
+  rosterNotes: string[]
+  blockingCount: number
+  canCreate: boolean
+}
+
+function paragraphs(body: string): string[] {
+  return body
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+}
+
+export function buildPlanDocument(roster: ReconciledRoster): PlanDocument {
+  const bands: PlanDocumentBand[] = []
+
+  const summary = paragraphs(roster.summary)
+  if (summary.length > 0) {
+    bands.push({ kind: 'summary', heading: 'The plan', paragraphs: summary })
+  }
+
+  for (const section of roster.narrative) {
+    const body = paragraphs(section.body)
+    if (body.length === 0 && !section.heading.trim()) continue
+    bands.push({ kind: 'section', heading: section.heading.trim(), paragraphs: body })
+  }
+
+  const rows: PlanDocumentRow[] = roster.rows.map((row) => ({
+    roleName: row.roleName,
+    kindLabel: row.kind === 'reviewer' ? 'Reviewer' : 'Author',
+    presetId: row.agent.presetId,
+    // Never invent a model name here. A null model means the preset's own
+    // default will be used, and saying so is the honest label.
+    modelLabel: row.agent.model ?? 'default model',
+    rationale: row.rationale,
+    problems: [],
+    warnings: []
+  }))
+
+  const rosterNotes: string[] = []
+  let blockingCount = 0
+
+  for (const note of roster.notes) {
+    if (note.row === -1) {
+      rosterNotes.push(note.message)
+      if (note.severity === 'blocking') blockingCount += 1
+      continue
+    }
+    const target = rows[note.row]
+    // A note aimed past the end of the roster is stale, not fatal. Dropping it
+    // is safe; counting it as blocking would wedge Create with no visible cause.
+    if (!target) continue
+    if (note.severity === 'blocking') {
+      target.problems.push(note.message)
+      blockingCount += 1
+    } else {
+      target.warnings.push(note.message)
+    }
+  }
+
+  return { bands, rows, rosterNotes, blockingCount, canCreate: blockingCount === 0 }
+}
+```
+
+- [ ] **Step 4: Write the dialog**
+
+Create `src/renderer/components/ConductorPlanDialog.tsx`:
+
+```tsx
+import { useMemo, useState } from 'react'
+import type { ReconciledRoster } from '../../shared/conductor-proposal'
+import { buildPlanDocument } from '../conductor-plan-document'
+import { ConductorComposer } from './ConductorComposer'
+
+interface Props {
+  roster: ReconciledRoster
+  onCreate: (roster: ReconciledRoster) => void
+  onCancel: () => void
+}
+
+export function ConductorPlanDialog({ roster, onCreate, onCancel }: Props): JSX.Element {
+  const doc = useMemo(() => buildPlanDocument(roster), [roster])
+  const [editing, setEditing] = useState(false)
+
+  return (
+    <div className="plan-doc" role="dialog" aria-label="Proposed plan">
+      {doc.bands.map((band, i) => (
+        <section key={i} className={`plan-doc__band plan-doc__band--${band.kind}`}>
+          {band.heading && <h2 className="plan-doc__heading">{band.heading}</h2>}
+          {band.paragraphs.map((p, j) => (
+            <p key={j} className="plan-doc__p">{p}</p>
+          ))}
+        </section>
+      ))}
+
+      {doc.rosterNotes.length > 0 && (
+        <ul className="plan-doc__notes">
+          {doc.rosterNotes.map((n, i) => <li key={i}>{n}</li>)}
+        </ul>
+      )}
+
+      <table className="plan-doc__roster">
+        <thead>
+          <tr><th>Role</th><th>Kind</th><th>Agent</th><th>Model</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          {doc.rows.map((row, i) => (
+            <tr key={i} className={row.problems.length > 0 ? 'plan-doc__row--blocked' : undefined}>
+              <td>{row.roleName}</td>
+              <td>{row.kindLabel}</td>
+              <td>{row.presetId}</td>
+              <td>{row.modelLabel}</td>
+              <td>
+                {row.rationale}
+                {row.problems.map((p, j) => <div key={j} className="plan-doc__problem">{p}</div>)}
+                {row.warnings.map((w, j) => <div key={j} className="plan-doc__warning">{w}</div>)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {editing ? (
+        <ConductorComposer initial={roster} onCreate={onCreate} onCancel={() => setEditing(false)} />
+      ) : (
+        <div className="plan-doc__actions">
+          <button onClick={onCancel}>Cancel</button>
+          <button onClick={() => setEditing(true)}>Edit the roster</button>
+          <button
+            disabled={!doc.canCreate}
+            title={doc.canCreate ? undefined : `${doc.blockingCount} problem(s) must be resolved first`}
+            onClick={() => onCreate(roster)}
+          >
+            Create
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+Read first, edit second, Create third. **Create is disabled while any blocking
+note stands** — the same rule the composer enforces, stated in the same place
+the user is reading.
+
+- [ ] **Step 5: Run it and watch it pass**
+
+Run: `npx vitest run test/conductor-plan-document.test.ts`
+Expected: PASS — 11 tests.
+
+- [ ] **Step 6: Run the full gate and commit**
+
+Run: `npx vitest run && npm run typecheck && npm run build`
+
+```bash
+git add src/renderer/conductor-plan-document.ts src/renderer/components/ConductorPlanDialog.tsx test/conductor-plan-document.test.ts
+git commit -m "feat(conductor): render a proposed plan as a document before the composer"
 ```
 
 ---

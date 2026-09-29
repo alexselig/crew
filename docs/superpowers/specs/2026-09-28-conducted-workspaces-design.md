@@ -887,6 +887,12 @@ Additional requirements from review:
   that creates the lanes and their sessions. Per-edge gates are configured here
   from Phase 2 on. Rejections show inline, before anything is created. See
   *Composing a run*. **The new-session dialog is unchanged.**
+- **Plan view:** when the roster was proposed by a conductor session, it opens
+  here first — a dialog rendering the summary, the conductor's narrative
+  sections and the roster with each row's rationale, validation problems inline
+  against the rows they affect, and the composer form one click underneath.
+  Read first, edit second, Create third. Crew renders it; the conductor never
+  supplies markup. See *The conductor session plans the run*.
 - **Roster:** per lane — status, `ahead`, `behind`, and a warning (never a
   block) when the lane has uncommitted or untracked files. `behind` is derived
   from `rev-list` only, never incremented by bulletins, which would give the UI
@@ -1007,12 +1013,16 @@ partially redrawn, so "did the agent finish emitting the JSON" has no reliable
 answer. A file has one. This is the same reason the detector is not trusted as a
 turn boundary elsewhere in this design.
 
-The schema is deliberately small — anything richer is a bigger surface to
-validate for no gain at this stage:
+The schema carries both the structure Crew must validate and the prose the user
+must read, because those are two different jobs and collapsing them loses one:
 
 ```ts
 interface PlanProposal {
   summary: string
+  /** The argument for the plan, in the conductor's own words. Plain text only;
+   *  rendered as a document, never as markup. Optional — a proposal with no
+   *  narrative is still valid, just thinner to read. */
+  narrative?: Array<{ heading: string; body: string }>
   rows: Array<{
     roleName: string
     kind: 'author' | 'reviewer'
@@ -1023,6 +1033,32 @@ interface PlanProposal {
   }>
 }
 ```
+
+### The plan is shown as a document, not a form
+
+A roster table answers *what will run*. It does not answer *why this
+decomposition*, which is the only question the user is actually in a position to
+disagree with — and disagreeing is the entire point of the gate. So the proposal
+opens in a **plan view**: a dialog that renders the summary, the conductor's
+narrative sections, and the roster as a table with each row's rationale beside
+it, with validation problems shown inline against the rows they affect. It reads
+like a document. The editable composer form is one click away, underneath.
+
+**Crew renders the proposal; the conductor does not render anything.** It never
+authors HTML, Markdown or any other markup, and Crew escapes every interpolated
+value on the way into the view. Two reasons, both load-bearing:
+
+1. Model-authored markup rendered inside the renderer — which has preload and
+   IPC reach — is an injection surface, and the proposal is untrusted input by
+   the definition three paragraphs down.
+2. An opaque document blob cannot be reconciled against the live model
+   catalogue. **Flag-never-substitute only works on structured rows.** Letting
+   the conductor hand over prose-as-presentation would quietly cost the
+   guarantee that matters most.
+
+This is the same discipline the design applies to the transcript: take the
+machine-checkable thing off the wire, and do the presentation locally where it
+can be trusted.
 
 ### A proposal is untrusted input
 
@@ -1045,9 +1081,10 @@ problems listed against their rows.
 
 ### The user still presses Create
 
-The proposal lands in the composer form — pre-filled, fully editable, each row
-carrying the conductor's one-line rationale — and the user confirms it. Crew
-then creates the lanes and spawns each session with its own preset and model.
+The proposal lands in the plan view described above — readable first, editable
+underneath, each row carrying the conductor's one-line rationale — and the user
+confirms it. Crew then creates the lanes and spawns each session with its own
+preset and model.
 
 Spawning N agents commits real money and real repository state, and the premise
 of the whole feature is that the user is conducting rather than watching. This
@@ -1261,12 +1298,13 @@ signals without building the transport:
 only for its *agent* half, so it is split where the risk is:
 
 - **In Phase 1, because it needs no agent at all:** the proposal schema, the
-  parser, and the reconciliation of a proposed roster against the live model
-  catalogue and the installed presets. This is where every real hazard lives —
-  hallucinated model IDs, unknown presets, too many rows, malformed JSON — and
-  all of it is pure, deterministic and testable against fixture files with
-  nothing spawned. It ships with Phase 1 and is exercised by loading a proposal
-  from disk.
+  parser, the reconciliation of a proposed roster against the live model
+  catalogue and the installed presets, and the **plan view** that renders a
+  reconciled proposal as a readable document. This is where every real hazard
+  lives — hallucinated model IDs, unknown presets, too many rows, malformed
+  JSON — and all of it is pure, deterministic and testable against fixture files
+  with nothing spawned. It ships with Phase 1 and is exercised by loading a
+  proposal from disk.
 - **In Phase 1c, once a transport exists:** spawning the conductor session in
   its plan worktree, installing its skill, injecting the live catalogue into its
   briefing, and watching for `.crew/conductor-plan.json`.
