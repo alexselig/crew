@@ -23,6 +23,7 @@ import type {
   SyncOutcome,
   ReconcileReport
 } from './conductor'
+import type { RosterDraft, ComposeResult } from './conductor-composer'
 import type { AssetItem } from './assets'
 import type { TrackerData, CommitActivity, RunningServer, LaunchResult, PastWeek } from './tracker'
 import type { UsageAnalytics } from './usage'
@@ -117,6 +118,7 @@ export interface CrewAPI {
   publishLane(laneId: string): Promise<PublishOutcome>
   syncLane(laneId: string): Promise<SyncOutcome>
   reconcileConductor(): Promise<ReconcileReport>
+  composeConductedWorkspace(draft: RosterDraft): Promise<ComposeResult>
   /** Replace a session's workspace-id membership. */
   setSessionWorkspaces(id: string, workspaceIds: string[]): Promise<void>
   addSessionToWorkspace(id: string, wsId: string): Promise<void>

@@ -4,6 +4,7 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/types'
 import type { CrewAPI, CustomViewCreateResult, Unsubscribe } from '../shared/api'
+import type { RosterDraft } from '../shared/conductor-composer'
 import { initialAppActivity, ReplayValue } from './replay-value'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
@@ -37,6 +38,7 @@ const api: CrewAPI = {
   publishLane: (laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_PUBLISH, laneId),
   syncLane: (laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_SYNC, laneId),
   reconcileConductor: () => ipcRenderer.invoke(IPC.CONDUCTOR_RECONCILE),
+  composeConductedWorkspace: (draft: RosterDraft) => ipcRenderer.invoke(IPC.CONDUCTOR_COMPOSE, draft),
   createWorkspace: (name) => ipcRenderer.invoke(IPC.WORKSPACE_CREATE, name),
   renameWorkspace: (id, name) => ipcRenderer.invoke(IPC.WORKSPACE_RENAME, { id, name }),
   describeWorkspace: (id, description) => ipcRenderer.invoke(IPC.WORKSPACE_DESCRIBE, { id, description }),

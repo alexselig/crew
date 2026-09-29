@@ -44,6 +44,7 @@ function harness(backend: Partial<ConductorBackend> = {}) {
     publishLane: vi.fn(async () => ({ ok: true as const, commit: 'abc', touchedPaths: [], warnings: [] })),
     syncLane: vi.fn(async () => ({ ok: true as const, resultSha: 'def', fastForward: true })),
     reconcile: vi.fn(async () => ({ needsAttention: false, operations: [] })),
+    compose: vi.fn(async () => ({ ok: true as const, lanes: [lane({ id: 'lane-3' })] })),
     ...backend
   }
   registerConductorIpc({ handle: (channel, handler) => void handlers.set(channel, handler) }, full, broadcast)
@@ -65,7 +66,8 @@ describe('conductor IPC contract', () => {
         IPC.CONDUCTOR_LANE_DESTROY,
         IPC.CONDUCTOR_PUBLISH,
         IPC.CONDUCTOR_SYNC,
-        IPC.CONDUCTOR_RECONCILE
+        IPC.CONDUCTOR_RECONCILE,
+        IPC.CONDUCTOR_COMPOSE
       ].sort()
     )
   })
@@ -130,11 +132,36 @@ describe('conductor IPC contract', () => {
     const preload = readFileSync(new URL('../src/preload/index.ts', import.meta.url), 'utf8')
     for (const key of [
       'CONDUCTOR_STATE', 'CONDUCTOR_LANE_CREATE', 'CONDUCTOR_LANE_DESTROY',
-      'CONDUCTOR_PUBLISH', 'CONDUCTOR_SYNC', 'CONDUCTOR_RECONCILE',
+      'CONDUCTOR_PUBLISH', 'CONDUCTOR_SYNC', 'CONDUCTOR_RECONCILE', 'CONDUCTOR_COMPOSE',
       'EVT_CONDUCTOR_STATE'
     ]) {
       expect(preload).toContain(`IPC.${key}`)
     }
+  })
+
+  it('registers the compose channel and broadcasts fresh state after a successful compose', async () => {
+    const { invoke, broadcast, backend } = harness()
+    const draft = {
+      repo: '/repo',
+      integrationBranch: 'crew/integration',
+      rows: [{ roleName: 'builder', kind: 'author' as const, agent: { presetId: 'shell', model: null } }]
+    }
+    const result = await invoke(IPC.CONDUCTOR_COMPOSE, draft)
+    expect(result).toMatchObject({ ok: true })
+    expect(backend.compose).toHaveBeenCalledWith(draft)
+    expect(broadcast).toHaveBeenCalledTimes(1)
+    expect(broadcast.mock.calls[0][0]).toBe(IPC.EVT_CONDUCTOR_STATE)
+  })
+
+  // Unlike publish/sync, a failed compose never partially changes anything —
+  // every lane it created is rolled back — so there is nothing new to show.
+  it('does not broadcast when compose reports a failure', async () => {
+    const { invoke, broadcast } = harness({
+      compose: vi.fn(async () => ({ ok: false as const, errors: [{ field: 'rows', message: 'add at least one lane' }] }))
+    })
+    const result = await invoke(IPC.CONDUCTOR_COMPOSE, { repo: '/repo', integrationBranch: 'crew/integration', rows: [] })
+    expect(result).toMatchObject({ ok: false })
+    expect(broadcast).not.toHaveBeenCalled()
   })
 
   it('registers the conductor IPC module from the main entrypoint', () => {
@@ -194,6 +221,13 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
     )
   })
 
+  it('refuses composing a run cleanly', async () => {
+    const backend = createShippedConductorBackend(null)
+    await expect(
+      backend.compose({ repo: '/repo', integrationBranch: 'crew/integration', rows: [] })
+    ).rejects.toThrow('conductor is not configured for this workspace yet')
+  })
+
   it('wired through registerConductorIpc, refuses every mutating channel over IPC too', async () => {
     const handlers = new Map<string, Handler>()
     const broadcast = vi.fn()
@@ -218,6 +252,8 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
     await expect(invoke(IPC.CONDUCTOR_SYNC, 'lane-1'))
       .rejects.toThrow('conductor is not configured for this workspace yet')
     await expect(invoke(IPC.CONDUCTOR_RECONCILE))
+      .rejects.toThrow('conductor is not configured for this workspace yet')
+    await expect(invoke(IPC.CONDUCTOR_COMPOSE, { repo: '/repo', integrationBranch: 'crew/integration', rows: [] }))
       .rejects.toThrow('conductor is not configured for this workspace yet')
     expect(broadcast).not.toHaveBeenCalled()
   })

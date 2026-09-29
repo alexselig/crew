@@ -5,6 +5,7 @@ import type { IpcMain } from 'electron'
 import { IPC } from '../shared/types'
 import type { LaneManager } from './lanes'
 import type { Conductor } from './conductor'
+import { composeRun, type ComposeDeps } from './conductor-compose'
 import type {
   ConductorSnapshot,
   LaneCreateRequest,
@@ -15,6 +16,7 @@ import type {
   SyncOutcome,
   ReconcileReport
 } from '../shared/conductor'
+import type { ComposeResult, RosterDraft } from '../shared/conductor-composer'
 
 // ConductorSnapshot, LaneCreateRequest and the other payload types are
 // declared in src/shared/conductor.ts (Task 1) because the renderer reads
@@ -27,6 +29,7 @@ export interface ConductorBackend {
   publishLane(laneId: string): Promise<PublishOutcome>
   syncLane(laneId: string): Promise<SyncOutcome>
   reconcile(): Promise<ReconcileReport>
+  compose(draft: RosterDraft): Promise<ComposeResult>
 }
 
 type Broadcast = (channel: string, payload: unknown) => void
@@ -76,9 +79,23 @@ export function registerConductorIpc(
   })
 
   ipc.handle(IPC.CONDUCTOR_RECONCILE, () => backend.reconcile())
+
+  // Unlike the handlers above, this broadcasts only on success: a rejected
+  // draft (validation errors, or a row that failed to spawn) rolls back
+  // everything it created, so nothing about conductor state has changed.
+  ipc.handle(IPC.CONDUCTOR_COMPOSE, async (_event, draft: RosterDraft) => {
+    const result = await backend.compose(draft)
+    if (result.ok) await publishState()
+    return result
+  })
 }
 
-export type ConductorRuntime = { lanes: LaneManager; conductor: Conductor; settings: ConductorSettings }
+export type ConductorRuntime = {
+  lanes: LaneManager
+  conductor: Conductor
+  settings: ConductorSettings
+  createSession: ComposeDeps['createSession']
+}
 
 // The shipped backend, extracted from src/main/index.ts so its disabled path
 // (runtime === null) is exercisable under environment: 'node' the same way
@@ -95,7 +112,7 @@ export function createShippedConductorBackend(conductorRuntime: ConductorRuntime
   let publishingLaneId: string | null = null
   let lastReconcile: ReconcileReport = { needsAttention: false, operations: [] }
 
-  const requireWired = (): { lanes: LaneManager; conductor: Conductor } => {
+  const requireWired = (): ConductorRuntime => {
     if (!conductorRuntime) throw new Error('conductor is not configured for this workspace yet')
     return conductorRuntime
   }
@@ -159,6 +176,17 @@ export function createShippedConductorBackend(conductorRuntime: ConductorRuntime
       const { conductor } = requireWired()
       lastReconcile = await conductor.reconcile()
       return lastReconcile
+    },
+    async compose(draft) {
+      const runtime = requireWired()
+      const result = await composeRun(
+        { lanes: runtime.lanes, settings: runtime.settings, createSession: runtime.createSession },
+        draft
+      )
+      if (result.ok) {
+        for (const lane of result.lanes) lanesById.set(lane.id, lane)
+      }
+      return result
     }
   }
 }

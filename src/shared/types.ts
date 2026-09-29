@@ -344,6 +344,7 @@ export const IPC = {
   CONDUCTOR_PUBLISH: 'conductor:publish',
   CONDUCTOR_SYNC: 'conductor:sync',
   CONDUCTOR_RECONCILE: 'conductor:reconcile',
+  CONDUCTOR_COMPOSE: 'conductor:compose',
   WORKSPACE_CREATE: 'workspace:create',
   WORKSPACE_RENAME: 'workspace:rename',
   WORKSPACE_DESCRIBE: 'workspace:describe',
