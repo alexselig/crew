@@ -894,6 +894,96 @@ button {
   border: 0;
 }
 
+/* Plan view: the reconciled proposal rendered as a document you read before
+ * you edit or create anything. Every value it shows is agent-written text —
+ * see ConductorPlanDialog.tsx — so nothing here relies on markup rendering;
+ * these rules style plain paragraphs, a table and buttons only. */
+.plan-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  max-width: 640px;
+}
+
+.plan-doc__band {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan-doc__heading {
+  margin: 0;
+  font-family: 'Newsreader', Georgia, serif;
+  font-weight: 500;
+  font-size: 18px;
+  letter-spacing: 0.01em;
+  color: var(--ivory);
+}
+
+.plan-doc__band--summary .plan-doc__heading {
+  font-size: 22px;
+}
+
+.plan-doc__p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.plan-doc__notes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.plan-doc__roster {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.plan-doc__roster th,
+.plan-doc__roster td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+
+.plan-doc__roster th {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.plan-doc__row--blocked td {
+  background: rgba(229, 72, 77, 0.06);
+}
+
+.plan-doc__problem {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--danger);
+}
+
+.plan-doc__warning {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #faa61a;
+}
+
+.plan-doc__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .mini-btn {
   padding: 2px 8px;
   border: 1px solid var(--border);
