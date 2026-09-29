@@ -87,3 +87,32 @@ export function buildPlanDocument(roster: ReconciledRoster): PlanDocument {
 
   return { bands, rows, rosterNotes, blockingCount, canCreate: blockingCount === 0 }
 }
+
+/** Which section of the dialog is showing beneath the (always-visible) plan
+ *  document: either the single action bar, or the composer the sole action
+ *  hands off to. The document itself is never conditional on this — see
+ *  ConductorPlanDialog.tsx, which renders `doc.bands`/`doc.rows` unconditionally
+ *  and only swaps this one region. */
+export interface PlanDialogLayout {
+  showActions: boolean
+  showComposer: boolean
+}
+
+export function planDialogLayout(continuing: boolean): PlanDialogLayout {
+  return { showActions: !continuing, showComposer: continuing }
+}
+
+/** The dialog's action bar: Cancel plus exactly ONE forward action. There is
+ *  no separate "edit" affordance that duplicates it — both a blocking-note
+ *  roster and a clean one hand off to the same composer, because neither
+ *  path can create anything from this screen alone (no repo/integrationBranch
+ *  on a ReconciledRoster; see the file-header comment). The label never
+ *  claims "Create": this action opens the composer, it does not create a run. */
+export interface PlanDialogAction {
+  label: string
+  disabled: boolean
+}
+
+export function planDialogAction(doc: Pick<PlanDocument, 'canCreate' | 'blockingCount'>): PlanDialogAction {
+  return { label: 'Continue', disabled: !doc.canCreate }
+}

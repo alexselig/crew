@@ -984,6 +984,15 @@ button {
   gap: 8px;
 }
 
+/* Wraps ConductorComposer when it is shown beneath the plan document
+ * (see ConductorPlanDialog.tsx): a top rule separates the read-only
+ * document above from the editable form below, rather than the composer
+ * replacing the document outright. */
+.plan-doc__composer {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 16px;
+}
+
 .mini-btn {
   padding: 2px 8px;
   border: 1px solid var(--border);

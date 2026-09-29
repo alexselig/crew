@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { buildPlanDocument } from '../src/renderer/conductor-plan-document'
+import { buildPlanDocument, planDialogAction, planDialogLayout } from '../src/renderer/conductor-plan-document'
 import type { ReconciledRoster } from '../src/shared/conductor-proposal'
 
 function roster(over: Partial<ReconciledRoster> = {}): ReconciledRoster {
@@ -104,5 +104,42 @@ describe('buildPlanDocument', () => {
   it('never hands agent text to the DOM as markup', () => {
     const source = readFileSync('src/renderer/components/ConductorPlanDialog.tsx', 'utf8')
     expect(source).not.toContain('dangerouslySetInnerHTML')
+  })
+
+  it('keeps the plan document visible in both layout states — continuing never hides it', () => {
+    // The document itself is not a function of this decision at all: it comes
+    // from buildPlanDocument alone. planDialogLayout only ever governs which
+    // one of the actions-bar / composer regions shows beneath it, so there is
+    // no state in which the read-only document could be replaced wholesale.
+    expect(planDialogLayout(false)).toEqual({ showActions: true, showComposer: false })
+    expect(planDialogLayout(true)).toEqual({ showActions: false, showComposer: true })
+  })
+
+  it('offers exactly one forward action, never a second one duplicating it', () => {
+    const clean = buildPlanDocument(roster())
+    const blocked = buildPlanDocument(
+      roster({ notes: [{ row: 0, severity: 'blocking', message: 'stale preset' }] })
+    )
+    // Same label either way — the action never renames itself to "Create" and
+    // never grows a sibling "Edit the roster" action. Only its disabled-ness
+    // tracks whether a blocking note stands.
+    expect(planDialogAction(clean)).toEqual({ label: 'Continue', disabled: false })
+    expect(planDialogAction(blocked)).toEqual({ label: 'Continue', disabled: true })
+  })
+
+  it('never labels the sole action "Create" — it opens the composer, it does not create a run', () => {
+    const doc = buildPlanDocument(roster())
+    expect(planDialogAction(doc).label).not.toMatch(/create/i)
+  })
+
+  it('has no second action duplicating the first under a different label', () => {
+    // Finding 1's regression was two buttons — "Edit the roster" and
+    // "Create" — both wired to the same setEditing(true) handoff. Guard the
+    // source directly: there must be exactly one handler that opens the
+    // composer, and no leftover "Edit the roster" label.
+    const source = readFileSync('src/renderer/components/ConductorPlanDialog.tsx', 'utf8')
+    expect(source).not.toContain('Edit the roster')
+    const opensComposer = source.match(/onClick=\{.*setContinuing\(true\).*\}/g) ?? []
+    expect(opensComposer).toHaveLength(1)
   })
 })

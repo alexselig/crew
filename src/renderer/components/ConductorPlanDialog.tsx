@@ -6,18 +6,22 @@
 //
 // A ReconciledRoster carries no repo path or integration branch (Task 12
 // never asked the agent for either, since neither is something an agent
-// should choose for the user). That means neither "Edit the roster" nor
-// "Create" can finish a run from this screen alone: both hand off to
-// ConductorComposer, pre-filled from the proposal, where the user supplies
-// the repository and the composer's own submit performs the real creation.
-// The two buttons differ only in framing — "Create" is disabled the moment
-// a blocking note stands, stating the same rule the composer enforces in
-// the place the user is already reading it.
+// should choose for the user). That means this screen can never itself
+// finish a run: there is no repo to build a valid RosterDraft from. So
+// there is exactly ONE action here, honestly labelled "Continue" (not
+// "Create" — it does not create anything), which opens ConductorComposer
+// pre-filled from the proposal. The composer's own submit — where the user
+// has supplied a repo — is the only place a run is actually created.
+//
+// The plan document itself stays on screen the whole time: continuing
+// swaps the action bar for the composer beneath it, it never replaces the
+// document. Losing the very thing the user was just reading, mid-decision,
+// would defeat the point of showing it at all.
 import { useMemo, useState } from 'react'
 import type { Preset } from '../../shared/types'
 import type { ReconciledRoster } from '../../shared/conductor-proposal'
 import type { RosterDraft, ComposeResult } from '../../shared/conductor-composer'
-import { buildPlanDocument } from '../conductor-plan-document'
+import { buildPlanDocument, planDialogAction, planDialogLayout } from '../conductor-plan-document'
 import { ConductorComposer } from './ConductorComposer'
 
 interface Props {
@@ -30,19 +34,9 @@ interface Props {
 
 export function ConductorPlanDialog({ roster, presets, maxLanes, onCompose, onCancel }: Props): JSX.Element {
   const doc = useMemo(() => buildPlanDocument(roster), [roster])
-  const [editing, setEditing] = useState(false)
-
-  if (editing) {
-    return (
-      <ConductorComposer
-        presets={presets}
-        maxLanes={maxLanes}
-        initial={roster}
-        onCancel={() => setEditing(false)}
-        onCompose={onCompose}
-      />
-    )
-  }
+  const [continuing, setContinuing] = useState(false)
+  const layout = planDialogLayout(continuing)
+  const action = planDialogAction(doc)
 
   return (
     <div className="plan-doc" role="dialog" aria-label="Proposed plan">
@@ -82,19 +76,32 @@ export function ConductorPlanDialog({ roster, presets, maxLanes, onCompose, onCa
         </tbody>
       </table>
 
-      <div className="plan-doc__actions">
-        <button type="button" className="btn" onClick={onCancel}>Cancel</button>
-        <button type="button" className="btn" onClick={() => setEditing(true)}>Edit the roster</button>
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={!doc.canCreate}
-          title={doc.canCreate ? undefined : `${doc.blockingCount} problem(s) must be resolved first`}
-          onClick={() => setEditing(true)}
-        >
-          Create
-        </button>
-      </div>
+      {layout.showComposer && (
+        <div className="plan-doc__composer">
+          <ConductorComposer
+            presets={presets}
+            maxLanes={maxLanes}
+            initial={roster}
+            onCancel={() => setContinuing(false)}
+            onCompose={onCompose}
+          />
+        </div>
+      )}
+
+      {layout.showActions && (
+        <div className="plan-doc__actions">
+          <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={action.disabled}
+            title={action.disabled ? `${doc.blockingCount} problem(s) must be resolved first` : undefined}
+            onClick={() => setContinuing(true)}
+          >
+            {action.label}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
