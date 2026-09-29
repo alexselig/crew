@@ -90,49 +90,57 @@ const PHASES_REQUIRING_RESULT_SHA: ReadonlySet<JournalPhase> = new Set([
  * the right primitive types but a meaningless value (empty id, a phase
  * whose sha is missing, a non-integer timestamp) is just as unusable as one
  * with the wrong type, and must fail closed the same way.
+ * 
+ * Property inspection itself is wrapped to prevent exotic objects (with
+ * throwing getters or Proxies) from escaping as arbitrary errors: any error
+ * raised while inspecting the entry is converted to a violation string.
  */
 function describeEntryViolation(label: string, entry: unknown): string | undefined {
-  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-    return `${label} is not an object`
+  try {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      return `${label} is not an object`
+    }
+    const e = entry as Record<string, unknown>
+    if (!isNonEmptyString(e.opId)) return `${label} field "opId" is not a non-empty string`
+    if (!isNonEmptyString(e.laneId)) return `${label} field "laneId" is not a non-empty string`
+    if (!isString(e.phase) || !(JOURNAL_PHASES as readonly string[]).includes(e.phase)) {
+      return `${label} field "phase" is not one of ${JOURNAL_PHASES.join(', ')}`
+    }
+    const phase = e.phase as JournalPhase
+    // baseSha/laneTip must always be strings (never missing, never null), but
+    // may be empty ONLY for phase 'aborted': an operation can abort before the
+    // base and lane tip are ever pinned (see Task 8's catch-handler, which
+    // writes 'aborted' with baseSha/laneTip '' when the failure happens before
+    // step 2/3 runs), so at that point there genuinely is no sha to record.
+    // Every other phase's meaning depends on these fields, so they stay
+    // non-empty everywhere else — do not relax this further.
+    if (!isString(e.baseSha)) return `${label} field "baseSha" is not a string`
+    if (phase !== 'aborted' && !isNonEmptyString(e.baseSha)) {
+      return `${label} field "baseSha" is not a non-empty string`
+    }
+    if (!isString(e.laneTip)) return `${label} field "laneTip" is not a string`
+    if (phase !== 'aborted' && !isNonEmptyString(e.laneTip)) {
+      return `${label} field "laneTip" is not a non-empty string`
+    }
+    if (typeof e.at !== 'number' || !Number.isInteger(e.at) || e.at < 0) {
+      return `${label} field "at" is not a non-negative integer`
+    }
+    if (e.resultSha !== undefined && !isNonEmptyString(e.resultSha)) {
+      return `${label} field "resultSha" is not a non-empty string`
+    }
+    if (PHASES_REQUIRING_RESULT_SHA.has(phase) && e.resultSha === undefined) {
+      return `${label} field "resultSha" is required for phase "${phase}"`
+    }
+    if (e.detail !== undefined && !isNonEmptyString(e.detail)) {
+      return `${label} field "detail" is not a non-empty string`
+    }
+    if (phase === 'aborted' && e.detail === undefined) {
+      return `${label} field "detail" is required for phase "aborted"`
+    }
+    return undefined
+  } catch {
+    return `${label} could not be inspected`
   }
-  const e = entry as Record<string, unknown>
-  if (!isNonEmptyString(e.opId)) return `${label} field "opId" is not a non-empty string`
-  if (!isNonEmptyString(e.laneId)) return `${label} field "laneId" is not a non-empty string`
-  if (!isString(e.phase) || !(JOURNAL_PHASES as readonly string[]).includes(e.phase)) {
-    return `${label} field "phase" is not one of ${JOURNAL_PHASES.join(', ')}`
-  }
-  const phase = e.phase as JournalPhase
-  // baseSha/laneTip must always be strings (never missing, never null), but
-  // may be empty ONLY for phase 'aborted': an operation can abort before the
-  // base and lane tip are ever pinned (see Task 8's catch-handler, which
-  // writes 'aborted' with baseSha/laneTip '' when the failure happens before
-  // step 2/3 runs), so at that point there genuinely is no sha to record.
-  // Every other phase's meaning depends on these fields, so they stay
-  // non-empty everywhere else — do not relax this further.
-  if (!isString(e.baseSha)) return `${label} field "baseSha" is not a string`
-  if (phase !== 'aborted' && !isNonEmptyString(e.baseSha)) {
-    return `${label} field "baseSha" is not a non-empty string`
-  }
-  if (!isString(e.laneTip)) return `${label} field "laneTip" is not a string`
-  if (phase !== 'aborted' && !isNonEmptyString(e.laneTip)) {
-    return `${label} field "laneTip" is not a non-empty string`
-  }
-  if (typeof e.at !== 'number' || !Number.isInteger(e.at) || e.at < 0) {
-    return `${label} field "at" is not a non-negative integer`
-  }
-  if (e.resultSha !== undefined && !isNonEmptyString(e.resultSha)) {
-    return `${label} field "resultSha" is not a non-empty string`
-  }
-  if (PHASES_REQUIRING_RESULT_SHA.has(phase) && e.resultSha === undefined) {
-    return `${label} field "resultSha" is required for phase "${phase}"`
-  }
-  if (e.detail !== undefined && !isNonEmptyString(e.detail)) {
-    return `${label} field "detail" is not a non-empty string`
-  }
-  if (phase === 'aborted' && e.detail === undefined) {
-    return `${label} field "detail" is required for phase "aborted"`
-  }
-  return undefined
 }
 
 export function createJournal(path: string): Journal {

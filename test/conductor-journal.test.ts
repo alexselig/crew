@@ -332,4 +332,38 @@ describe('journal', () => {
       expect(error).not.toBeInstanceOf(JournalCorruptError)
     }
   })
+
+  // Fix round 4: exotic objects with throwing getters or Proxies must not
+  // escape as arbitrary errors. The validator wraps property inspection to
+  // ensure that any error raised while inspecting the entry is converted to
+  // a violation string, preserving the normal typed rejection path. This is
+  // the load-bearing test: append() with a throwing getter must throw
+  // JournalInvalidEntryError (not an arbitrary Error), and the file must be
+  // left unchanged.
+  it('converts a throwing getter to a violation and throws JournalInvalidEntryError on append', () => {
+    const journal = createJournal(path)
+    const obj: Record<string, unknown> = { laneId: 'lane-1', phase: 'intent', baseSha: 'aaa', laneTip: 'bbb', at: 1 }
+    Object.defineProperty(obj, 'opId', {
+      get() {
+        throw new Error('simulated getter failure')
+      },
+    })
+    expect(() => journal.append(obj as any)).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  it('leaves the file unchanged when a throwing getter is rejected on append after a prior entry', () => {
+    const journal = createJournal(path)
+    journal.append(intent('op-1'))
+    const before = readFileSync(path, 'utf8')
+    const obj: Record<string, unknown> = { laneId: 'lane-2', phase: 'intent', baseSha: 'aaa', laneTip: 'bbb', at: 2 }
+    Object.defineProperty(obj, 'opId', {
+      get() {
+        throw new Error('simulated getter failure')
+      },
+    })
+    expect(() => journal.append(obj as any)).toThrow(JournalInvalidEntryError)
+    expect(readFileSync(path, 'utf8')).toBe(before)
+    expect(journal.read()).toHaveLength(1)
+  })
 })
