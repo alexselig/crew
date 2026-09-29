@@ -94,6 +94,48 @@ describe('publish', () => {
     expect(result).toMatchObject({ ok: false, reason: 'ref-moved' })
   })
 
+  // The CAS itself can fail for reasons that have nothing to do with the ref
+  // having moved (a malformed new value, for instance). That must be
+  // distinguished from 'ref-moved', and the ref must stay untouched: a
+  // rejected CAS never gets to write anything.
+  it('reports reason "error" when the CAS fails for a reason other than the ref moving', async () => {
+    const lanes = createLaneManager(settings)
+    const before = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    const result = await lanes.publish('not-a-real-revision', before)
+
+    expect(result).toMatchObject({ ok: false, reason: 'error' })
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
+  })
+
+  // THE TORN-WRITE REGRESSION TEST. The CAS had already advanced the ref by
+  // the time the post-CAS `git diff` step ran; if that step fails, the ref
+  // must not be left sitting on the new value while publish() reports
+  // failure. Corrupting the new commit's tree object (deleting its real
+  // object file) makes `git diff` genuinely fail with no object to read,
+  // without touching any permission bit — the CAS itself never needs that
+  // tree, only the commit object, so it still succeeds.
+  it('rolls the ref back and propagates the original failure when the post-CAS step throws', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const merged = await lanes.mergeInIntegration(tip, base)
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+
+    const tree = git(['rev-parse', `${merged.resultSha}^{tree}`], settings.repo)
+    rmSync(join(settings.repo, '.git', 'objects', tree.slice(0, 2), tree.slice(2)))
+
+    await expect(lanes.publish(merged.resultSha, base)).rejects.toThrow(/tree/i)
+    // The CAS had already moved the ref to merged.resultSha; the rollback
+    // must have put it back exactly where it started.
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(base)
+  })
+
   // git only refuses a checkout when another worktree holds the branch as
   // HEAD, so this check is what keeps the user free to check it out themselves.
   it('refuses when a worktree has the integration branch checked out', async () => {

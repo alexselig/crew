@@ -231,11 +231,27 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
       }
     }
 
-    const diff = await inRepo(['diff', '--name-only', expectedOld, newSha])
-    return {
-      ok: true,
-      commit: newSha,
-      touchedPaths: diff.split('\n').map((line) => line.trim()).filter(Boolean)
+    // The CAS has already mutated the ref. If this step throws, the branch
+    // must not be left advanced while publish() reports failure — that is a
+    // torn write. Roll the ref back to expectedOld before propagating.
+    try {
+      const diff = await inRepo(['diff', '--name-only', expectedOld, newSha])
+      return {
+        ok: true,
+        commit: newSha,
+        touchedPaths: diff.split('\n').map((line) => line.trim()).filter(Boolean)
+      }
+    } catch (err) {
+      const originalFailure = err instanceof Error ? err.message : String(err)
+      const rollback = await runGit(['update-ref', ref, expectedOld, newSha], { cwd: settings.repo })
+      if (rollback.code !== 0) {
+        const rollbackFailure = rollback.stderr.trim() || rollback.stdout.trim() || 'no output'
+        throw new Error(
+          `${ref} at ${settings.repo} needs manual attention: publish of ${newSha} failed after the ref was ` +
+            `already advanced (${originalFailure}); rolling back to ${expectedOld} then also failed (${rollbackFailure})`
+        )
+      }
+      throw err
     }
   }
 
