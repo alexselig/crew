@@ -6,13 +6,20 @@ import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { runGit } from './supervise'
-import type { ConductorLane, ConductorSettings, LaneFacts, LaneAgent } from '../shared/conductor'
+import type { ConductorLane, ConductorSettings, LaneFacts, LaneAgent, MergeResult } from '../shared/conductor'
 
 export interface LaneManager {
   /** Create the Crew-owned integration worktree if absent. Always detached. */
   ensureIntegrationWorktree(): Promise<void>
   create(name: string, agent: LaneAgent): Promise<ConductorLane>
   facts(lane: ConductorLane): Promise<LaneFacts>
+  /** Merge the frozen candidate into the base, in the detached integration
+   *  worktree. Never rebases: rewriting history strands the lane branch and
+   *  makes every later publication replay its own already-landed commits. */
+  mergeInIntegration(candidate: string, base: string): Promise<MergeResult>
+  /** Bring the integration branch INTO a lane. The only way a lane receives
+   *  its teammates' work. Runs only when the lane is quiescent. */
+  syncLane(lane: ConductorLane, base: string): Promise<MergeResult>
   destroy(lane: ConductorLane, opts: { force: boolean }): Promise<void>
 }
 
@@ -132,6 +139,42 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     }
   }
 
+  // git reports conflicted paths as unmerged index entries; --diff-filter=U is
+  // the only listing that survives `merge --abort`, so it must run first.
+  const conflictPathsIn = async (cwd: string): Promise<string[]> => {
+    const result = await runGit(['diff', '--name-only', '--diff-filter=U'], { cwd })
+    return result.stdout.split('\n').map((line) => line.trim()).filter(Boolean)
+  }
+
+  const mergeAt = async (cwd: string, target: string): Promise<MergeResult> => {
+    const merge = await runGit(['merge', '--no-edit', target], { cwd, timeoutMs: 60_000 })
+    if (merge.code !== 0) {
+      const conflictPaths = await conflictPathsIn(cwd)
+      // Abort unconditionally: the lock is never held across a conflict, so
+      // leaving MERGE_HEAD behind would trip the next publication instead.
+      await runGit(['merge', '--abort'], { cwd })
+      return {
+        ok: false,
+        conflictPaths,
+        message: merge.stderr.trim() || merge.stdout.trim() || 'merge failed'
+      }
+    }
+    const resultSha = (await runGit(['rev-parse', 'HEAD'], { cwd })).stdout.trim()
+    return { ok: true, resultSha, fastForward: resultSha === target }
+  }
+
+  const mergeInIntegration = async (candidate: string, base: string): Promise<MergeResult> => {
+    await ensureIntegrationWorktree()
+    // Detach at the pinned base every time. The worktree may be sitting at the
+    // result of an earlier publication, and publication must be against the
+    // base the caller pinned, not "wherever this worktree happens to be".
+    await inDir(settings.integrationWorktree, ['checkout', '--detach', base])
+    return mergeAt(settings.integrationWorktree, candidate)
+  }
+
+  const syncLane = async (lane: ConductorLane, base: string): Promise<MergeResult> =>
+    mergeAt(lane.worktree, base)
+
   const destroy = async (lane: ConductorLane, opts: { force: boolean }): Promise<void> => {
     if (!opts.force) {
       const dirty = await inDir(lane.worktree, ['status', '--porcelain', '--untracked-files=no'])
@@ -154,5 +197,5 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     }
   }
 
-  return { ensureIntegrationWorktree, create, facts, destroy }
+  return { ensureIntegrationWorktree, create, facts, mergeInIntegration, syncLane, destroy }
 }
