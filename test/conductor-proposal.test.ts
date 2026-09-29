@@ -73,6 +73,13 @@ describe('parseProposal', () => {
     expect(parsed).toMatchObject({ ok: false, reason: 'unreadable' })
   })
 
+  it('rejects a row whose model field is missing entirely', () => {
+    const parsed = parseProposal(
+      '{"summary":"s","rows":[{"roleName":"a","kind":"author","presetId":"shell","rationale":""}]}'
+    )
+    expect(parsed).toMatchObject({ ok: false, reason: 'unreadable' })
+  })
+
   it('rejects a row that is not an object', () => {
     const parsed = parseProposal('{"summary":"s","rows":["not-a-row"]}')
     expect(parsed).toMatchObject({ ok: false, reason: 'unreadable' })
