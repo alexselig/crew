@@ -190,6 +190,27 @@ describe('journal', () => {
     expect(() => createJournal(path).read()).toThrow(/entry 0 field "resultSha"/)
   })
 
+  it('rejects a "published" entry missing resultSha on append without writing the file', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), phase: 'published' })).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  // Fix round 3: narrowed to exactly 'merged'/'published' (the reviewer's
+  // finding), so 'tests' and 'notified' — which Task 8 writes without a
+  // resultSha at least some of the time — must be accepted without one.
+  it('accepts a "tests" entry with no resultSha', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), phase: 'tests' })).not.toThrow()
+    expect(journal.read()[0].resultSha).toBeUndefined()
+  })
+
+  it('accepts a "notified" entry with no resultSha', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), phase: 'notified' })).not.toThrow()
+    expect(journal.read()[0].resultSha).toBeUndefined()
+  })
+
   it('throws naming the field for an "aborted" entry missing detail on read', () => {
     writeFileSync(path, JSON.stringify([{ ...intent('op-1'), phase: 'aborted' }]))
     expect(() => createJournal(path).read()).toThrow(/entry 0 field "detail"/)
@@ -205,6 +226,37 @@ describe('journal', () => {
     const journal = createJournal(path)
     expect(() => journal.append({ ...intent('op-1'), phase: 'aborted', detail: 'lane deleted' })).not.toThrow()
     expect(journal.read()).toHaveLength(1)
+  })
+
+  // Fix round 3: an operation can abort BEFORE the base/lane tip are pinned
+  // (Task 8's catch-handler writes baseSha: '', laneTip: '' in that case),
+  // so 'aborted' is the one phase where empty shas are meaningful, not
+  // corruption.
+  it('accepts an "aborted" entry with empty baseSha/laneTip, and it round-trips through read()', () => {
+    const journal = createJournal(path)
+    journal.append({
+      ...intent('op-1'), phase: 'aborted', baseSha: '', laneTip: '', detail: 'aborted before pinning'
+    })
+    const entries = journal.read()
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ phase: 'aborted', baseSha: '', laneTip: '', detail: 'aborted before pinning' })
+  })
+
+  // The exception is scoped to 'aborted' only: any other phase with an
+  // empty baseSha (or laneTip) must still be rejected, proving this isn't a
+  // general hole in the non-empty-string rule.
+  it('rejects a non-"aborted" phase with an empty baseSha', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), phase: 'merged', resultSha: 'ccc', baseSha: '' }))
+      .toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  it('rejects a non-"aborted" phase with an empty laneTip', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), phase: 'merged', resultSha: 'ccc', laneTip: '' }))
+      .toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
   })
 
   it('throws naming the field for a negative "at" on read', () => {

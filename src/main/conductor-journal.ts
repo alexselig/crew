@@ -25,9 +25,11 @@ export interface JournalEntry {
   baseSha: string
   laneTip: string
   /**
-   * Only knowable after the merge has run: absent on 'intent' and optional
-   * on 'aborted' (an abort can happen before any merge runs), but required
-   * on every other phase — see PHASES_REQUIRING_RESULT_SHA.
+   * Required on 'merged' and 'published' — the two phases whose meaning IS
+   * the sha they produced. Optional (may be present or absent) on every
+   * other phase, including 'tests' and 'notified', which may carry one
+   * through for convenience without depending on it — see
+   * PHASES_REQUIRING_RESULT_SHA.
    */
   resultSha?: string
   /** Free-text reason. Required on 'aborted', optional elsewhere. */
@@ -68,18 +70,15 @@ export class JournalInvalidEntryError extends Error {
 const isString = (v: unknown): v is string => typeof v === 'string'
 const isNonEmptyString = (v: unknown): v is string => isString(v) && v.length > 0
 
-// Phases written strictly after the merge has produced a commit: their
-// resultSha is already known by the time they are written (see the
-// JOURNAL_PHASES comments above — 'merged' is written once the merge
-// produces a commit, and 'tests'/'published'/'notified' all happen later
-// in the same operation), so resultSha is required on all of them, not just
-// on the two phases the finding named explicitly ('merged'/'published').
-// 'aborted' can legitimately happen before a merge ever runs (e.g. an abort
-// during 'intent'), so a resultSha isn't guaranteed there and is left
-// optional; this is the stricter reading where 'aborted' is ambiguous,
-// since it requires 'detail' instead and does not relax any other rule.
+// Only 'merged' and 'published' have a resultSha whose presence IS the
+// phase's meaning: 'merged' records the commit the merge produced, and
+// 'published' records the commit the CAS landed. 'tests' and 'notified'
+// happen later in the same operation and may carry a resultSha (Task 8
+// passes one through for convenience), but neither phase's meaning depends
+// on it, so it must not be required there — requiring it would reject
+// entries the feature's own call sites are allowed to write.
 const PHASES_REQUIRING_RESULT_SHA: ReadonlySet<JournalPhase> = new Set([
-  'merged', 'tests', 'published', 'notified',
+  'merged', 'published',
 ])
 
 /**
@@ -102,15 +101,28 @@ function describeEntryViolation(label: string, entry: unknown): string | undefin
   if (!isString(e.phase) || !(JOURNAL_PHASES as readonly string[]).includes(e.phase)) {
     return `${label} field "phase" is not one of ${JOURNAL_PHASES.join(', ')}`
   }
-  if (!isNonEmptyString(e.baseSha)) return `${label} field "baseSha" is not a non-empty string`
-  if (!isNonEmptyString(e.laneTip)) return `${label} field "laneTip" is not a non-empty string`
+  const phase = e.phase as JournalPhase
+  // baseSha/laneTip must always be strings (never missing, never null), but
+  // may be empty ONLY for phase 'aborted': an operation can abort before the
+  // base and lane tip are ever pinned (see Task 8's catch-handler, which
+  // writes 'aborted' with baseSha/laneTip '' when the failure happens before
+  // step 2/3 runs), so at that point there genuinely is no sha to record.
+  // Every other phase's meaning depends on these fields, so they stay
+  // non-empty everywhere else — do not relax this further.
+  if (!isString(e.baseSha)) return `${label} field "baseSha" is not a string`
+  if (phase !== 'aborted' && !isNonEmptyString(e.baseSha)) {
+    return `${label} field "baseSha" is not a non-empty string`
+  }
+  if (!isString(e.laneTip)) return `${label} field "laneTip" is not a string`
+  if (phase !== 'aborted' && !isNonEmptyString(e.laneTip)) {
+    return `${label} field "laneTip" is not a non-empty string`
+  }
   if (typeof e.at !== 'number' || !Number.isInteger(e.at) || e.at < 0) {
     return `${label} field "at" is not a non-negative integer`
   }
   if (e.resultSha !== undefined && !isNonEmptyString(e.resultSha)) {
     return `${label} field "resultSha" is not a non-empty string`
   }
-  const phase = e.phase as JournalPhase
   if (PHASES_REQUIRING_RESULT_SHA.has(phase) && e.resultSha === undefined) {
     return `${label} field "resultSha" is required for phase "${phase}"`
   }
