@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateRoster, type RosterDraft } from '../src/shared/conductor-composer'
+import { UNSUPPORTED_CUSTOM_PRESET, validateRoster, type RosterDraft } from '../src/shared/conductor-composer'
 
 function draft(overrides: Partial<RosterDraft> = {}): RosterDraft {
   return {
@@ -75,5 +75,20 @@ describe('validateRoster', () => {
       field: 'integrationBranch',
       message: 'this is the branch lane "builder" would use'
     })
+  })
+
+  // RosterRow carries only presetId/model (no command/args), so a row using
+  // the composer form's old "Custom command…" sentinel could never actually
+  // be honoured by composeRun — it must fail validation like any other
+  // unchosen agent, not silently pass through as if it meant something.
+  it('rejects the unsupported custom-command sentinel as if no agent had been chosen', () => {
+    const rows = [{
+      roleName: 'builder',
+      kind: 'author' as const,
+      agent: { presetId: UNSUPPORTED_CUSTOM_PRESET, model: null }
+    }]
+    const result = validateRoster(draft({ rows }), { maxLanes: 2 })
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContainEqual({ field: 'rows[0].agent.presetId', message: 'choose an agent' })
   })
 })

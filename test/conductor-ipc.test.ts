@@ -164,6 +164,31 @@ describe('conductor IPC contract', () => {
     expect(broadcast).not.toHaveBeenCalled()
   })
 
+  // When rollback itself fails to fully undo what it created, the premise
+  // behind the test above ("nothing changed") no longer holds: a lane or
+  // session survived. That must broadcast, exactly like every other mutating
+  // handler, or the survivor is invisible to the renderer.
+  it('broadcasts fresh state when a failed compose could not fully clean up after itself', async () => {
+    const { invoke, broadcast } = harness({
+      compose: vi.fn(async () => ({
+        ok: false as const,
+        failedRow: 1,
+        message: 'preset not installed',
+        errors: [],
+        cleanupFailures: [{ resource: 'lane' as const, id: 'builder', message: 'permission denied' }]
+      }))
+    })
+    const draft = {
+      repo: '/repo',
+      integrationBranch: 'crew/integration',
+      rows: [{ roleName: 'builder', kind: 'author' as const, agent: { presetId: 'shell', model: null } }]
+    }
+    const result = await invoke(IPC.CONDUCTOR_COMPOSE, draft)
+    expect(result).toMatchObject({ ok: false, failedRow: 1 })
+    expect(broadcast).toHaveBeenCalledTimes(1)
+    expect(broadcast.mock.calls[0][0]).toBe(IPC.EVT_CONDUCTOR_STATE)
+  })
+
   it('registers the conductor IPC module from the main entrypoint', () => {
     const main = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
     expect(main).toContain('registerConductorIpc')

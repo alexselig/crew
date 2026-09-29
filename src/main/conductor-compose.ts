@@ -1,7 +1,12 @@
 // Brings a conducted workspace into existence: integration worktree, then one
 // lane and one session per roster row. All-or-nothing.
 
-import { validateRoster, type ComposeResult, type RosterDraft } from '../shared/conductor-composer'
+import {
+  validateRoster,
+  type CleanupFailure,
+  type ComposeResult,
+  type RosterDraft
+} from '../shared/conductor-composer'
 import type { LaneManager } from './lanes'
 import type { ConductorLane, ConductorSettings } from '../shared/conductor'
 
@@ -17,6 +22,10 @@ export interface ComposeDeps {
     model: string | null
     label: string
   }): Promise<{ id: string }>
+  /** Tears a session down without touching its cwd. Rollback must call this
+   *  BEFORE it removes the lane's worktree: a session whose cwd vanishes out
+   *  from under it is exactly the orphan this composer exists to prevent. */
+  closeSession(id: string): void
 }
 
 export async function composeRun(
@@ -46,12 +55,13 @@ export async function composeRun(
       lane.sessionId = session.id
     } catch (error) {
       // 3. Roll back, newest first, so a lane is never left without its session.
-      await rollback(deps, created)
+      const cleanupFailures = await rollback(deps, created)
       return {
         ok: false,
         failedRow: index,
         message: error instanceof Error ? error.message : String(error),
-        errors: []
+        errors: [],
+        cleanupFailures
       }
     }
   }
@@ -59,14 +69,36 @@ export async function composeRun(
   return { ok: true, lanes: created }
 }
 
-async function rollback(deps: ComposeDeps, created: ConductorLane[]): Promise<void> {
+async function rollback(deps: ComposeDeps, created: ConductorLane[]): Promise<CleanupFailure[]> {
+  const cleanupFailures: CleanupFailure[] = []
   for (const lane of [...created].reverse()) {
+    // The session must go first: it holds the lane's worktree as its cwd,
+    // and a worktree removed out from under a still-running session is
+    // exactly the orphan this rollback exists to prevent.
+    if (lane.sessionId) {
+      try {
+        deps.closeSession(lane.sessionId)
+      } catch (error) {
+        // Report, never throw: a failure to clean up must not replace the
+        // real cause of the failure with a second, less useful one — but it
+        // must not be silently swallowed either, or an orphan becomes
+        // invisible. Carried in the result instead of console.warn.
+        cleanupFailures.push({
+          resource: 'session',
+          id: lane.sessionId,
+          message: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
     try {
       await deps.lanes.destroy(lane, { force: true })
     } catch (error) {
-      // Report, never throw: a failure to clean up must not replace the real
-      // cause of the failure with a second, less useful one.
-      console.warn(`[crew] could not roll back lane ${lane.roleId}:`, error)
+      cleanupFailures.push({
+        resource: 'lane',
+        id: lane.roleId,
+        message: error instanceof Error ? error.message : String(error)
+      })
     }
   }
+  return cleanupFailures
 }

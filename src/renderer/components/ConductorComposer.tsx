@@ -15,8 +15,6 @@ import {
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
 import { getCopilotModelSelection } from '../new-session-model'
 
-const CUSTOM = '__custom__'
-
 interface Props {
   presets: Preset[]
   maxLanes: number
@@ -30,8 +28,8 @@ interface DraftRow extends RosterRow {
   key: string
 }
 
-function newRow(key: string): DraftRow {
-  return { key, roleName: '', kind: 'author', agent: { presetId: CUSTOM, model: null } }
+function newRow(key: string, presetId: string): DraftRow {
+  return { key, roleName: '', kind: 'author', agent: { presetId, model: null } }
 }
 
 function errorFor(errors: { field: string; message: string }[], field: string): string | undefined {
@@ -41,10 +39,7 @@ function errorFor(errors: { field: string; message: string }[], field: string): 
 export function ConductorComposer({ presets, maxLanes, onCancel, onCompose }: Props): JSX.Element {
   const [repo, setRepo] = useState('')
   const [integrationBranch, setIntegrationBranch] = useState('crew/integration')
-  const [testCommand, setTestCommand] = useState('')
-  const [testArgs, setTestArgs] = useState('')
-  const [testCwd, setTestCwd] = useState('')
-  const [rows, setRows] = useState<DraftRow[]>([newRow('row-0')])
+  const [rows, setRows] = useState<DraftRow[]>([newRow('row-0', presets[0]?.id ?? '')])
   const [agents, setAgents] = useState<AgentStatus[]>([])
   const [catalog, setCatalog] = useState<CopilotModelCatalog | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -56,6 +51,18 @@ export function ConductorComposer({ presets, maxLanes, onCancel, onCompose }: Pr
   useEffect(() => {
     void window.crew.detectAgents().then(setAgents)
   }, [])
+
+  // presets can arrive after the first render (see NewSessionModal's own
+  // fixup for the same reason); any row still carrying the placeholder empty
+  // presetId is repointed at a real preset the moment one exists.
+  useEffect(() => {
+    if (!presets.length) return
+    setRows((prev) => prev.map((r) => (
+      presets.some((p) => p.id === r.agent.presetId)
+        ? r
+        : { ...r, agent: { presetId: presets[0].id, model: presets[0].id === 'copilot-cli' ? DEFAULT_COPILOT_MODEL : null } }
+    )))
+  }, [presets])
 
   useEffect(() => {
     if (!rows.some((r) => r.agent.presetId === 'copilot-cli')) return
@@ -83,7 +90,7 @@ export function ConductorComposer({ presets, maxLanes, onCancel, onCompose }: Pr
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
   }
 
-  const addRow = (): void => setRows((prev) => [...prev, newRow(`row-${Date.now()}`)])
+  const addRow = (): void => setRows((prev) => [...prev, newRow(`row-${Date.now()}`, presets[0]?.id ?? '')])
   const removeRow = (key: string): void => setRows((prev) => prev.filter((r) => r.key !== key))
 
   const submit = async (e: React.FormEvent): Promise<void> => {
@@ -129,28 +136,6 @@ export function ConductorComposer({ presets, maxLanes, onCancel, onCompose }: Pr
           <span className="conductor-composer-error">{errorFor(validation.errors, 'integrationBranch')}</span>
         )}
       </label>
-
-      <fieldset className="conductor-composer-test">
-        <legend>Test recipe (optional)</legend>
-        <input
-          className="field__input"
-          value={testCommand}
-          onChange={(e) => setTestCommand(e.target.value)}
-          placeholder="command, e.g. npm"
-        />
-        <input
-          className="field__input"
-          value={testArgs}
-          onChange={(e) => setTestArgs(e.target.value)}
-          placeholder="args, e.g. test"
-        />
-        <input
-          className="field__input"
-          value={testCwd}
-          onChange={(e) => setTestCwd(e.target.value)}
-          placeholder="cwd, relative to worktree root"
-        />
-      </fieldset>
 
       <table className="conductor-composer-roster">
         <thead>
@@ -257,7 +242,6 @@ function RosterRowFields({
           {presets.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
-          <option value={CUSTOM}>Custom command…</option>
         </select>
         {agentStatus && !agentStatus.available && (
           <span className="agent-status agent-status--missing">

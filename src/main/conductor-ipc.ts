@@ -80,12 +80,16 @@ export function registerConductorIpc(
 
   ipc.handle(IPC.CONDUCTOR_RECONCILE, () => backend.reconcile())
 
-  // Unlike the handlers above, this broadcasts only on success: a rejected
-  // draft (validation errors, or a row that failed to spawn) rolls back
-  // everything it created, so nothing about conductor state has changed.
+  // A rejected draft (validation errors, or a row that failed to spawn)
+  // normally rolls back everything it created, so nothing about conductor
+  // state has changed and no broadcast is needed. But when rollback itself
+  // fails to fully undo what it created (a lane or a session survives), state
+  // HAS changed — the premise "nothing to see" no longer holds — so that case
+  // broadcasts too, same as every other mutating handler above.
   ipc.handle(IPC.CONDUCTOR_COMPOSE, async (_event, draft: RosterDraft) => {
     const result = await backend.compose(draft)
-    if (result.ok) await publishState()
+    const cleanupFailed = !result.ok && 'cleanupFailures' in result && result.cleanupFailures.length > 0
+    if (result.ok || cleanupFailed) await publishState()
     return result
   })
 }
@@ -95,6 +99,7 @@ export type ConductorRuntime = {
   conductor: Conductor
   settings: ConductorSettings
   createSession: ComposeDeps['createSession']
+  closeSession: ComposeDeps['closeSession']
 }
 
 // The shipped backend, extracted from src/main/index.ts so its disabled path
@@ -180,7 +185,12 @@ export function createShippedConductorBackend(conductorRuntime: ConductorRuntime
     async compose(draft) {
       const runtime = requireWired()
       const result = await composeRun(
-        { lanes: runtime.lanes, settings: runtime.settings, createSession: runtime.createSession },
+        {
+          lanes: runtime.lanes,
+          settings: runtime.settings,
+          createSession: runtime.createSession,
+          closeSession: runtime.closeSession
+        },
         draft
       )
       if (result.ok) {

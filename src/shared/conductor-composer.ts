@@ -26,13 +26,37 @@ export interface RosterValidation {
   errors: RosterError[]
 }
 
+/** Something composeRun's rollback could not undo after a row failed. Named
+ *  so the renderer can tell the user "the lane you see in git is not tracked
+ *  by Crew" instead of silently pretending the rollback was clean. */
+export interface CleanupFailure {
+  resource: 'lane' | 'session'
+  /** roleId for a lane, session id for a session. */
+  id: string
+  message: string
+}
+
 // The outcome of composeRun (src/main/conductor-compose.ts). It lives here,
 // not beside composeRun, because CrewAPI (src/shared/api.ts) exposes it to
 // the renderer and neither renderer nor shared code may import from src/main.
 export type ComposeResult =
   | { ok: true; lanes: ConductorLane[] }
   | { ok: false; errors: RosterError[] }
-  | { ok: false; failedRow: number; message: string; errors: RosterError[] }
+  | {
+      ok: false
+      failedRow: number
+      message: string
+      errors: RosterError[]
+      /** Empty when rollback fully undid every lane/session it had created. */
+      cleanupFailures: CleanupFailure[]
+    }
+
+/** Not a real preset: the composer form used to offer a "custom command"
+ *  option, but RosterRow carries no fields to describe a custom command
+ *  (only presetId/model), so a row using this sentinel could never be
+ *  honoured by composeRun. Rejected explicitly so a stray value here fails
+ *  loudly in validation instead of silently spawning nothing useful. */
+export const UNSUPPORTED_CUSTOM_PRESET = '__custom__'
 
 /** Presets whose launch takes a model. Mirrors the session form's own rule. */
 const MODEL_PRESETS = new Set(['copilot-cli'])
@@ -77,7 +101,7 @@ export function validateRoster(
     }
     seen.add(name)
 
-    if (!row.agent.presetId) {
+    if (!row.agent.presetId || row.agent.presetId === UNSUPPORTED_CUSTOM_PRESET) {
       errors.push({ field: `rows[${index}].agent.presetId`, message: 'choose an agent' })
     } else if (MODEL_PRESETS.has(row.agent.presetId) && !row.agent.model) {
       errors.push({ field: `rows[${index}].agent.model`, message: 'choose a model' })

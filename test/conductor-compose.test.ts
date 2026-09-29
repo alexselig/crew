@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
+import type { LaneManager } from '../src/main/lanes'
 import { composeRun } from '../src/main/conductor-compose'
 import type { ConductorSettings } from '../src/shared/conductor'
 import type { RosterDraft } from '../src/shared/conductor-composer'
@@ -51,7 +52,7 @@ describe('composeRun', () => {
   it('creates a lane and a session per row, and reports them in order', async () => {
     const lanes = createLaneManager(settings)
     const createSession = vi.fn(async (req: { cwd: string }) => ({ id: `sess-${req.cwd.split('/').pop()}` }))
-    const result = await composeRun({ lanes, settings, createSession }, draft())
+    const result = await composeRun({ lanes, settings, createSession, closeSession: vi.fn() }, draft())
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -70,14 +71,14 @@ describe('composeRun', () => {
       seen.push(req.cwd)
       return { id: 'sess' }
     })
-    await composeRun({ lanes, settings, createSession }, draft())
+    await composeRun({ lanes, settings, createSession, closeSession: vi.fn() }, draft())
     expect(new Set(seen).size).toBe(2)
   })
 
   it('creates the integration worktree once, detached', async () => {
     const lanes = createLaneManager(settings)
     const createSession = vi.fn(async () => ({ id: 'sess' }))
-    await composeRun({ lanes, settings, createSession }, draft())
+    await composeRun({ lanes, settings, createSession, closeSession: vi.fn() }, draft())
     expect(existsSync(settings.integrationWorktree)).toBe(true)
     // `symbolic-ref --quiet HEAD` exits non-zero (with empty stdout) exactly
     // when HEAD is detached, which is the thing under test — so a detached
@@ -99,7 +100,7 @@ describe('composeRun', () => {
     const createSession = vi.fn()
     const bad = draft()
     bad.rows[1].roleName = 'builder'
-    const result = await composeRun({ lanes, settings, createSession }, bad)
+    const result = await composeRun({ lanes, settings, createSession, closeSession: vi.fn() }, bad)
 
     expect(result.ok).toBe(false)
     expect(createSession).not.toHaveBeenCalled()
@@ -112,7 +113,7 @@ describe('composeRun', () => {
     const createSession = vi.fn()
       .mockResolvedValueOnce({ id: 'sess-1' })
       .mockRejectedValueOnce(new Error('preset not installed'))
-    const result = await composeRun({ lanes, settings, createSession }, draft())
+    const result = await composeRun({ lanes, settings, createSession, closeSession: vi.fn() }, draft())
 
     expect(result).toMatchObject({ ok: false, failedRow: 1 })
     const branches = execFileSync('git', ['branch', '--list', 'crew/lane/*'], {
@@ -128,7 +129,7 @@ describe('composeRun', () => {
   it('removes the lane it had just created when that row is the one that fails', async () => {
     const lanes = createLaneManager(settings)
     const createSession = vi.fn().mockRejectedValue(new Error('spawn failed'))
-    const result = await composeRun({ lanes, settings, createSession }, draft())
+    const result = await composeRun({ lanes, settings, createSession, closeSession: vi.fn() }, draft())
     expect(result).toMatchObject({ ok: false, failedRow: 0 })
     expect(existsSync(join(settings.lanesDir, 'builder'))).toBe(false)
   })
@@ -136,11 +137,75 @@ describe('composeRun', () => {
   it('reports the underlying failure rather than a generic one', async () => {
     const lanes = createLaneManager(settings)
     const createSession = vi.fn().mockRejectedValue(new Error('preset not installed'))
-    const result = await composeRun({ lanes, settings, createSession }, draft())
+    const result = await composeRun({ lanes, settings, createSession, closeSession: vi.fn() }, draft())
     if (result.ok) throw new Error('expected failure')
     // Two failure shapes share `ok: false` (a rejected roster has no
     // `failedRow`); narrow to the row-failure variant before reading message.
     if (!('failedRow' in result)) throw new Error('expected a row failure')
     expect(result.message).toContain('preset not installed')
+  })
+
+  // Row 1's session was already spawned with cwd pointed at the builder
+  // lane's worktree. If rollback deleted that worktree without first tearing
+  // down the session, the session would survive pointing at a directory that
+  // no longer exists. Wrapping the real LaneManager's destroy lets this test
+  // observe ordering without faking git.
+  it("closes row 1's already-created session before removing its lane's worktree, so no session outlives its cwd", async () => {
+    const order: string[] = []
+    const realLanes = createLaneManager(settings)
+    const lanes: LaneManager = {
+      ...realLanes,
+      destroy: async (lane, opts) => {
+        order.push(`destroy-lane:${lane.roleId}`)
+        return realLanes.destroy(lane, opts)
+      }
+    }
+    const closeSession = vi.fn((id: string) => order.push(`close-session:${id}`))
+    const createSession = vi.fn()
+      .mockResolvedValueOnce({ id: 'sess-builder' })
+      .mockRejectedValueOnce(new Error('preset not installed'))
+
+    const result = await composeRun({ lanes, settings, createSession, closeSession }, draft())
+
+    expect(result).toMatchObject({ ok: false, failedRow: 1 })
+    expect(closeSession).toHaveBeenCalledWith('sess-builder')
+    expect(order).toEqual(['destroy-lane:scout', 'close-session:sess-builder', 'destroy-lane:builder'])
+    expect(existsSync(join(settings.lanesDir, 'builder'))).toBe(false)
+  })
+
+  // Making a lane's own linked-worktree admin directory read-only forces its
+  // `git worktree remove` to fail for real during rollback — the same
+  // technique test/lanes-merge.test.ts uses to force a real write failure,
+  // rather than a mock throwing where the real code would not.
+  it('reports a lane rollback could not remove as a cleanup failure, instead of swallowing it', async () => {
+    const lanes = createLaneManager(settings)
+    let builderGitDir: string | undefined
+    const createSession = vi.fn(async (req: { cwd: string }) => {
+      if (req.cwd.endsWith('builder')) {
+        const out = execFileSync('git', ['rev-parse', '--git-dir'], {
+          cwd: req.cwd, encoding: 'utf8'
+        }).trim()
+        builderGitDir = isAbsolute(out) ? out : resolve(req.cwd, out)
+        return { id: 'sess-builder' }
+      }
+      if (builderGitDir) chmodSync(builderGitDir, 0o500)
+      throw new Error('preset not installed')
+    })
+
+    try {
+      const result = await composeRun(
+        { lanes, settings, createSession, closeSession: vi.fn() },
+        draft()
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok || !('cleanupFailures' in result)) throw new Error('expected a row failure')
+      expect(result.cleanupFailures).toContainEqual(
+        expect.objectContaining({ resource: 'lane', id: 'builder' })
+      )
+    } finally {
+      // Must run even if an assertion above throws, or the temp dir left by
+      // afterEach's rmSync becomes unremovable.
+      if (builderGitDir) chmodSync(builderGitDir, 0o700)
+    }
   })
 })
