@@ -55,6 +55,21 @@ export interface RecoveryAction {
   requiresHuman: boolean
 }
 
+/**
+ * Thrown by classifyOperation when the entries it was given cannot describe
+ * a single operation. An unclassifiable state must be surfaced to the
+ * caller, never silently defaulted to some classification — the whole
+ * point of this table is that a wrong row can double-apply work to a shared
+ * branch, and a wrong row derived from garbage input is worse than a thrown
+ * error a caller can log and stop on.
+ */
+export class MalformedJournalError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MalformedJournalError'
+  }
+}
+
 export const RECOVERY_ACTIONS: Record<Classification, RecoveryAction> = {
   'not-started': {
     summary: 'Nothing ran. Safe to publish again.',
@@ -99,6 +114,75 @@ export const RECOVERY_ACTIONS: Record<Classification, RecoveryAction> = {
 }
 
 /**
+ * Validates that `entries` can describe exactly one operation, and returns
+ * them sorted by `at`.
+ *
+ * classifyOperation derives its answer from entries[0].baseSha, a `phases`
+ * set, and the first resultSha it finds. Each of those silently produces a
+ * confident (and possibly wrong) classification if the entries actually
+ * describe more than one operation — mixed opIds, conflicting baseShas, or
+ * a phase written twice for the one two-write-per-effect journal that
+ * should only ever contain it once. This function makes that impossible:
+ * anything inconsistent throws MalformedJournalError instead of being
+ * classified.
+ *
+ * Reordering decision: entries are expected to be read from the journal in
+ * write order, but nothing requires a caller to pass them that way, and a
+ * caller-supplied order is not itself evidence of corruption the way a
+ * second opId is. Once every other consistency check below has passed, the
+ * entries genuinely describe one operation regardless of array order, so
+ * out-of-`at`-order-but-otherwise-consistent input is accepted and sorted
+ * here rather than rejected — sorting makes entries[0].baseSha well-defined
+ * by construction instead of accidentally correct.
+ */
+function validateAndOrder(
+  entries: readonly RecoveryJournalEntry[]
+): readonly RecoveryJournalEntry[] {
+  const opIds = new Set(entries.map((e) => e.opId))
+  if (opIds.size > 1) {
+    throw new MalformedJournalError(
+      `classifyOperation received entries for more than one opId: ${[...opIds].join(', ')}`
+    )
+  }
+
+  const laneIds = new Set(entries.map((e) => e.laneId))
+  if (laneIds.size > 1) {
+    throw new MalformedJournalError(
+      `classifyOperation received entries for more than one laneId: ${[...laneIds].join(', ')}`
+    )
+  }
+
+  // baseSha must agree across every entry except an 'aborted' entry that
+  // legitimately carries '' (an operation can abort before the base is
+  // pinned — see conductor-journal.ts's write-time validator).
+  const baseShas = new Set(
+    entries.filter((e) => !(e.phase === 'aborted' && e.baseSha === '')).map((e) => e.baseSha)
+  )
+  if (baseShas.size > 1) {
+    throw new MalformedJournalError(
+      `classifyOperation received entries with conflicting baseSha values: ${[...baseShas].join(', ')}`
+    )
+  }
+
+  // The two-write journal (intent, then one phase entry per effect) writes
+  // each phase at most once per operation. A repeated phase — whether its
+  // fields agree or conflict — means these entries did not all come from
+  // one clean run of that protocol, so it is rejected outright rather than
+  // guessed at.
+  const seenPhases = new Set<RecoveryJournalEntry['phase']>()
+  for (const e of entries) {
+    if (seenPhases.has(e.phase)) {
+      throw new MalformedJournalError(
+        `classifyOperation received more than one '${e.phase}' entry for op ${e.opId}`
+      )
+    }
+    seenPhases.add(e.phase)
+  }
+
+  return [...entries].sort((a, b) => a.at - b.at)
+}
+
+/**
  * Classifies one operation's journal entries against observed git reality.
  *
  * Table (mutually exclusive, checked in this order — see task-6-report.md
@@ -109,8 +193,10 @@ export const RECOVERY_ACTIONS: Record<Classification, RecoveryAction> = {
  *  3. a resultSha was recorded (merge produced a commit):
  *     a. ref === resultSha, 'published' journaled     -> published-unnotified
  *     b. ref === resultSha, 'published' NOT journaled -> published-unrecorded
- *     c. ref === baseSha                               -> merged-unpublished
- *     d. ref is neither                                -> externally-modified
+ *     c. ref === baseSha, 'tests' journaled AND
+ *        integration worktree dirty                   -> interrupted-tests
+ *     d. ref === baseSha, otherwise                    -> merged-unpublished
+ *     e. ref is none of the above                      -> externally-modified
  *  4. no resultSha recorded (merge never produced a commit):
  *     a. ref !== baseSha                                -> externally-modified
  *     b. MERGE_HEAD present                             -> interrupted-merge
@@ -123,7 +209,9 @@ export function classifyOperation(
 ): Classification {
   if (entries.length === 0) return 'complete'
 
-  const phases = new Set(entries.map((e) => e.phase))
+  const ordered = validateAndOrder(entries)
+
+  const phases = new Set(ordered.map((e) => e.phase))
   // 'aborted' and 'notified' are both terminal: the operation either gave up
   // cleanly or ran every step teammates depend on. Neither needs recovery,
   // and nothing after this point may re-examine baseSha/resultSha for them.
@@ -131,15 +219,25 @@ export function classifyOperation(
 
   // Reachable here only for non-aborted entries, so baseSha is guaranteed
   // non-empty by the journal's own write-time validation (see
-  // conductor-journal.ts's describeEntryViolation).
-  const baseSha = entries[0].baseSha
-  const resultSha = entries.find((e) => e.resultSha !== undefined)?.resultSha
+  // conductor-journal.ts's describeEntryViolation), and guaranteed
+  // consistent across every entry by validateAndOrder above.
+  const baseSha = ordered[0].baseSha
+  const resultSha = ordered.find((e) => e.resultSha !== undefined)?.resultSha
 
   if (resultSha !== undefined) {
     if (reality.refSha === resultSha) {
       return phases.has('published') ? 'published-unnotified' : 'published-unrecorded'
     }
-    if (reality.refSha === baseSha) return 'merged-unpublished'
+    if (reality.refSha === baseSha) {
+      // A recorded resultSha means the merge committed; the ref sitting on
+      // baseSha with a journaled 'tests' phase and a dirty integration
+      // worktree means the crash happened *during* that test run, before
+      // the compare-and-swap — not after tests passed and only the CAS was
+      // left undone. Those need different recovery (redo the tests vs.
+      // just retry the CAS), so they must not share a classification.
+      if (phases.has('tests') && reality.integrationDirty) return 'interrupted-tests'
+      return 'merged-unpublished'
+    }
     // The branch points somewhere that is neither the recorded result nor
     // the recorded base: something else moved it. Mid-merge (MERGE_HEAD)
     // cannot coexist with a recorded resultSha — a merge only ever produces

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   classifyOperation,
   RECOVERY_ACTIONS,
+  MalformedJournalError,
   type OperationReality,
   type RecoveryJournalEntry
 } from '../src/shared/conductor-recovery'
@@ -35,6 +36,24 @@ describe('classifyOperation', () => {
   it('classifies a recorded result with an unmoved ref as merged-unpublished', () => {
     const entries = [entry('intent'), entry('merged', { resultSha: RESULT })]
     expect(classifyOperation(entries, reality())).toBe('merged-unpublished')
+  })
+
+  // Finding 1: a resultSha alone does not mean the compare-and-swap is all
+  // that's left to do — the crash may have happened mid-test-run, before
+  // the CAS was ever attempted. That state needs a worktree reset + redo,
+  // not a bare CAS retry, so it must not collapse into merged-unpublished.
+  it('classifies a recorded result with a dirty worktree mid-tests as interrupted-tests, not merged-unpublished', () => {
+    const entries = [entry('intent'), entry('merged', { resultSha: RESULT }), entry('tests')]
+    expect(classifyOperation(entries, reality({ integrationDirty: true })))
+      .toBe('interrupted-tests')
+  })
+
+  // The other half of the distinction: the same entries, but the worktree
+  // is clean — tests finished, only the CAS is outstanding.
+  it('classifies a recorded result with a clean worktree after tests as merged-unpublished', () => {
+    const entries = [entry('intent'), entry('merged', { resultSha: RESULT }), entry('tests')]
+    expect(classifyOperation(entries, reality({ integrationDirty: false })))
+      .toBe('merged-unpublished')
   })
 
   // The single most dangerous state: redoing it double-applies the work.
@@ -95,6 +114,57 @@ describe('classifyOperation', () => {
 
   it('classifies an empty journal as complete', () => {
     expect(classifyOperation([], reality())).toBe('complete')
+  })
+
+  // Finding 2: malformed input must be surfaced, never guessed at.
+  it('throws on entries from more than one opId', () => {
+    const entries = [entry('intent'), entry('merged', { opId: 'op-2', resultSha: RESULT })]
+    expect(() => classifyOperation(entries, reality())).toThrow(MalformedJournalError)
+  })
+
+  it('throws on entries from more than one laneId', () => {
+    const entries = [entry('intent'), entry('merged', { laneId: 'lane-2', resultSha: RESULT })]
+    expect(() => classifyOperation(entries, reality())).toThrow(MalformedJournalError)
+  })
+
+  it('throws on entries with conflicting baseSha values', () => {
+    const entries = [entry('intent'), entry('merged', { baseSha: 'other-base', resultSha: RESULT })]
+    expect(() => classifyOperation(entries, reality())).toThrow(MalformedJournalError)
+  })
+
+  it('throws on a duplicate phase, even one that repeats identical fields', () => {
+    const entries = [entry('intent'), entry('intent')]
+    expect(() => classifyOperation(entries, reality())).toThrow(MalformedJournalError)
+  })
+
+  it('throws on a duplicate phase whose fields conflict', () => {
+    const entries = [
+      entry('intent'),
+      entry('merged', { resultSha: RESULT }),
+      entry('merged', { resultSha: 'a-different-result-sha' })
+    ]
+    expect(() => classifyOperation(entries, reality())).toThrow(MalformedJournalError)
+  })
+
+  it('does not throw on an aborted entry carrying an empty baseSha alongside a pinned one', () => {
+    // Live rule: baseSha/laneTip may be empty ONLY for 'aborted', because an
+    // operation can abort before the base is pinned. A journal with an
+    // 'intent' (real baseSha) followed by 'aborted' (empty baseSha) is the
+    // *other*, later-abort shape and must not be flagged as conflicting.
+    const entries = [entry('intent'), entry('aborted', { baseSha: '', laneTip: '', detail: 'x' })]
+    expect(classifyOperation(entries, reality())).toBe('complete')
+  })
+
+  it('classifies reordered-but-consistent entries the same as their written order', () => {
+    const inOrder = [
+      entry('intent', { at: 1 }),
+      entry('merged', { at: 2, resultSha: RESULT }),
+      entry('published', { at: 3, resultSha: RESULT })
+    ]
+    const shuffled = [inOrder[2], inOrder[0], inOrder[1]]
+    const r = reality({ refSha: RESULT })
+    expect(classifyOperation(shuffled, r)).toBe(classifyOperation(inOrder, r))
+    expect(classifyOperation(shuffled, r)).toBe('published-unnotified')
   })
 
   // A merge is interrupted, not restartable-in-place: silently restarting
