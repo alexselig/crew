@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { buildPlanDocument, planDialogAction, planDialogLayout } from '../src/renderer/conductor-plan-document'
+import { buildPlanDocument, planDialogAction } from '../src/renderer/conductor-plan-document'
 import type { ReconciledRoster } from '../src/shared/conductor-proposal'
 
 function roster(over: Partial<ReconciledRoster> = {}): ReconciledRoster {
@@ -106,30 +106,34 @@ describe('buildPlanDocument', () => {
     expect(source).not.toContain('dangerouslySetInnerHTML')
   })
 
-  it('keeps the plan document visible in both layout states — continuing never hides it', () => {
-    // The document itself is not a function of this decision at all: it comes
-    // from buildPlanDocument alone. planDialogLayout only ever governs which
-    // one of the actions-bar / composer regions shows beneath it, so there is
-    // no state in which the read-only document could be replaced wholesale.
-    expect(planDialogLayout(false)).toEqual({ showActions: true, showComposer: false })
-    expect(planDialogLayout(true)).toEqual({ showActions: false, showComposer: true })
+  it('cannot return before rendering the plan document — the document is never conditional', () => {
+    // The regression this guards against: an early return (e.g. "if
+    // (continuing) return <ConductorComposer .../>") that swaps out the
+    // whole component, losing doc.bands/doc.rows instead of merely swapping
+    // the action-bar/composer region beneath them. The component body must
+    // contain exactly one `return` — the single one that renders the plan
+    // document unconditionally, with only the trailing region varying.
+    const source = readFileSync('src/renderer/components/ConductorPlanDialog.tsx', 'utf8')
+    const body = source.slice(source.indexOf('export function ConductorPlanDialog'))
+    const returns = body.match(/\breturn\b/g) ?? []
+    expect(returns).toHaveLength(1)
   })
 
-  it('offers exactly one forward action, never a second one duplicating it', () => {
-    const clean = buildPlanDocument(roster())
+  it('never disables Continue for a blocked proposal — the composer is where blocking notes get fixed', () => {
     const blocked = buildPlanDocument(
       roster({ notes: [{ row: 0, severity: 'blocking', message: 'stale preset' }] })
     )
-    // Same label either way — the action never renames itself to "Create" and
-    // never grows a sibling "Edit the roster" action. Only its disabled-ness
-    // tracks whether a blocking note stands.
-    expect(planDialogAction(clean)).toEqual({ label: 'Continue', disabled: false })
-    expect(planDialogAction(blocked)).toEqual({ label: 'Continue', disabled: true })
+    expect(blocked.canCreate).toBe(false)
+    // The pure action carries no disabled-ness at all — opening the composer
+    // is never gated on canCreate/blockingCount. Creation itself is still
+    // gated, but by validateRoster inside the composer's own submit, not here.
+    expect(planDialogAction()).toEqual({ label: 'Continue' })
+    const source = readFileSync('src/renderer/components/ConductorPlanDialog.tsx', 'utf8')
+    expect(source).not.toMatch(/disabled=/)
   })
 
   it('never labels the sole action "Create" — it opens the composer, it does not create a run', () => {
-    const doc = buildPlanDocument(roster())
-    expect(planDialogAction(doc).label).not.toMatch(/create/i)
+    expect(planDialogAction().label).not.toMatch(/create/i)
   })
 
   it('has no second action duplicating the first under a different label', () => {

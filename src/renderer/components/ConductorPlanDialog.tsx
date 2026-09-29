@@ -11,7 +11,15 @@
 // there is exactly ONE action here, honestly labelled "Continue" (not
 // "Create" — it does not create anything), which opens ConductorComposer
 // pre-filled from the proposal. The composer's own submit — where the user
-// has supplied a repo — is the only place a run is actually created.
+// has supplied a repo — is the only place a run is actually created, and
+// the only place validateRoster gets to say no.
+//
+// Continue is never disabled by a blocking note. The composer is exactly
+// where a blocked proposal — a stale preset, an unavailable model, a
+// duplicate role name — gets fixed, so refusing to open it over the very
+// problems it exists to fix would leave the user with nowhere to go. The
+// blocking notes stay visible in the document (rosterNotes / row.problems)
+// the whole time the composer is open beneath it.
 //
 // The plan document itself stays on screen the whole time: continuing
 // swaps the action bar for the composer beneath it, it never replaces the
@@ -21,7 +29,7 @@ import { useMemo, useState } from 'react'
 import type { Preset } from '../../shared/types'
 import type { ReconciledRoster } from '../../shared/conductor-proposal'
 import type { RosterDraft, ComposeResult } from '../../shared/conductor-composer'
-import { buildPlanDocument, planDialogAction, planDialogLayout } from '../conductor-plan-document'
+import { buildPlanDocument, planDialogAction } from '../conductor-plan-document'
 import { ConductorComposer } from './ConductorComposer'
 
 interface Props {
@@ -35,8 +43,7 @@ interface Props {
 export function ConductorPlanDialog({ roster, presets, maxLanes, onCompose, onCancel }: Props): JSX.Element {
   const doc = useMemo(() => buildPlanDocument(roster), [roster])
   const [continuing, setContinuing] = useState(false)
-  const layout = planDialogLayout(continuing)
-  const action = planDialogAction(doc)
+  const action = planDialogAction()
 
   return (
     <div className="plan-doc" role="dialog" aria-label="Proposed plan">
@@ -76,7 +83,7 @@ export function ConductorPlanDialog({ roster, presets, maxLanes, onCompose, onCa
         </tbody>
       </table>
 
-      {layout.showComposer && (
+      {continuing && (
         <div className="plan-doc__composer">
           <ConductorComposer
             presets={presets}
@@ -88,14 +95,12 @@ export function ConductorPlanDialog({ roster, presets, maxLanes, onCompose, onCa
         </div>
       )}
 
-      {layout.showActions && (
+      {!continuing && (
         <div className="plan-doc__actions">
           <button type="button" className="btn" onClick={onCancel}>Cancel</button>
           <button
             type="button"
             className="btn btn--primary"
-            disabled={action.disabled}
-            title={action.disabled ? `${doc.blockingCount} problem(s) must be resolved first` : undefined}
             onClick={() => setContinuing(true)}
           >
             {action.label}

@@ -88,31 +88,25 @@ export function buildPlanDocument(roster: ReconciledRoster): PlanDocument {
   return { bands, rows, rosterNotes, blockingCount, canCreate: blockingCount === 0 }
 }
 
-/** Which section of the dialog is showing beneath the (always-visible) plan
- *  document: either the single action bar, or the composer the sole action
- *  hands off to. The document itself is never conditional on this — see
- *  ConductorPlanDialog.tsx, which renders `doc.bands`/`doc.rows` unconditionally
- *  and only swaps this one region. */
-export interface PlanDialogLayout {
-  showActions: boolean
-  showComposer: boolean
-}
-
-export function planDialogLayout(continuing: boolean): PlanDialogLayout {
-  return { showActions: !continuing, showComposer: continuing }
-}
-
 /** The dialog's action bar: Cancel plus exactly ONE forward action. There is
  *  no separate "edit" affordance that duplicates it — both a blocking-note
  *  roster and a clean one hand off to the same composer, because neither
  *  path can create anything from this screen alone (no repo/integrationBranch
  *  on a ReconciledRoster; see the file-header comment). The label never
- *  claims "Create": this action opens the composer, it does not create a run. */
+ *  claims "Create": this action opens the composer, it does not create a run.
+ *
+ *  Blocking notes are NOT a reason to disable this. The composer is exactly
+ *  where a blocked proposal gets fixed — a bad preset, a taken role name, a
+ *  missing model — so refusing to open it over the very problems it exists to
+ *  fix would be a dead end, not a safeguard. Blocking notes stay visible in
+ *  the document (rosterNotes / row.problems) the whole time the composer is
+ *  open. The real create gate is validateRoster, inside the composer's own
+ *  submit (see src/shared/conductor-composer.ts) — this function has no say
+ *  in that at all, on purpose. */
 export interface PlanDialogAction {
   label: string
-  disabled: boolean
 }
 
-export function planDialogAction(doc: Pick<PlanDocument, 'canCreate' | 'blockingCount'>): PlanDialogAction {
-  return { label: 'Continue', disabled: !doc.canCreate }
+export function planDialogAction(): PlanDialogAction {
+  return { label: 'Continue' }
 }
