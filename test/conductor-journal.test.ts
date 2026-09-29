@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createJournal, JOURNAL_MAX_ENTRIES, JournalCorruptError } from '../src/main/conductor-journal'
+import { createJournal, JOURNAL_MAX_ENTRIES, JournalCorruptError, JournalInvalidEntryError } from '../src/main/conductor-journal'
 import { AtomicWriteError } from '../src/main/atomic-file'
 
 let root: string
@@ -155,5 +155,129 @@ describe('journal', () => {
     const journal = createJournal(path)
     journal.append(intent('op-1'))
     expect(() => JSON.parse(readFileSync(path, 'utf8'))).not.toThrow()
+  })
+
+  // --- Semantic validation (fix round 2) ---------------------------------
+  // The validator must reject values recovery cannot act on, not merely
+  // values of the wrong primitive type. Each read() case below has a
+  // matching append() case asserting the file is left untouched, since
+  // append() must reject before writing anything.
+
+  it('throws naming the field for an empty-string id on read', () => {
+    writeFileSync(path, JSON.stringify([{ ...intent('op-1'), opId: '' }]))
+    expect(() => createJournal(path).read()).toThrow(/entry 0 field "opId"/)
+  })
+
+  it('rejects an empty-string id on append without writing the file', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append(intent(''))).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  it('throws naming the field for a "merged" entry missing resultSha on read', () => {
+    writeFileSync(path, JSON.stringify([{ ...intent('op-1'), phase: 'merged' }]))
+    expect(() => createJournal(path).read()).toThrow(/entry 0 field "resultSha"/)
+  })
+
+  it('rejects a "merged" entry missing resultSha on append without writing the file', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), phase: 'merged' })).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  it('throws naming the field for a "published" entry missing resultSha on read', () => {
+    writeFileSync(path, JSON.stringify([{ ...intent('op-1'), phase: 'published' }]))
+    expect(() => createJournal(path).read()).toThrow(/entry 0 field "resultSha"/)
+  })
+
+  it('throws naming the field for an "aborted" entry missing detail on read', () => {
+    writeFileSync(path, JSON.stringify([{ ...intent('op-1'), phase: 'aborted' }]))
+    expect(() => createJournal(path).read()).toThrow(/entry 0 field "detail"/)
+  })
+
+  it('rejects an "aborted" entry missing detail on append without writing the file', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), phase: 'aborted' })).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  it('accepts an "aborted" entry with detail and no resultSha (abort before any merge)', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), phase: 'aborted', detail: 'lane deleted' })).not.toThrow()
+    expect(journal.read()).toHaveLength(1)
+  })
+
+  it('throws naming the field for a negative "at" on read', () => {
+    writeFileSync(path, JSON.stringify([{ ...intent('op-1'), at: -1 }]))
+    expect(() => createJournal(path).read()).toThrow(/entry 0 field "at"/)
+  })
+
+  it('rejects a negative "at" on append without writing the file', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), at: -1 })).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  it('throws naming the field for a fractional "at" on read', () => {
+    writeFileSync(path, JSON.stringify([{ ...intent('op-1'), at: 1.5 }]))
+    expect(() => createJournal(path).read()).toThrow(/entry 0 field "at"/)
+  })
+
+  it('rejects a fractional "at" on append without writing the file', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), at: 1.5 })).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  // NaN cannot round-trip through JSON.parse (it becomes an error or null
+  // depending on how it got there), so the read-side case is exercised via
+  // JSON.stringify's own behavior: an unvalidated append would have let
+  // JSON.stringify silently turn `at: NaN` into `null` in the file, which
+  // is exactly the self-corruption this fix closes. We assert the append
+  // rejects it outright, before any stringify/write happens.
+  it('rejects a NaN "at" on append without writing the file (would otherwise serialize to null)', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), at: NaN })).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  it('rejects an Infinity "at" on append without writing the file', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), at: Infinity })).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  it('throws naming the field for an Infinity "at" on read (a hand-edited file, not appended)', () => {
+    // JSON has no Infinity literal, so this can only reach read() via a
+    // hand-edited or externally-written file — write the array as text
+    // with a bare `Infinity` token rather than going through JSON.stringify.
+    writeFileSync(path, `[{"opId":"op-1","laneId":"lane-1","phase":"intent","baseSha":"aaa","laneTip":"bbb","at":Infinity}]`)
+    expect(() => createJournal(path).read()).toThrow(JournalCorruptError)
+  })
+
+  it('does not write the file at all when append() rejects an invalid entry, leaving no file behind', () => {
+    const journal = createJournal(path)
+    expect(() => journal.append({ ...intent('op-1'), laneId: '' })).toThrow(JournalInvalidEntryError)
+    expect(() => readFileSync(path, 'utf8')).toThrow(/ENOENT/)
+  })
+
+  it('leaves prior entries unchanged when a later append() call is rejected', () => {
+    const journal = createJournal(path)
+    journal.append(intent('op-1'))
+    const before = readFileSync(path, 'utf8')
+    expect(() => journal.append({ ...intent('op-2'), baseSha: '' })).toThrow(JournalInvalidEntryError)
+    expect(readFileSync(path, 'utf8')).toBe(before)
+    expect(journal.read()).toHaveLength(1)
+  })
+
+  it('throws JournalInvalidEntryError, not JournalCorruptError, for a bad append() argument', () => {
+    const journal = createJournal(path)
+    try {
+      journal.append({ ...intent('op-1'), opId: '' })
+      throw new Error('expected append to throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(JournalInvalidEntryError)
+      expect(error).not.toBeInstanceOf(JournalCorruptError)
+    }
   })
 })

@@ -24,9 +24,13 @@ export interface JournalEntry {
   phase: JournalPhase
   baseSha: string
   laneTip: string
-  /** Only knowable after the merge has run. Absent on 'intent'. */
+  /**
+   * Only knowable after the merge has run: absent on 'intent' and optional
+   * on 'aborted' (an abort can happen before any merge runs), but required
+   * on every other phase — see PHASES_REQUIRING_RESULT_SHA.
+   */
   resultSha?: string
-  /** Free-text reason, for 'aborted'. */
+  /** Free-text reason. Required on 'aborted', optional elsewhere. */
   detail?: string
   at: number
 }
@@ -46,33 +50,75 @@ export class JournalCorruptError extends Error {
   }
 }
 
+/**
+ * Thrown by append() when the caller hands it an entry the validator
+ * rejects. Deliberately distinct from JournalCorruptError: a bad append
+ * argument is a programming error in this process, not evidence that the
+ * on-disk file is damaged. Keeping the two separate lets a caller (or a
+ * test) tell "my in-memory entry was malformed" apart from "the file on
+ * disk cannot be trusted" without inspecting message text.
+ */
+export class JournalInvalidEntryError extends Error {
+  constructor(cause: string) {
+    super(`invalid journal entry: ${cause}`)
+    this.name = 'JournalInvalidEntryError'
+  }
+}
+
 const isString = (v: unknown): v is string => typeof v === 'string'
-const isNumber = (v: unknown): v is number => typeof v === 'number'
+const isNonEmptyString = (v: unknown): v is string => isString(v) && v.length > 0
+
+// Phases written strictly after the merge has produced a commit: their
+// resultSha is already known by the time they are written (see the
+// JOURNAL_PHASES comments above — 'merged' is written once the merge
+// produces a commit, and 'tests'/'published'/'notified' all happen later
+// in the same operation), so resultSha is required on all of them, not just
+// on the two phases the finding named explicitly ('merged'/'published').
+// 'aborted' can legitimately happen before a merge ever runs (e.g. an abort
+// during 'intent'), so a resultSha isn't guaranteed there and is left
+// optional; this is the stricter reading where 'aborted' is ambiguous,
+// since it requires 'detail' instead and does not relax any other rule.
+const PHASES_REQUIRING_RESULT_SHA: ReadonlySet<JournalPhase> = new Set([
+  'merged', 'tests', 'published', 'notified',
+])
 
 /**
  * Throws a description naming the offending entry index and field, never
  * "corrupt" alone: a user staring at a stack trace needs to find the entry.
  * Guards every interpolation against undefined so error construction itself
- * cannot throw.
+ * cannot throw. Semantic, not just type-based: recovery reconciles an
+ * interrupted run against git reality using these values, so an entry with
+ * the right primitive types but a meaningless value (empty id, a phase
+ * whose sha is missing, a non-integer timestamp) is just as unusable as one
+ * with the wrong type, and must fail closed the same way.
  */
-function describeShapeViolation(index: number, entry: unknown): string | undefined {
+function describeEntryViolation(label: string, entry: unknown): string | undefined {
   if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-    return `entry ${index} is not an object`
+    return `${label} is not an object`
   }
   const e = entry as Record<string, unknown>
-  if (!isString(e.opId)) return `entry ${index} field "opId" is not a string`
-  if (!isString(e.laneId)) return `entry ${index} field "laneId" is not a string`
+  if (!isNonEmptyString(e.opId)) return `${label} field "opId" is not a non-empty string`
+  if (!isNonEmptyString(e.laneId)) return `${label} field "laneId" is not a non-empty string`
   if (!isString(e.phase) || !(JOURNAL_PHASES as readonly string[]).includes(e.phase)) {
-    return `entry ${index} field "phase" is not one of ${JOURNAL_PHASES.join(', ')}`
+    return `${label} field "phase" is not one of ${JOURNAL_PHASES.join(', ')}`
   }
-  if (!isString(e.baseSha)) return `entry ${index} field "baseSha" is not a string`
-  if (!isString(e.laneTip)) return `entry ${index} field "laneTip" is not a string`
-  if (!isNumber(e.at)) return `entry ${index} field "at" is not a number`
-  if (e.resultSha !== undefined && !isString(e.resultSha)) {
-    return `entry ${index} field "resultSha" is not a string`
+  if (!isNonEmptyString(e.baseSha)) return `${label} field "baseSha" is not a non-empty string`
+  if (!isNonEmptyString(e.laneTip)) return `${label} field "laneTip" is not a non-empty string`
+  if (typeof e.at !== 'number' || !Number.isInteger(e.at) || e.at < 0) {
+    return `${label} field "at" is not a non-negative integer`
   }
-  if (e.detail !== undefined && !isString(e.detail)) {
-    return `entry ${index} field "detail" is not a string`
+  if (e.resultSha !== undefined && !isNonEmptyString(e.resultSha)) {
+    return `${label} field "resultSha" is not a non-empty string`
+  }
+  const phase = e.phase as JournalPhase
+  if (PHASES_REQUIRING_RESULT_SHA.has(phase) && e.resultSha === undefined) {
+    return `${label} field "resultSha" is required for phase "${phase}"`
+  }
+  if (e.detail !== undefined && !isNonEmptyString(e.detail)) {
+    return `${label} field "detail" is not a non-empty string`
+  }
+  if (phase === 'aborted' && e.detail === undefined) {
+    return `${label} field "detail" is required for phase "aborted"`
   }
   return undefined
 }
@@ -97,7 +143,7 @@ export function createJournal(path: string): Journal {
     }
     if (!Array.isArray(parsed)) throw new JournalCorruptError(path, 'expected an array')
     for (let i = 0; i < parsed.length; i += 1) {
-      const violation = describeShapeViolation(i, parsed[i])
+      const violation = describeEntryViolation(`entry ${i}`, parsed[i])
       if (violation !== undefined) throw new JournalCorruptError(path, violation)
     }
     return parsed as JournalEntry[]
@@ -111,6 +157,16 @@ export function createJournal(path: string): Journal {
   // or CAS. If append() is ever made async, this invariant breaks and a
   // locking scheme becomes necessary.
   const append = (entry: JournalEntry): void => {
+    // Validate the input BEFORE any read or write: the same rules read()
+    // enforces on disk apply to what we're about to write, so a caller
+    // cannot self-corrupt the file (e.g. via JSON.stringify(NaN) -> null,
+    // silently unrecoverable on the next read) or write an entry recovery
+    // could never act on. Rejecting here, before mkdirSync/atomicWriteFile,
+    // guarantees the file on disk is untouched when this throws.
+    const violation = describeEntryViolation('entry', entry)
+    if (violation !== undefined) {
+      throw new JournalInvalidEntryError(violation.replace(/^entry /, ''))
+    }
     const entries = read()
     entries.push(entry)
     const bounded = entries.length > JOURNAL_MAX_ENTRIES
