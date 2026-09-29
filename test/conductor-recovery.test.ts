@@ -71,6 +71,69 @@ describe('classifyOperation', () => {
     expect(classifyOperation(entries, reality({ refSha: RESULT }))).toBe('published-unnotified')
   })
 
+  // Finding 2 regression guard: the fail-closed rule must trigger only when
+  // the ref has moved *off* the recorded result, never for the legitimate
+  // post-CAS state — refSha === resultSha still means published-unnotified,
+  // in both a clean and a stray-dirty integration worktree.
+  it('still classifies published + refSha === resultSha as published-unnotified with a dirty worktree', () => {
+    const entries = [
+      entry('intent'),
+      entry('merged', { resultSha: RESULT }),
+      entry('published', { resultSha: RESULT })
+    ]
+    expect(classifyOperation(entries, reality({ refSha: RESULT, integrationDirty: true })))
+      .toBe('published-unnotified')
+  })
+
+  // Finding 1: two different defined resultShas for one operation is not a
+  // state the two-write journal protocol can produce — it means these
+  // entries describe more than one merge attempt, and must be rejected
+  // rather than classified by trusting whichever resultSha is found first.
+  it('throws on merged(A) followed by published(B) with conflicting resultShas', () => {
+    const entries = [
+      entry('intent'),
+      entry('merged', { resultSha: RESULT }),
+      entry('published', { resultSha: 'a-different-result-sha' })
+    ]
+    expect(() => classifyOperation(entries, reality())).toThrow(MalformedJournalError)
+  })
+
+  it('throws on merged(A), tests, published(B) with conflicting resultShas', () => {
+    const entries = [
+      entry('intent'),
+      entry('merged', { resultSha: RESULT }),
+      entry('tests'),
+      entry('published', { resultSha: 'a-different-result-sha' })
+    ]
+    expect(() => classifyOperation(entries, reality())).toThrow(MalformedJournalError)
+  })
+
+  // Finding 2: once 'published' is journaled, the CAS already succeeded
+  // once. A ref sitting back at baseSha must never be treated as a
+  // retryable pre-CAS state (which would double-apply the merge) — it must
+  // fail closed as externally-modified, in both a clean and a dirty
+  // integration worktree.
+  it('classifies published + refSha === baseSha (clean worktree) as externally-modified, not merged-unpublished', () => {
+    const entries = [
+      entry('intent'),
+      entry('merged', { resultSha: RESULT }),
+      entry('published', { resultSha: RESULT })
+    ]
+    expect(classifyOperation(entries, reality({ refSha: BASE, integrationDirty: false })))
+      .toBe('externally-modified')
+  })
+
+  it('classifies published + refSha === baseSha (dirty worktree) as externally-modified, not interrupted-tests', () => {
+    const entries = [
+      entry('intent'),
+      entry('merged', { resultSha: RESULT }),
+      entry('tests'),
+      entry('published', { resultSha: RESULT })
+    ]
+    expect(classifyOperation(entries, reality({ refSha: BASE, integrationDirty: true })))
+      .toBe('externally-modified')
+  })
+
   it('classifies a fully journalled operation as complete', () => {
     const entries = [
       entry('intent'),

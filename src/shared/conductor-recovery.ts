@@ -179,6 +179,22 @@ function validateAndOrder(
     seenPhases.add(e.phase)
   }
 
+  // A resultSha is only ever produced once, at the moment the merge commits
+  // ('merged' and 'published' both carry the *same* commit's sha). Two
+  // different defined resultShas across the operation's entries is not a
+  // state the two-write journal protocol can produce — it means these
+  // entries describe more than one merge attempt, and classifyOperation's
+  // "trust the first resultSha found" logic would otherwise silently pick
+  // one of two contradictory stories.
+  const resultShas = new Set(
+    entries.map((e) => e.resultSha).filter((s): s is string => s !== undefined)
+  )
+  if (resultShas.size > 1) {
+    throw new MalformedJournalError(
+      `classifyOperation received entries with conflicting resultSha values: ${[...resultShas].join(', ')}`
+    )
+  }
+
   return [...entries].sort((a, b) => a.at - b.at)
 }
 
@@ -193,10 +209,14 @@ function validateAndOrder(
  *  3. a resultSha was recorded (merge produced a commit):
  *     a. ref === resultSha, 'published' journaled     -> published-unnotified
  *     b. ref === resultSha, 'published' NOT journaled -> published-unrecorded
- *     c. ref === baseSha, 'tests' journaled AND
+ *     c. ref !== resultSha, 'published' journaled     -> externally-modified
+ *        (the CAS already succeeded once; a ref that has since moved off
+ *        the recorded result was moved by something outside Conductor —
+ *        never treated as retryable, no matter where it now points)
+ *     d. ref === baseSha, 'tests' journaled AND
  *        integration worktree dirty                   -> interrupted-tests
- *     d. ref === baseSha, otherwise                    -> merged-unpublished
- *     e. ref is none of the above                      -> externally-modified
+ *     e. ref === baseSha, otherwise                    -> merged-unpublished
+ *     f. ref is none of the above                      -> externally-modified
  *  4. no resultSha recorded (merge never produced a commit):
  *     a. ref !== baseSha                                -> externally-modified
  *     b. MERGE_HEAD present                             -> interrupted-merge
@@ -228,6 +248,15 @@ export function classifyOperation(
     if (reality.refSha === resultSha) {
       return phases.has('published') ? 'published-unnotified' : 'published-unrecorded'
     }
+    // Finding 2: a journaled 'published' entry means the compare-and-swap
+    // already succeeded once. If the ref is nevertheless not sitting on the
+    // recorded result, the CAS did not merely fail to get retried — the ref
+    // moved again, by something outside Conductor, after publication. That
+    // is indistinguishable from any other externally-modified ref and must
+    // fail closed the same way, never fall through to a "safe to redo" row
+    // (interrupted-tests/merged-unpublished) that would re-run and
+    // double-apply a merge that already landed.
+    if (phases.has('published')) return 'externally-modified'
     if (reality.refSha === baseSha) {
       // A recorded resultSha means the merge committed; the ref sitting on
       // baseSha with a journaled 'tests' phase and a dirty integration
