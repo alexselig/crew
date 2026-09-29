@@ -881,10 +881,12 @@ Additional requirements from review:
 
 ## UI
 
-- **Workspace editor:** a `Conducted` toggle; the repository and integration
-  branch; role list; per-edge gate; the test recipe (setup, command, args, cwd,
-  timeout) as explicit user-confirmed fields. Rejected toggles show the conflict
-  inline.
+- **Composer (new conducted workspace):** the repository and integration
+  branch; the test recipe (setup, command, args, cwd, timeout) as explicit
+  user-confirmed fields; and the roster table — role · kind · preset · model —
+  that creates the lanes and their sessions. Per-edge gates are configured here
+  from Phase 2 on. Rejections show inline, before anything is created. See
+  *Composing a run*. **The new-session dialog is unchanged.**
 - **Roster:** per lane — status, `ahead`, `behind`, and a warning (never a
   block) when the lane has uncommitted or untracked files. `behind` is derived
   from `rev-list` only, never incremented by bulletins, which would give the UI
@@ -896,6 +898,175 @@ Additional requirements from review:
   continue/abort choices per interrupted operation.
 
 Step permits exactly one decision; follow-up events queue until the next Step.
+
+## Composing a run
+
+Three things must exist before anything is conducted: the **structure** (a
+repository, an integration branch, a test recipe), the **lanes** (a branch and a
+worktree each), and the **agents** (a session per lane). All three are declared
+in one place: the **New conducted workspace** flow. Conducting is a property of
+the workspace, so the workspace is where it is composed.
+
+**The new-session dialog is not touched.** No new fields, no conditional
+toggle, no conducted/standard choice. Creating a session anywhere in Crew
+behaves exactly as it does today, including inside a conducted workspace — a
+scratch shell in a conducted workspace stays an ordinary session, because
+forcing every session into a lane would make the workspace useless for anything
+else. Lanes are created by the composer, not by the session dialog.
+
+This is the cheaper design as well as the cleaner one: the session dialog is on
+every user's path, and a field that is meaningless to all of them but a few is a
+tax on everyone.
+
+### The composer
+
+Creating a conducted workspace asks for the structure once, then for the roster:
+
+| Step | Fields |
+|---|---|
+| **Repository** | repo path; integration branch (default `crew/integration`) |
+| **Verification** | the test recipe — setup, command, args, cwd, timeout — as explicit, user-confirmed fields, never inferred |
+| **Roster** | a table of rows, each: role name · kind (`author`/`reviewer`) · agent preset · model |
+
+The agent columns are the **existing** preset and Copilot model pickers, lifted
+from the session form rather than reimplemented. That reuse is the point: it is
+what makes reasoning diversity across lanes — one lane on Claude, one on GPT,
+one reviewing — a table you fill in rather than a feature anyone had to build.
+
+A reviewer row gets no branch; its worktree is detached at the candidate SHA
+when a review starts. See *Review gates publication*.
+
+On confirm, Crew creates the integration worktree, then for each row a lane and
+a session, and the workspace opens with its agents already running in their own
+worktrees.
+
+### Everything is validated before anything is created
+
+The whole roster is checked before the first worktree exists: the repository is
+a git repository, the integration branch resolves, role names are unique and
+legal as branch names, the row count is within `maxLanes`, and no chosen session
+would violate exclusivity. Creating three lanes and failing on the fourth leaves
+debris the user did not ask for and cannot easily see.
+
+### Per row, the order is forced
+
+`cwd` is fixed when a session is spawned and there is no `setCwd`. So for each
+row: create the lane (branch and worktree), then spawn the session with `cwd`
+set to that worktree, then record `Lane.sessionId`. If the spawn fails, the lane
+**must be undone** — a lane whose session never started is an orphan worktree
+that accumulates silently.
+
+If any row fails, the composer **rolls back every lane it created** and reports
+which row failed. A half-built run is worse than no run: it looks finished.
+
+### Adding and removing lanes later
+
+The roster row is a component, not a wizard step, so the conductor panel reuses
+it for **Add lane** on a running workspace. The composer is the default path,
+not the only one.
+
+Because `cwd` is fixed at spawn, there is no "conduct this running session"
+action: moving an existing session into a lane worktree would mean relaunching
+it and discarding the agent's context. To conduct work already under way, the
+user adds a lane and the agent picks the work up there.
+
+Closing a conducted session does **not** destroy its lane — the branch and
+worktree hold committed and uncommitted work. Removing a lane is a separate,
+explicit action that names what will be lost, which is the same reason `destroy`
+takes a `force` flag rather than deciding on the user's behalf.
+
+## The conductor session plans the run
+
+Filling in a roster by hand assumes the user already knows how to decompose the
+work and which model suits which part. Usually they don't — that is the actual
+hard question, and it is a reasoning question. So the roster can instead be
+**proposed by an agent**: a conductor session reads the repository, plans the
+project, and proposes which lanes exist, what each is responsible for, and which
+agent and model should run it. Crew then spins those sessions up.
+
+### The conductor session is a session, with one privilege
+
+It is an ordinary Crew session, spawned in a **dedicated plan worktree detached
+at the integration tip**, with one Crew-provided skill installed. It is not
+given the integration worktree — nothing but Crew may touch that — and it is not
+given a lane, because it is not building anything. It reads and it proposes.
+
+It is told, in its briefing, the **live model catalogue** — the real output of
+`copilot --help`'s model list, not a list from its training data. Without this
+it will confidently propose model IDs that do not exist, because that is the
+single most reliable failure mode of asking a model about models.
+
+### The handoff is a file, not the transcript
+
+The skill instructs the conductor to write its plan to
+`.crew/conductor-plan.json` in its worktree. Crew watches for that file.
+
+Scraping the proposal out of the PTY transcript was the obvious alternative and
+is the wrong one: terminal output is interleaved, re-wrapped, colour-coded and
+partially redrawn, so "did the agent finish emitting the JSON" has no reliable
+answer. A file has one. This is the same reason the detector is not trusted as a
+turn boundary elsewhere in this design.
+
+The schema is deliberately small — anything richer is a bigger surface to
+validate for no gain at this stage:
+
+```ts
+interface PlanProposal {
+  summary: string
+  rows: Array<{
+    roleName: string
+    kind: 'author' | 'reviewer'
+    presetId: string
+    model: string | null
+    /** One line: why this work, and why this model for it. Shown to the user. */
+    rationale: string
+  }>
+}
+```
+
+### A proposal is untrusted input
+
+It goes through exactly the same `validateRoster` a hand-typed roster does, and
+then three checks that exist only because a model wrote it:
+
+1. **Every model must be in the live catalogue.** An unknown model is
+   **flagged, never substituted.** Silently swapping in a default would spend
+   the user's credits on a model they did not pick, and they would have no way
+   to notice.
+2. **Every preset must be installed**, by the same detection the session form
+   uses. A proposal naming an agent the user does not have is a flagged row,
+   not a failed run.
+3. **The row count is clamped to `maxLanes`**, with the excess shown as dropped
+   rather than quietly truncated.
+
+Malformed JSON, a missing file, or a proposal that fails validation are all
+**normal states**, not errors: the composer opens with whatever survived, the
+problems listed against their rows.
+
+### The user still presses Create
+
+The proposal lands in the composer form — pre-filled, fully editable, each row
+carrying the conductor's one-line rationale — and the user confirms it. Crew
+then creates the lanes and spawns each session with its own preset and model.
+
+Spawning N agents commits real money and real repository state, and the premise
+of the whole feature is that the user is conducting rather than watching. This
+is the same shape as *Review gates publication*: the expensive, irreversible
+step is gated by a human, and the gate is one click.
+
+*Assumption, stated because it is a judgement call:* auto-accepting a proposal
+without confirmation is deliberately **not** offered in the first version. If
+the review step proves to be pure friction in practice it becomes a setting;
+that is a much easier change to make later than clawing back trust after a run
+spawned five agents nobody approved.
+
+### The form is the floor
+
+Every part of this degrades to Task 11's composer. If the conductor session
+fails to start, writes nothing, writes garbage, or proposes a roster that is
+entirely invalid, the user fills the form in themselves and the run proceeds
+identically. The agent-planned path is an accelerator over a working manual
+path, never a dependency — which is also why it is phased after it.
 
 ## Error handling and edge cases
 
@@ -1045,6 +1216,14 @@ a process supervisor that reaps before releasing.
 The UI shows `ahead`/`behind`/dirty per lane with **Publish this lane** and
 **Sync this lane** buttons.
 
+Phase 1 includes the **composer**, because a conducted workspace has to be able
+to come into existence: repository, integration branch, test recipe, and a
+roster of rows that each become a lane and a session. Its Phase 1 form of the
+roster row is role name · preset · model; `kind` is collected and stored but
+every Phase 1 lane behaves as an author, since nothing evaluates a review yet.
+The composer validates the whole roster before creating anything and rolls back
+every lane it created if a row fails.
+
 Phase 1's data model is **only** `Lane`, `Run`, the integration branch and the
 `TestRecipe`. `Role`, `Edge`, `Review`, `Pipeline` edges and the gate set are
 now specified (review gates publication — see above), but Phase 1 **implements
@@ -1077,6 +1256,23 @@ signals without building the transport:
   story. Its signal is still unknown and must be measured first. If none
   exists, that is the single most important thing the spike can tell us, and it
   is far better learned before a multi-preset transport is designed than after.
+
+**Phase 1c — the conductor session proposes the roster.** Depends on Phase 1b
+only for its *agent* half, so it is split where the risk is:
+
+- **In Phase 1, because it needs no agent at all:** the proposal schema, the
+  parser, and the reconciliation of a proposed roster against the live model
+  catalogue and the installed presets. This is where every real hazard lives —
+  hallucinated model IDs, unknown presets, too many rows, malformed JSON — and
+  all of it is pure, deterministic and testable against fixture files with
+  nothing spawned. It ships with Phase 1 and is exercised by loading a proposal
+  from disk.
+- **In Phase 1c, once a transport exists:** spawning the conductor session in
+  its plan worktree, installing its skill, injecting the live catalogue into its
+  briefing, and watching for `.crew/conductor-plan.json`.
+
+The composer form is the floor under both. The agent-planned path is an
+accelerator over a manual path that already works, never a dependency.
 
 **Phase 2 — automation.** The `AgentTransport` contract with a real completion
 signal per preset, readiness-gated delivery, the input lock, work-result
