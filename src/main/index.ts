@@ -48,10 +48,7 @@ import { CHARACTERS } from './characters'
 import { listCopilotModels } from './copilot-models'
 import { BoundedErrorReporter, createShellActions, installPreviewBoundary } from './main-boundaries'
 import { registerCustomViewIpc } from './custom-view-ipc'
-import { registerConductorIpc, type ConductorBackend } from './conductor-ipc'
-import type { LaneManager } from './lanes'
-import type { Conductor } from './conductor'
-import type { ConductorLane, ConductorSettings, LaneFacts, ReconcileReport } from '../shared/conductor'
+import { registerConductorIpc, createShippedConductorBackend } from './conductor-ipc'
 import { handleNeedsYouTransition } from './notification-integration'
 import { AppActivityCoordinator } from './app-activity'
 
@@ -636,89 +633,6 @@ function wireManager(): void {
   })
 }
 
-// ── Conductor (Phase 1) ──
-// Built at module scope, independent of `manager`/`store`, because a lane's
-// git identity has nothing to do with a session's PTY identity: the IPC
-// surface deals in lane ids, the runtime in lane objects (per Task 9's brief),
-// so this backend is the one place that resolves one to the other.
-function createConductorBackend(): ConductorBackend {
-  // No composer exists yet to produce real ConductorSettings (repo path,
-  // integration branch/worktree, lanes dir, test recipe) — that lands in a
-  // later task. Until wired, conductorRuntime stays null and the backend
-  // reports itself disabled rather than guessing at settings.
-  const conductorRuntime = null as { lanes: LaneManager; conductor: Conductor; settings: ConductorSettings } | null
-  const lanesById = new Map<string, ConductorLane>()
-  let publishingLaneId: string | null = null
-  let lastReconcile: ReconcileReport = { needsAttention: false, operations: [] }
-
-  const requireWired = (): { lanes: LaneManager; conductor: Conductor } => {
-    if (!conductorRuntime) throw new Error('conductor is not configured for this workspace yet')
-    return conductorRuntime
-  }
-
-  const requireLane = (laneId: string): ConductorLane => {
-    const lane = lanesById.get(laneId)
-    if (!lane) throw new Error(`unknown lane: ${laneId}`)
-    return lane
-  }
-
-  return {
-    async state() {
-      const runtime = conductorRuntime
-      if (!runtime) {
-        return { enabled: false, publishing: null, lanes: [], facts: {}, needsAttention: false }
-      }
-      const lanes = [...lanesById.values()]
-      const facts: Record<string, LaneFacts> = {}
-      for (const lane of lanes) facts[lane.id] = await runtime.lanes.facts(lane)
-      return {
-        enabled: true,
-        publishing: publishingLaneId,
-        lanes,
-        facts,
-        needsAttention: lastReconcile.needsAttention
-      }
-    },
-    async createLane(request) {
-      const { lanes } = requireWired()
-      const lane = await lanes.create(request.roleId, request.agent)
-      lanesById.set(lane.id, lane)
-      return lane
-    },
-    async destroyLane(laneId) {
-      const { lanes } = requireWired()
-      const lane = requireLane(laneId)
-      await lanes.destroy(lane, { force: false })
-      lanesById.delete(laneId)
-    },
-    async publishLane(laneId) {
-      const { conductor } = requireWired()
-      const lane = requireLane(laneId)
-      publishingLaneId = laneId
-      try {
-        return await conductor.publishLane(lane)
-      } finally {
-        publishingLaneId = null
-      }
-    },
-    async syncLane(laneId) {
-      const { conductor } = requireWired()
-      const lane = requireLane(laneId)
-      publishingLaneId = laneId
-      try {
-        return await conductor.syncLane(lane)
-      } finally {
-        publishingLaneId = null
-      }
-    },
-    async reconcile() {
-      const { conductor } = requireWired()
-      lastReconcile = await conductor.reconcile()
-      return lastReconcile
-    }
-  }
-}
-
 function registerIpc(): void {
   ipcMain.handle(IPC.SESSION_CREATE, (_e, req: CreateSessionRequest) => {
     const info = manager.create(req)
@@ -907,7 +821,7 @@ function registerIpc(): void {
   // later task. Until then the backend reports itself disabled and every
   // mutating call refuses cleanly, rather than this task inventing settings
   // it was not asked to resolve.
-  registerConductorIpc(ipcMain, createConductorBackend(), broadcast)
+  registerConductorIpc(ipcMain, createShippedConductorBackend(null), broadcast)
 
   // ── First-class workspaces (Workspace Manager) ──
   const pushWorkspaces = (): Workspace[] => {

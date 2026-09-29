@@ -3,10 +3,14 @@
 
 import type { IpcMain } from 'electron'
 import { IPC } from '../shared/types'
+import type { LaneManager } from './lanes'
+import type { Conductor } from './conductor'
 import type {
   ConductorSnapshot,
   LaneCreateRequest,
   ConductorLane,
+  ConductorSettings,
+  LaneFacts,
   PublishOutcome,
   SyncOutcome,
   ReconcileReport
@@ -72,4 +76,89 @@ export function registerConductorIpc(
   })
 
   ipc.handle(IPC.CONDUCTOR_RECONCILE, () => backend.reconcile())
+}
+
+export type ConductorRuntime = { lanes: LaneManager; conductor: Conductor; settings: ConductorSettings }
+
+// The shipped backend, extracted from src/main/index.ts so its disabled path
+// (runtime === null) is exercisable under environment: 'node' the same way
+// registerConductorIpc is. Built independent of `manager`/`store`, because a
+// lane's git identity has nothing to do with a session's PTY identity: the
+// IPC surface deals in lane ids, the runtime in lane objects (per Task 9's
+// brief), so this backend is the one place that resolves one to the other.
+// No composer exists yet to produce real ConductorSettings (repo path,
+// integration branch/worktree, lanes dir, test recipe) — that lands in a
+// later task. Until wired, index.ts passes null and the backend reports
+// itself disabled rather than guessing at settings.
+export function createShippedConductorBackend(conductorRuntime: ConductorRuntime | null): ConductorBackend {
+  const lanesById = new Map<string, ConductorLane>()
+  let publishingLaneId: string | null = null
+  let lastReconcile: ReconcileReport = { needsAttention: false, operations: [] }
+
+  const requireWired = (): { lanes: LaneManager; conductor: Conductor } => {
+    if (!conductorRuntime) throw new Error('conductor is not configured for this workspace yet')
+    return conductorRuntime
+  }
+
+  const requireLane = (laneId: string): ConductorLane => {
+    const lane = lanesById.get(laneId)
+    if (!lane) throw new Error(`unknown lane: ${laneId}`)
+    return lane
+  }
+
+  return {
+    async state() {
+      const runtime = conductorRuntime
+      if (!runtime) {
+        return { enabled: false, publishing: null, lanes: [], facts: {}, needsAttention: false }
+      }
+      const lanes = [...lanesById.values()]
+      const facts: Record<string, LaneFacts> = {}
+      for (const lane of lanes) facts[lane.id] = await runtime.lanes.facts(lane)
+      return {
+        enabled: true,
+        publishing: publishingLaneId,
+        lanes,
+        facts,
+        needsAttention: lastReconcile.needsAttention
+      }
+    },
+    async createLane(request) {
+      const { lanes } = requireWired()
+      const lane = await lanes.create(request.roleId, request.agent)
+      lanesById.set(lane.id, lane)
+      return lane
+    },
+    async destroyLane(laneId) {
+      const { lanes } = requireWired()
+      const lane = requireLane(laneId)
+      await lanes.destroy(lane, { force: false })
+      lanesById.delete(laneId)
+    },
+    async publishLane(laneId) {
+      const { conductor } = requireWired()
+      const lane = requireLane(laneId)
+      publishingLaneId = laneId
+      try {
+        return await conductor.publishLane(lane)
+      } finally {
+        publishingLaneId = null
+      }
+    },
+    async syncLane(laneId) {
+      const { conductor } = requireWired()
+      const lane = requireLane(laneId)
+      publishingLaneId = laneId
+      try {
+        return await conductor.syncLane(lane)
+      } finally {
+        publishingLaneId = null
+      }
+    },
+    async reconcile() {
+      const { conductor } = requireWired()
+      lastReconcile = await conductor.reconcile()
+      return lastReconcile
+    }
+  }
 }

@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import { IPC } from '../src/shared/types'
-import { registerConductorIpc, type ConductorBackend } from '../src/main/conductor-ipc'
+import {
+  registerConductorIpc,
+  createShippedConductorBackend,
+  type ConductorBackend
+} from '../src/main/conductor-ipc'
+import { ConductorBusyError } from '../src/main/conductor'
 import type { ConductorLane } from '../src/shared/conductor'
 
 type Handler = Parameters<IpcMain['handle']>[1]
@@ -107,6 +112,20 @@ describe('conductor IPC contract', () => {
     expect(backend.createLane).toHaveBeenCalledWith(request)
   })
 
+  // Only reconcile() throws ConductorBusyError (see conductor.ts) —
+  // publishLane and syncLane instead return a structured { ok: false,
+  // reason: 'busy' } outcome, so those two are already covered by the
+  // "rejected publication" style tests above and don't need this shape.
+  it('rejects with ConductorBusyError\'s message when reconcile is already in flight, and broadcasts nothing', async () => {
+    const { invoke, broadcast } = harness({
+      reconcile: vi.fn(async () => { throw new ConductorBusyError() })
+    })
+    await expect(invoke(IPC.CONDUCTOR_RECONCILE)).rejects.toThrow(
+      'conductor is busy: a publication, sync, or reconcile is already in flight'
+    )
+    expect(broadcast).not.toHaveBeenCalled()
+  })
+
   it('exposes every conductor channel through the preload bridge', () => {
     const preload = readFileSync(new URL('../src/preload/index.ts', import.meta.url), 'utf8')
     for (const key of [
@@ -121,5 +140,85 @@ describe('conductor IPC contract', () => {
   it('registers the conductor IPC module from the main entrypoint', () => {
     const main = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
     expect(main).toContain('registerConductorIpc')
+  })
+})
+
+describe('the shipped conductor backend, with no settings composer wired yet', () => {
+  // src/main/index.ts constructs createShippedConductorBackend(null) because
+  // no composer exists yet to produce real ConductorSettings — this is the
+  // exact backend shape shipped to users today, so its disabled path must be
+  // exercised even though nothing wires a real runtime until a later task.
+  it('reports itself disabled, with no lanes and nothing needing attention', async () => {
+    const backend = createShippedConductorBackend(null)
+    await expect(backend.state()).resolves.toEqual({
+      enabled: false,
+      publishing: null,
+      lanes: [],
+      facts: {},
+      needsAttention: false
+    })
+  })
+
+  it('refuses lane creation cleanly rather than guessing at settings', async () => {
+    const backend = createShippedConductorBackend(null)
+    await expect(
+      backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    ).rejects.toThrow('conductor is not configured for this workspace yet')
+  })
+
+  it('refuses lane destruction cleanly', async () => {
+    const backend = createShippedConductorBackend(null)
+    await expect(backend.destroyLane('lane-1')).rejects.toThrow(
+      'conductor is not configured for this workspace yet'
+    )
+  })
+
+  it('refuses publishing cleanly', async () => {
+    const backend = createShippedConductorBackend(null)
+    await expect(backend.publishLane('lane-1')).rejects.toThrow(
+      'conductor is not configured for this workspace yet'
+    )
+  })
+
+  it('refuses syncing cleanly', async () => {
+    const backend = createShippedConductorBackend(null)
+    await expect(backend.syncLane('lane-1')).rejects.toThrow(
+      'conductor is not configured for this workspace yet'
+    )
+  })
+
+  it('refuses reconciliation cleanly', async () => {
+    const backend = createShippedConductorBackend(null)
+    await expect(backend.reconcile()).rejects.toThrow(
+      'conductor is not configured for this workspace yet'
+    )
+  })
+
+  it('wired through registerConductorIpc, refuses every mutating channel over IPC too', async () => {
+    const handlers = new Map<string, Handler>()
+    const broadcast = vi.fn()
+    registerConductorIpc(
+      { handle: (channel, handler) => void handlers.set(channel, handler) },
+      createShippedConductorBackend(null),
+      broadcast
+    )
+    const invoke = async (channel: string, ...args: unknown[]): Promise<unknown> => {
+      const handler = handlers.get(channel)
+      if (!handler) throw new Error(`missing handler: ${channel}`)
+      return Promise.resolve().then(() => handler({} as IpcMainInvokeEvent, ...args))
+    }
+
+    await expect(invoke(IPC.CONDUCTOR_STATE)).resolves.toMatchObject({ enabled: false })
+    await expect(invoke(IPC.CONDUCTOR_LANE_CREATE, { roleId: 'builder', agent: { presetId: 'shell', model: null } }))
+      .rejects.toThrow('conductor is not configured for this workspace yet')
+    await expect(invoke(IPC.CONDUCTOR_LANE_DESTROY, 'lane-1'))
+      .rejects.toThrow('conductor is not configured for this workspace yet')
+    await expect(invoke(IPC.CONDUCTOR_PUBLISH, 'lane-1'))
+      .rejects.toThrow('conductor is not configured for this workspace yet')
+    await expect(invoke(IPC.CONDUCTOR_SYNC, 'lane-1'))
+      .rejects.toThrow('conductor is not configured for this workspace yet')
+    await expect(invoke(IPC.CONDUCTOR_RECONCILE))
+      .rejects.toThrow('conductor is not configured for this workspace yet')
+    expect(broadcast).not.toHaveBeenCalled()
   })
 })
