@@ -13,7 +13,7 @@ import {
   type ComposeResult
 } from '../../shared/conductor-composer'
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
-import { getCopilotModelSelection } from '../new-session-model'
+import { defaultLaneAgent, getCopilotModelSelection } from '../new-session-model'
 
 interface Props {
   presets: Preset[]
@@ -29,7 +29,7 @@ interface DraftRow extends RosterRow {
 }
 
 function newRow(key: string, presetId: string): DraftRow {
-  return { key, roleName: '', kind: 'author', agent: { presetId, model: null } }
+  return { key, roleName: '', kind: 'author', agent: defaultLaneAgent(presetId) }
 }
 
 function errorFor(errors: { field: string; message: string }[], field: string): string | undefined {
@@ -60,7 +60,7 @@ export function ConductorComposer({ presets, maxLanes, onCancel, onCompose }: Pr
     setRows((prev) => prev.map((r) => (
       presets.some((p) => p.id === r.agent.presetId)
         ? r
-        : { ...r, agent: { presetId: presets[0].id, model: presets[0].id === 'copilot-cli' ? DEFAULT_COPILOT_MODEL : null } }
+        : { ...r, agent: defaultLaneAgent(presets[0].id) }
     )))
   }, [presets])
 
@@ -235,9 +235,7 @@ function RosterRowFields({
         <select
           aria-label="Agent"
           value={row.agent.presetId}
-          onChange={(e) =>
-            onChange({ agent: { presetId: e.target.value, model: e.target.value === 'copilot-cli' ? DEFAULT_COPILOT_MODEL : null } })
-          }
+          onChange={(e) => onChange({ agent: defaultLaneAgent(e.target.value) })}
         >
           {presets.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>

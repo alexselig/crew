@@ -74,11 +74,17 @@ async function rollback(deps: ComposeDeps, created: ConductorLane[]): Promise<Cl
   for (const lane of [...created].reverse()) {
     // The session must go first: it holds the lane's worktree as its cwd,
     // and a worktree removed out from under a still-running session is
-    // exactly the orphan this rollback exists to prevent.
+    // exactly the orphan this rollback exists to prevent. So if closing it
+    // throws, the worktree must NOT be deleted for this lane either — doing
+    // so would recreate that same orphan (a live session whose cwd just
+    // vanished). Skip this lane's worktree deletion and move on to the next
+    // lane: one stuck session must not strand every other lane's cleanup.
+    let sessionClosed = true
     if (lane.sessionId) {
       try {
         deps.closeSession(lane.sessionId)
       } catch (error) {
+        sessionClosed = false
         // Report, never throw: a failure to clean up must not replace the
         // real cause of the failure with a second, less useful one — but it
         // must not be silently swallowed either, or an orphan becomes
@@ -90,6 +96,7 @@ async function rollback(deps: ComposeDeps, created: ConductorLane[]): Promise<Cl
         })
       }
     }
+    if (!sessionClosed) continue
     try {
       await deps.lanes.destroy(lane, { force: true })
     } catch (error) {

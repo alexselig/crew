@@ -208,4 +208,41 @@ describe('composeRun', () => {
       if (builderGitDir) chmodSync(builderGitDir, 0o700)
     }
   })
+
+  // If closeSession THROWS for a lane, its worktree must survive rather than
+  // be deleted out from under the (still-live) session it failed to close —
+  // that would recreate the exact orphan rollback exists to prevent. A
+  // stuck session must also not stop rollback from cleaning up the OTHER
+  // lanes, so this uses three rows and fails only the middle one's close.
+  it('does not delete a lane whose session failed to close during rollback, and still cleans up the rest', async () => {
+    const three: RosterDraft = {
+      ...draft(),
+      rows: [
+        ...draft().rows,
+        { roleName: 'referee', kind: 'author', agent: { presetId: 'shell', model: null } }
+      ]
+    }
+    const lanes = createLaneManager(settings)
+    const createSession = vi.fn()
+      .mockResolvedValueOnce({ id: 'sess-builder' })
+      .mockResolvedValueOnce({ id: 'sess-scout' })
+      .mockRejectedValueOnce(new Error('preset not installed'))
+    const closeSession = vi.fn((id: string) => {
+      if (id === 'sess-scout') throw new Error('session would not die')
+    })
+
+    const result = await composeRun({ lanes, settings, createSession, closeSession }, three)
+
+    expect(result.ok).toBe(false)
+    if (result.ok || !('cleanupFailures' in result)) throw new Error('expected a row failure')
+    expect(result.cleanupFailures).toContainEqual(
+      expect.objectContaining({ resource: 'session', id: 'sess-scout' })
+    )
+    // scout's worktree must survive: its session failed to close, so
+    // deleting it now would orphan a session still pointed at this cwd.
+    expect(existsSync(join(settings.lanesDir, 'scout'))).toBe(true)
+    // builder's session closed fine, so its lane must still be cleaned up —
+    // scout's stuck session must not strand the rest of rollback.
+    expect(existsSync(join(settings.lanesDir, 'builder'))).toBe(false)
+  })
 })
