@@ -281,6 +281,9 @@ export interface Role {
   id: RoleId
   name: string
   order: number
+  /** Authors commit; reviewers judge somebody else's commits and own no
+   *  branch. See "Review gates publication". */
+  kind: 'author' | 'reviewer'
 }
 
 export interface Lane {
@@ -291,8 +294,10 @@ export interface Lane {
    *  to run more than one. */
   agent: LaneAgent
   worktree: string
-  branch: string
-  status: 'working' | 'ready' | 'publishing' | 'blocked' | 'done'
+  /** null for a reviewer lane: it owns no branch. Its worktree is detached
+   *  at the candidate under review. */
+  branch: string | null
+  status: 'working' | 'reviewing' | 'ready' | 'publishing' | 'blocked' | 'done'
 }
 
 export interface LaneAgent {
@@ -304,7 +309,20 @@ export interface LaneAgent {
 }
 
 export interface Edge { from: RoleId; to: RoleId | 'done'; gate: GateId }
-export type GateId = 'always' | 'has-commits' | 'tests-pass'
+export type GateId = 'always' | 'has-commits' | 'tests-pass' | 'review-approved'
+
+/** A frozen candidate awaiting a verdict. Keyed by SHA, never by lane, so a
+ *  verdict can never be applied to code the reviewer did not see. */
+export interface Review {
+  laneId: LaneId
+  reviewerLaneId: LaneId
+  /** The exact commit the reviewer was given. */
+  candidateSha: string
+  verdict: 'pending' | 'approved' | 'needs-changes'
+  /** Wall-clock deadline. On expiry the lane blocks with a stated reason
+   *  rather than waiting forever. */
+  deadlineAt: number
+}
 
 /** Static config: roles, edges, branch, limits, test recipe. */
 export interface Pipeline {
@@ -445,7 +463,7 @@ notes an agent left itself.
 ```ts
 export interface ConductorEvent {
   kind: 'work-result' | 'publication-settled' | 'lock-released'
-      | 'readiness-changed' | 'deadline'
+      | 'readiness-changed' | 'deadline' | 'verdict'
   role: RoleId
   lane: LaneId
   /** Present only on 'work-result'. Crew mints it when it dispatches work and
@@ -485,6 +503,11 @@ ports and caches between lanes.
 
 | Situation | Decision |
 |---|---|
+| work result, author lane, onward edge to a **reviewer** | freeze `candidateSha`, `handoff` to the reviewer, lane → `reviewing` |
+| verdict `approved`, `candidateSha === laneTip` | treat as a work result: evaluate gates, then queue or publish |
+| verdict `approved`, `candidateSha !== laneTip` | discard (stale — the author moved); re-freeze and review again |
+| verdict `needs-changes` | deliver to the author, lane → `working`; counts against `maxDispatches` |
+| `Review.deadlineAt` elapsed | `block` naming the unanswered review — never a silent hold |
 | work result, gate passes, lock free, **`ready` empty** | `recommend-publish` (runtime CAS decides) |
 | work result, gate passes, lock free, **`ready` non-empty** | `hold` + lane joins the **tail** of `ready` |
 | work result, gate passes, lock held | `hold` + lane joins the tail of `ready` |
@@ -499,6 +522,11 @@ ports and caches between lanes.
 | publication settled, edge target is `done` | lane `done`; run stops only when **all** lanes are done |
 | any limit exceeded (`maxDispatches`, `runDeadlineMs`, …) | `stop` |
 | event whose `laneTip` no longer matches | `hold` (stale event, dropped) |
+
+Note that **no review row touches the lock.** Review is entirely lock-free by
+construction; a lane only contends for the lock once it holds an `approved`
+verdict for its current tip. See "Review gates publication" for why holding the
+lock across a review would serialise the whole workspace.
 
 Three corrections are encoded here. First, every `hold` either joins `ready`,
 parks against a `readiness-changed` event, or blocks with a stated reason — no
@@ -936,29 +964,68 @@ TestRunner, RunStore, process supervisor, BriefingService.**
 - Cross-workspace or cross-repository conducting.
 - Conflict *resolution* by the conductor.
 
-## Unresolved: when does review happen?
+## Review gates publication
 
-Flagged in round two and **deliberately left open**, because it changes the
-Phase 2 data model and nothing in Phase 1 depends on it.
+**Decided: review happens before publication.** A reviewer's verdict blocks the
+merge; it is not a follow-up commit filed after the code has already landed.
 
-As the decision table stands, a handoff fires on `publication-settled` — so a
-reviewer role would first see code **that has already landed** on the
-integration branch, and a `needs-changes` verdict would have nothing left to
-block. The reviewer also gets a lane, a branch and a `has-commits` gate, none of
-which fit: a reviewer has no commits of its own and cannot express "I approve
-somebody else's".
+This was the round-two open question, and it is the answer that matches what
+people mean by "reviewer" — a `needs-changes` verdict that cannot stop anything
+is not a review, it is a comment. But it changes four things, and the
+non-obvious one is the third.
 
-The two coherent answers:
+**1. Reviewers own no branch.** `Role.kind` distinguishes `author` from
+`reviewer`. A reviewer lane's `branch` is `null` and its worktree is **detached
+at the candidate SHA** — the same discipline as the integration worktree, for
+the same reason. It must not read the author's lane worktree, which keeps moving
+underneath it; a reviewer that reports on code that has since changed is worse
+than no reviewer. `has-commits` is never evaluated for a reviewer lane, since it
+has no commits of its own and would block on a gate it can never satisfy.
 
-- **Review before publication.** The handoff fires on a frozen candidate SHA,
-  and publication is gated on a verdict for *that exact* SHA. Non-authoring
-  roles get no lane branch at all.
-- **Review after publication**, accepting that review is a follow-up commit
-  rather than a gate.
+**2. The candidate is frozen, and the verdict is keyed to the SHA.** The handoff
+fires on `candidate-frozen`, carrying the author's exact lane tip. `Review` is
+keyed by `candidateSha`, not by lane. If the author commits again while review
+is in flight, the verdict no longer matches `laneTip` and is **discarded, not
+applied** — which the runtime already does for free, because "event whose
+`laneTip` no longer matches → stale, dropped" is an existing rule. Without this,
+an agent could get an approval and then push more code under it.
 
-The first matches what people mean by "reviewer" and is the likely answer, but
-it makes `Lane`, `Edge` and the gate set look different. **This is why Phase 1
-does not freeze `Role`, `Edge` or `Pipeline`** — it exercises none of them.
+**3. Review must not hold the publication lock.** This is the part that is easy
+to get wrong. A review is an LLM turn — seconds to minutes. The publication lock
+is single-flight across the whole run. Holding the lock across a review would
+serialise every lane in the workspace behind one reviewer's thinking time, which
+destroys the only reason the feature has parallel lanes at all.
+
+So the sequence is: freeze the candidate → **review runs entirely lock-free** →
+on `approved` the lane enters `ready` and contends for the lock normally → the
+runtime revalidates `laneTip === candidateSha` under the lock before merging.
+
+The cost of this is honest and must be stated: between a verdict and its merge,
+another lane may land work that the reviewer never saw. **Approval is a judgment
+about a candidate in isolation, not about the integration result.** The
+`tests-pass` gate, which runs inside the lock against the post-merge tree, is
+the backstop — and per the guarantees table, semantic conflicts remain
+unprevented. Serialising review to close this window would cost far more than
+the window is worth.
+
+**4. `needs-changes` must be a loop with a bound, not a wall.** The verdict
+returns to the author as a work item and the lane goes back to `working`. Every
+such round trip is a dispatch and **counts against `maxDispatches`** — this is
+precisely the case the "count every dispatch, not just handoffs" rule exists
+for, since an author and reviewer can ping-pong indefinitely while traversing no
+new edge.
+
+**Liveness.** A reviewer that dies, hangs or never answers would otherwise block
+its author forever. `Review.deadlineAt` bounds it: on expiry the lane goes
+`blocked` with the reason named, never a silent hold. The user can always
+override and publish without a verdict; the override is **written to the
+journal**, because an unrecorded bypass of a gate makes the journal a liar about
+what was reviewed.
+
+**None of this lands in Phase 1.** Phase 1 has a manual Publish button, so the
+human pressing it *is* the review gate. `Role`, `Edge`, `Review` and the gate
+set are specified here so Phase 2 has a target, but Phase 1 implements none of
+them.
 
 ## Phasing
 
@@ -979,9 +1046,11 @@ The UI shows `ahead`/`behind`/dirty per lane with **Publish this lane** and
 **Sync this lane** buttons.
 
 Phase 1's data model is **only** `Lane`, `Run`, the integration branch and the
-`TestRecipe`. `Role`, `Edge`, `Pipeline` edges and the gate set are *not* frozen
-now — the review-ordering question above will change them, and Phase 1 uses
-none of them.
+`TestRecipe`. `Role`, `Edge`, `Review`, `Pipeline` edges and the gate set are
+now specified (review gates publication — see above), but Phase 1 **implements
+none of them**: with a manual Publish button, the human pressing it is the
+review gate. They are written down so Phase 2 has a target, not so Phase 1 has
+more to build.
 
 No PTY injection, no LLM briefings, no bulletins that instruct git, no question
 relay, no detector-triggered automation. This is the part that can corrupt a
@@ -1011,8 +1080,9 @@ signals without building the transport:
 
 **Phase 2 — automation.** The `AgentTransport` contract with a real completion
 signal per preset, readiness-gated delivery, the input lock, work-result
-handoffs, bulletins, the dispatcher and ready set, autonomy bounds. Resolve the
-review-ordering question first.
+handoffs, bulletins, the dispatcher and ready set, autonomy bounds — and the
+reviewer role, whose verdict gates publication **without ever holding the
+publication lock**.
 
 **Phase 3 — briefings and relay.** The LLM briefing on handoff; then the question
 relay with request ids, correlation and expiry.
@@ -1024,10 +1094,11 @@ relay with request ids, correlation and expiry.
 1. **`maxLanes` default: 2**, three opt-in. Two exposes every concurrency and
    integration problem and supports builder/reviewer. Limits on stored worktrees,
    active agents, briefing runs and test processes are separate counters.
-2. **Gates:** three are enough, but `diff-nonempty` is replaced by
-   `has-commits` (`ahead > 0`), and `tests-pass` is evaluated only inside the
-   publication transaction. A reviewer's `needs-changes` outcome blocks a
-   transition even when tests pass — approval is never inferred from quiescence.
+2. **Gates:** `diff-nonempty` is replaced by `has-commits` (`ahead > 0`), and
+   `tests-pass` is evaluated only inside the publication transaction. A fourth,
+   `review-approved`, was added once review was decided to gate publication. A
+   reviewer's `needs-changes` outcome blocks a transition even when tests pass —
+   approval is never inferred from quiescence.
 3. **Test command:** an explicit, user-confirmed per-workspace `TestRecipe`,
    executed with `execFile` and no shell, **with a setup step** so the
    integration worktree has dependencies. `package.json` scripts may be
@@ -1038,17 +1109,21 @@ relay with request ids, correlation and expiry.
    stopped app is not evidence its last operation failed.
 5. **Question relay:** Phase 3, and kept out of the v1 event model entirely.
 
-## Open question for the user
+## Decisions made by the user
 
-**Phase 1 as re-scoped has no agent automation in it** — it is the git safety
-layer with a manual button. All four reviewers recommended shipping it first,
-and the round-two reviewer recommended running the **Phase 1b transport spike
-alongside it** rather than after, so that Phase 2's riskiest assumption is
-measured while Phase 1 is being built. That is the plan of record above.
+**Ordering: Phase 1 first.** Phase 1 as re-scoped has no agent automation in it
+— it is the git safety layer with a manual button. All four reviewers
+recommended shipping it first, and the round-two reviewer recommended running
+the **Phase 1b transport spike alongside it** rather than after, so that Phase
+2's riskiest assumption is measured while Phase 1 is being built. That is the
+plan of record above, and it is the approved plan.
 
-The alternative, if seeing agents coordinate sooner matters more than sequencing
-risk, is to build the transport for the shell preset first — it already emits
-OSC 133 `D;exit` marks — and demo coordination with shell lanes while agent
-presets stay manual.
+The alternative — building the shell-preset transport first, since it already
+emits OSC 133 `D;exit` marks, to demo coordination sooner — was considered and
+**not** taken. Sequencing risk beat seeing agents coordinate sooner.
 
-Which ordering do you want?
+**Review gates publication**, as specified above. Decided 28 Sep 2026.
+
+**Cross-model review is the default recommendation** once roles exist: a
+reviewer on a different vendor's model than the author. See "Which agent runs a
+lane".
