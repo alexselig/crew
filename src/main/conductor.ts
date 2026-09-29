@@ -181,11 +181,20 @@ export function createConductor(deps: ConductorDeps): Conductor {
       try {
         write('merged', merged.resultSha)
       } catch (error) {
+        // Finding 6: lane.status was set to 'publishing' just above, before
+        // the merge ran. If this write cannot be made durable, publication
+        // stops here -- but nothing past this point ever runs to move the
+        // lane out of 'publishing', so it would show as perpetually
+        // in-progress. The merge commit is real and unrecorded; that is a
+        // human-attention condition, not a transient one.
+        const message = error instanceof Error ? error.message : String(error)
+        lane.status = 'blocked'
+        lane.blockedReason = `merge commit exists but could not be recorded: ${message}`
         await resetIntegrationTo(baseSha)
         return {
           ok: false,
           reason: 'journal-failed',
-          message: error instanceof Error ? error.message : String(error)
+          message
         }
       }
 
@@ -203,11 +212,18 @@ export function createConductor(deps: ConductorDeps): Conductor {
         try {
           write('tests', merged.resultSha)
         } catch (error) {
+          // Finding 6: same reasoning as the 'merged' write above -- without
+          // this, a durable-write failure here left the lane stuck showing
+          // 'publishing' forever, with nothing left in this function to
+          // ever move it out.
+          const message = error instanceof Error ? error.message : String(error)
+          lane.status = 'blocked'
+          lane.blockedReason = `merge commit exists but the tests phase could not be recorded: ${message}`
           await resetIntegrationTo(baseSha)
           return {
             ok: false,
             reason: 'journal-failed',
-            message: error instanceof Error ? error.message : String(error)
+            message
           }
         }
         const tested = await runTests(settings.integrationWorktree, settings.test)

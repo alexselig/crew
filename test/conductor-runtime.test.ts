@@ -207,6 +207,50 @@ describe('publishLane', () => {
     expect(conductor.isPublishing()).toBe(false)
   })
 
+  // Finding 6: when the 'merged' journal write cannot be made durable, the
+  // merge commit is real but unrecorded, and nothing else in this function
+  // ever runs to move the lane out of 'publishing' (set before the merge
+  // step). Before the fix, this left the lane permanently showing
+  // "publication in progress" for an operation that had already stopped.
+  // Same technique as the 'tests'-write-failure test above: let 'intent'
+  // land normally, then revoke write permission on the journal directory
+  // only for the append with phase: 'merged', so this is a genuine
+  // filesystem failure at exactly the write under test.
+  it('blocks the lane, rather than leaving it stuck publishing, when the merged-phase journal write cannot be made durable', async () => {
+    const lanes = createLaneManager(settings)
+    const realJournal = createJournal(journalPath)
+    const journal = {
+      read: () => realJournal.read(),
+      entriesFor: (opId: string) => realJournal.entriesFor(opId),
+      append: (entry: Parameters<typeof realJournal.append>[0]) => {
+        if (entry.phase !== 'merged') {
+          realJournal.append(entry)
+          return
+        }
+        chmodSync(root, 0o500)
+        try {
+          realJournal.append(entry)
+        } finally {
+          chmodSync(root, 0o700)
+        }
+      }
+    }
+    const conductor = createConductor({ lanes, journal, settings })
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const outcome = await conductor.publishLane(lane)
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
+    expect(conductor.isPublishing()).toBe(false)
+    expect(lane.status).toBe('blocked')
+    expect(lane.blockedReason).toBeTruthy()
+    const phases = realJournal.read().map((e) => e.phase)
+    expect(phases).toContain('intent')
+    expect(phases).not.toContain('merged')
+  })
+
   // Finding 1: newOpId() used to run AFTER the lock was acquired but BEFORE
   // the try/finally that releases it. A throw there left `publishing` set
   // forever, refusing every later publishLane/syncLane/reconcile. Forcing
@@ -309,6 +353,11 @@ describe('publishLane', () => {
     expect(testsRan).toBe(false)
     expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
     expect(conductor.isPublishing()).toBe(false)
+    // Finding 6: previously nothing after the failed 'tests' write ever ran
+    // to move the lane out of 'publishing' (set before the merge step), so
+    // it was stuck showing "in progress" forever for an operation that had
+    // already stopped.
+    expect(lane.status).toBe('blocked')
     const phases = realJournal.read().map((e) => e.phase)
     expect(phases).toContain('intent')
     expect(phases).toContain('merged')
