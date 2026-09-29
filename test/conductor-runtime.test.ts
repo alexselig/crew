@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, isAbsolute, resolve } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
 import { createJournal } from '../src/main/conductor-journal'
 import { createConductor, ConductorBusyError } from '../src/main/conductor'
@@ -177,6 +177,112 @@ describe('publishLane', () => {
     expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
     expect(lane.status).toBe('blocked')
     expect(conductor.isPublishing()).toBe(false)
+  })
+
+  // Finding 7: resetIntegrationTo previously ignored the exit codes of
+  // `git reset --hard` / `git clean -fd`, so a failed cleanup after a
+  // genuine test failure was silently swallowed — the outcome and
+  // blockedReason looked identical to a clean reset, even though the
+  // integration worktree may still be sitting on the merge commit. Force a
+  // real reset failure by making the integration worktree's own git
+  // directory (a linked worktree's `.git` is a file pointing at
+  // `<repo>/.git/worktrees/<name>`, not a directory of its own) read-only —
+  // the established technique in this suite (see test/lanes-merge.test.ts)
+  // for forcing a genuine git failure without mocking anything.
+  it('surfaces a failed integration-worktree reset instead of silently swallowing it', async () => {
+    const lanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    settings.test = { command: 'sh', args: ['-c', 'exit 1'], cwd: '.', timeoutMs: 10_000 }
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    // Computed BEFORE any chmod, and the merge itself is left to run
+    // normally (it needs write access to this same git dir) — only
+    // runTests(), invoked after the merge has already committed, revokes
+    // permission, so resetIntegrationTo is the thing that fails, not the
+    // merge.
+    const gitDirOut = git(['rev-parse', '--git-dir'], settings.integrationWorktree)
+    const gitDir = isAbsolute(gitDirOut) ? gitDirOut : resolve(settings.integrationWorktree, gitDirOut)
+    expect(gitDir).toContain(join('.git', 'worktrees'))
+
+    const conductor = createConductor({
+      lanes, journal, settings,
+      runTests: async () => {
+        chmodSync(gitDir, 0o500)
+        return { ok: false, output: 'fails' }
+      }
+    })
+
+    let outcome: Awaited<ReturnType<typeof conductor.publishLane>> | undefined
+    try {
+      outcome = await conductor.publishLane(lane)
+    } finally {
+      chmodSync(gitDir, 0o700)
+    }
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'tests-failed' })
+    expect(lane.status).toBe('blocked')
+    // Load-bearing: on the pre-fix code, this message never mentions the
+    // reset at all -- resetIntegrationTo's failed git commands were awaited
+    // and their exit codes discarded, so the failure vanished entirely.
+    expect(lane.blockedReason).toMatch(/could not be reset/i)
+    expect(lane.blockedReason).toMatch(/manual attention/i)
+    expect(conductor.isPublishing()).toBe(false)
+
+    // Permissions restored: the worktree can now actually be untangled by
+    // hand, proving the failure was real and not a mock.
+    git(['reset', '--hard'], settings.integrationWorktree)
+  })
+
+  // Finding 7 (second half): the generic catch-all used to write 'aborted'
+  // unconditionally, with no attempt to reset the integration worktree at
+  // all, whenever an unexpected exception landed after the merge had
+  // already produced a commit. classifyOperation treats 'aborted' as
+  // unconditionally 'complete' (conductor-recovery.ts), so recording it
+  // here for an operation whose worktree was never actually cleaned up (or
+  // whose ref, in the post-CAS-rollback-also-failed case, genuinely moved)
+  // is a false "nothing to reconcile". Simulate an unexpected exception
+  // from lanes.publish() (distinct from its normal `{ ok: false }` return)
+  // while the integration worktree's git dir is read-only, so the
+  // catch-all's own reset attempt is forced to fail too.
+  it('does not record a clean abort when an unexpected error after the merge leaves the reset unable to run', async () => {
+    const realLanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    await realLanes.ensureIntegrationWorktree()
+    const lane = await realLanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const gitDirOut = git(['rev-parse', '--git-dir'], settings.integrationWorktree)
+    const gitDir = isAbsolute(gitDirOut) ? gitDirOut : resolve(settings.integrationWorktree, gitDirOut)
+
+    const lanes = {
+      ...realLanes,
+      publish: async (): Promise<never> => {
+        chmodSync(gitDir, 0o500)
+        throw new Error('unexpected failure deep inside publish()')
+      }
+    }
+    const conductor = createConductor({ lanes, journal, settings })
+
+    let outcome: Awaited<ReturnType<typeof conductor.publishLane>> | undefined
+    try {
+      outcome = await conductor.publishLane(lane)
+    } finally {
+      chmodSync(gitDir, 0o700)
+    }
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'error' })
+    expect(lane.status).toBe('blocked')
+    expect(lane.blockedReason).toMatch(/manual attention/i)
+    // Load-bearing: on the pre-fix code, this phase list contains 'aborted'
+    // unconditionally -- the classifier would then read this operation as
+    // 'complete' on restart, even though the reset never ran.
+    const phases = journal.read().map((e) => e.phase)
+    expect(phases).not.toContain('aborted')
+    expect(phases).toContain('merged')
+
+    git(['reset', '--hard'], settings.integrationWorktree)
   })
 
   it('publishes when the test recipe passes', async () => {

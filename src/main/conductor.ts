@@ -115,6 +115,14 @@ export function createConductor(deps: ConductorDeps): Conductor {
 
     publishing = lane.id
     let journalledIntent = false
+    // Finding 7: hoisted out of the inner try so the generic catch-all below
+    // can attempt a cleanup reset for exactly the window where one is owed —
+    // set the instant the merge actually produces a commit in the
+    // integration worktree, cleared by every path that already resets or
+    // otherwise resolves it. If an unexpected exception lands while this is
+    // set, the catch-all knows there is real, unrecorded worktree state to
+    // undo before it may consider the operation cleanly aborted.
+    let mergedBaseShaPendingCleanup: string | undefined
 
     try {
       // 1. Preconditions. Dirty is advisory: publication operates on a frozen
@@ -162,6 +170,12 @@ export function createConductor(deps: ConductorDeps): Conductor {
           message: merged.message
         }
       }
+      // Finding 7: a real commit now exists in the integration worktree.
+      // Every path below either journals it durably and/or resets the
+      // worktree back to baseSha; if none of them get to run because of an
+      // unexpected exception, the catch-all must still know to attempt that
+      // reset before it may treat the operation as cleanly aborted.
+      mergedBaseShaPendingCleanup = baseSha
 
       // 5. The second journal write, and it happens HERE — immediately after
       //    the merge produces a commit, before the test phase, before tests
@@ -188,13 +202,19 @@ export function createConductor(deps: ConductorDeps): Conductor {
         // in-progress. The merge commit is real and unrecorded; that is a
         // human-attention condition, not a transient one.
         const message = error instanceof Error ? error.message : String(error)
+        // Finding 7: a failed reset here must be visible, not silently
+        // swallowed while the caller believes the worktree went back to
+        // baseSha.
+        const resetFailure = await tryResetIntegrationTo(baseSha)
+        const fullMessage = resetFailure
+          ? `${message}; additionally failed to reset the integration worktree: ${resetFailure}`
+          : message
         lane.status = 'blocked'
-        lane.blockedReason = `merge commit exists but could not be recorded: ${message}`
-        await resetIntegrationTo(baseSha)
+        lane.blockedReason = `merge commit exists but could not be recorded: ${fullMessage}`
         return {
           ok: false,
           reason: 'journal-failed',
-          message
+          message: fullMessage
         }
       }
 
@@ -217,13 +237,16 @@ export function createConductor(deps: ConductorDeps): Conductor {
           // 'publishing' forever, with nothing left in this function to
           // ever move it out.
           const message = error instanceof Error ? error.message : String(error)
+          const resetFailure = await tryResetIntegrationTo(baseSha)
+          const fullMessage = resetFailure
+            ? `${message}; additionally failed to reset the integration worktree: ${resetFailure}`
+            : message
           lane.status = 'blocked'
-          lane.blockedReason = `merge commit exists but the tests phase could not be recorded: ${message}`
-          await resetIntegrationTo(baseSha)
+          lane.blockedReason = `merge commit exists but the tests phase could not be recorded: ${fullMessage}`
           return {
             ok: false,
             reason: 'journal-failed',
-            message
+            message: fullMessage
           }
         }
         const tested = await runTests(settings.integrationWorktree, settings.test)
@@ -259,7 +282,16 @@ export function createConductor(deps: ConductorDeps): Conductor {
                 `additionally failed to record the abort: ${writeMessage}`
             }
           }
-          await resetIntegrationTo(baseSha)
+          const resetFailure = await tryResetIntegrationTo(baseSha)
+          if (resetFailure) {
+            // Finding 7: the 'aborted' record above is already honest (tests
+            // really did fail, the journal is correctly closed) — a failed
+            // physical cleanup afterward doesn't change that classification,
+            // but it must still reach the human, not vanish silently.
+            lane.blockedReason =
+              `tests failed on the merge result, and the integration worktree could not be ` +
+              `reset afterward (${resetFailure}); ${settings.integrationWorktree} needs manual attention`
+          }
           return { ok: false, reason: 'tests-failed', output: tested.output }
         }
       }
@@ -288,21 +320,43 @@ export function createConductor(deps: ConductorDeps): Conductor {
         warnings
       }
     } catch (error) {
-      if (journalledIntent) {
+      const originalMessage = error instanceof Error ? error.message : String(error)
+      let finalMessage = originalMessage
+      // Finding 7: a merge commit exists in the integration worktree but
+      // nothing on the path we were on got to reset or journal it before
+      // this exception fired. Attempt the cleanup here, and — critically —
+      // only write 'aborted' (which classifyOperation treats as
+      // unconditionally 'complete', see conductor-recovery.ts) if that
+      // cleanup actually succeeds. Recording 'aborted' after a failed reset
+      // would falsely close an operation that may still hold an unrecorded
+      // merge commit, or, in the case where a post-CAS rollback in
+      // lanes.publish() also failed, a ref that genuinely moved — neither
+      // of those is safe to report as "nothing to reconcile".
+      let safeToRecordAborted = true
+      if (mergedBaseShaPendingCleanup !== undefined) {
+        const resetFailure = await tryResetIntegrationTo(mergedBaseShaPendingCleanup)
+        if (resetFailure) {
+          safeToRecordAborted = false
+          finalMessage =
+            `${originalMessage}; additionally, the integration worktree at ` +
+            `${settings.integrationWorktree} could not be reset and needs manual attention (${resetFailure})`
+        }
+      }
+      if (journalledIntent && safeToRecordAborted) {
         try {
           journal.append({
             opId, laneId: lane.id, phase: 'aborted',
             baseSha: '', laneTip: '', at: now(),
-            detail: error instanceof Error ? error.message : String(error)
+            detail: finalMessage
           })
         } catch { /* the journal is already the thing that failed */ }
       }
       lane.status = 'blocked'
-      lane.blockedReason = error instanceof Error ? error.message : String(error)
+      lane.blockedReason = finalMessage
       return {
         ok: false,
         reason: 'error',
-        message: error instanceof Error ? error.message : String(error)
+        message: finalMessage
       }
     } finally {
       // 11. Released on EVERY exit path, and only here — every lane-manager
@@ -330,8 +384,45 @@ export function createConductor(deps: ConductorDeps): Conductor {
   }
 
   const resetIntegrationTo = async (sha: string): Promise<void> => {
-    await runGit(['reset', '--hard', sha], { cwd: settings.integrationWorktree })
-    await runGit(['clean', '-fd'], { cwd: settings.integrationWorktree })
+    // Finding 7: both git invocations' exit codes were previously ignored.
+    // A failed reset/clean left the integration worktree in an unknown,
+    // possibly still-merged-or-dirty state while every caller proceeded as
+    // though the worktree had cleanly returned to `sha` — including the
+    // generic catch-all below, which used to record a plain 'aborted' entry
+    // regardless. classifyOperation treats 'aborted' as unconditionally
+    // 'complete' (see conductor-recovery.ts), so a failed reset recorded
+    // that way is a false "nothing to reconcile" for a worktree that may
+    // still hold an unrecorded merge commit, or — in the specific case
+    // where a post-CAS rollback in lanes.publish() also failed — a ref that
+    // genuinely moved. Callers must check for this throw and must not
+    // journal 'aborted' when it fires.
+    const reset = await runGit(['reset', '--hard', sha], { cwd: settings.integrationWorktree })
+    if (reset.code !== 0) {
+      throw new Error(
+        `git reset --hard ${sha} failed in ${settings.integrationWorktree}: ${reset.stderr.trim() || reset.stdout.trim() || `exit code ${reset.code}`}`
+      )
+    }
+    const clean = await runGit(['clean', '-fd'], { cwd: settings.integrationWorktree })
+    if (clean.code !== 0) {
+      throw new Error(
+        `git clean -fd failed in ${settings.integrationWorktree}: ${clean.stderr.trim() || clean.stdout.trim() || `exit code ${clean.code}`}`
+      )
+    }
+  }
+
+  // Finding 7: every call site below used to `await resetIntegrationTo(...)`
+  // bare, ignoring whether it actually succeeded. This wraps it once so a
+  // failure is never silently swallowed: it returns the reset's own failure
+  // message (or undefined on success) so the caller can fold it into
+  // whatever message/detail it was already about to report, rather than
+  // proceeding as though the worktree is clean.
+  const tryResetIntegrationTo = async (sha: string): Promise<string | undefined> => {
+    try {
+      await resetIntegrationTo(sha)
+      return undefined
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
   }
 
   // Gating decision for syncLane and reconcile: RESERVE the same single-flight
