@@ -247,16 +247,48 @@ describe('publishLane', () => {
 
   // Finding 3: the 'tests' journal write used to be best-effort — if it
   // failed, tests ran anyway, so a crash mid-test would be misclassified as
-  // merged-unpublished ("safe to redo") rather than interrupted-tests. This
-  // forces the write to fail (the chmod-based technique already established
-  // in test/conductor-journal.test.ts) and asserts the tests never started
-  // at all. Load-bearing: on the pre-fix best-effort write, `testsRan`
-  // below becomes `true` and the outcome is `{ reason: 'tests-failed' }`
-  // (the injected runTests below always fails) instead of `journal-failed`
-  // with the test never invoked.
+  // merged-unpublished ("safe to redo") rather than interrupted-tests.
+  //
+  // A prior version of this test chmod'd `root` (the whole journal
+  // directory) BEFORE calling publishLane at all. Since 'intent' is the
+  // FIRST append the transaction makes (see conductor.ts), that forced the
+  // *intent* write to fail, not the tests write — the test passed, but for
+  // the wrong reason, and proved nothing about the tests phase specifically
+  // (a regression back to best-effort tests writes would never have been
+  // caught by it).
+  //
+  // This version lets 'intent' and 'merged' land normally by wrapping the
+  // real journal and only revoking write permission on the journal
+  // directory immediately before passing an append with phase: 'tests'
+  // through to the real journal — a genuine filesystem failure at exactly
+  // the phase under test, not a mock that merely throws. Permissions are
+  // restored in a finally so the temp dir is never left unwritable for
+  // cleanup, and so 'aborted'/other later writes the test doesn't expect
+  // are not silently swallowed either.
+  //
+  // Load-bearing: on the pre-fix best-effort write, `testsRan` below
+  // becomes `true` and the outcome is `{ reason: 'tests-failed' }` (the
+  // injected runTests below always fails) instead of `journal-failed` with
+  // the test never invoked.
   it('fails closed and never runs tests when the tests-phase journal write cannot be made durable', async () => {
     const lanes = createLaneManager(settings)
-    const journal = createJournal(journalPath)
+    const realJournal = createJournal(journalPath)
+    const journal = {
+      read: () => realJournal.read(),
+      entriesFor: (opId: string) => realJournal.entriesFor(opId),
+      append: (entry: Parameters<typeof realJournal.append>[0]) => {
+        if (entry.phase !== 'tests') {
+          realJournal.append(entry)
+          return
+        }
+        chmodSync(root, 0o500)
+        try {
+          realJournal.append(entry)
+        } finally {
+          chmodSync(root, 0o700)
+        }
+      }
+    }
     let testsRan = false
     settings.test = { command: 'sh', args: ['-c', 'exit 1'], cwd: '.', timeoutMs: 10_000 }
     const conductor = createConductor({
@@ -271,16 +303,16 @@ describe('publishLane', () => {
     commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
     const before = git(['rev-parse', 'crew/integration'], settings.repo)
 
-    chmodSync(root, 0o500)
-    try {
-      const outcome = await conductor.publishLane(lane)
-      expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
-    } finally {
-      chmodSync(root, 0o700)
-    }
+    const outcome = await conductor.publishLane(lane)
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
     expect(testsRan).toBe(false)
     expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
     expect(conductor.isPublishing()).toBe(false)
+    const phases = realJournal.read().map((e) => e.phase)
+    expect(phases).toContain('intent')
+    expect(phases).toContain('merged')
+    expect(phases).not.toContain('tests')
   })
 
   // Finding 3 (aborted-write half): the 'aborted' record for a genuine
