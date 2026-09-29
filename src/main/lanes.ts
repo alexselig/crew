@@ -68,6 +68,11 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     const worktree = join(settings.lanesDir, name)
     const base = await inRepo(['rev-parse', settings.integrationBranch])
     await inRepo(['worktree', 'add', '-b', branch, worktree, base])
+    // Sets the merge target `branch -d` uses at destroy time: without an
+    // upstream, git's "fully merged" check falls back to whatever HEAD
+    // happens to be in settings.repo, which has nothing to do with
+    // integrationBranch and is not even guaranteed to exist.
+    await inRepo(['branch', '--set-upstream-to', settings.integrationBranch, branch])
     return {
       id: randomUUID(),
       roleId: name,
@@ -82,8 +87,15 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     }
   }
 
+  const requireBranch = (lane: ConductorLane, operation: string): string => {
+    if (lane.branch === null) {
+      throw new Error(`lane ${lane.roleId} has no branch (reviewer lane, detached); cannot ${operation}`)
+    }
+    return lane.branch
+  }
+
   const facts = async (lane: ConductorLane): Promise<LaneFacts> => {
-    const laneBranch = lane.branch as string
+    const laneBranch = requireBranch(lane, 'compute facts')
     const [counts, tracked, all, laneTip, baseSha] = await Promise.all([
       // left = on base not lane (behind), right = on lane not base (ahead).
       inRepo(['rev-list', '--left-right', '--count', `${settings.integrationBranch}...${laneBranch}`]),
@@ -113,6 +125,16 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
       }
     }
     await inRepo(['worktree', 'remove', ...(opts.force ? ['--force'] : []), lane.worktree])
+
+    if (lane.branch === null) return
+    // -d, never -D: git refuses when the branch is not fully merged, and that
+    // refusal is the desired outcome here — unpublished commits survive the
+    // destroy rather than being silently discarded. force only reaches the
+    // worktree removal above, never this branch delete.
+    const result = await runGit(['branch', '-d', lane.branch], { cwd: settings.repo })
+    if (result.code !== 0 && !/not fully merged/.test(result.stderr)) {
+      throw new GitError(['branch', '-d', lane.branch], result.stderr)
+    }
   }
 
   return { ensureIntegrationWorktree, create, facts, destroy }

@@ -13,6 +13,9 @@ function git(args: string[], cwd: string): string {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
+    // stderr is piped (not inherited) so an expected git failure, such as
+    // `symbolic-ref` refusing a detached HEAD, never reaches test output.
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e' }
   }).trim()
 }
@@ -127,5 +130,46 @@ describe('lane manager lifecycle', () => {
     const lane = await lanes.create('builder', { presetId: 'shell', model: null })
     await lanes.destroy(lane, { force: false })
     expect(existsSync(lane.worktree)).toBe(false)
+  })
+
+  it('deletes the lane branch on destroy once its commits are merged, freeing the name for reuse', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    writeFileSync(join(lane.worktree, 'a.txt'), 'one\n')
+    git(['add', '.'], lane.worktree)
+    git(['commit', '-m', 'lane work'], lane.worktree)
+    // Merge the lane's commit into integrationBranch so `branch -d` is safe.
+    git(['fetch', lane.worktree, `${lane.branch}:crew/integration`], settings.repo)
+
+    await lanes.destroy(lane, { force: false })
+
+    expect(() => git(['rev-parse', '--verify', lane.branch as string], settings.repo)).toThrow()
+    const recreated = await lanes.create('builder', { presetId: 'shell', model: null })
+    expect(recreated.branch).toBe('crew/lane/builder')
+  })
+
+  it('keeps an unmerged lane branch after destroy, and destroy still resolves', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    writeFileSync(join(lane.worktree, 'a.txt'), 'one\n')
+    git(['add', '.'], lane.worktree)
+    git(['commit', '-m', 'unpublished work'], lane.worktree)
+    const laneTip = git(['rev-parse', lane.branch as string], settings.repo)
+
+    await expect(lanes.destroy(lane, { force: false })).resolves.toBeUndefined()
+
+    expect(existsSync(lane.worktree)).toBe(false)
+    expect(git(['rev-parse', lane.branch as string], settings.repo)).toBe(laneTip)
+  })
+
+  it('throws a domain error naming the lane when facts() is called on a branchless (reviewer) lane', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const authored = await lanes.create('builder', { presetId: 'shell', model: null })
+    const reviewerLane = { ...authored, kind: 'reviewer' as const, branch: null }
+    await expect(lanes.facts(reviewerLane)).rejects.toThrow(/builder/)
+    await expect(lanes.facts(reviewerLane)).rejects.toThrow(/branch/i)
   })
 })
