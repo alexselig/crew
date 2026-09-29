@@ -492,6 +492,53 @@ describe('reconcile', () => {
     })
   })
 
+  // Finding 2: a crashed operation never receives a closing entry (no
+  // 'aborted'/'notified', and its resultSha never lands on the ref), so it
+  // stays in the journal's retained window forever. Once a LATER operation
+  // publishes successfully, the ref has moved past the stale op's baseSha —
+  // reclassifying the stale op against today's reality would read as
+  // 'externally-modified' (its baseSha/resultSha match nothing current),
+  // a false "needs a human" alert that never clears and would drown out
+  // real ones. Only the most recent operation can still be in flight or
+  // need recovery; a closed, superseded stale op must not resurface.
+  it('does not resurface a stale crashed operation as needing attention after a later operation publishes successfully', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+
+    // Stale crashed operation: merge committed, journal never closed, ref
+    // never moved for it — recorded against the repo's ORIGINAL base.
+    const staleLane = await lanes.create('stale', { presetId: 'shell', model: null })
+    commit(staleLane.worktree, 'stale.txt', 'stale\n', 'stale lane work')
+    const staleFacts = await lanes.facts(staleLane)
+    const staleMerged = await lanes.mergeInIntegration(staleFacts.laneTip, staleFacts.baseSha)
+    expect(staleMerged.ok).toBe(true)
+    if (!staleMerged.ok) return
+    journal.append({
+      opId: 'op-stale', laneId: staleLane.id, phase: 'intent',
+      baseSha: staleFacts.baseSha, laneTip: staleFacts.laneTip, at: 1
+    })
+    journal.append({
+      opId: 'op-stale', laneId: staleLane.id, phase: 'merged',
+      baseSha: staleFacts.baseSha, laneTip: staleFacts.laneTip, resultSha: staleMerged.resultSha, at: 2
+    })
+    // Undo the stale merge in the integration worktree so it doesn't
+    // interfere with the later real publish below — a real crash would
+    // have left this in whatever state the next reconcile/redo handles;
+    // what matters for this test is only that the STALE JOURNAL ENTRY
+    // persists with no closing record.
+    git(['reset', '--hard', staleFacts.baseSha], settings.integrationWorktree)
+
+    // A later, unrelated operation runs to completion normally.
+    const goodLane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(goodLane.worktree, 'good.txt', 'good\n', 'good lane work')
+    const outcome = await conductor.publishLane(goodLane)
+    expect(outcome.ok).toBe(true)
+
+    const report = await conductor.reconcile()
+    expect(report.needsAttention).toBe(false)
+    expect(report.operations).toHaveLength(0)
+  })
+
   // Finding 2: a crash INSIDE the 'merged' append itself, not merely between
   // two completed writes. Only 'intent' is ever journaled — the merge
   // itself really did run and commit in the (permanently detached)

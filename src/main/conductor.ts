@@ -418,8 +418,37 @@ export function createConductor(deps: ConductorDeps): Conductor {
       byOp.set(entry.opId, list)
     }
 
-    const operations: ReconciledOperation[] = []
+    // Finding 2: only one operation can be in flight at a time, so a
+    // crashed operation that never received a closing entry (aborted,
+    // notified, or a published/moved ref) is not "still open" forever --
+    // it is simply the operation that was running before the last one that
+    // actually finished. Reality (refSha, MERGE_HEAD, worktree state) is
+    // always read fresh against *today's* git state, so classifying every
+    // opId in the journal's retained window (up to JOURNAL_MAX_ENTRIES)
+    // against that same reality means a stale crashed op's baseSha no
+    // longer matches anything current once a later op has since published
+    // successfully -- and it would be permanently misclassified as
+    // 'externally-modified', a false "needs a human" alert that never
+    // clears and drowns out real ones. Only the operation with the most
+    // recent journal entry can still be in flight (or need recovery); every
+    // older opId is history and must not be reclassified against reality
+    // that was never its own.
+    let latestOpId: string | null = null
+    let latestAt = -Infinity
     for (const [opId, group] of byOp) {
+      for (const e of group) {
+        if (e.at > latestAt) {
+          latestAt = e.at
+          latestOpId = opId
+        }
+      }
+    }
+    const latestGroup = latestOpId !== null ? byOp.get(latestOpId)! : []
+
+    const operations: ReconciledOperation[] = []
+    if (latestOpId !== null) {
+      const opId = latestOpId
+      const group = latestGroup
       // classifyOperation throws MalformedJournalError (mixed opIds,
       // conflicting baseSha/resultSha, duplicate phases) rather than
       // returning a classification. That must never crash reconcile() and
@@ -432,7 +461,7 @@ export function createConductor(deps: ConductorDeps): Conductor {
       // needs a human, never safe to redo automatically" — with a summary
       // that names the real cause so the human is not misled into thinking
       // the ref moved.
-      let classification: ReconciledOperation['classification']
+      let classification: ReconciledOperation['classification'] | undefined
       try {
         classification = classifyOperation(group, reality)
       } catch (error) {
@@ -445,18 +474,18 @@ export function createConductor(deps: ConductorDeps): Conductor {
           safeToRedo: false,
           requiresHuman: true
         })
-        continue
       }
-      if (classification === 'complete') continue
-      const action = RECOVERY_ACTIONS[classification]
-      operations.push({
-        opId,
-        laneId: group[0].laneId,
-        classification,
-        summary: action.summary,
-        safeToRedo: action.safeToRedo,
-        requiresHuman: action.requiresHuman
-      })
+      if (classification !== undefined && classification !== 'complete') {
+        const action = RECOVERY_ACTIONS[classification]
+        operations.push({
+          opId,
+          laneId: group[0].laneId,
+          classification,
+          summary: action.summary,
+          safeToRedo: action.safeToRedo,
+          requiresHuman: action.requiresHuman
+        })
+      }
     }
 
     // Reports only. A run never auto-resumes, and "cleared lock field" is
