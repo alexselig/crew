@@ -184,6 +184,24 @@ const crew: CrewAPI = {
     writeViews(views)
     return views.map(cloneView)
   },
+  getConductorState: async () => ({
+    enabled: false,
+    publishing: null,
+    lanes: [],
+    facts: {},
+    needsAttention: false
+  }),
+  createLane: async () => {
+    throw new Error('not implemented in custom-view renderer integration fixture')
+  },
+  destroyLane: async () => {},
+  publishLane: async () => {
+    throw new Error('not implemented in custom-view renderer integration fixture')
+  },
+  syncLane: async () => {
+    throw new Error('not implemented in custom-view renderer integration fixture')
+  },
+  reconcileConductor: async () => ({ needsAttention: false, operations: [] }),
   setSessionWorkspaces: async () => {},
   addSessionToWorkspace: async () => {},
   removeSessionFromWorkspace: async () => {},
@@ -275,7 +293,8 @@ const crew: CrewAPI = {
   onAgents: () => noop,
   onAgentRun: () => noop,
   onAssets: () => noop,
-  onUpdate: () => noop
+  onUpdate: () => noop,
+  onConductorState: () => noop
 }
 
 window.crew = crew

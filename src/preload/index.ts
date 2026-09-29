@@ -31,6 +31,12 @@ const api: CrewAPI = {
     ipcRenderer.invoke(IPC.CUSTOM_VIEW_CREATE, input),
   updateCustomView: (id, input) => ipcRenderer.invoke(IPC.CUSTOM_VIEW_UPDATE, { id, input }),
   deleteCustomView: (id) => ipcRenderer.invoke(IPC.CUSTOM_VIEW_DELETE, id),
+  getConductorState: () => ipcRenderer.invoke(IPC.CONDUCTOR_STATE),
+  createLane: (request) => ipcRenderer.invoke(IPC.CONDUCTOR_LANE_CREATE, request),
+  destroyLane: (laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_LANE_DESTROY, laneId),
+  publishLane: (laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_PUBLISH, laneId),
+  syncLane: (laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_SYNC, laneId),
+  reconcileConductor: () => ipcRenderer.invoke(IPC.CONDUCTOR_RECONCILE),
   createWorkspace: (name) => ipcRenderer.invoke(IPC.WORKSPACE_CREATE, name),
   renameWorkspace: (id, name) => ipcRenderer.invoke(IPC.WORKSPACE_RENAME, { id, name }),
   describeWorkspace: (id, description) => ipcRenderer.invoke(IPC.WORKSPACE_DESCRIBE, { id, description }),
@@ -107,7 +113,8 @@ const api: CrewAPI = {
   onAgents: (cb) => subscribe(IPC.EVT_AGENTS, cb),
   onAgentRun: (cb) => subscribe(IPC.EVT_AGENT_RUN, cb),
   onAssets: (cb) => subscribe(IPC.EVT_ASSETS, cb),
-  onUpdate: (cb) => subscribe(IPC.EVT_UPDATE, cb)
+  onUpdate: (cb) => subscribe(IPC.EVT_UPDATE, cb),
+  onConductorState: (cb) => subscribe(IPC.EVT_CONDUCTOR_STATE, cb)
 }
 
 contextBridge.exposeInMainWorld('crew', api)

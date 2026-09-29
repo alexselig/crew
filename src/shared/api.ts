@@ -15,6 +15,14 @@ import type {
   Agent,
   AgentRun
 } from './types'
+import type {
+  ConductorSnapshot,
+  LaneCreateRequest,
+  ConductorLane,
+  PublishOutcome,
+  SyncOutcome,
+  ReconcileReport
+} from './conductor'
 import type { AssetItem } from './assets'
 import type { TrackerData, CommitActivity, RunningServer, LaunchResult, PastWeek } from './tracker'
 import type { UsageAnalytics } from './usage'
@@ -102,6 +110,13 @@ export interface CrewAPI {
   createCustomView(input: CustomViewInput): Promise<CustomViewCreateResult>
   updateCustomView(id: string, input: CustomViewInput): Promise<CustomView[]>
   deleteCustomView(id: string): Promise<CustomView[]>
+  // ── Conductor (Phase 1) ──
+  getConductorState(): Promise<ConductorSnapshot>
+  createLane(request: LaneCreateRequest): Promise<ConductorLane>
+  destroyLane(laneId: string): Promise<void>
+  publishLane(laneId: string): Promise<PublishOutcome>
+  syncLane(laneId: string): Promise<SyncOutcome>
+  reconcileConductor(): Promise<ReconcileReport>
   /** Replace a session's workspace-id membership. */
   setSessionWorkspaces(id: string, workspaceIds: string[]): Promise<void>
   addSessionToWorkspace(id: string, wsId: string): Promise<void>
@@ -230,4 +245,6 @@ export interface CrewAPI {
   onAssets(cb: (e: AssetsEvent) => void): Unsubscribe
   /** Fired when a background check finds a newer published release. */
   onUpdate(cb: (info: UpdateInfo) => void): Unsubscribe
+  /** The conductor's lanes, facts, or publication lock changed. */
+  onConductorState(cb: (state: ConductorSnapshot) => void): Unsubscribe
 }
