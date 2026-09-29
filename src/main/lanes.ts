@@ -68,11 +68,28 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     const worktree = join(settings.lanesDir, name)
     const base = await inRepo(['rev-parse', settings.integrationBranch])
     await inRepo(['worktree', 'add', '-b', branch, worktree, base])
-    // Sets the merge target `branch -d` uses at destroy time: without an
-    // upstream, git's "fully merged" check falls back to whatever HEAD
-    // happens to be in settings.repo, which has nothing to do with
-    // integrationBranch and is not even guaranteed to exist.
-    await inRepo(['branch', '--set-upstream-to', settings.integrationBranch, branch])
+    try {
+      // Sets the merge target `branch -d` uses at destroy time: without an
+      // upstream, git's "fully merged" check falls back to whatever HEAD
+      // happens to be in settings.repo, which has nothing to do with
+      // integrationBranch and is not even guaranteed to exist.
+      await inRepo(['branch', '--set-upstream-to', settings.integrationBranch, branch])
+    } catch (err) {
+      // A half-created lane (worktree + branch but no upstream) is worse than
+      // no lane: it looks finished. Unwind both before propagating the real
+      // failure, and never let a cleanup error mask it.
+      try {
+        await inRepo(['worktree', 'remove', '--force', worktree])
+      } catch {
+        /* best-effort; the original error is what matters */
+      }
+      try {
+        await inRepo(['branch', '-D', branch])
+      } catch {
+        /* best-effort; the original error is what matters */
+      }
+      throw err
+    }
     return {
       id: randomUUID(),
       roleId: name,

@@ -13,11 +13,23 @@ function git(args: string[], cwd: string): string {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
-    // stderr is piped (not inherited) so an expected git failure, such as
-    // `symbolic-ref` refusing a detached HEAD, never reaches test output.
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // stderr inherited: a real git failure in an ordinary call must still be
+    // visible in test output.
+    stdio: ['ignore', 'pipe', 'inherit'],
     env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e' }
   }).trim()
+}
+
+// Used only at call sites where the git command is expected to fail as part
+// of the assertion itself, so its stderr (e.g. `symbolic-ref` refusing a
+// detached HEAD) never reaches test output.
+function gitExpectFailure(args: string[], cwd: string): void {
+  execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e' }
+  })
 }
 
 beforeEach(() => {
@@ -47,7 +59,7 @@ describe('lane manager lifecycle', () => {
     expect(existsSync(settings.integrationWorktree)).toBe(true)
     // If HEAD sat on integrationBranch, update-ref would advance the ref and
     // leave this worktree's index behind it.
-    expect(() => git(['symbolic-ref', 'HEAD'], settings.integrationWorktree)).toThrow()
+    expect(() => gitExpectFailure(['symbolic-ref', 'HEAD'], settings.integrationWorktree)).toThrow()
     expect(git(['rev-parse', 'HEAD'], settings.integrationWorktree))
       .toBe(git(['rev-parse', 'crew/integration'], settings.repo))
   })
@@ -74,6 +86,20 @@ describe('lane manager lifecycle', () => {
     expect(lane.agent.model).toBe('claude-opus-5.5')
     expect(git(['rev-parse', lane.branch as string], settings.repo))
       .toBe(git(['rev-parse', 'crew/integration'], settings.repo))
+  })
+
+  it('rolls back the worktree and branch when a post-worktree create step fails', async () => {
+    // integrationBranch resolves via rev-parse (so worktree add succeeds),
+    // but a raw SHA is not a branch, so --set-upstream-to must fail here.
+    const sha = git(['rev-parse', 'crew/integration'], settings.repo)
+    settings = { ...settings, integrationBranch: sha }
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+
+    await expect(lanes.create('builder', { presetId: 'shell', model: null })).rejects.toThrow()
+
+    expect(existsSync(join(settings.lanesDir, 'builder'))).toBe(false)
+    expect(() => gitExpectFailure(['rev-parse', '--verify', 'crew/lane/builder'], settings.repo)).toThrow()
   })
 
   it('reports ahead, behind and a clean tree for a fresh lane', async () => {
@@ -144,7 +170,7 @@ describe('lane manager lifecycle', () => {
 
     await lanes.destroy(lane, { force: false })
 
-    expect(() => git(['rev-parse', '--verify', lane.branch as string], settings.repo)).toThrow()
+    expect(() => gitExpectFailure(['rev-parse', '--verify', lane.branch as string], settings.repo)).toThrow()
     const recreated = await lanes.create('builder', { presetId: 'shell', model: null })
     expect(recreated.branch).toBe('crew/lane/builder')
   })
