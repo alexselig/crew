@@ -37,7 +37,7 @@
         <li><a href="#talk">How agents talk</a></li>
         <li><a href="#guarantees">What this does and does not promise</a></li>
         <li><a href="#phases">What gets built, in what order</a></li>
-        <li><a href="#open">Three things I need from you</a></li>
+        <li><a href="#open">Three decisions you made</a></li>
       </ol>
     </nav>
 
@@ -786,56 +786,55 @@
         </figure>
 
         <div class="note process">
-          <p class="note-label">Phase 1 deliberately does not freeze the data model</p>
-          <p>Roles, pipeline edges and the gate set are <em>not</em> settled now.
-            The open question below changes their shape, and Phase 1 uses none of
-            them — so specifying them today would be guessing in a document that
-            looks authoritative.</p>
+          <p class="note-label">Phase 1 still does not implement the data model</p>
+          <p>Roles, pipeline edges and the gate set are now <em>specified</em> —
+            review gates publication, decided below — but Phase 1 builds none of
+            them. Its Publish button is manual, so you are the review gate. They
+            are written down so Phase 2 has a target, not so Phase 1 has more to
+            build.</p>
         </div>
       </section>
 
       <!-- ============================================ -->
       <section id="open">
-        <p class="eyebrow">Over to you</p>
-        <h2>Three things I need from you</h2>
+        <p class="eyebrow">Settled</p>
+        <h2>Three decisions you made</h2>
 
-        <div class="note open">
-          <p class="note-label">1 — Does review gate publication, or follow it?</p>
-          <p>As written, a handoff fires <em>after</em> work lands. So a reviewer
-            would open code that is already on the integration branch, and a
-            "needs changes" verdict would have nothing left to block. A reviewer
-            also gets a lane and a branch, neither of which fits an agent that
-            writes no code.</p>
-          <p>The likely answer is <strong>review before publication</strong>:
-            freeze a candidate, hand that exact SHA to a reviewer, and gate the
-            merge on its verdict. It reshapes roles and gates, so I would rather
-            you confirm it than have me assume it. <strong>Phase 2 cannot be
-            planned until this is settled</strong> — Phase 1 is unaffected.</p>
+        <div class="note verified">
+          <p class="note-label">1 — Review gates publication ✓</p>
+          <p>A candidate is frozen at an exact SHA, handed to a reviewer, and the
+            merge is gated on a verdict for <em>that</em> SHA. A "needs changes"
+            verdict that cannot stop anything is a comment, not a review.</p>
+          <p>The consequence worth knowing: <strong>review never holds the
+            publication lock.</strong> A review is an LLM turn, and the lock is
+            single-flight across the run — holding it across a review would
+            serialise every lane behind one reviewer's thinking time, which is
+            the opposite of why lanes exist. So the candidate is frozen, review
+            runs lock-free, and only an approved lane contends for the lock,
+            where the runtime rechecks that the tip is still the SHA that was
+            approved.</p>
         </div>
 
-        <div class="note open">
-          <p class="note-label">2 — Which do you want to see first?</p>
-          <p><strong>Phase 1 first</strong> — the git safety layer with a manual
-            Publish button. Nothing automated, but nothing can eat your repository
-            either. All four reviewers recommended this.</p>
-          <p><strong>Or coordination first</strong> — build the transport for the
-            shell preset, which already has a real completion signal, and watch
-            lanes hand off to each other sooner while agent presets stay manual.</p>
+        <div class="note verified">
+          <p class="note-label">2 — Phase 1 first ✓</p>
+          <p>The git safety layer with a manual Publish button. Nothing
+            automated, but nothing can eat your repository either — and it is
+            fully testable against a temp repo with no agent in the loop. All
+            four reviewers recommended this, with the 1b transport spike running
+            alongside rather than after.</p>
         </div>
 
-        <div class="note open">
-          <p class="note-label">3 — Confirm the cross-model default</p>
-          <p><a href="#models">Section 7</a> is now in the spec: a lane's
-            identity is <code>(presetId, model)</code>. The part worth your
-            confirmation is the <em>recommendation</em> that a reviewer runs on
-            a different vendor's model than the author. This document is the
-            evidence for it — three reviewers agreed with each other, and the
-            fourth, from a different vendor, found the bug that broke the
-            publication lifecycle.</p>
+        <div class="note verified">
+          <p class="note-label">3 — Cross-model review is the default ✓</p>
+          <p><a href="#models">Section 7</a> is in the spec: a lane's identity is
+            <code>(presetId, model)</code>, and a reviewer runs on a different
+            vendor's model than the author. This document is the evidence — three
+            reviewers agreed with each other, and the fourth, from a different
+            vendor, found the bug that broke the publication lifecycle.</p>
         </div>
 
-        <p>Once you have answered, the next step is an implementation plan — no
-          Conductor code has been written yet, by design.</p>
+        <p>Next step: the implementation plan for Phase 1. No Conductor code has
+          been written yet, by design.</p>
       </section>
 
     </main>

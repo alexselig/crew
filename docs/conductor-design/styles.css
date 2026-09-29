@@ -349,10 +349,12 @@ figcaption b {
   color: var(--warn);
 }
 
-.note.fix {
+.note.fix,
+.note.verified {
   border-left-color: var(--teal);
 }
-.note.fix .note-label {
+.note.fix .note-label,
+.note.verified .note-label {
   color: var(--teal);
 }
 
