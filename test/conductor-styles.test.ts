@@ -69,4 +69,41 @@ describe('conductor CSS coverage (Finding 11)', () => {
 
     expect(missing).toEqual([])
   })
+
+  // Re-review Fix 5: the scan above never covered ConductorPlanDialog.tsx,
+  // and its `plan-doc__band--${kind}` dynamic class had a real gap --
+  // `plan-doc__band--section` had no rule (harmlessly, since the base
+  // `.plan-doc__band` style still applied). Same source-text-scan
+  // approach, kept as its own test so a plan-doc-only drift reads clearly
+  // in a failure without touching the composer/panel test above.
+  it('has a styles.css rule for every plan-doc__* class used by ConductorPlanDialog', () => {
+    const dialogSource = read('src/renderer/components/ConductorPlanDialog.tsx')
+    const css = read('src/renderer/styles.css')
+
+    const bandKinds = extractUnionMembers(
+      read('src/renderer/conductor-plan-document.ts'),
+      /kind:\s*([^\n]+)/
+    )
+    expect(bandKinds).toEqual(expect.arrayContaining(['summary', 'section']))
+
+    const used = new Set<string>()
+    for (const attr of dialogSource.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
+      const value = attr[1] ?? attr[2] ?? ''
+      for (const m of value.matchAll(/plan-doc[a-zA-Z0-9_-]*/g)) {
+        const token = m[0]
+        if (token.endsWith('-')) continue // dynamic prefix, expanded separately
+        used.add(token)
+      }
+    }
+    for (const kind of bandKinds) used.add(`plan-doc__band--${kind}`)
+
+    expect(used.size).toBeGreaterThan(3)
+
+    const missing = Array.from(used).filter((className) => {
+      const re = new RegExp(`\\.${className}(?![a-zA-Z0-9_-])`)
+      return !re.test(css)
+    })
+
+    expect(missing).toEqual([])
+  })
 })

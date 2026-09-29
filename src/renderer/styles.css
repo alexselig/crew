@@ -1005,6 +1005,12 @@ button {
   font-size: 22px;
 }
 
+.plan-doc__band--section {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+
 .plan-doc__p {
   margin: 0;
   font-size: 13px;

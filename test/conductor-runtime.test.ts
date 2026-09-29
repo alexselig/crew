@@ -285,6 +285,65 @@ describe('publishLane', () => {
     git(['reset', '--hard'], settings.integrationWorktree)
   })
 
+  // Re-review Fix 1: the previous test above proves the catch-all no
+  // longer records a false 'aborted' when its own worktree-reset attempt
+  // fails. This test proves the narrower, more dangerous case the
+  // re-review found: lanes.publish() can throw AFTER its compare-and-swap
+  // has ALREADY moved integrationBranch (see lanes.ts's combined
+  // "CAS succeeded, rollback also failed" error) — and resetting the
+  // *worktree* afterward succeeds cleanly, telling the catch-all nothing
+  // about the ref. The pre-fix code only checked whether the reset
+  // succeeded, so it still journalled a plain 'aborted' here even though
+  // the branch genuinely points at the merge result: reconcile() would
+  // then report nothing to reconcile for an operation that actually
+  // published, permanently losing that publish from Conductor's own
+  // bookkeeping. Simulate this by making the mocked publish() perform a
+  // REAL compare-and-swap (so the ref really moves, exactly like
+  // lanes.ts's CAS would have) and then throw, with the integration
+  // worktree left perfectly clean.
+  it('classifies as published-unrecorded, not aborted, when publish() throws after its own CAS already moved the ref', async () => {
+    const realLanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    await realLanes.ensureIntegrationWorktree()
+    const lane = await realLanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const lanes = {
+      ...realLanes,
+      publish: async (newSha: string, expectedOld: string): Promise<never> => {
+        // The real CAS: this is exactly what lanes.ts's publish() does
+        // before it can go on to throw the combined
+        // "compare-and-swap succeeded, rollback also failed" error.
+        git(['update-ref', 'refs/heads/crew/integration', newSha, expectedOld], settings.repo)
+        throw new Error('rollback also failed: crew/integration needs manual attention')
+      }
+    }
+    const conductor = createConductor({ lanes, journal, settings })
+
+    const outcome = await conductor.publishLane(lane)
+    expect(outcome).toMatchObject({ ok: false, reason: 'error' })
+
+    // The branch really did move — this is the fact a plain 'aborted'
+    // entry would have hidden from reconcile().
+    const merged = journal.read().find((e) => e.phase === 'merged')
+    expect(merged?.resultSha).toBeDefined()
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(merged?.resultSha)
+
+    // Load-bearing: on the pre-fix code, a successful worktree reset alone
+    // was enough to journal 'aborted' here, which classifyOperation reads
+    // as unconditionally 'complete' — reconcile() would report nothing to
+    // reconcile for a publish that actually happened.
+    const phases = journal.read().map((e) => e.phase)
+    expect(phases).not.toContain('aborted')
+
+    const report = await conductor.reconcile()
+    expect(report.needsAttention).toBe(true)
+    expect(report.operations[0]).toMatchObject({
+      classification: 'published-unrecorded',
+      safeToRedo: false
+    })
+  })
+
   it('publishes when the test recipe passes', async () => {
     const { lanes, conductor } = build()
     settings.test = { command: 'sh', args: ['-c', 'exit 0'], cwd: '.', timeoutMs: 10_000 }
@@ -690,6 +749,95 @@ describe('reconcile', () => {
     const report = await conductor.reconcile()
     expect(report.needsAttention).toBe(false)
     expect(report.operations).toHaveLength(0)
+  })
+
+  // Re-review Fix 4: no existing test pinned this direction — an older
+  // operation completing cleanly, followed by a newer operation that
+  // crashes. The code already handles it (the newest-op selection has
+  // always looked at every opId's entries), but nothing proved it.
+  it('reports the newest operation as needing attention when an older operation already completed cleanly', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+
+    // Older operation: publishes to completion via the real runtime.
+    const oldLane = await lanes.create('old', { presetId: 'shell', model: null })
+    commit(oldLane.worktree, 'old.txt', 'old\n', 'old lane work')
+    const oldOutcome = await conductor.publishLane(oldLane)
+    expect(oldOutcome.ok).toBe(true)
+
+    // Newer operation: a real merge commits in the integration worktree,
+    // but the journal never receives a closing entry -- a crash between
+    // merge and publish, same shape as the 'merged-unpublished' test above.
+    const newLane = await lanes.create('new', { presetId: 'shell', model: null })
+    commit(newLane.worktree, 'new.txt', 'new\n', 'new lane work')
+    const newFacts = await lanes.facts(newLane)
+    const newMerged = await lanes.mergeInIntegration(newFacts.laneTip, newFacts.baseSha)
+    expect(newMerged.ok).toBe(true)
+    if (!newMerged.ok) return
+    journal.append({
+      opId: 'op-new-crash', laneId: newLane.id, phase: 'intent',
+      baseSha: newFacts.baseSha, laneTip: newFacts.laneTip, at: 100
+    })
+    journal.append({
+      opId: 'op-new-crash', laneId: newLane.id, phase: 'merged',
+      baseSha: newFacts.baseSha, laneTip: newFacts.laneTip, resultSha: newMerged.resultSha, at: 101
+    })
+
+    const report = await conductor.reconcile()
+    expect(report.needsAttention).toBe(true)
+    expect(report.operations).toHaveLength(1)
+    expect(report.operations[0]).toMatchObject({
+      opId: 'op-new-crash',
+      classification: 'merged-unpublished'
+    })
+  })
+
+  // Re-review Fix 3: the old selection scanned every entry for the largest
+  // `at` timestamp with a strict `>` comparison, so a same-millisecond tie
+  // kept whichever opId it saw FIRST while iterating the Map -- i.e. the
+  // older one, exactly backwards from "pick the newest". Pin the fix:
+  // build a journal where two operations share one timestamp, and the
+  // genuinely later-WRITTEN operation (last in write/array order) must
+  // still be the one reconcile reports on.
+  it('resolves a same-timestamp tie to the later-written operation, not the first one seen', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+
+    // Written first, at t=5: a cleanly closed operation (empty SHAs are
+    // legal for 'aborted' -- see conductor-journal.ts's validator).
+    journal.append({
+      opId: 'op-first-written', laneId: 'lane-a', phase: 'aborted',
+      baseSha: '', laneTip: '', at: 5, detail: 'closed cleanly'
+    })
+
+    // Written second, also at t=5: a real merge commit with no closing
+    // entry -- classifies as merged-unpublished, letting the assertion
+    // below tell the two operations apart by classification, not just opId.
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const facts = await lanes.facts(lane)
+    const merged = await lanes.mergeInIntegration(facts.laneTip, facts.baseSha)
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+    journal.append({
+      opId: 'op-second-written', laneId: lane.id, phase: 'intent',
+      baseSha: facts.baseSha, laneTip: facts.laneTip, at: 5
+    })
+    journal.append({
+      opId: 'op-second-written', laneId: lane.id, phase: 'merged',
+      baseSha: facts.baseSha, laneTip: facts.laneTip, resultSha: merged.resultSha, at: 5
+    })
+
+    const report = await conductor.reconcile()
+    // Load-bearing: the pre-fix `e.at > latestAt` scan keeps 'op-first-written'
+    // here, because it is seen first and 5 is never STRICTLY greater than 5
+    // for the second operation's entries.
+    expect(report.needsAttention).toBe(true)
+    expect(report.operations).toHaveLength(1)
+    expect(report.operations[0]).toMatchObject({
+      opId: 'op-second-written',
+      classification: 'merged-unpublished'
+    })
   })
 
   // Finding 2: a crash INSIDE the 'merged' append itself, not merely between

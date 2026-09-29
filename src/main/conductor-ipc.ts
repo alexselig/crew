@@ -50,8 +50,12 @@ export function registerConductorIpc(
     // guard, not the primary defense).
     try {
       broadcast(IPC.EVT_CONDUCTOR_STATE, await backend.state())
-    } catch {
-      // Deliberately ignored — see comment above.
+    } catch (error) {
+      // Fix 5: swallowed on purpose (see comment above), but not silently —
+      // a broadcast that never reaches other windows should at least be
+      // observable, the same way every other best-effort failure in main
+      // logs rather than vanishes (see atomic-file.ts, handoff.ts, etc.).
+      console.warn('[crew] conductor state broadcast failed:', error)
     }
   }
 

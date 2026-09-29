@@ -118,10 +118,16 @@ export function createConductor(deps: ConductorDeps): Conductor {
     // Finding 7: hoisted out of the inner try so the generic catch-all below
     // can attempt a cleanup reset for exactly the window where one is owed —
     // set the instant the merge actually produces a commit in the
-    // integration worktree, cleared by every path that already resets or
-    // otherwise resolves it. If an unexpected exception lands while this is
-    // set, the catch-all knows there is real, unrecorded worktree state to
-    // undo before it may consider the operation cleanly aborted.
+    // integration worktree. It is never cleared once set: every other path
+    // through this function that already resets or otherwise resolves that
+    // commit (the 'merged'/'tests' write-failure handlers, the tests-failed
+    // path, the publish-failure path, and the success path) returns
+    // directly instead of falling through to the catch-all, so the only
+    // code that ever reads this variable again is the catch-all itself, at
+    // most once per publishLane() call. If an unexpected exception lands
+    // while this is set, the catch-all knows there is real, unrecorded
+    // merge-commit state to account for before it may consider the
+    // operation cleanly aborted.
     let mergedBaseShaPendingCleanup: string | undefined
 
     try {
@@ -210,7 +216,13 @@ export function createConductor(deps: ConductorDeps): Conductor {
           ? `${message}; additionally failed to reset the integration worktree: ${resetFailure}`
           : message
         lane.status = 'blocked'
-        lane.blockedReason = `merge commit exists but could not be recorded: ${fullMessage}`
+        // Fix 5: worded so it is accurate whether or not the reset above
+        // succeeded — when it did, the merge commit is no longer in the
+        // worktree, only unrecorded in the journal; when it failed, the
+        // commit really is still sitting there.
+        lane.blockedReason = resetFailure
+          ? `merge commit exists but could not be recorded: ${fullMessage}`
+          : `a merge commit could not be recorded (the integration worktree was reset back to base): ${fullMessage}`
         return {
           ok: false,
           reason: 'journal-failed',
@@ -322,21 +334,28 @@ export function createConductor(deps: ConductorDeps): Conductor {
     } catch (error) {
       const originalMessage = error instanceof Error ? error.message : String(error)
       let finalMessage = originalMessage
-      // Finding 7: a merge commit exists in the integration worktree but
-      // nothing on the path we were on got to reset or journal it before
-      // this exception fired. Attempt the cleanup here, and — critically —
-      // only write 'aborted' (which classifyOperation treats as
-      // unconditionally 'complete', see conductor-recovery.ts) if that
-      // cleanup actually succeeds. Recording 'aborted' after a failed reset
-      // would falsely close an operation that may still hold an unrecorded
-      // merge commit, or, in the case where a post-CAS rollback in
-      // lanes.publish() also failed, a ref that genuinely moved — neither
-      // of those is safe to report as "nothing to reconcile".
-      let safeToRecordAborted = true
+      // Finding 7 / re-review: a merge commit exists in the integration
+      // worktree but nothing on the path we were on got to reset or journal
+      // it before this exception fired. Attempt the worktree cleanup here
+      // for tidiness, but — critically — resetting the *worktree* says
+      // nothing about whether the *branch ref* moved: lanes.publish() can
+      // throw AFTER its compare-and-swap already succeeded (its own
+      // rollback attempt also failed — see lanes.ts), in which case
+      // integrationBranch genuinely points at the merge result no matter
+      // what tryResetIntegrationTo() does to the detached worktree HEAD.
+      // Once a merge commit exists for this operation
+      // (mergedBaseShaPendingCleanup !== undefined), this catch-all must
+      // never write 'aborted' — classifyOperation treats 'aborted' as
+      // unconditionally 'complete' (see conductor-recovery.ts), so writing
+      // it here could falsely close an operation that actually published.
+      // Leaving the journal exactly as it stands (at most: intent, merged,
+      // maybe tests) lets classifyOperation derive the truth from git
+      // reality instead: published-unrecorded if the ref moved,
+      // merged-unpublished/interrupted-tests if it did not.
+      let safeToRecordAborted = mergedBaseShaPendingCleanup === undefined
       if (mergedBaseShaPendingCleanup !== undefined) {
         const resetFailure = await tryResetIntegrationTo(mergedBaseShaPendingCleanup)
         if (resetFailure) {
-          safeToRecordAborted = false
           finalMessage =
             `${originalMessage}; additionally, the integration worktree at ` +
             `${settings.integrationWorktree} could not be reset and needs manual attention (${resetFailure})`
@@ -525,32 +544,33 @@ export function createConductor(deps: ConductorDeps): Conductor {
       byOp.set(entry.opId, list)
     }
 
-    // Finding 2: only one operation can be in flight at a time, so a
-    // crashed operation that never received a closing entry (aborted,
-    // notified, or a published/moved ref) is not "still open" forever --
-    // it is simply the operation that was running before the last one that
-    // actually finished. Reality (refSha, MERGE_HEAD, worktree state) is
-    // always read fresh against *today's* git state, so classifying every
-    // opId in the journal's retained window (up to JOURNAL_MAX_ENTRIES)
-    // against that same reality means a stale crashed op's baseSha no
-    // longer matches anything current once a later op has since published
-    // successfully -- and it would be permanently misclassified as
-    // 'externally-modified', a false "needs a human" alert that never
-    // clears and drowns out real ones. Only the operation with the most
-    // recent journal entry can still be in flight (or need recovery); every
-    // older opId is history and must not be reclassified against reality
-    // that was never its own.
-    let latestOpId: string | null = null
-    let latestAt = -Infinity
-    for (const [opId, group] of byOp) {
-      for (const e of group) {
-        if (e.at > latestAt) {
-          latestAt = e.at
-          latestOpId = opId
-        }
-      }
-    }
+    // Finding 2 / re-review Fix 3: only one operation can be in flight at a
+    // time, so a crashed operation that never received a closing entry
+    // (aborted, notified, or a published/moved ref) is not "still open"
+    // forever -- it is simply the operation that was running before the
+    // last one that actually finished. Reality (refSha, MERGE_HEAD,
+    // worktree state) is always read fresh against *today's* git state, so
+    // classifying every opId in the journal's retained window (up to
+    // JOURNAL_MAX_ENTRIES) against that same reality means a stale crashed
+    // op's baseSha no longer matches anything current once a later op has
+    // since published successfully -- and it would be permanently
+    // misclassified as 'externally-modified', a false "needs a human" alert
+    // that never clears and drowns out real ones. Only the operation with
+    // the most recent journal entry can still be in flight (or need
+    // recovery); every older opId is history and must not be reclassified
+    // against reality that was never its own.
+    //
+    // Selection is by the opId of the LAST entry in `entries`, not by
+    // scanning for the largest `at` timestamp: `entries` is already in
+    // write order (journal.append()/read() never reorder), so the last
+    // entry IS the most recently written one by construction. A
+    // timestamp-based `>` scan is not equivalent -- a backwards clock step
+    // could make an older write look newest, and a same-millisecond tie
+    // keeps whichever opId the `>` comparison saw first (the older one),
+    // silently hiding the operation that was actually written last.
+    const latestOpId: string | null = entries.length > 0 ? entries[entries.length - 1].opId : null
     const latestGroup = latestOpId !== null ? byOp.get(latestOpId)! : []
+
 
     const operations: ReconciledOperation[] = []
     if (latestOpId !== null) {
