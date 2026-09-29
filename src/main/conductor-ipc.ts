@@ -40,7 +40,19 @@ export function registerConductorIpc(
   broadcast: Broadcast
 ): void {
   const publishState = async (): Promise<void> => {
-    broadcast(IPC.EVT_CONDUCTOR_STATE, await backend.state())
+    // Finding 5: this runs after a mutation has already committed (lane
+    // created/destroyed, publish/sync outcome decided). A broadcast is a
+    // side effect for other windows, not a load-bearing part of the
+    // mutation the caller awaited — so a failure computing or sending it
+    // must never turn an already-successful mutation into a rejected
+    // promise. Swallow here (state() itself is now written to degrade
+    // rather than throw for a single bad lane, so this is a last-resort
+    // guard, not the primary defense).
+    try {
+      broadcast(IPC.EVT_CONDUCTOR_STATE, await backend.state())
+    } catch {
+      // Deliberately ignored — see comment above.
+    }
   }
 
   ipc.handle(IPC.CONDUCTOR_STATE, () => backend.state())
@@ -136,7 +148,22 @@ export function createShippedConductorBackend(conductorRuntime: ConductorRuntime
       }
       const lanes = [...lanesById.values()]
       const facts: Record<string, LaneFacts> = {}
-      for (const lane of lanes) facts[lane.id] = await runtime.lanes.facts(lane)
+      // Finding 5: computed in sequence, so one lane whose worktree is gone
+      // (e.g. destroy() removed the worktree but left the lane in the map
+      // because `git branch -d` failed) must not abort every other lane's
+      // facts, and must not throw out of state() at all. A missing entry
+      // here is already a degraded-lane signal the renderer understands:
+      // conductor-view-model.ts's buildRoster treats `facts[lane.id] ===
+      // undefined` as "measuring…", with canPublish/canSync both false —
+      // exactly the "blocked, don't let the user act on it" posture this
+      // finding asks for, with no new wire shape needed.
+      for (const lane of lanes) {
+        try {
+          facts[lane.id] = await runtime.lanes.facts(lane)
+        } catch {
+          // Deliberately omitted — see comment above.
+        }
+      }
       return {
         enabled: true,
         publishing: publishingLaneId,

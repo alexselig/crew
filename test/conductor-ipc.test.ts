@@ -98,6 +98,20 @@ describe('conductor IPC contract', () => {
     expect(broadcast).toHaveBeenCalledTimes(1)
   })
 
+  it('does not fail a handler whose mutation already succeeded, even if broadcasting fresh state throws', async () => {
+    // Finding 5: publishLane below has ALREADY committed (backend.publishLane
+    // resolves ok:true) before publishState() runs. If computing the
+    // broadcast snapshot throws (e.g. a lane's worktree is gone), the
+    // renderer must still see the successful outcome the mutation actually
+    // produced — never a rejected promise for work that succeeded.
+    const { invoke, broadcast } = harness({
+      state: vi.fn(async () => { throw new Error('state computation exploded') })
+    })
+    const outcome = await invoke(IPC.CONDUCTOR_PUBLISH, 'lane-1')
+    expect(outcome).toMatchObject({ ok: true, commit: 'abc' })
+    expect(broadcast).not.toHaveBeenCalled()
+  })
+
   it('does not broadcast when a handler throws', async () => {
     const { invoke, broadcast } = harness({
       createLane: vi.fn(async () => { throw new Error('lane limit reached') })
@@ -281,5 +295,49 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
     await expect(invoke(IPC.CONDUCTOR_COMPOSE, { repo: '/repo', integrationBranch: 'crew/integration', rows: [] }))
       .rejects.toThrow('conductor is not configured for this workspace yet')
     expect(broadcast).not.toHaveBeenCalled()
+  })
+
+  // Finding 5: `destroy()` in the real LaneManager can remove a lane's
+  // worktree successfully and then have `git branch -d` fail — the lane
+  // stays in lanesById with no worktree on disk. state()'s per-lane facts()
+  // call for that lane throws (no such worktree). Every OTHER wired lane
+  // must still get its facts, and state() itself must resolve rather than
+  // reject.
+  it('degrades a lane whose facts() call throws instead of failing state() for every lane', async () => {
+    const goodLane: ConductorLane = lane({ id: 'lane-good' })
+    const badLane: ConductorLane = lane({ id: 'lane-bad', worktree: '/gone' })
+    const goodFacts = {
+      ahead: 1, behind: 0, dirtyTracked: false, untracked: false, laneTip: 'tip', baseSha: 'base'
+    }
+    const fakeLanes: import('../src/main/lanes').LaneManager = {
+      ensureIntegrationWorktree: vi.fn(async () => undefined),
+      create: vi.fn(async (roleId: string) => (roleId === 'bad' ? badLane : goodLane)),
+      facts: vi.fn(async (l: ConductorLane) => {
+        if (l.id === 'lane-bad') throw new Error('worktree does not exist')
+        return goodFacts
+      }),
+      mergeInIntegration: vi.fn(),
+      syncLane: vi.fn(),
+      publish: vi.fn(),
+      destroy: vi.fn()
+    } as unknown as import('../src/main/lanes').LaneManager
+    const runtime = {
+      lanes: fakeLanes,
+      conductor: {
+        publishLane: vi.fn(), syncLane: vi.fn(), isPublishing: vi.fn(), reconcile: vi.fn()
+      } as unknown as import('../src/main/conductor').Conductor,
+      settings: {} as import('../src/shared/conductor').ConductorSettings,
+      createSession: vi.fn(),
+      closeSession: vi.fn()
+    }
+    const backend = createShippedConductorBackend(runtime)
+    await backend.createLane({ roleId: 'good', agent: { presetId: 'shell', model: null } })
+    await backend.createLane({ roleId: 'bad', agent: { presetId: 'shell', model: null } })
+
+    const state = await backend.state()
+    expect(state.enabled).toBe(true)
+    expect(state.lanes).toHaveLength(2)
+    expect(state.facts['lane-good']).toEqual(goodFacts)
+    expect(state.facts['lane-bad']).toBeUndefined()
   })
 })
