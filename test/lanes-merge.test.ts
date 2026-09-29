@@ -249,6 +249,7 @@ describe('syncLane', () => {
     expect(message).toMatch(/manual attention/)
     expect(message).toMatch(/shared\.txt/)
     expect(message).toMatch(/merge --abort/)
+    expect(message).toMatch(/merging is not possible/i)
 
     // Permissions restored: the worktree can now actually be untangled.
     git(['merge', '--abort'], lane.worktree)
