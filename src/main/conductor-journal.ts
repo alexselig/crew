@@ -7,13 +7,16 @@ import { readFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { atomicWriteFile } from './atomic-file'
 
-export type JournalPhase =
-  | 'intent'      // written before anything runs
-  | 'merged'      // written after the merge produces a commit, before the CAS
-  | 'tests'       // written when the test phase starts
-  | 'published'   // written after the CAS succeeds, before any dependent effect
-  | 'notified'    // written after teammates are told
-  | 'aborted'     // written when the operation gave up cleanly
+export const JOURNAL_PHASES = [
+  'intent',    // written before anything runs
+  'merged',    // written after the merge produces a commit, before the CAS
+  'tests',     // written when the test phase starts
+  'published', // written after the CAS succeeds, before any dependent effect
+  'notified',  // written after teammates are told
+  'aborted',   // written when the operation gave up cleanly
+] as const
+
+export type JournalPhase = typeof JOURNAL_PHASES[number]
 
 export interface JournalEntry {
   opId: string
@@ -36,11 +39,42 @@ export interface Journal {
   entriesFor(opId: string): JournalEntry[]
 }
 
-class JournalCorruptError extends Error {
+export class JournalCorruptError extends Error {
   constructor(path: string, cause: unknown) {
     super(`conductor journal at ${path} is corrupt: ${cause instanceof Error ? cause.message : String(cause)}`)
     this.name = 'JournalCorruptError'
   }
+}
+
+const isString = (v: unknown): v is string => typeof v === 'string'
+const isNumber = (v: unknown): v is number => typeof v === 'number'
+
+/**
+ * Throws a description naming the offending entry index and field, never
+ * "corrupt" alone: a user staring at a stack trace needs to find the entry.
+ * Guards every interpolation against undefined so error construction itself
+ * cannot throw.
+ */
+function describeShapeViolation(index: number, entry: unknown): string | undefined {
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+    return `entry ${index} is not an object`
+  }
+  const e = entry as Record<string, unknown>
+  if (!isString(e.opId)) return `entry ${index} field "opId" is not a string`
+  if (!isString(e.laneId)) return `entry ${index} field "laneId" is not a string`
+  if (!isString(e.phase) || !(JOURNAL_PHASES as readonly string[]).includes(e.phase)) {
+    return `entry ${index} field "phase" is not one of ${JOURNAL_PHASES.join(', ')}`
+  }
+  if (!isString(e.baseSha)) return `entry ${index} field "baseSha" is not a string`
+  if (!isString(e.laneTip)) return `entry ${index} field "laneTip" is not a string`
+  if (!isNumber(e.at)) return `entry ${index} field "at" is not a number`
+  if (e.resultSha !== undefined && !isString(e.resultSha)) {
+    return `entry ${index} field "resultSha" is not a string`
+  }
+  if (e.detail !== undefined && !isString(e.detail)) {
+    return `entry ${index} field "detail" is not a string`
+  }
+  return undefined
 }
 
 export function createJournal(path: string): Journal {
@@ -62,9 +96,20 @@ export function createJournal(path: string): Journal {
       throw new JournalCorruptError(path, error)
     }
     if (!Array.isArray(parsed)) throw new JournalCorruptError(path, 'expected an array')
+    for (let i = 0; i < parsed.length; i += 1) {
+      const violation = describeShapeViolation(i, parsed[i])
+      if (violation !== undefined) throw new JournalCorruptError(path, violation)
+    }
     return parsed as JournalEntry[]
   }
 
+  // Invariant this depends on: append() is fully synchronous (no await
+  // between the read and the write), and only one workspace conducts at a
+  // time, with publication additionally serialized by the publication lock.
+  // That rules out any interleaving within or across the processes that can
+  // reach this file, so the read-modify-rewrite below needs no lock, retry,
+  // or CAS. If append() is ever made async, this invariant breaks and a
+  // locking scheme becomes necessary.
   const append = (entry: JournalEntry): void => {
     const entries = read()
     entries.push(entry)

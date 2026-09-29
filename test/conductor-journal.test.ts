@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createJournal, JOURNAL_MAX_ENTRIES } from '../src/main/conductor-journal'
+import { createJournal, JOURNAL_MAX_ENTRIES, JournalCorruptError } from '../src/main/conductor-journal'
+import { AtomicWriteError } from '../src/main/atomic-file'
 
 let root: string
 let path: string
@@ -68,6 +69,58 @@ describe('journal', () => {
     expect(() => createJournal(path).read()).toThrow(/corrupt/i)
   })
 
+  it('throws a JournalCorruptError on a corrupt journal', () => {
+    writeFileSync(path, '{not json')
+    expect(() => createJournal(path).read()).toThrow(JournalCorruptError)
+  })
+
+  it('throws on a zero-byte file rather than reporting an empty journal', () => {
+    writeFileSync(path, '')
+    expect(() => createJournal(path).read()).toThrow(JournalCorruptError)
+  })
+
+  it('throws on a truncated tail (valid prefix, cut mid-entry)', () => {
+    const journal = createJournal(path)
+    journal.append(intent('op-1'))
+    const full = readFileSync(path, 'utf8')
+    writeFileSync(path, full.slice(0, Math.floor(full.length / 2)))
+    expect(() => createJournal(path).read()).toThrow(JournalCorruptError)
+  })
+
+  it('throws on garbage in the middle of an otherwise valid file', () => {
+    const journal = createJournal(path)
+    journal.append(intent('op-1'))
+    const full = readFileSync(path, 'utf8')
+    const mid = Math.floor(full.length / 2)
+    writeFileSync(path, full.slice(0, mid) + '###GARBAGE###' + full.slice(mid))
+    expect(() => createJournal(path).read()).toThrow(JournalCorruptError)
+  })
+
+  it('throws on valid JSON of the wrong top-level shape (an object, not an array)', () => {
+    writeFileSync(path, JSON.stringify({ opId: 'op-1' }))
+    expect(() => createJournal(path).read()).toThrow(/expected an array/i)
+  })
+
+  it('throws naming the entry index and field for an empty-object entry', () => {
+    writeFileSync(path, JSON.stringify([{}]))
+    expect(() => createJournal(path).read()).toThrow(/entry 0/)
+  })
+
+  it('throws naming the entry and field for an invalid phase value', () => {
+    writeFileSync(path, JSON.stringify([{ ...intent('op-1'), phase: 'not-a-real-phase' }]))
+    expect(() => createJournal(path).read()).toThrow(/entry 0 field "phase"/)
+  })
+
+  it('throws naming the entry and field for a wrong primitive type', () => {
+    writeFileSync(path, JSON.stringify([{ ...intent('op-1'), at: 'not-a-number' }]))
+    expect(() => createJournal(path).read()).toThrow(/entry 0 field "at"/)
+  })
+
+  it('identifies the specific bad entry when a later entry is malformed', () => {
+    writeFileSync(path, JSON.stringify([intent('op-1'), { ...intent('op-2'), laneId: 42 }]))
+    expect(() => createJournal(path).read()).toThrow(/entry 1 field "laneId"/)
+  })
+
   // Persistence failure must fail closed and prevent the effect, rather than
   // reporting success from memory as the store's best-effort save does.
   it('throws when the write fails, so the caller aborts the effect', () => {
@@ -76,6 +129,23 @@ describe('journal', () => {
     chmodSync(root, 0o500)
     try {
       expect(() => journal.append(intent('op-2'))).toThrow()
+    } finally {
+      chmodSync(root, 0o700)
+    }
+  })
+
+  it('throws an AtomicWriteError (not a JournalCorruptError) on a write failure', () => {
+    const journal = createJournal(path)
+    journal.append(intent('op-1'))
+    chmodSync(root, 0o500)
+    try {
+      expect(() => journal.append(intent('op-2'))).toThrow(AtomicWriteError)
+      try {
+        journal.append(intent('op-2'))
+        throw new Error('expected append to throw')
+      } catch (error) {
+        expect(error).not.toBeInstanceOf(JournalCorruptError)
+      }
     } finally {
       chmodSync(root, 0o700)
     }
