@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
@@ -134,6 +134,55 @@ describe('publish', () => {
     // The CAS had already moved the ref to merged.resultSha; the rollback
     // must have put it back exactly where it started.
     expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(base)
+  })
+
+  // THE DOUBLE-FAILURE REGRESSION TEST. If the rollback itself also fails,
+  // publish() must not silently swallow one half: it has to throw a single
+  // composite error naming both the original post-CAS failure and the
+  // rollback failure, and flag the ref for manual attention, because at that
+  // point the ref is left wherever the failed rollback left it — nothing
+  // automated can fix it further. Deleting the BASE commit object (not the
+  // tree) drives both failures from one root cause: the CAS itself only
+  // checks the ref's stored value against expectedOld, not object
+  // reachability, so it still succeeds; the post-CAS `git diff` then fails
+  // because expectedOld no longer resolves to anything; and the rollback
+  // `update-ref <ref> <expectedOld> <newSha>` fails for the exact same
+  // reason, since update-ref refuses to point a ref at a nonexistent object.
+  it('throws one composite error when the rollback itself also fails', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const merged = await lanes.mergeInIntegration(tip, base)
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+
+    const objectsDir = git(['rev-parse', '--git-path', 'objects'], settings.repo)
+    const baseObject = join(settings.repo, objectsDir, base.slice(0, 2), base.slice(2))
+    expect(existsSync(baseObject)).toBe(true) // confirm it is loose before deleting it
+    rmSync(baseObject)
+
+    let thrown: Error | undefined
+    try {
+      await lanes.publish(merged.resultSha, base)
+    } catch (err) {
+      thrown = err as Error
+    }
+    expect(thrown).toBeDefined()
+    const message = thrown!.message
+    // Half one: the original post-CAS `git diff` failure.
+    expect(message).toMatch(/git diff --name-only|bad object/i)
+    // Half two: the rollback's own failure.
+    expect(message).toMatch(/nonexistent object|update.ref/i)
+    expect(message).toMatch(/manual attention/i)
+
+    // The CAS had already advanced the ref, and the rollback could not
+    // possibly succeed (it needs the very object that was deleted), so the
+    // ref must be left sitting on merged.resultSha, not rolled back.
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(merged.resultSha)
   })
 
   // git only refuses a checkout when another worktree holds the branch as
