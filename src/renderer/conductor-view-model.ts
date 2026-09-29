@@ -21,6 +21,10 @@ export interface LaneRow {
   warnings: string[]
 }
 
+export function shouldShowConductor(snapshot: ConductorSnapshot | null): snapshot is ConductorSnapshot {
+  return snapshot != null && snapshot.enabled
+}
+
 export function buildRoster(snapshot: ConductorSnapshot): LaneRow[] {
   const locked = snapshot.publishing !== null
 

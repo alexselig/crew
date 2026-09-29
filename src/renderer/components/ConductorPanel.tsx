@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { buildRoster, describeOutcome, type LaneRow } from '../conductor-view-model'
+import { buildRoster, describeOutcome, shouldShowConductor, type LaneRow } from '../conductor-view-model'
 import type { ConductorSnapshot } from '../../shared/conductor'
 
 export function ConductorPanel(): JSX.Element | null {
@@ -27,7 +27,7 @@ export function ConductorPanel(): JSX.Element | null {
     setMessage(outcome.ok ? 'Lane synced' : outcome.message)
   }, [])
 
-  if (!snapshot || !snapshot.enabled) return null
+  if (!shouldShowConductor(snapshot)) return null
   const rows = buildRoster(snapshot)
 
   return (
