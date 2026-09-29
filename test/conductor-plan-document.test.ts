@@ -101,22 +101,53 @@ describe('buildPlanDocument', () => {
     expect(doc.canCreate).toBe(true)
   })
 
-  it('never hands agent text to the DOM as markup', () => {
-    const source = readFileSync('src/renderer/components/ConductorPlanDialog.tsx', 'utf8')
-    expect(source).not.toContain('dangerouslySetInnerHTML')
+  // Both files touched by this feature carry the same untrusted-text
+  // contract (see the file-header comments): agent-supplied strings are
+  // rendered as literal text, never as markup. List every file the
+  // contract applies to here so a future file added to this feature is
+  // scanned by construction, not by remembering to duplicate the test.
+  const SECURITY_SCANNED_FILES = [
+    'src/renderer/components/ConductorPlanDialog.tsx',
+    'src/renderer/conductor-plan-document.ts'
+  ]
+
+  describe.each(SECURITY_SCANNED_FILES)('security scan: %s', (path) => {
+    const source = readFileSync(path, 'utf8')
+
+    it('never hands agent text to the DOM as markup', () => {
+      expect(source).not.toContain('dangerouslySetInnerHTML')
+    })
+
+    it('never imports a markdown/HTML-interpreting dependency', () => {
+      expect(source).not.toMatch(/from ['"](react-markdown|marked|markdown-it|dompurify|remark|rehype)/i)
+    })
+
+    it('never lets an agent-supplied value reach an href', () => {
+      expect(source).not.toMatch(/href=/)
+    })
   })
 
-  it('cannot return before rendering the plan document — the document is never conditional', () => {
+  it('renders the plan document unconditionally, before the continuing/composer swap region', () => {
     // The regression this guards against: an early return (e.g. "if
     // (continuing) return <ConductorComposer .../>") that swaps out the
-    // whole component, losing doc.bands/doc.rows instead of merely swapping
-    // the action-bar/composer region beneath them. The component body must
-    // contain exactly one `return` — the single one that renders the plan
-    // document unconditionally, with only the trailing region varying.
+    // whole component, losing doc.bands/doc.rosterNotes/doc.rows instead of
+    // merely swapping the action-bar/composer region beneath them. A count
+    // of `return` keywords is a brittle proxy for this — an innocent local
+    // helper with its own `return` breaks it, and it still wouldn't catch
+    // the document becoming conditional *inside* the one return. Pin the
+    // real invariant directly instead: the roster table (the tail of the
+    // plan document) must appear, in source order, before the
+    // `{continuing && ...}` / `{!continuing && ...}` swap region, and there
+    // must be no `if (continuing) return` / `if (!continuing) return` gate
+    // anywhere above it.
     const source = readFileSync('src/renderer/components/ConductorPlanDialog.tsx', 'utf8')
     const body = source.slice(source.indexOf('export function ConductorPlanDialog'))
-    const returns = body.match(/\breturn\b/g) ?? []
-    expect(returns).toHaveLength(1)
+    const tableIndex = body.indexOf('plan-doc__roster')
+    const continuingIndex = body.indexOf('{continuing &&')
+    expect(tableIndex).toBeGreaterThan(-1)
+    expect(continuingIndex).toBeGreaterThan(-1)
+    expect(tableIndex).toBeLessThan(continuingIndex)
+    expect(body).not.toMatch(/if\s*\(\s*!?continuing\s*\)\s*return\b/)
   })
 
   it('never disables Continue for a blocked proposal — the composer is where blocking notes get fixed', () => {
