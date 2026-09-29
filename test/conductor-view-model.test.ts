@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { buildRoster, describeOutcome, shouldShowConductor } from '../src/renderer/conductor-view-model'
+import { buildRoster, describeOutcome, invalidateProposalNotes, shouldShowConductor } from '../src/renderer/conductor-view-model'
 import type { ConductorSnapshot } from '../src/shared/conductor'
+import type { ProposalNote } from '../src/shared/conductor-proposal'
 
 function snapshot(overrides: Partial<ConductorSnapshot> = {}): ConductorSnapshot {
   return {
@@ -136,5 +137,38 @@ describe('describeOutcome', () => {
   it('does not dress a failed test run up as an error', () => {
     expect(describeOutcome({ ok: false, reason: 'tests-failed', output: 'FAIL' }))
       .toBe('Tests failed on the merge result — nothing was published')
+  })
+})
+
+describe('invalidateProposalNotes', () => {
+  const blocking = (row: number, message = 'x'): ProposalNote => ({ row, severity: 'blocking', message })
+
+  it('drops the note for a row the user just edited by hand', () => {
+    const notes = [blocking(0), blocking(1, 'other')]
+    const result = invalidateProposalNotes(notes, { type: 'update', index: 0 })
+    expect(result).toEqual([blocking(1, 'other')])
+  })
+
+  it('leaves other rows and the roster-wide note (row -1) untouched on an update', () => {
+    const notes = [blocking(-1, 'global'), blocking(0), blocking(2)]
+    const result = invalidateProposalNotes(notes, { type: 'update', index: 1 })
+    expect(result).toEqual([blocking(-1, 'global'), blocking(0), blocking(2)])
+  })
+
+  it('drops the note for a removed row and shifts later notes down to match the array', () => {
+    const notes = [blocking(0, 'a'), blocking(1, 'b'), blocking(2, 'c')]
+    const result = invalidateProposalNotes(notes, { type: 'remove', index: 1 })
+    expect(result).toEqual([blocking(0, 'a'), blocking(1, 'c')])
+  })
+
+  it('never shifts the roster-wide note (row -1) when a row is removed', () => {
+    const notes = [blocking(-1, 'global'), blocking(0)]
+    const result = invalidateProposalNotes(notes, { type: 'remove', index: 0 })
+    expect(result).toEqual([blocking(-1, 'global')])
+  })
+
+  it('leaves every note untouched when a row is merely added', () => {
+    const notes = [blocking(-1, 'global'), blocking(0), blocking(1)]
+    expect(invalidateProposalNotes(notes, { type: 'add' })).toEqual(notes)
   })
 })

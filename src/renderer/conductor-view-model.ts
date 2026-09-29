@@ -3,6 +3,40 @@
 // under node rather than through a browser.
 
 import type { ConductorSnapshot, LaneStatus, PublishOutcome } from '../shared/conductor'
+import type { ProposalNote } from '../shared/conductor-proposal'
+
+/** A manual edit to the composer's roster, as seen by the notes it can
+ *  invalidate. Nothing here needs to know how the row itself changed —
+ *  only which row, and whether it moved or vanished. */
+export type RosterRowChange =
+  | { type: 'update'; index: number }
+  | { type: 'remove'; index: number }
+  | { type: 'add' }
+
+/**
+ * A `ProposalNote` describes one row of a roster the agent proposed, at the
+ * moment it was reconciled against reality. The instant the user edits,
+ * removes, or adds a row by hand, that snapshot is stale: a note the user
+ * has already fixed (or deleted outright) must not go on blocking Create.
+ *
+ * `add` never invalidates anything: a hand-added row starts with no note of
+ * its own, and no existing row's index moves. `update` drops only the note
+ * that describes the row that changed — the user may not have fixed it yet,
+ * but whatever they typed replaces what the note was about, so the note no
+ * longer describes the row that exists now. `remove` drops the removed
+ * row's note and shifts every later row's note down one, because the array
+ * itself just did the same shift.
+ */
+export function invalidateProposalNotes(notes: ProposalNote[], change: RosterRowChange): ProposalNote[] {
+  if (change.type === 'add') return notes
+  if (change.type === 'update') {
+    return notes.filter((note) => note.row !== change.index)
+  }
+  // change.type === 'remove'
+  return notes
+    .filter((note) => note.row !== change.index)
+    .map((note) => (note.row > change.index ? { ...note, row: note.row - 1 } : note))
+}
 
 export interface LaneRow {
   id: string

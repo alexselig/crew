@@ -872,6 +872,28 @@ button {
   font-size: 13.5px;
 }
 
+/* Conductor composer: "Load a plan file…" is a native file input dressed as
+ * a .btn label. The input itself stays functional (clicking the label still
+ * opens the file picker) but is visually hidden rather than left to render
+ * its raw OS-styled control inside the styled label. */
+.conductor-composer-plan-loader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.conductor-composer-plan-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .mini-btn {
   padding: 2px 8px;
   border: 1px solid var(--border);

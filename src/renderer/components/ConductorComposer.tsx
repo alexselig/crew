@@ -6,18 +6,14 @@ import { Fragment, useEffect, useState } from 'react'
 import type { Preset } from '../../shared/types'
 import type { AgentStatus } from '../../shared/api'
 import type { RoleKind } from '../../shared/conductor'
-import {
-  validateRoster,
-  type RosterDraft,
-  type RosterRow,
-  type ComposeResult
-} from '../../shared/conductor-composer'
+import { validateRoster, type RosterDraft, type RosterRow, type ComposeResult } from '../../shared/conductor-composer'
 import {
   parseProposal,
   reconcileProposal,
   type ProposalNote,
   type ReconciledRoster
 } from '../../shared/conductor-proposal'
+import { invalidateProposalNotes } from '../conductor-view-model'
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
 import { defaultLaneAgent, getCopilotModelSelection } from '../new-session-model'
 
@@ -118,12 +114,27 @@ export function ConductorComposer({ presets, maxLanes, initial, onCancel, onComp
   const hasBlockingNotes = notes.some((n) => n.severity === 'blocking')
   const canSubmit = validation.ok && !hasBlockingNotes
 
+  // A note from the loaded plan describes one row as it stood the moment it
+  // was reconciled. The instant the user touches that row by hand — edits,
+  // removes, or adds one — the note may no longer describe anything real, so
+  // it must not go on blocking Create for a problem the user already fixed
+  // (see invalidateProposalNotes in conductor-view-model.ts).
   const updateRow = (key: string, patch: Partial<RosterRow>): void => {
+    const index = rows.findIndex((r) => r.key === key)
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
+    if (index !== -1) setNotes((prev) => invalidateProposalNotes(prev, { type: 'update', index }))
   }
 
-  const addRow = (): void => setRows((prev) => [...prev, newRow(`row-${Date.now()}`, presets[0]?.id ?? '')])
-  const removeRow = (key: string): void => setRows((prev) => prev.filter((r) => r.key !== key))
+  const addRow = (): void => {
+    setRows((prev) => [...prev, newRow(`row-${Date.now()}`, presets[0]?.id ?? '')])
+    setNotes((prev) => invalidateProposalNotes(prev, { type: 'add' }))
+  }
+
+  const removeRow = (key: string): void => {
+    const index = rows.findIndex((r) => r.key === key)
+    setRows((prev) => prev.filter((r) => r.key !== key))
+    if (index !== -1) setNotes((prev) => invalidateProposalNotes(prev, { type: 'remove', index }))
+  }
 
   // The Phase 1 way to exercise the whole agent-planned path with no agent
   // running: read a `.crew/conductor-plan.json` a user picks from disk and

@@ -21,9 +21,11 @@ export interface ProposalSection {
 export interface PlanProposal {
   summary: string
   /** The conductor's argument for the plan. Plain text only — it is rendered
-   *  as escaped text, never as markup. Absent is normal, not an error, so the
-   *  field is optional for any caller building a PlanProposal by hand. */
-  narrative?: ProposalSection[]
+   *  as escaped text, never as markup. Empty is normal, not an error, but
+   *  the field itself is always present: a proposal with no narrative still
+   *  says so with `narrative: []`, rather than making every caller check
+   *  for `undefined` on top of empty. */
+  narrative: ProposalSection[]
   rows: ProposalRow[]
 }
 
@@ -51,6 +53,61 @@ function unfence(text: string): string {
   return (fenced ? fenced[1] : text).trim()
 }
 
+const isString = (v: unknown): v is string => typeof v === 'string'
+const isNonEmptyString = (v: unknown): v is string => isString(v) && v.length > 0
+
+// A JSON.parse result is ordinary data 99% of the time, but this boundary
+// takes agent-written text, and nothing stops a hostile or buggy producer
+// from handing back an object with a throwing getter or a Proxy instead.
+// Every property read below is therefore treated as capable of throwing,
+// the same guarded-inspection discipline describeEntryViolation uses in
+// src/main/conductor-journal.ts (reimplemented here, not imported: shared
+// code may never import from main).
+const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  // Object.keys is itself a property-inspecting call and can throw on an
+  // exotic object; let the caller's try/catch convert that into "unreadable".
+  return !Object.keys(value).some((key) => FORBIDDEN_KEYS.has(key))
+}
+
+/** Validates one proposed row. Returns the row or `undefined` for any
+ *  violation — malformed rows are never coerced or skipped; the caller
+ *  rejects the WHOLE proposal the moment any row comes back `undefined`. */
+function readRow(entry: unknown): ProposalRow | undefined {
+  try {
+    if (!isPlainObject(entry)) return undefined
+    if (!isNonEmptyString(entry.roleName)) return undefined
+    if (entry.kind !== 'author' && entry.kind !== 'reviewer') return undefined
+    if (!isNonEmptyString(entry.presetId)) return undefined
+    if (entry.model !== null && !isNonEmptyString(entry.model)) return undefined
+    if (!isString(entry.rationale)) return undefined
+    return {
+      roleName: entry.roleName,
+      kind: entry.kind,
+      presetId: entry.presetId,
+      model: entry.model,
+      rationale: entry.rationale
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/** Validates one narrative section. A section is optional content, so an
+ *  empty one is meaningful (renders as nothing) rather than malformed —
+ *  but a section that is present must still be well-typed, never coerced. */
+function readSection(entry: unknown): ProposalSection | undefined {
+  try {
+    if (!isPlainObject(entry)) return undefined
+    if (!isString(entry.heading) || !isString(entry.body)) return undefined
+    return { heading: entry.heading, body: entry.body }
+  } catch {
+    return undefined
+  }
+}
+
 export function parseProposal(text: string): ParseResult {
   const body = unfence(text)
   if (!body) return { ok: false, reason: 'unreadable' }
@@ -64,45 +121,45 @@ export function parseProposal(text: string): ParseResult {
     return { ok: false, reason: 'unreadable' }
   }
 
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+  try {
+    if (!isPlainObject(raw)) return { ok: false, reason: 'unreadable' }
+    const candidate = raw
+
+    if (!isString(candidate.summary)) return { ok: false, reason: 'unreadable' }
+    if (!Array.isArray(candidate.rows)) return { ok: false, reason: 'unreadable' }
+
+    const rows: ProposalRow[] = []
+    const seenRoleNames = new Set<string>()
+    for (const entry of candidate.rows) {
+      const row = readRow(entry)
+      if (!row) return { ok: false, reason: 'unreadable' }
+      // Two lanes with the same role name are not two lanes the user can
+      // tell apart in the form, so this is as unreadable as a wrong type.
+      if (seenRoleNames.has(row.roleName)) return { ok: false, reason: 'unreadable' }
+      seenRoleNames.add(row.roleName)
+      rows.push(row)
+    }
+
+    let narrative: ProposalSection[] = []
+    if (candidate.narrative !== undefined) {
+      if (!Array.isArray(candidate.narrative)) return { ok: false, reason: 'unreadable' }
+      const sections: ProposalSection[] = []
+      for (const entry of candidate.narrative) {
+        const section = readSection(entry)
+        if (!section) return { ok: false, reason: 'unreadable' }
+        sections.push(section)
+      }
+      narrative = sections
+    }
+
+    return {
+      ok: true,
+      proposal: { summary: candidate.summary, narrative, rows }
+    }
+  } catch {
+    // Inspecting `raw` itself threw (e.g. a throwing getter reached only
+    // through a path not already guarded above).
     return { ok: false, reason: 'unreadable' }
-  }
-  const candidate = raw as Record<string, unknown>
-  if (!Array.isArray(candidate.rows)) return { ok: false, reason: 'unreadable' }
-
-  const rows: ProposalRow[] = []
-  for (const entry of candidate.rows) {
-    if (typeof entry !== 'object' || entry === null) continue
-    const row = entry as Record<string, unknown>
-    rows.push({
-      roleName: typeof row.roleName === 'string' ? row.roleName : '',
-      kind: row.kind === 'reviewer' ? 'reviewer' : 'author',
-      presetId: typeof row.presetId === 'string' ? row.presetId : '',
-      model: typeof row.model === 'string' && row.model ? row.model : null,
-      rationale: typeof row.rationale === 'string' ? row.rationale : ''
-    })
-  }
-
-  const narrative: ProposalSection[] = []
-  if (Array.isArray(candidate.narrative)) {
-    for (const entry of candidate.narrative) {
-      if (typeof entry !== 'object' || entry === null) continue
-      const section = entry as Record<string, unknown>
-      const heading = typeof section.heading === 'string' ? section.heading : ''
-      const sectionBody = typeof section.body === 'string' ? section.body : ''
-      // A section with neither heading nor body renders as an empty band.
-      if (!heading && !sectionBody) continue
-      narrative.push({ heading, body: sectionBody })
-    }
-  }
-
-  return {
-    ok: true,
-    proposal: {
-      summary: typeof candidate.summary === 'string' ? candidate.summary : '',
-      narrative,
-      rows
-    }
   }
 }
 
@@ -153,5 +210,5 @@ export function reconcileProposal(
     }
   })
 
-  return { summary: proposal.summary, narrative: proposal.narrative ?? [], rows: reconciled, notes }
+  return { summary: proposal.summary, narrative: proposal.narrative, rows: reconciled, notes }
 }
