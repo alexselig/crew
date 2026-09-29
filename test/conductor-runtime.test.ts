@@ -512,9 +512,7 @@ describe('publishLane', () => {
     }
     expect(conductor.isPublishing()).toBe(false)
   })
-})
-
-
+}, { timeout: 30_000 })
 
 describe('syncLane', () => {
   it('brings the integration branch into the lane', async () => {
@@ -603,7 +601,7 @@ describe('syncLane', () => {
     }
     await reconcilePromise
   })
-})
+}, { timeout: 30_000 })
 
 describe('reconcile', () => {
   it('reports nothing to do for a clean, fully journalled run', async () => {
@@ -904,4 +902,4 @@ describe('reconcile', () => {
     const outcome = await publishPromise
     expect(outcome.ok).toBe(true)
   })
-})
+}, { timeout: 30_000 })

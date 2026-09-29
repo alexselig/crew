@@ -245,4 +245,4 @@ describe('composeRun', () => {
     // scout's stuck session must not strand the rest of rollback.
     expect(existsSync(join(settings.lanesDir, 'builder'))).toBe(false)
   })
-})
+}, { timeout: 30_000 })

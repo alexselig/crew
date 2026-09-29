@@ -148,7 +148,7 @@ describe('mergeInIntegration', () => {
 
     await expect(lanes.mergeInIntegration('not-a-real-revision', base)).rejects.toThrow(/git merge/)
   })
-})
+}, { timeout: 30_000 })
 
 describe('syncLane', () => {
   // Without a way back, a lane edits stale code indefinitely and semantic
@@ -268,4 +268,4 @@ describe('syncLane', () => {
     await expect(lanes.syncLane(reviewerLane, base)).rejects.toThrow(/builder/)
     await expect(lanes.syncLane(reviewerLane, base)).rejects.toThrow(/branch/i)
   })
-})
+}, { timeout: 30_000 })

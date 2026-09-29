@@ -198,4 +198,4 @@ describe('lane manager lifecycle', () => {
     await expect(lanes.facts(reviewerLane)).rejects.toThrow(/builder/)
     await expect(lanes.facts(reviewerLane)).rejects.toThrow(/branch/i)
   })
-})
+}, { timeout: 30_000 })

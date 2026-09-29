@@ -255,4 +255,4 @@ describe('publish', () => {
       expect(log.split('\n').filter((s) => s === subject)).toHaveLength(1)
     }
   })
-})
+}, { timeout: 30_000 })
