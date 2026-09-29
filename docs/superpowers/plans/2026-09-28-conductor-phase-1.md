@@ -51,7 +51,12 @@ Splitting the crash classifier, the view model, the roster validator and the pro
 
 ---
 
-### Task 1: Shared types and the process supervisor
+### Task 1: Shared types and the process supervisor — DONE (`c21045b`)
+
+> Implemented and verified: 7/7 tests pass, typecheck clean. One deviation:
+> `Classification` is declared in `src/shared/conductor.ts` rather than in
+> `conductor-recovery.ts` (Task 6), so this base module depends on nothing and
+> typecheck stays green ahead of that task. Task 6 imports it from there.
 
 **Files:**
 - Create: `src/shared/conductor.ts`
@@ -62,7 +67,7 @@ Splitting the crash classifier, the view model, the roster validator and the pro
 - Consumes: nothing.
 - Produces: `LaneFacts`, `MergeResult`, `PublishResult`, `ConductorLane`, `ConductorSettings`, `LaneStatus`, `RoleKind`, `LaneAgent`, and the IPC payload types from `src/shared/conductor.ts`; `runSupervised(command, args, opts) => Promise<SupervisedResult>`, `runGit(args, opts) => Promise<SupervisedResult>`, `NON_INTERACTIVE_GIT_ENV` from `src/main/supervise.ts`.
 
-- [ ] **Step 1: Write the shared types**
+- [x] **Step 1: Write the shared types**
 
 Create `src/shared/conductor.ts`:
 
@@ -208,7 +213,7 @@ export interface LaneCreateRequest {
 
 `Classification` comes from `src/shared/conductor-recovery.ts` (Task 6), which is also under `src/shared` — no boundary is crossed. Import it at the top of this file once Task 6 exists; until then TypeScript will flag it, which is the correct order of work.
 
-- [ ] **Step 2: Write the failing supervisor test**
+- [x] **Step 2: Write the failing supervisor test**
 
 Create `test/supervise.test.ts`:
 
@@ -281,12 +286,12 @@ describe('runGit', () => {
 })
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [x] **Step 3: Run the test to verify it fails**
 
 Run: `npx vitest run test/supervise.test.ts`
 Expected: FAIL — `Failed to resolve import "../src/main/supervise"`.
 
-- [ ] **Step 4: Write the supervisor**
+- [x] **Step 4: Write the supervisor**
 
 Create `src/main/supervise.ts`:
 
@@ -411,17 +416,17 @@ export function runGit(args: string[], options: SuperviseOptions): Promise<Super
 }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [x] **Step 5: Run the test to verify it passes**
 
 Run: `npx vitest run test/supervise.test.ts`
 Expected: PASS — 7 tests.
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run: `npm run typecheck`
 Expected: exits 0 with no output.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/shared/conductor.ts src/main/supervise.ts test/supervise.test.ts
