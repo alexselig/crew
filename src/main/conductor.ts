@@ -41,6 +41,27 @@ export interface Conductor {
   reconcile(): Promise<ReconcileReport>
 }
 
+/**
+ * Thrown by reconcile() when a publication, a sync, or another reconcile is
+ * already holding the single-flight lock. Distinct from any other error this
+ * file can throw (a raw GitError from a failed git invocation, or an
+ * unexpected non-MalformedJournalError re-thrown from classifyOperation) so
+ * a caller can tell "refused because busy, try again shortly" apart from
+ * "this attempt genuinely failed" without inspecting message text — the same
+ * distinction publishLane and syncLane make through their `reason: 'busy'`
+ * data field. reconcile() cannot make that distinction through its return
+ * value: ReconcileReport has no failure shape (it always describes a
+ * completed inspection of the journal), and inventing one would be exactly
+ * the kind of type change this task's scope asks to avoid unless genuinely
+ * required — throwing does not require it.
+ */
+export class ConductorBusyError extends Error {
+  constructor() {
+    super('conductor is busy: a publication, sync, or reconcile is already in flight')
+    this.name = 'ConductorBusyError'
+  }
+}
+
 async function defaultRunTests(
   worktree: string,
   recipe: TestRecipe
@@ -126,7 +147,35 @@ export function createConductor(deps: ConductorDeps): Conductor {
         }
       }
 
-      // 5. Test the merge result, not the lane in isolation.
+      // 5. The second journal write, and it happens HERE — immediately after
+      //    the merge produces a commit, before the test phase, before tests
+      //    run, before anything else can happen. The result sha did not
+      //    exist until step 4 just above, and the instant it exists it must
+      //    be durable: if the process dies one line from now, restart must
+      //    see a 'merged' entry, not silence. The rule this file exists to
+      //    keep is "the record precedes the next effect, always" — never
+      //    "the record precedes the effect it happens to be convenient to
+      //    write next to". Writing this after tests (as a prior version of
+      //    this file did) left a real crash window: merge succeeds, process
+      //    dies before any durable write carries resultSha, restart finds
+      //    only 'intent', a clean worktree, no MERGE_HEAD, and the
+      //    classifier returns not-started for a merge that actually
+      //    happened. This write closes that window; the write below for
+      //    'tests' closes the next one the same way.
+      try {
+        write('merged', merged.resultSha)
+      } catch (error) {
+        await resetIntegrationTo(baseSha)
+        return {
+          ok: false,
+          reason: 'journal-failed',
+          message: error instanceof Error ? error.message : String(error)
+        }
+      }
+
+      // 6. Test the merge result, not the lane in isolation. The 'tests'
+      //    entry is written before runTests() starts, for the same reason:
+      //    the record precedes the next effect, always.
       if (settings.test) {
         safeWrite(write, 'tests', merged.resultSha)
         const tested = await runTests(settings.integrationWorktree, settings.test)
@@ -136,18 +185,6 @@ export function createConductor(deps: ConductorDeps): Conductor {
           await resetIntegrationTo(baseSha)
           safeWrite(write, 'aborted', merged.resultSha, 'tests failed')
           return { ok: false, reason: 'tests-failed', output: tested.output }
-        }
-      }
-
-      // 6. The second journal write. The result SHA did not exist until step 4.
-      try {
-        write('merged', merged.resultSha)
-      } catch (error) {
-        await resetIntegrationTo(baseSha)
-        return {
-          ok: false,
-          reason: 'journal-failed',
-          message: error instanceof Error ? error.message : String(error)
         }
       }
 
@@ -221,22 +258,70 @@ export function createConductor(deps: ConductorDeps): Conductor {
     await runGit(['clean', '-fd'], { cwd: settings.integrationWorktree })
   }
 
+  // Gating decision for syncLane and reconcile: RESERVE the same single-flight
+  // lock rather than merely rejecting-if-busy, and for the same reason
+  // publishLane reserves it — main-thread JavaScript does not serialise
+  // across await, so a check made once and never re-asserted only proves
+  // "nobody was publishing at this instant", not "nobody starts publishing
+  // for the rest of this call". syncLane awaits lanes.facts() (to sample
+  // baseSha) and then awaits the merge itself; a publication that starts in
+  // either gap would move the ref out from under a baseSha this call has
+  // already committed to using, and syncLane would report success against a
+  // base that no longer exists. Reserving the lock for the call's whole
+  // duration — not just its first line — closes that gap the same way
+  // publishLane's reservation does. The alternative (b) — reject outright,
+  // reserving nothing — was rejected because a synchronous-only check still
+  // leaves every await point after it unguarded; it would move the bug, not
+  // fix it. The cost is real and accepted: two syncLane calls, or a syncLane
+  // and a reconcile, can no longer run concurrently either, because there is
+  // only the one lock in this architecture. That is a throughput loss, not a
+  // correctness one, and Phase 1 has no concurrent-sync requirement to trade
+  // it away for.
   const syncLane = async (lane: ConductorLane): Promise<SyncOutcome> => {
     if (publishing !== null) return { ok: false, reason: 'busy', message: 'a publication is in flight' }
-    const facts = await lanes.facts(lane)
-    const merged = await lanes.syncLane(lane, facts.baseSha)
-    if (!merged.ok) {
-      return {
-        ok: false,
-        reason: 'conflict',
-        conflictPaths: merged.conflictPaths,
-        message: merged.message
+    publishing = lane.id
+    try {
+      const facts = await lanes.facts(lane)
+      const merged = await lanes.syncLane(lane, facts.baseSha)
+      if (!merged.ok) {
+        return {
+          ok: false,
+          reason: 'conflict',
+          conflictPaths: merged.conflictPaths,
+          message: merged.message
+        }
       }
+      return { ok: true, resultSha: merged.resultSha, fastForward: merged.fastForward }
+    } finally {
+      // Released on every exit path — success, conflict, or a thrown
+      // GitError — the same rule publishLane's own finally follows.
+      publishing = null
     }
-    return { ok: true, resultSha: merged.resultSha, fastForward: merged.fastForward }
   }
 
   const reconcile = async (): Promise<ReconcileReport> => {
+    // Gated synchronously, before journal.read() even runs, let alone the
+    // first await below. reconcile() reads the journal and then asks git for
+    // the integration branch's ref, MERGE_HEAD, and worktree status — four
+    // separate observations that must describe ONE consistent moment. A
+    // publication running concurrently mutates exactly those things (moves
+    // the ref, writes journal entries, changes MERGE_HEAD, dirties the
+    // worktree) between reconcile's reads, which would hand classifyOperation
+    // a torn snapshot — e.g. a journal already updated past 'published' but a
+    // ref rev-parse taken before the CAS landed — and produce a wrong
+    // classification. Reserving the lock, as syncLane now does, is the fix;
+    // see the longer comment above syncLane for why reject-and-leave-nothing-
+    // reserved is not sufficient once a routine has more than one await.
+    if (publishing !== null) throw new ConductorBusyError()
+    publishing = 'reconcile'
+    try {
+      return await reconcileLocked()
+    } finally {
+      publishing = null
+    }
+  }
+
+  const reconcileLocked = async (): Promise<ReconcileReport> => {
     const entries = journal.read()
     if (entries.length === 0) return { needsAttention: false, operations: [] }
 

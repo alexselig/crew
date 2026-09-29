@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
 import { createJournal } from '../src/main/conductor-journal'
-import { createConductor } from '../src/main/conductor'
+import { createConductor, ConductorBusyError } from '../src/main/conductor'
+import { classifyOperation } from '../src/shared/conductor-recovery'
+import type { RecoveryJournalEntry } from '../src/shared/conductor-recovery'
 import type { ConductorSettings } from '../src/shared/conductor'
 
 let root: string
@@ -220,6 +222,56 @@ describe('syncLane', () => {
     expect(outcome.ok).toBe(true)
     expect((await lanes.facts(b)).behind).toBe(0)
   })
+
+  // Finding 2: syncLane used to only SAMPLE `publishing` before its own
+  // first await and reserve nothing. Main-thread JavaScript does not
+  // serialise across await, so the only way to prove the fix is to
+  // construct the exact interleaving the lock exists to stop: start
+  // syncLane and do NOT await it before starting publishLane. If syncLane
+  // still only sampled the lock, its synchronous prefix would find
+  // `publishing === null`, return without reserving anything, and
+  // publishLane's own synchronous prefix (invoked next, still before
+  // syncLane's first await settles) would ALSO find the lock free and
+  // proceed — both operations now running unsynchronized against a base
+  // that publishLane is about to move. With the fix, syncLane reserves the
+  // lock synchronously before yielding, so publishLane's synchronous check
+  // finds it held and refuses immediately.
+  it('publishLane refuses while syncLane holds the lock, closing the stale-base race', async () => {
+    const { lanes, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const a = await lanes.create('a', { presetId: 'shell', model: null })
+    const b = await lanes.create('b', { presetId: 'shell', model: null })
+    commit(a.worktree, 'a.txt', 'A\n', 'a work')
+
+    // Deliberately not awaited: this line only runs syncLane's synchronous
+    // prefix (its lock check/reservation) before control returns here.
+    const syncPromise = conductor.syncLane(b)
+    // Load-bearing: fails on the reverted code, where this resolves `ok:
+    // true` instead, because the interleaving above raced unsynchronized.
+    const publishOutcome = await conductor.publishLane(a)
+    expect(publishOutcome).toMatchObject({ ok: false, reason: 'busy' })
+
+    const syncOutcome = await syncPromise
+    expect(syncOutcome.ok).toBe(true)
+    expect(conductor.isPublishing()).toBe(false)
+
+    // The lock was released cleanly, so a real publish can still land after.
+    const published = await conductor.publishLane(a)
+    expect(published.ok).toBe(true)
+  })
+
+  it('reconcile refuses while a publish holds the lock, and the lock is free again once it settles', async () => {
+    const { lanes, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const publishPromise = conductor.publishLane(lane)
+    await expect(conductor.reconcile()).rejects.toBeInstanceOf(ConductorBusyError)
+
+    expect((await publishPromise).ok).toBe(true)
+    await expect(conductor.reconcile()).resolves.toMatchObject({ needsAttention: false })
+  })
 })
 
 describe('reconcile', () => {
@@ -337,5 +389,90 @@ describe('reconcile', () => {
       safeToRedo: false
     })
     expect(report.operations[0].summary).toMatch(/malformed/i)
+  })
+
+  // Finding 1: when settings.test is configured, the 'merged' entry (the
+  // durable record that a merge commit exists) must be written IMMEDIATELY
+  // after the merge succeeds — before the test phase starts, before
+  // runTests() is even called. The load-bearing proof is timing, not just
+  // final state: this test starts the test phase running, inspects the
+  // journal WHILE it is still in flight (using a deps.runTests injection
+  // gated by a manually-controlled promise, so there is no wall-clock
+  // sleep to race), and requires 'merged' to already be present with a
+  // resultSha at that instant. On the reverted code (which wrote 'merged'
+  // only in the step after tests pass), this assertion fails: the journal
+  // would show only 'intent' and 'tests' while the test phase is running,
+  // never 'merged'.
+  it('journals the merge before the test phase runs, so a crash mid-test still classifies as a merge that happened', async () => {
+    const lanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    let releaseTests: (() => void) | undefined
+    const testGate = new Promise<void>((resolve) => { releaseTests = resolve })
+    let midFlightEntries: ReturnType<typeof journal.read> | undefined
+
+    settings.test = { command: 'sh', args: ['-c', 'exit 0'], cwd: '.', timeoutMs: 10_000 }
+    const conductor = createConductor({
+      lanes, journal, settings,
+      runTests: async () => {
+        // The instant the test phase begins running is exactly the instant
+        // a crash "during tests" would leave the journal in. Capture it here
+        // instead of guessing at it from outside.
+        midFlightEntries = journal.read()
+        await testGate
+        return { ok: true, output: '' }
+      }
+    })
+
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const publishPromise = conductor.publishLane(lane)
+    // Wait for the (real, subprocess-backed) merge to complete and the test
+    // phase's runTests hook to start — polled rather than a fixed sleep,
+    // since the merge itself runs through real git subprocesses.
+    const deadline = Date.now() + 5000
+    while (midFlightEntries === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+
+    expect(midFlightEntries).toBeDefined()
+    const phases = midFlightEntries!.map((e) => e.phase)
+    // Load-bearing: this is the literal requirement Finding 1 fixes.
+    expect(phases).toContain('merged')
+    expect(phases).not.toContain('published')
+    const mergedEntry = midFlightEntries!.find((e) => e.phase === 'merged')
+    expect(mergedEntry?.resultSha).toBeTruthy()
+
+    // Drive the real classifier against exactly this mid-crash journal
+    // state plus real git reality captured at the same instant: not the
+    // internal `publishing` field, the actual reconciliation table.
+    const refSha = git(['rev-parse', settings.integrationBranch], settings.repo)
+    let mergeHeadPresent = false
+    try {
+      mergeHeadPresent = execFileSync(
+        'git', ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'],
+        { cwd: settings.integrationWorktree, encoding: 'utf8' }
+      ).trim().length > 0
+    } catch {
+      mergeHeadPresent = false
+    }
+    const status = execFileSync(
+      'git', ['status', '--porcelain', '--untracked-files=no'],
+      { cwd: settings.integrationWorktree, encoding: 'utf8' }
+    )
+    const classification = classifyOperation(midFlightEntries! as RecoveryJournalEntry[], {
+      refSha,
+      mergeHeadPresent,
+      integrationDirty: status.trim().length > 0
+    })
+    // Load-bearing: the wrong answer here (not-started) is exactly the bug
+    // Finding 1 describes — a merge that happened, misclassified as one
+    // that never started.
+    expect(classification).not.toBe('not-started')
+
+    releaseTests?.()
+    const outcome = await publishPromise
+    expect(outcome.ok).toBe(true)
   })
 })
