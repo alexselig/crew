@@ -90,7 +90,19 @@ function assertValidMembershipGraph(
     }
     sessionIds.add(session.id)
 
+    const sessionWorkspaceIds = new Set<string>()
     for (const workspaceId of session.workspaceIds ?? []) {
+      if (typeof workspaceId !== 'string' || workspaceId === '') {
+        throw new MalformedMembershipError(
+          `session ${describeValue(session.id)} has an empty or non-string workspace id: ${describeValue(workspaceId)}`
+        )
+      }
+      if (sessionWorkspaceIds.has(workspaceId)) {
+        throw new MalformedMembershipError(
+          `session ${describeValue(session.id)} has a duplicate workspace id: ${describeValue(workspaceId)}`
+        )
+      }
+      sessionWorkspaceIds.add(workspaceId)
       if (!workspaceIds.has(workspaceId)) {
         throw new MalformedMembershipError(
           `session ${describeValue(session.id)} references unknown workspace ${describeValue(workspaceId)}`

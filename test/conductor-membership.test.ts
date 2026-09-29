@@ -84,6 +84,32 @@ describe('canConduct', () => {
       canConduct([{ id: cyclic as unknown as string, name: 'x' }], [], 'a')
     ).toThrow(MalformedMembershipError)
   })
+
+  it('throws when a session has duplicate workspace ids in its membership', () => {
+    expect(() => canConduct([ws('a')], [s('s1', ['a', 'a'])], 'a')).toThrow(
+      MalformedMembershipError
+    )
+  })
+
+  it('throws when a session has multiple duplicate workspace ids', () => {
+    expect(() => canConduct([ws('a'), ws('b')], [s('s1', ['a', 'b', 'b'])], 'a')).toThrow(
+      MalformedMembershipError
+    )
+  })
+
+  it('throws when a session has an empty string in its workspace ids', () => {
+    expect(() => canConduct([ws('a')], [s('s1', ['a', ''])], 'a')).toThrow(
+      MalformedMembershipError
+    )
+  })
+
+  it('does not itself throw while building the error message for an exotic workspace id in a session', () => {
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    expect(() =>
+      canConduct([ws('a')], [{ id: 's1', label: 's1', workspaceIds: [cyclic as unknown as string] }], 'a')
+    ).toThrow(MalformedMembershipError)
+  })
 })
 
 describe('validateMembershipChange', () => {
