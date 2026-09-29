@@ -83,12 +83,27 @@ describe('classifyOperation', () => {
       .toBe('interrupted-tests')
   })
 
-  // The other half of the distinction: the same entries, but the worktree
-  // is clean — tests finished, only the CAS is outstanding.
-  it('classifies a recorded result with a clean worktree after tests as merged-unpublished', () => {
+  // The other half of the distinction: same entries, integration worktree
+  // clean. Finding 1: this used to assert merged-unpublished — reasoning
+  // that a clean worktree means tests finished and only the CAS is
+  // outstanding — but that reasoning was backwards. integrationDirty only
+  // fires if the test command modified a *tracked* file, which almost no
+  // test suite does, so a clean worktree here is the OVERWHELMINGLY common
+  // shape of "the process crashed mid-test-run", not "tests passed". The
+  // journaled 'tests' phase alone is what a crash-during-tests state looks
+  // like; it must classify interrupted-tests regardless of dirtiness.
+  it('classifies a recorded result with a clean worktree after a journaled tests phase as interrupted-tests, not merged-unpublished', () => {
     const entries = [entry('intent'), entry('merged', { resultSha: RESULT }), entry('tests')]
     expect(classifyOperation(entries, reality({ integrationDirty: false })))
-      .toBe('merged-unpublished')
+      .toBe('interrupted-tests')
+  })
+
+  // merged-unpublished now means only "a merge commit exists, the ref never
+  // moved, and 'tests' was never even journaled" — the crash landed before
+  // the test phase started.
+  it('classifies a recorded result with no tests entry and an unmoved ref as merged-unpublished', () => {
+    const entries = [entry('intent'), entry('merged', { resultSha: RESULT })]
+    expect(classifyOperation(entries, reality())).toBe('merged-unpublished')
   })
 
   // The single most dangerous state: redoing it double-applies the work.

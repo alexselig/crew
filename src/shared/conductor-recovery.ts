@@ -99,7 +99,7 @@ export const RECOVERY_ACTIONS: Record<Classification, RecoveryAction> = {
     requiresHuman: true
   },
   'merged-unpublished': {
-    summary: 'The merge commit exists but the branch never moved. Safe to retry the compare-and-swap.',
+    summary: 'The merge commit exists but the branch never moved, and tests are not known to have run. Re-run tests, then retry the compare-and-swap.',
     safeToRedo: true,
     requiresHuman: false
   },
@@ -230,8 +230,11 @@ function validateAndOrder(
  *        (the CAS already succeeded once; a ref that has since moved off
  *        the recorded result was moved by something outside Conductor —
  *        never treated as retryable, no matter where it now points)
- *     d. ref === baseSha, 'tests' journaled AND
- *        integration worktree dirty                   -> interrupted-tests
+ *     d. ref === baseSha, 'tests' journaled           -> interrupted-tests
+ *        (regardless of integration-worktree dirtiness: almost no test
+ *        suite modifies tracked files, so requiring dirt here would fail
+ *        open for the common case of a clean-worktree crash during tests —
+ *        see Finding 1)
  *     e. ref === baseSha, otherwise                    -> merged-unpublished
  *     f. ref is none of the above                      -> externally-modified
  *  4. no resultSha recorded (no durable record of a merge commit):
@@ -285,12 +288,23 @@ export function classifyOperation(
     if (phases.has('published')) return 'externally-modified'
     if (reality.refSha === baseSha) {
       // A recorded resultSha means the merge committed; the ref sitting on
-      // baseSha with a journaled 'tests' phase and a dirty integration
-      // worktree means the crash happened *during* that test run, before
-      // the compare-and-swap — not after tests passed and only the CAS was
-      // left undone. Those need different recovery (redo the tests vs.
-      // just retry the CAS), so they must not share a classification.
-      if (phases.has('tests') && reality.integrationDirty) return 'interrupted-tests'
+      // baseSha with a journaled 'tests' phase means the crash happened
+      // *during* that test run, before the compare-and-swap — not after
+      // tests passed and only the CAS was left undone. Those need
+      // different recovery (redo the tests vs. just retry the CAS), so
+      // they must not share a classification.
+      // Finding 1: integrationDirty only ever fires if the test command
+      // modified a *tracked* file — almost no test suite does that. A
+      // crash during a clean-worktree test run therefore left
+      // integrationDirty false, and the old `&& reality.integrationDirty`
+      // conjunct fell through to merged-unpublished, whose recovery action
+      // says the compare-and-swap is safe to retry — i.e. it would publish
+      // a merge whose tests never finished. The journaled 'tests' phase
+      // alone is sufficient: it is only ever written once the test phase
+      // has started (see conductor.ts), and nothing after it before a
+      // resultSha-carrying 'published' entry can mean anything other than
+      // "tests were running, or ran and crashed, when this journal froze".
+      if (phases.has('tests')) return 'interrupted-tests'
       return 'merged-unpublished'
     }
     // The branch points somewhere that is neither the recorded result nor

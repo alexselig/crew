@@ -690,10 +690,13 @@ describe('reconcile', () => {
       integrationDirty: status.trim().length > 0,
       integrationHeadSha
     })
-    // Load-bearing: the wrong answer here (not-started) is exactly the bug
-    // Finding 1 describes — a merge that happened, misclassified as one
-    // that never started.
-    expect(classification).not.toBe('not-started')
+    // Load-bearing: this is exactly Finding 1's classification. Before the
+    // fix, integrationDirty (no tracked files touched by `exit 0`) was
+    // false, so the buggy `phases.has('tests') && reality.integrationDirty`
+    // conjunct fell through to merged-unpublished — "safe to retry the
+    // compare-and-swap" — for a merge whose tests were still running. The
+    // fixed classifier must read the journaled 'tests' phase alone.
+    expect(classification).toBe('interrupted-tests')
 
     releaseTests?.()
     const outcome = await publishPromise
