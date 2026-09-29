@@ -6534,3 +6534,95 @@ button.grid-topbar__wordmark:hover {
 .agent-run__foot .btn {
   flex: 1;
 }
+
+/* ---------- Conductor panel ---------- */
+.conductor {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 320px;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+.conductor-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.conductor-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.conductor-attention {
+  font-size: 11px;
+  color: var(--danger);
+}
+.conductor-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+.conductor-lane {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12px;
+}
+.conductor-lane-role {
+  font-weight: 600;
+}
+.conductor-lane-agent {
+  color: var(--text-dim);
+}
+.conductor-lane-counts {
+  color: var(--text-faint);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.conductor-lane-detail {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 11px;
+}
+.conductor-lane-warning {
+  flex-basis: 100%;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.conductor-lane button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.conductor-lane button:hover:not(:disabled) {
+  background: var(--bg-elev-2);
+}
+.conductor-lane button:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.conductor-message {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+  color: var(--text-dim);
+}

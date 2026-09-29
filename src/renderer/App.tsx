@@ -18,6 +18,7 @@ import { CommandPalette, type PaletteItem } from './components/CommandPalette'
 import { repairRendering } from './terminal/repair'
 import { clearPane } from './terminal/pool'
 import { UpdateBanner } from './components/UpdateBanner'
+import { ConductorPanel } from './components/ConductorPanel'
 import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
 import { Character } from './components/Character'
@@ -617,6 +618,8 @@ export function App(): JSX.Element {
           onClose={() => c.setActiveRunId(null)}
         />
       )}
+
+      <ConductorPanel />
 
       {showIntro && <TitleSequence onDone={() => setShowIntro(false)} />}
     </div>
