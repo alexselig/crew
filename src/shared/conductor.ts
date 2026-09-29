@@ -97,6 +97,11 @@ export type Classification =
   | 'interrupted-merge'
   | 'interrupted-tests'
   | 'merged-unpublished'
+  /** The branch already moved to the recorded result, but no 'published'
+   *  entry was ever journaled — the two-write CAS landed and the crash hit
+   *  between the ref update and the journal write. Redoing the publish
+   *  would double-apply the merge, so this is never safe to redo. */
+  | 'published-unrecorded'
   | 'published-unnotified'
   | 'externally-modified'
 
