@@ -148,19 +148,38 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
 
   const mergeAt = async (cwd: string, target: string): Promise<MergeResult> => {
     const merge = await runGit(['merge', '--no-edit', target], { cwd, timeoutMs: 60_000 })
-    if (merge.code !== 0) {
-      const conflictPaths = await conflictPathsIn(cwd)
-      // Abort unconditionally: the lock is never held across a conflict, so
-      // leaving MERGE_HEAD behind would trip the next publication instead.
-      await runGit(['merge', '--abort'], { cwd })
-      return {
-        ok: false,
-        conflictPaths,
-        message: merge.stderr.trim() || merge.stdout.trim() || 'merge failed'
-      }
+    if (merge.code === 0) {
+      const resultSha = (await runGit(['rev-parse', 'HEAD'], { cwd })).stdout.trim()
+      return { ok: true, resultSha, fastForward: resultSha === target }
     }
-    const resultSha = (await runGit(['rev-parse', 'HEAD'], { cwd })).stdout.trim()
-    return { ok: true, resultSha, fastForward: resultSha === target }
+
+    // A non-zero exit alone proves nothing: a bad revision, a dirty
+    // worktree, a timeout, or a merge-strategy failure all exit non-zero
+    // with no unmerged paths, and must never be reported as a conflict.
+    const conflictPaths = await conflictPathsIn(cwd)
+    if (conflictPaths.length === 0) {
+      throw new GitError(['merge', '--no-edit', target], merge.stderr || merge.stdout)
+    }
+
+    // Genuine conflict: abort unconditionally. The lock is never held across
+    // a conflict, so leaving MERGE_HEAD behind would trip the next
+    // publication instead. A failed abort is worse than the conflict itself:
+    // it strands the integration worktree in MERGING state for everyone
+    // after us, so it must never be swallowed as though it were a conflict.
+    const abort = await runGit(['merge', '--abort'], { cwd })
+    if (abort.code !== 0) {
+      throw new GitError(
+        ['merge', '--abort'],
+        `integration worktree at ${cwd} needs manual attention: merge --abort failed after a conflicted merge: ${
+          abort.stderr.trim() || abort.stdout.trim() || 'no output'
+        }`
+      )
+    }
+    return {
+      ok: false,
+      conflictPaths,
+      message: merge.stderr.trim() || merge.stdout.trim() || 'merge failed'
+    }
   }
 
   const mergeInIntegration = async (candidate: string, base: string): Promise<MergeResult> => {
@@ -172,8 +191,12 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     return mergeAt(settings.integrationWorktree, candidate)
   }
 
-  const syncLane = async (lane: ConductorLane, base: string): Promise<MergeResult> =>
-    mergeAt(lane.worktree, base)
+  const syncLane = async (lane: ConductorLane, base: string): Promise<MergeResult> => {
+    // A reviewer lane is detached at a candidate SHA and owns no branch;
+    // merging into it there would strand commits nothing ever tracks.
+    requireBranch(lane, 'sync')
+    return mergeAt(lane.worktree, base)
+  }
 
   const destroy = async (lane: ConductorLane, opts: { force: boolean }): Promise<void> => {
     if (!opts.force) {

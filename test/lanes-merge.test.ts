@@ -15,7 +15,25 @@ const ENV = {
 }
 
 function git(args: string[], cwd: string): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...ENV } }).trim()
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    // stderr inherited: a real git failure in an ordinary call must still be
+    // visible in test output.
+    stdio: ['ignore', 'pipe', 'inherit'],
+    env: { ...process.env, ...ENV }
+  }).trim()
+}
+
+// Used only at call sites where the git command is expected to fail as part
+// of the assertion itself, so its stderr never reaches test output.
+function gitExpectFailure(args: string[], cwd: string): void {
+  execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, ...ENV }
+  })
 }
 
 function commit(cwd: string, file: string, body: string, message: string): void {
@@ -114,7 +132,21 @@ describe('mergeInIntegration', () => {
     commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
     const base = git(['rev-parse', 'crew/integration'], settings.repo)
     await lanes.mergeInIntegration(git(['rev-parse', lane.branch as string], settings.repo), base)
-    expect(() => git(['symbolic-ref', 'HEAD'], settings.integrationWorktree)).toThrow()
+    expect(() => gitExpectFailure(['symbolic-ref', 'HEAD'], settings.integrationWorktree)).toThrow()
+  })
+
+  // A non-conflict git failure (here: an unresolvable revision) must never
+  // be misreported as "the lane conflicts" — it has to propagate as a real
+  // error so the caller does not treat it as something a human resolves by
+  // editing files.
+  it('propagates a genuine git failure instead of reporting a conflict', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    await expect(lanes.mergeInIntegration('not-a-real-revision', base)).rejects.toThrow(/git merge/)
   })
 })
 
@@ -164,5 +196,18 @@ describe('syncLane', () => {
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.conflictPaths).toContain('shared.txt')
     expect(git(['status', '--porcelain'], lane.worktree)).toBe('')
+  })
+
+  // A reviewer lane is detached at a candidate SHA and owns no branch;
+  // syncing it in place would strand commits nothing ever tracks.
+  it('rejects syncing a branchless (reviewer) lane', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const authored = await lanes.create('builder', { presetId: 'shell', model: null })
+    const reviewerLane = { ...authored, kind: 'reviewer' as const, branch: null }
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    await expect(lanes.syncLane(reviewerLane, base)).rejects.toThrow(/builder/)
+    await expect(lanes.syncLane(reviewerLane, base)).rejects.toThrow(/branch/i)
   })
 })
