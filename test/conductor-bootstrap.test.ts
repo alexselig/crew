@@ -6,8 +6,8 @@ import {
   DEFAULT_MAX_LANES,
   type ConductorBootstrapDeps
 } from '../src/main/conductor-bootstrap'
-import type { ConductorConfig, ConductorLane } from '../src/shared/conductor'
-import type { ConductorRuntime, ConductorBackend, ConductorLanePersistence } from '../src/main/conductor-ipc'
+import type { ConductorConfig, ConductorLane, TestRecipe } from '../src/shared/conductor'
+import type { ConductorRuntime, ConductorBackend, ConductorPersistence } from '../src/main/conductor-ipc'
 import { ConductorBusyError } from '../src/main/conductor'
 import { MalformedJournalError } from '../src/shared/conductor-recovery'
 
@@ -31,7 +31,6 @@ function fakeRuntime(overrides: Partial<ConductorRuntime> = {}): ConductorRuntim
     conductor: {
       publishLane: vi.fn(async () => ({ ok: true }) as never),
       syncLane: vi.fn(async () => ({ ok: true }) as never),
-      isPublishing: vi.fn(() => false),
       lockHolder: vi.fn(() => null),
       reserveLock: vi.fn(() => true),
       releaseLock: vi.fn(),
@@ -69,35 +68,101 @@ function fakeDeps(overrides: Partial<ConductorBootstrapDeps> = {}): ConductorBoo
     }),
     createSession: vi.fn(async () => ({ id: 'session-x' })),
     closeSession: vi.fn(),
+    broadcast: vi.fn(),
     get _configs() { return state.configs },
     get _lanes() { return state.lanes },
     ...overrides
   }
 }
 
-describe('createConductorController: no active workspace', () => {
-  it('is disabled when no workspace is active', async () => {
+
+const EMPTY_SNAPSHOT = {
+  enabled: false as const,
+  publishing: null,
+  lanes: [],
+  facts: {},
+  needsAttention: false,
+  operations: [],
+  reconciled: true
+}
+
+/** A backend factory whose backends are distinguishable per runtime, and
+ *  which records the persistence hook each was built with — several tests
+ *  below are about what the backend PERSISTS, not what it returns. */
+function fakeBackendFactory(options: {
+  compose?: (draft: unknown) => Promise<unknown>
+} = {}) {
+  const built: Array<{ runtime: ConductorRuntime | null; persistence?: ConductorPersistence }> = []
+  const factory = vi.fn((runtime: ConductorRuntime | null, persistence?: ConductorPersistence): ConductorBackend => {
+    built.push({ runtime, persistence })
+    return {
+      state: async () => ({
+        ...EMPTY_SNAPSHOT,
+        enabled: (runtime !== null) as false,
+        lanes: []
+      }),
+      createLane: async () => { throw new Error('unused') },
+      destroyLane: async () => undefined,
+      publishLane: async () => ({ ok: true }) as never,
+      syncLane: async () => ({ ok: true }) as never,
+      reconcile: async () => ({ needsAttention: false, operations: [] }),
+      compose: (async (draft: unknown) =>
+        options.compose ? options.compose(draft) : { ok: true, lanes: [] }) as ConductorBackend['compose']
+    }
+  })
+  return { factory, built }
+}
+
+const DRAFT = {
+  repo: '/Users/test/code/some-project',
+  integrationBranch: 'crew/integration',
+  rows: [],
+  test: null
+}
+
+function existingConfig(workspaceId: string, overrides: Partial<ConductorConfig> = {}): ConductorConfig {
+  return {
+    workspaceId,
+    repo: `/repo-${workspaceId}`,
+    integrationBranch: 'crew/integration',
+    integrationWorktree: `/int-${workspaceId}`,
+    lanesDir: `/lanes-${workspaceId}`,
+    maxLanes: 4,
+    test: null,
+    ...overrides
+  }
+}
+
+describe('createConductorController: "All Sessions" (no workspace)', () => {
+  it('is disabled for the null workspace', async () => {
     const controller = createConductorController(fakeDeps())
-    controller.setActiveWorkspace(null)
-    await expect(controller.backend.state()).resolves.toEqual({
-      enabled: false, publishing: null, lanes: [], facts: {}, needsAttention: false
+    await expect(controller.backendFor(null).state()).resolves.toEqual({
+      enabled: false, publishing: null, lanes: [], facts: {}, needsAttention: false,
+      operations: [], reconciled: true
     })
   })
 
-  it('rejects compose() cleanly when there is no active workspace to bind to', async () => {
-    const controller = createConductorController(fakeDeps())
-    controller.setActiveWorkspace(null)
-    await expect(
-      controller.backend.compose({ repo: '/repo', integrationBranch: 'crew/integration', rows: [], test: null })
-    ).rejects.toThrow(/no active workspace/i)
+  // Review finding 6: a compose that cannot run is a refusal the composer
+  // can render, not a thrown error that crosses IPC as an unhandled
+  // rejection the user never sees.
+  it('refuses compose() for the null workspace with a structured error, never a throw', async () => {
+    const deps = fakeDeps()
+    const createConductorRuntime = vi.fn()
+    const controller = createConductorController({ ...deps, createConductorRuntime })
+    const result = await controller.compose(null, DRAFT)
+    expect(result).toMatchObject({
+      ok: false,
+      errors: [{ field: 'workspace', message: expect.stringContaining('choose a workspace') }]
+    })
+    expect(deps.saveConductorConfigs).not.toHaveBeenCalled()
+    expect(createConductorRuntime).not.toHaveBeenCalled()
   })
 })
 
 describe('createConductorController: workspace with no ConductorConfig yet', () => {
   it('reports disabled, not an error, before any compose has run', async () => {
     const controller = createConductorController(fakeDeps())
-    controller.setActiveWorkspace('ws-1')
-    await expect(controller.backend.state()).resolves.toMatchObject({ enabled: false })
+    await expect(controller.backendFor('ws-1').state()).resolves.toMatchObject({ enabled: false })
   })
 
   it('derives a ConductorConfig from the compose draft, persists it, and binds a runtime to it', async () => {
@@ -112,42 +177,29 @@ describe('createConductorController: workspace with no ConductorConfig yet', () 
       journal: join(USER_DATA_DIR, 'conductor', 'ws-1', 'journal.ndjson')
     }))
     let composedWith: unknown = null
-    const createShippedConductorBackendFake = vi.fn((rt: ConductorRuntime | null, _persistence?: ConductorLanePersistence): ConductorBackend => ({
-      state: async () => ({ enabled: rt !== null, publishing: null, lanes: [], facts: {}, needsAttention: false }),
-      createLane: async () => { throw new Error('unused') },
-      destroyLane: async () => undefined,
-      publishLane: async () => ({ ok: true }) as never,
-      syncLane: async () => ({ ok: true }) as never,
-      reconcile: async () => ({ needsAttention: false, operations: [] }),
+    const { factory } = fakeBackendFactory({
       compose: async (draft) => {
         composedWith = draft
-        return { ok: true, lanes: [] } as never
+        return { ok: true, lanes: [] }
       }
-    }))
+    })
 
     const controller = createConductorController({
       ...deps,
       createConductorRuntime,
       conductorPaths,
-      createShippedConductorBackend: createShippedConductorBackendFake
+      createShippedConductorBackend: factory
     })
-    controller.setActiveWorkspace('ws-1')
 
-    const draft = {
-      repo: '/Users/test/code/some-project',
-      integrationBranch: 'crew/integration',
-      rows: [],
-      test: null
-    }
-    const result = await controller.backend.compose(draft)
+    const result = await controller.compose('ws-1', DRAFT)
     expect(result).toEqual({ ok: true, lanes: [] })
-    expect(composedWith).toEqual(draft)
+    expect(composedWith).toEqual(DRAFT)
 
     expect(deps.saveConductorConfigs).toHaveBeenCalledTimes(1)
     expect(deps._configs).toEqual([{
       workspaceId: 'ws-1',
-      repo: draft.repo,
-      integrationBranch: draft.integrationBranch,
+      repo: DRAFT.repo,
+      integrationBranch: DRAFT.integrationBranch,
       integrationWorktree: join(USER_DATA_DIR, 'conductor', 'ws-1', 'integration'),
       lanesDir: join(USER_DATA_DIR, 'conductor', 'ws-1', 'lanes'),
       maxLanes: DEFAULT_MAX_LANES,
@@ -160,92 +212,129 @@ describe('createConductorController: workspace with no ConductorConfig yet', () 
     })
 
     // Now bound: state() must report enabled, not the disabled sentinel.
-    await expect(controller.backend.state()).resolves.toMatchObject({ enabled: true })
+    await expect(controller.backendFor('ws-1').state()).resolves.toMatchObject({ enabled: true })
   })
 
-  it('never writes a config, and never builds a runtime, on the no-active-workspace path', async () => {
+  // Review finding 4: a first compose that fails must leave NO trace. The
+  // old code saved the derived config before composing, so a typo'd repo
+  // permanently bound the workspace to a config that could never be
+  // replaced — every later compose took the "already configured" path and
+  // handed the draft to a runtime built on the bad repo.
+  it('saves nothing, and leaves the workspace disabled, when the first compose fails with no survivors', async () => {
     const deps = fakeDeps()
-    const createConductorRuntime = vi.fn()
-    const controller = createConductorController({ ...deps, createConductorRuntime })
-    controller.setActiveWorkspace(null)
-    await expect(
-      controller.backend.compose({ repo: '/repo', integrationBranch: 'crew/integration', rows: [], test: null })
-    ).rejects.toThrow()
+    const { factory } = fakeBackendFactory({
+      compose: async () => ({
+        ok: false,
+        failedRow: 0,
+        message: 'not a git repository',
+        errors: [],
+        cleanupFailures: [],
+        survivingLanes: []
+      })
+    })
+    const controller = createConductorController({
+      ...deps,
+      createConductorRuntime: vi.fn(() => fakeRuntime()),
+      createShippedConductorBackend: factory
+    })
+
+    const result = await controller.compose('ws-1', DRAFT)
+    expect(result).toMatchObject({ ok: false })
     expect(deps.saveConductorConfigs).not.toHaveBeenCalled()
-    expect(createConductorRuntime).not.toHaveBeenCalled()
+    expect(deps._configs).toEqual([])
+    await expect(controller.backendFor('ws-1').state()).resolves.toMatchObject({ enabled: false })
+  })
+
+  it('saves nothing when the first compose throws', async () => {
+    const deps = fakeDeps()
+    const { factory } = fakeBackendFactory({
+      compose: async () => { throw new Error('git exploded') }
+    })
+    const controller = createConductorController({
+      ...deps,
+      createConductorRuntime: vi.fn(() => fakeRuntime()),
+      createShippedConductorBackend: factory
+    })
+    await expect(controller.compose('ws-1', DRAFT)).rejects.toThrow('git exploded')
+    expect(deps.saveConductorConfigs).not.toHaveBeenCalled()
+    await expect(controller.backendFor('ws-1').state()).resolves.toMatchObject({ enabled: false })
+  })
+
+  // The one exception to "a failed compose leaves no trace": rollback could
+  // not remove a lane, so it genuinely exists on disk. Dropping the config
+  // would make that lane unreachable forever.
+  it('does save the config when a failed compose left lanes behind', async () => {
+    const deps = fakeDeps()
+    const survivor: ConductorLane = {
+      id: 'lane-1', roleId: 'builder', kind: 'author', agent: { presetId: 'shell', model: null },
+      worktree: '/w/1', branch: 'crew/lane/builder', sessionId: null, status: 'working', dispatches: 0
+    }
+    const { factory } = fakeBackendFactory({
+      compose: async () => ({
+        ok: false,
+        failedRow: 1,
+        message: 'preset not installed',
+        errors: [],
+        cleanupFailures: [{ resource: 'lane', id: 'builder', message: 'permission denied' }],
+        survivingLanes: [survivor]
+      })
+    })
+    const controller = createConductorController({
+      ...deps,
+      createConductorRuntime: vi.fn(() => fakeRuntime()),
+      createShippedConductorBackend: factory
+    })
+    await controller.compose('ws-1', DRAFT)
+    expect(deps._configs.map((c) => c.workspaceId)).toEqual(['ws-1'])
+    await expect(controller.backendFor('ws-1').state()).resolves.toMatchObject({ enabled: true })
   })
 })
 
 describe('createConductorController: an already-configured workspace', () => {
-  function existingConfig(workspaceId: string): ConductorConfig {
-    return {
-      workspaceId,
-      repo: '/repo',
-      integrationBranch: 'crew/integration',
-      integrationWorktree: '/int',
-      lanesDir: '/lanes',
-      maxLanes: 4,
-      test: null
-    }
-  }
-
   it('binds a real runtime immediately (state() is enabled without any compose call)', async () => {
     const deps = fakeDeps()
     deps.saveConductorConfigs([existingConfig('ws-1')])
     const runtime = fakeRuntime()
     const controller = createConductorController({ ...deps, createConductorRuntime: vi.fn(() => runtime) })
-    controller.setActiveWorkspace('ws-1')
-    await expect(controller.backend.state()).resolves.toMatchObject({ enabled: true })
+    await expect(controller.backendFor('ws-1').state()).resolves.toMatchObject({ enabled: true })
   })
 
   it('does not persist a new config or reconstruct the runtime when compose() runs against an existing config', async () => {
     const deps = fakeDeps()
     deps.saveConductorConfigs([existingConfig('ws-1')])
     vi.clearAllMocks()
-    const runtime = fakeRuntime()
-    const createConductorRuntime = vi.fn(() => runtime)
-    const composeSpy = vi.fn(async () => ({ ok: true, lanes: [] }) as never)
-    const createShippedConductorBackendFake = vi.fn((rt: ConductorRuntime | null): ConductorBackend => ({
-      state: async () => ({ enabled: rt !== null, publishing: null, lanes: [], facts: {}, needsAttention: false }),
-      createLane: async () => { throw new Error('unused') },
-      destroyLane: async () => undefined,
-      publishLane: async () => ({ ok: true }) as never,
-      syncLane: async () => ({ ok: true }) as never,
-      reconcile: async () => ({ needsAttention: false, operations: [] }),
-      compose: composeSpy
-    }))
+    const createConductorRuntime = vi.fn(() => fakeRuntime())
+    let composedWith: unknown = null
+    const { factory } = fakeBackendFactory({
+      compose: async (draft) => {
+        composedWith = draft
+        return { ok: true, lanes: [] }
+      }
+    })
     const controller = createConductorController({
       ...deps,
       createConductorRuntime,
-      createShippedConductorBackend: createShippedConductorBackendFake
+      createShippedConductorBackend: factory
     })
-    controller.setActiveWorkspace('ws-1')
+    await controller.backendFor('ws-1').state()
     expect(createConductorRuntime).toHaveBeenCalledTimes(1)
 
     const draft = { repo: '/wrong-repo', integrationBranch: 'crew/integration', rows: [], test: null }
-    await controller.backend.compose(draft)
-    expect(composeSpy).toHaveBeenCalledWith(draft)
+    await controller.compose('ws-1', draft)
+    expect(composedWith).toEqual(draft)
     expect(deps.saveConductorConfigs).not.toHaveBeenCalled()
     expect(createConductorRuntime).toHaveBeenCalledTimes(1)
   })
 })
 
-describe('createConductorController: workspace switching', () => {
-  function config(workspaceId: string): ConductorConfig {
-    return {
-      workspaceId,
-      repo: `/repo-${workspaceId}`,
-      integrationBranch: 'crew/integration',
-      integrationWorktree: `/int-${workspaceId}`,
-      lanesDir: `/lanes-${workspaceId}`,
-      maxLanes: 4,
-      test: null
-    }
-  }
-
-  it('rebinds to the newly active workspace, and never shows the previous workspace\'s lanes', async () => {
+// Review finding 1: the controller has no active workspace of its own.
+// Every call names the workspace it is about, so two windows showing two
+// workspaces both get the truth, and a workspace switch that never reached
+// main cannot make a call answer for the wrong workspace.
+describe('createConductorController: per-call workspace resolution', () => {
+  it('answers each call for the workspace that call named, with no binding step in between', async () => {
     const deps = fakeDeps()
-    deps.saveConductorConfigs([config('ws-a'), config('ws-b')])
+    deps.saveConductorConfigs([existingConfig('ws-a'), existingConfig('ws-b')])
     const laneA: ConductorLane = {
       id: 'lane-a', roleId: 'builder', kind: 'author', agent: { presetId: 'shell', model: null },
       worktree: '/w/a', branch: 'crew/lane/builder', sessionId: null, status: 'working', dispatches: 0,
@@ -253,140 +342,271 @@ describe('createConductorController: workspace switching', () => {
     }
     deps.saveConductorLanes([laneA])
 
-    const runtimeA = fakeRuntime({ settings: { ...fakeRuntime().settings, repo: '/repo-ws-a' } })
-    const runtimeB = fakeRuntime({ settings: { ...fakeRuntime().settings, repo: '/repo-ws-b' } })
-    const createConductorRuntime = vi.fn((deps2: { config: ConductorConfig }) =>
-      deps2.config.workspaceId === 'ws-a' ? runtimeA : runtimeB
+    const createConductorRuntime = vi.fn((d: { config: ConductorConfig }) =>
+      fakeRuntime({ settings: { ...fakeRuntime().settings, repo: d.config.repo } })
     )
     const controller = createConductorController({ ...deps, createConductorRuntime })
 
-    controller.setActiveWorkspace('ws-a')
-    const stateA = await controller.backend.state()
-    expect(stateA.enabled).toBe(true)
+    const stateA = await controller.backendFor('ws-a').state()
+    const stateB = await controller.backendFor('ws-b').state()
     expect(stateA.lanes.map((l) => l.id)).toEqual(['lane-a'])
-
-    controller.setActiveWorkspace('ws-b')
-    const stateB = await controller.backend.state()
-    expect(stateB.enabled).toBe(true)
     expect(stateB.lanes).toEqual([])
+    // Interleaved, in the other order: neither answer depends on which was
+    // asked last, which is precisely what an active-workspace could not do.
+    expect((await controller.backendFor('ws-b').state()).lanes).toEqual([])
+    expect((await controller.backendFor('ws-a').state()).lanes.map((l) => l.id)).toEqual(['lane-a'])
   })
 
-  it('reuses the same cached runtime/backend when switching back to a workspace already bound once, rather than constructing a second live instance', async () => {
+  it('builds one runtime per workspace and reuses it, rather than constructing a second live instance', async () => {
     const deps = fakeDeps()
-    deps.saveConductorConfigs([config('ws-a'), config('ws-b')])
+    deps.saveConductorConfigs([existingConfig('ws-a'), existingConfig('ws-b')])
     const createConductorRuntime = vi.fn(() => fakeRuntime())
     const controller = createConductorController({ ...deps, createConductorRuntime })
 
-    controller.setActiveWorkspace('ws-a')
-    await controller.backend.state()
-    controller.setActiveWorkspace('ws-b')
-    await controller.backend.state()
-    controller.setActiveWorkspace('ws-a')
-    await controller.backend.state()
+    await controller.backendFor('ws-a').state()
+    await controller.backendFor('ws-b').state()
+    await controller.backendFor('ws-a').state()
 
-    expect(createConductorRuntime).toHaveBeenCalledTimes(2) // once per distinct workspaceId, never twice for ws-a
+    expect(createConductorRuntime).toHaveBeenCalledTimes(2)
   })
 
-  it('preserves an in-flight lock across a switch away and back: a genuinely still-busy workspace reports busy, not a fresh free lock', async () => {
+  it('preserves an in-flight lock: a genuinely still-busy workspace reports busy, not a fresh free lock', async () => {
     const deps = fakeDeps()
-    deps.saveConductorConfigs([config('ws-a'), config('ws-b')])
+    deps.saveConductorConfigs([existingConfig('ws-a'), existingConfig('ws-b')])
     const runtimeA = fakeRuntime()
     ;(runtimeA.conductor.lockHolder as ReturnType<typeof vi.fn>).mockReturnValue('lane-1')
-    const createConductorRuntime = vi.fn((deps2: { config: ConductorConfig }) =>
-      deps2.config.workspaceId === 'ws-a' ? runtimeA : fakeRuntime()
+    const createConductorRuntime = vi.fn((d: { config: ConductorConfig }) =>
+      d.config.workspaceId === 'ws-a' ? runtimeA : fakeRuntime()
     )
     const controller = createConductorController({ ...deps, createConductorRuntime })
 
-    controller.setActiveWorkspace('ws-a')
-    await controller.backend.state()
-    controller.setActiveWorkspace('ws-b')
-    await controller.backend.state()
-    controller.setActiveWorkspace('ws-a')
-    const state = await controller.backend.state()
-    expect(state.publishing).toBe('lane-1')
+    await controller.backendFor('ws-a').state()
+    await controller.backendFor('ws-b').state()
+    expect((await controller.backendFor('ws-a').state()).publishing).toBe('lane-1')
   })
 })
 
-describe('createConductorController: launch reconcile', () => {
-  it('does nothing, and never throws, when no runtime is bound', async () => {
-    const controller = createConductorController(fakeDeps())
-    controller.setActiveWorkspace(null)
-    const broadcast = vi.fn()
-    await expect(controller.reconcileOnLaunch(broadcast)).resolves.toBeUndefined()
-    expect(broadcast).not.toHaveBeenCalled()
+// Review finding 3: the test recipe a successful compose put in force has to
+// reach the STORED config, or every publish after a restart runs no tests
+// while the UI still shows the recipe.
+describe('createConductorController: test recipe persistence', () => {
+  it('writes a recipe set on an already-configured workspace through to the stored config', async () => {
+    const deps = fakeDeps()
+    deps.saveConductorConfigs([existingConfig('ws-1')])
+    const { factory, built } = fakeBackendFactory()
+    const controller = createConductorController({
+      ...deps,
+      createConductorRuntime: vi.fn(() => fakeRuntime()),
+      createShippedConductorBackend: factory
+    })
+    await controller.backendFor('ws-1').state()
+
+    const recipe: TestRecipe = { command: 'npm', args: ['test'], cwd: '.', timeoutMs: 60_000 }
+    built.at(-1)!.persistence!.saveTestRecipe!(recipe)
+
+    expect(deps._configs).toEqual([{ ...existingConfig('ws-1'), test: recipe }])
   })
 
-  it('runs reconcile() once and broadcasts the resulting state when a runtime is bound', async () => {
+  it('carries a recipe set during a first compose into the config that compose saves', async () => {
     const deps = fakeDeps()
-    deps.saveConductorConfigs([{
-      workspaceId: 'ws-1', repo: '/repo', integrationBranch: 'crew/integration',
-      integrationWorktree: '/int', lanesDir: '/lanes', maxLanes: 4, test: null
-    }])
-    const runtime = fakeRuntime()
-    const controller = createConductorController({ ...deps, createConductorRuntime: vi.fn(() => runtime) })
-    controller.setActiveWorkspace('ws-1')
+    const recipe: TestRecipe = { command: 'npm', args: ['test'], cwd: '.', timeoutMs: 60_000 }
+    const built: ConductorPersistence[] = []
+    const factory = vi.fn((runtime: ConductorRuntime | null, persistence?: ConductorPersistence): ConductorBackend => {
+      if (persistence) built.push(persistence)
+      return {
+        state: async () => ({ ...EMPTY_SNAPSHOT, enabled: (runtime !== null) as false }),
+        createLane: async () => { throw new Error('unused') },
+        destroyLane: async () => undefined,
+        publishLane: async () => ({ ok: true }) as never,
+        syncLane: async () => ({ ok: true }) as never,
+        reconcile: async () => ({ needsAttention: false, operations: [] }),
+        compose: (async () => {
+          // What composeRun does on success: put the run's recipe in force.
+          persistence?.saveTestRecipe?.(recipe)
+          return { ok: true, lanes: [] }
+        }) as ConductorBackend['compose']
+      }
+    })
+    const controller = createConductorController({
+      ...deps,
+      createConductorRuntime: vi.fn(() => fakeRuntime()),
+      createShippedConductorBackend: factory
+    })
+
+    await controller.compose('ws-1', DRAFT)
+    expect(deps._configs).toHaveLength(1)
+    expect(deps._configs[0].test).toEqual(recipe)
+  })
+})
+
+// Review finding 9: conducting a workspace whose sessions already answer to
+// another conducted workspace would make the next saveSessions() silently
+// drop one of those memberships.
+describe('createConductorController: membership exclusivity at compose time', () => {
+  it('refuses the first compose when a session already belongs to another conducted workspace', async () => {
+    const deps = fakeDeps()
+    deps.saveConductorConfigs([existingConfig('ws-a')])
+    const createConductorRuntime = vi.fn(() => fakeRuntime())
+    const controller = createConductorController({
+      ...deps,
+      createConductorRuntime,
+      getWorkspaces: () => [{ id: 'ws-a', name: 'Alpha' }, { id: 'ws-b', name: 'Beta' }],
+      getSessions: () => [{ id: 's1', label: 'Session One', workspaceIds: ['ws-a', 'ws-b'] }]
+    })
+
+    const result = await controller.compose('ws-b', DRAFT)
+    expect(result).toMatchObject({ ok: false })
+    expect(result.ok).toBe(false)
+    const errors = (result as { ok: false; errors: Array<{ field: string; message: string }> }).errors
+    expect(errors[0].field).toBe('workspace')
+    expect(errors[0].message).toContain('Session One')
+    expect(errors[0].message).toContain('Alpha')
+    // Nothing derived, nothing saved, no runtime built for the refused one.
+    expect(deps._configs.map((c) => c.workspaceId)).toEqual(['ws-a'])
+  })
+
+  it('allows the compose when no session answers to another conducted workspace', async () => {
+    const deps = fakeDeps()
+    deps.saveConductorConfigs([existingConfig('ws-a')])
+    const controller = createConductorController({
+      ...deps,
+      createConductorRuntime: vi.fn(() => fakeRuntime()),
+      createShippedConductorBackend: fakeBackendFactory().factory,
+      getWorkspaces: () => [{ id: 'ws-a', name: 'Alpha' }, { id: 'ws-b', name: 'Beta' }],
+      getSessions: () => [{ id: 's1', label: 'Session One', workspaceIds: ['ws-b'] }]
+    })
+    await expect(controller.compose('ws-b', DRAFT)).resolves.toMatchObject({ ok: true })
+    expect(deps._configs.map((c) => c.workspaceId).sort()).toEqual(['ws-a', 'ws-b'])
+  })
+
+  // The membership graph check is strict (it throws on a duplicate id), and
+  // this data comes from a store that really does produce duplicates. A
+  // malformed graph must not block an otherwise fine compose.
+  it('does not refuse a compose because the membership data was malformed', async () => {
+    const deps = fakeDeps()
+    const controller = createConductorController({
+      ...deps,
+      createConductorRuntime: vi.fn(() => fakeRuntime()),
+      createShippedConductorBackend: fakeBackendFactory().factory,
+      getWorkspaces: () => [{ id: 'ws-b', name: 'Beta' }, { id: 'ws-b', name: 'Beta again' }],
+      getSessions: () => [{ id: 's1', label: 'Session One', workspaceIds: ['ws-b'] }]
+    })
+    await expect(controller.compose('ws-b', DRAFT)).resolves.toMatchObject({ ok: true })
+  })
+})
+
+// Review finding 2: publish and sync are refused until a reconcile has
+// completed for that workspace's backend, so something has to actually run
+// one — eagerly, per backend, not only for whichever workspace a launch-time
+// active-workspace happened to name.
+describe('createConductorController: eager and launch reconcile', () => {
+  it('reconciles a workspace as soon as its backend is built, and broadcasts the result for that workspace', async () => {
+    const deps = fakeDeps()
+    deps.saveConductorConfigs([existingConfig('ws-1')])
     const broadcast = vi.fn()
-    await controller.reconcileOnLaunch(broadcast)
+    const runtime = fakeRuntime()
+    const controller = createConductorController({
+      ...deps, broadcast, createConductorRuntime: vi.fn(() => runtime)
+    })
+
+    await controller.backendFor('ws-1').state()
+    await controller.reconcileOnLaunch()
+
     expect(runtime.conductor.reconcile).toHaveBeenCalledTimes(1)
     expect(broadcast).toHaveBeenCalledTimes(1)
     const [channel, payload] = broadcast.mock.calls[0]
     expect(channel).toBe('evt:conductorState')
-    expect(payload).toMatchObject({ enabled: true })
+    expect(payload).toMatchObject({ workspaceId: 'ws-1', state: { enabled: true } })
+  })
+
+  it('reconciles EVERY configured workspace at launch, not merely one', async () => {
+    const deps = fakeDeps()
+    deps.saveConductorConfigs([existingConfig('ws-a'), existingConfig('ws-b'), existingConfig('ws-c')])
+    const runtimes = new Map<string, ConductorRuntime>()
+    const broadcast = vi.fn()
+    const controller = createConductorController({
+      ...deps,
+      broadcast,
+      createConductorRuntime: vi.fn((d: { config: ConductorConfig }) => {
+        const rt = fakeRuntime()
+        runtimes.set(d.config.workspaceId, rt)
+        return rt
+      })
+    })
+
+    await controller.reconcileOnLaunch()
+
+    expect([...runtimes.keys()].sort()).toEqual(['ws-a', 'ws-b', 'ws-c'])
+    for (const rt of runtimes.values()) {
+      expect(rt.conductor.reconcile).toHaveBeenCalledTimes(1)
+    }
+    expect(broadcast.mock.calls.map((c) => (c[1] as { workspaceId: string }).workspaceId).sort())
+      .toEqual(['ws-a', 'ws-b', 'ws-c'])
+  })
+
+  it('does nothing, and never throws, when no workspace has a config', async () => {
+    const deps = fakeDeps()
+    const broadcast = vi.fn()
+    const controller = createConductorController({ ...deps, broadcast })
+    await expect(controller.reconcileOnLaunch()).resolves.toBeUndefined()
+    expect(broadcast).not.toHaveBeenCalled()
   })
 
   it('swallows a ConductorBusyError from reconcile() and never lets it escape', async () => {
     const deps = fakeDeps()
-    deps.saveConductorConfigs([{
-      workspaceId: 'ws-1', repo: '/repo', integrationBranch: 'crew/integration',
-      integrationWorktree: '/int', lanesDir: '/lanes', maxLanes: 4, test: null
-    }])
+    deps.saveConductorConfigs([existingConfig('ws-1')])
     const runtime = fakeRuntime()
     ;(runtime.conductor.reconcile as ReturnType<typeof vi.fn>).mockRejectedValue(new ConductorBusyError())
     const controller = createConductorController({ ...deps, createConductorRuntime: vi.fn(() => runtime) })
-    controller.setActiveWorkspace('ws-1')
-    await expect(controller.reconcileOnLaunch(vi.fn())).resolves.toBeUndefined()
+    await expect(controller.reconcileOnLaunch()).resolves.toBeUndefined()
   })
 
   it('swallows a MalformedJournalError from reconcile() and never lets it escape', async () => {
     const deps = fakeDeps()
-    deps.saveConductorConfigs([{
-      workspaceId: 'ws-1', repo: '/repo', integrationBranch: 'crew/integration',
-      integrationWorktree: '/int', lanesDir: '/lanes', maxLanes: 4, test: null
-    }])
+    deps.saveConductorConfigs([existingConfig('ws-1')])
     const runtime = fakeRuntime()
     ;(runtime.conductor.reconcile as ReturnType<typeof vi.fn>).mockRejectedValue(
       new MalformedJournalError('journal is corrupt')
     )
     const controller = createConductorController({ ...deps, createConductorRuntime: vi.fn(() => runtime) })
-    controller.setActiveWorkspace('ws-1')
-    await expect(controller.reconcileOnLaunch(vi.fn())).resolves.toBeUndefined()
+    await expect(controller.reconcileOnLaunch()).resolves.toBeUndefined()
+  })
+
+  it('reconciles the other workspaces even when one of them cannot be bound at all', async () => {
+    const deps = fakeDeps()
+    deps.saveConductorConfigs([existingConfig('bad'), existingConfig('ws-ok')])
+    const runtime = fakeRuntime()
+    const controller = createConductorController({
+      ...deps,
+      conductorPaths: vi.fn((_dir: string, workspaceId: string) => {
+        if (workspaceId === 'bad') throw new Error('invalid workspace id')
+        return {
+          integrationWorktree: '/int', lanesDir: '/lanes', journal: '/journal.ndjson'
+        }
+      }),
+      createConductorRuntime: vi.fn(() => runtime)
+    })
+    await expect(controller.reconcileOnLaunch()).resolves.toBeUndefined()
+    expect(runtime.conductor.reconcile).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('index.ts wiring (source-text assertions; index.ts imports electron and cannot run under environment: node)', () => {
   const main = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
+  const withoutComments = main
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
 
   it('no longer constructs the shipped backend with a literal null runtime', () => {
     expect(main).not.toMatch(/createShippedConductorBackend\(\s*null\s*\)/)
   })
 
   it('builds the conductor controller from the bootstrap module', () => {
-    expect(main).toContain('createConductorController')
-    expect(main).toContain("from './conductor-bootstrap'")
+    expect(withoutComments).toContain('createConductorController')
+    expect(withoutComments).toContain("from './conductor-bootstrap'")
   })
 
-  it('runs the launch reconcile after the window is created', () => {
-    // Anchor to the actual launch sequence inside app.whenReady().then(...),
-    // not the first textual match of createWindow() anywhere in the file —
-    // createWindow() also appears earlier (e.g. openWindow()) and later
-    // (app.on('activate', ...)), so a bare indexOf() pair would still pass
-    // even if reconcileOnLaunch were hoisted above the launch-time
-    // createWindow() call.
-    //
-    // Tolerant of `async`, extra whitespace/line breaks before the `{`; if the
-    // body can't be found at all, fail loudly rather than silently matching
-    // nothing (a vacuously-true assertion is worse than the brittle regex it
-    // replaced).
+  it('runs the launch reconcile, for every workspace, after the window is created', () => {
     const whenReadyMatch = main.match(
       /app\.whenReady\(\)\s*\.\s*then\(\s*(?:async\s*)?\(\)\s*=>\s*\{[\s\S]*?\n\}\)/
     )
@@ -394,27 +614,24 @@ describe('index.ts wiring (source-text assertions; index.ts imports electron and
     const launchBody = whenReadyMatch![0]
     expect(launchBody.length, 'app.whenReady().then(...) body matched but was empty').toBeGreaterThan(0)
 
-    // Strip comments so a mention inside a `//` line comment or a `/* */`
-    // block (e.g. a bypassed reordering with `// createWindow()` left behind
-    // as a decoy) can never satisfy the order assertion below.
-    const withoutBlockComments = launchBody.replace(/\/\*[\s\S]*?\*\//g, '')
-    const withoutComments = withoutBlockComments.replace(/\/\/.*$/gm, '')
+    const bodyWithoutComments = launchBody
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '')
 
-    // Each step must appear as its own executable statement line, not merely
-    // as a substring anywhere in the body (which would also match a comment,
-    // a string literal, or part of a longer identifier).
     const stepPattern = (name: string) => new RegExp(`^\\s*${name}\\s*;?\\s*$`, 'm')
     const steps = [
       ['registerIpc()', stepPattern('registerIpc\\(\\)')],
       ['rebuildAppMenu()', stepPattern('rebuildAppMenu\\(\\)')],
       ['createWindow()', stepPattern('createWindow\\(\\)')],
-      ['reconcileOnLaunch(broadcast)', stepPattern('void conductorController\\?\\.reconcileOnLaunch\\(broadcast\\)')]
+      // No argument: the launch reconcile covers every configured
+      // workspace and broadcasts per workspace from inside the controller.
+      ['reconcileOnLaunch()', stepPattern('void conductorController\\?\\.reconcileOnLaunch\\(\\)')]
     ] as const
 
     const indices = steps.map(([label, pattern]) => {
-      const match = withoutComments.match(pattern)
+      const match = bodyWithoutComments.match(pattern)
       expect(match, `expected to find a "${label}" statement line in the launch sequence`).not.toBeNull()
-      return withoutComments.indexOf(match![0])
+      return bodyWithoutComments.indexOf(match![0])
     })
 
     for (let i = 1; i < indices.length; i++) {
@@ -425,8 +642,14 @@ describe('index.ts wiring (source-text assertions; index.ts imports electron and
     }
   })
 
-  it('rebinds the conductor controller when the active workspace changes', () => {
-    expect(main).toContain('setActiveWorkspace')
-    expect(main).toMatch(/conductorController\??\.setActiveWorkspace/)
+  // Review finding 1: conductor must not follow main's active workspace.
+  it('never binds the conductor controller to main\'s active workspace', () => {
+    expect(withoutComments).not.toMatch(/conductorController\s*\??\.\s*setActiveWorkspace/)
+  })
+
+  it('resolves the conductor backend per call, from the workspace id the call carries', () => {
+    expect(withoutComments).toMatch(
+      /registerConductorIpc\(\s*ipcMain\s*,\s*\(\s*workspaceId\s*\)\s*=>\s*conductorController!?\.backendFor\(\s*workspaceId\s*\)/
+    )
   })
 })

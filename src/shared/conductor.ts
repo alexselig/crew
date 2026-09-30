@@ -185,6 +185,26 @@ export interface ConductorSnapshot {
   lanes: ConductorLane[]
   facts: Record<string, LaneFacts>
   needsAttention: boolean
+  /** What the last completed reconcile found, so the panel can name the
+   *  interrupted operations that are holding publish/sync rather than only
+   *  announcing that something is. Empty before any reconcile has completed
+   *  for this workspace, and empty when the last one found nothing. */
+  operations: ReconciledOperation[]
+  /** False until one reconcile has completed for this workspace's backend.
+   *  Publish and sync are refused while this is false (see
+   *  conductor-ipc.ts): a crash mid-publish is only visible once the journal
+   *  has actually been read, and a fresh publish before that would bury the
+   *  interrupted operation under a newer one for good. */
+  reconciled: boolean
+}
+
+/** The payload of EVT_CONDUCTOR_STATE. Carries the workspace the snapshot
+ *  describes: conductor state is per workspace and two windows may be
+ *  showing two different ones, so a listener must be able to tell whether an
+ *  event is about the workspace it is displaying. */
+export interface ConductorStateEvent {
+  workspaceId: string | null
+  state: ConductorSnapshot
 }
 
 export interface LaneCreateRequest {

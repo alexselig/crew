@@ -56,7 +56,6 @@ function fakeConductor(overrides: Partial<import('../src/main/conductor').Conduc
   return {
     publishLane: vi.fn(async () => ({ ok: true as const, commit: 'abc', touchedPaths: [], warnings: [] })),
     syncLane: vi.fn(async () => ({ ok: true as const, resultSha: 'def', fastForward: true })),
-    isPublishing: vi.fn(() => locked !== null),
     lockHolder: vi.fn(() => locked),
     reserveLock: vi.fn((holder: string) => {
       if (locked !== null) return false
@@ -102,7 +101,9 @@ function harness(backend: Partial<ConductorBackend> = {}) {
       publishing: null,
       lanes: [lane()],
       facts: {},
-      needsAttention: false
+      needsAttention: false,
+      operations: [],
+      reconciled: true
     })),
     createLane: vi.fn(async () => lane({ id: 'lane-2' })),
     destroyLane: vi.fn(async () => undefined),
@@ -112,13 +113,21 @@ function harness(backend: Partial<ConductorBackend> = {}) {
     compose: vi.fn(async () => ({ ok: true as const, lanes: [lane({ id: 'lane-3' })] })),
     ...backend
   }
-  registerConductorIpc({ handle: (channel, handler) => void handlers.set(channel, handler) }, full, broadcast)
+  const resolved: Array<string | null> = []
+  registerConductorIpc(
+    { handle: (channel, handler) => void handlers.set(channel, handler) },
+    (workspaceId) => {
+      resolved.push(workspaceId)
+      return full
+    },
+    broadcast
+  )
   const invoke = async (channel: string, ...args: unknown[]): Promise<unknown> => {
     const handler = handlers.get(channel)
     if (!handler) throw new Error(`missing handler: ${channel}`)
     return Promise.resolve().then(() => handler({} as IpcMainInvokeEvent, ...args))
   }
-  return { broadcast, handlers, invoke, backend: full }
+  return { broadcast, handlers, invoke, backend: full, resolved }
 }
 
 describe('conductor IPC contract', () => {
@@ -139,14 +148,14 @@ describe('conductor IPC contract', () => {
 
   it('returns state without broadcasting, because reads are not changes', async () => {
     const { invoke, broadcast } = harness()
-    const state = await invoke(IPC.CONDUCTOR_STATE)
+    const state = await invoke(IPC.CONDUCTOR_STATE, 'ws-1')
     expect(state).toMatchObject({ enabled: true, publishing: null })
     expect(broadcast).not.toHaveBeenCalled()
   })
 
   it('broadcasts fresh state after a successful publication', async () => {
     const { invoke, broadcast } = harness()
-    const outcome = await invoke(IPC.CONDUCTOR_PUBLISH, 'lane-1')
+    const outcome = await invoke(IPC.CONDUCTOR_PUBLISH, { workspaceId: 'ws-1', laneId: 'lane-1' })
     expect(outcome).toMatchObject({ ok: true, commit: 'abc' })
     // Finding 1: publish/sync now broadcast twice — once as soon as the lock
     // is observably taken (before the outcome is known), once more once it
@@ -163,7 +172,7 @@ describe('conductor IPC contract', () => {
     const { invoke, broadcast } = harness({
       publishLane: vi.fn(async () => ({ ok: false as const, reason: 'conflict' as const, conflictPaths: ['a.txt'], message: 'conflict' }))
     })
-    const outcome = await invoke(IPC.CONDUCTOR_PUBLISH, 'lane-1')
+    const outcome = await invoke(IPC.CONDUCTOR_PUBLISH, { workspaceId: 'ws-1', laneId: 'lane-1' })
     expect(outcome).toMatchObject({ ok: false, reason: 'conflict' })
     expect(broadcast).toHaveBeenCalledTimes(2)
   })
@@ -177,7 +186,7 @@ describe('conductor IPC contract', () => {
     const { invoke, broadcast } = harness({
       state: vi.fn(async () => { throw new Error('state computation exploded') })
     })
-    const outcome = await invoke(IPC.CONDUCTOR_PUBLISH, 'lane-1')
+    const outcome = await invoke(IPC.CONDUCTOR_PUBLISH, { workspaceId: 'ws-1', laneId: 'lane-1' })
     expect(outcome).toMatchObject({ ok: true, commit: 'abc' })
     expect(broadcast).not.toHaveBeenCalled()
   })
@@ -186,7 +195,7 @@ describe('conductor IPC contract', () => {
     const { invoke, broadcast } = harness({
       createLane: vi.fn(async () => { throw new Error('lane limit reached') })
     })
-    await expect(invoke(IPC.CONDUCTOR_LANE_CREATE, { roleId: 'builder', agent: { presetId: 'shell', model: null } }))
+    await expect(invoke(IPC.CONDUCTOR_LANE_CREATE, { workspaceId: 'ws-1', request: { roleId: 'builder', agent: { presetId: 'shell', model: null } } }))
       .rejects.toThrow('lane limit reached')
     expect(broadcast).not.toHaveBeenCalled()
   })
@@ -194,7 +203,7 @@ describe('conductor IPC contract', () => {
   it('passes lane creation arguments through unchanged', async () => {
     const { invoke, backend } = harness()
     const request = { roleId: 'reviewer', agent: { presetId: 'copilot-cli', model: 'claude-opus-5' } }
-    await invoke(IPC.CONDUCTOR_LANE_CREATE, request)
+    await invoke(IPC.CONDUCTOR_LANE_CREATE, { workspaceId: 'ws-1', request })
     expect(backend.createLane).toHaveBeenCalledWith(request)
   })
 
@@ -206,7 +215,7 @@ describe('conductor IPC contract', () => {
     const { invoke, broadcast } = harness({
       reconcile: vi.fn(async () => { throw new ConductorBusyError() })
     })
-    await expect(invoke(IPC.CONDUCTOR_RECONCILE)).rejects.toThrow(
+    await expect(invoke(IPC.CONDUCTOR_RECONCILE, 'ws-1')).rejects.toThrow(
       'conductor is busy: a publication, sync, or reconcile is already in flight'
     )
     expect(broadcast).not.toHaveBeenCalled()
@@ -230,7 +239,7 @@ describe('conductor IPC contract', () => {
       integrationBranch: 'crew/integration',
       rows: [{ roleName: 'builder', kind: 'author' as const, agent: { presetId: 'shell', model: null } }]
     }
-    const result = await invoke(IPC.CONDUCTOR_COMPOSE, draft)
+    const result = await invoke(IPC.CONDUCTOR_COMPOSE, { workspaceId: 'ws-1', draft })
     expect(result).toMatchObject({ ok: true })
     expect(backend.compose).toHaveBeenCalledWith(draft)
     expect(broadcast).toHaveBeenCalledTimes(1)
@@ -243,7 +252,7 @@ describe('conductor IPC contract', () => {
     const { invoke, broadcast } = harness({
       compose: vi.fn(async () => ({ ok: false as const, errors: [{ field: 'rows', message: 'add at least one lane' }] }))
     })
-    const result = await invoke(IPC.CONDUCTOR_COMPOSE, { repo: '/repo', integrationBranch: 'crew/integration', rows: [] })
+    const result = await invoke(IPC.CONDUCTOR_COMPOSE, { workspaceId: 'ws-1', draft: { repo: '/repo', integrationBranch: 'crew/integration', rows: [] } })
     expect(result).toMatchObject({ ok: false })
     expect(broadcast).not.toHaveBeenCalled()
   })
@@ -268,7 +277,7 @@ describe('conductor IPC contract', () => {
       integrationBranch: 'crew/integration',
       rows: [{ roleName: 'builder', kind: 'author' as const, agent: { presetId: 'shell', model: null } }]
     }
-    const result = await invoke(IPC.CONDUCTOR_COMPOSE, draft)
+    const result = await invoke(IPC.CONDUCTOR_COMPOSE, { workspaceId: 'ws-1', draft })
     expect(result).toMatchObject({ ok: false, failedRow: 1 })
     expect(broadcast).toHaveBeenCalledTimes(1)
     expect(broadcast.mock.calls[0][0]).toBe(IPC.EVT_CONDUCTOR_STATE)
@@ -280,11 +289,11 @@ describe('conductor IPC contract', () => {
   })
 })
 
-describe('the shipped conductor backend, with no settings composer wired yet', () => {
-  // src/main/index.ts constructs createShippedConductorBackend(null) because
-  // no composer exists yet to produce real ConductorSettings — this is the
-  // exact backend shape shipped to users today, so its disabled path must be
-  // exercised even though nothing wires a real runtime until a later task.
+describe('the shipped conductor backend for a workspace with no ConductorConfig', () => {
+  // conductor-bootstrap.ts builds createShippedConductorBackend(null) for
+  // "All Sessions" and for any workspace that has never composed a run —
+  // the state most workspaces are in, and a supported one rather than an
+  // error, so its disabled path is exercised directly here.
   it('reports itself disabled, with no lanes and nothing needing attention', async () => {
     const backend = createShippedConductorBackend(null)
     await expect(backend.state()).resolves.toEqual({
@@ -292,7 +301,13 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
       publishing: null,
       lanes: [],
       facts: {},
-      needsAttention: false
+      needsAttention: false,
+      operations: [],
+      // A workspace with no conductor config has nothing to reconcile, so
+      // the gate publish/sync sit behind is open rather than pending — the
+      // refusal a disabled backend gives is 'not configured', not
+      // 'still checking'.
+      reconciled: true
     })
   })
 
@@ -343,7 +358,7 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
     const broadcast = vi.fn()
     registerConductorIpc(
       { handle: (channel, handler) => void handlers.set(channel, handler) },
-      createShippedConductorBackend(null),
+      () => createShippedConductorBackend(null),
       broadcast
     )
     const invoke = async (channel: string, ...args: unknown[]): Promise<unknown> => {
@@ -352,10 +367,10 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
       return Promise.resolve().then(() => handler({} as IpcMainInvokeEvent, ...args))
     }
 
-    await expect(invoke(IPC.CONDUCTOR_STATE)).resolves.toMatchObject({ enabled: false })
-    await expect(invoke(IPC.CONDUCTOR_LANE_CREATE, { roleId: 'builder', agent: { presetId: 'shell', model: null } }))
+    await expect(invoke(IPC.CONDUCTOR_STATE, 'ws-1')).resolves.toMatchObject({ enabled: false })
+    await expect(invoke(IPC.CONDUCTOR_LANE_CREATE, { workspaceId: 'ws-1', request: { roleId: 'builder', agent: { presetId: 'shell', model: null } } }))
       .rejects.toThrow('conductor is not configured for this workspace yet')
-    await expect(invoke(IPC.CONDUCTOR_LANE_DESTROY, 'lane-1'))
+    await expect(invoke(IPC.CONDUCTOR_LANE_DESTROY, { workspaceId: 'ws-1', laneId: 'lane-1' }))
       .rejects.toThrow('conductor is not configured for this workspace yet')
     expect(broadcast).not.toHaveBeenCalled()
     // Finding 1: CONDUCTOR_PUBLISH/SYNC broadcast unconditionally, once
@@ -365,18 +380,18 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
     // truth is harmless. CREATE/DESTROY/RECONCILE/COMPOSE above and below
     // are unaffected: their refusal is a synchronous throw with nothing to
     // observe changing, so they still broadcast nothing at all.
-    await expect(invoke(IPC.CONDUCTOR_PUBLISH, 'lane-1'))
+    await expect(invoke(IPC.CONDUCTOR_PUBLISH, { workspaceId: 'ws-1', laneId: 'lane-1' }))
       .rejects.toThrow('conductor is not configured for this workspace yet')
-    await expect(invoke(IPC.CONDUCTOR_SYNC, 'lane-1'))
+    await expect(invoke(IPC.CONDUCTOR_SYNC, { workspaceId: 'ws-1', laneId: 'lane-1' }))
       .rejects.toThrow('conductor is not configured for this workspace yet')
     expect(broadcast).toHaveBeenCalledTimes(4)
     for (const call of broadcast.mock.calls) {
-      expect(call[1]).toMatchObject({ enabled: false })
+      expect(call[1]).toMatchObject({ workspaceId: 'ws-1', state: { enabled: false } })
     }
     broadcast.mockClear()
-    await expect(invoke(IPC.CONDUCTOR_RECONCILE))
+    await expect(invoke(IPC.CONDUCTOR_RECONCILE, 'ws-1'))
       .rejects.toThrow('conductor is not configured for this workspace yet')
-    await expect(invoke(IPC.CONDUCTOR_COMPOSE, { repo: '/repo', integrationBranch: 'crew/integration', rows: [] }))
+    await expect(invoke(IPC.CONDUCTOR_COMPOSE, { workspaceId: 'ws-1', draft: { repo: '/repo', integrationBranch: 'crew/integration', rows: [] } }))
       .rejects.toThrow('conductor is not configured for this workspace yet')
     expect(broadcast).not.toHaveBeenCalled()
   })
@@ -408,7 +423,7 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
     const runtime = {
       lanes: fakeLanes,
       conductor: {
-        publishLane: vi.fn(), syncLane: vi.fn(), isPublishing: vi.fn(), reconcile: vi.fn(),
+        publishLane: vi.fn(), syncLane: vi.fn(), reconcile: vi.fn(),
         lockHolder: vi.fn(() => null), reserveLock: vi.fn(() => true), releaseLock: vi.fn()
       } as unknown as import('../src/main/conductor').Conductor,
       settings: {
@@ -458,7 +473,7 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
     const runtime = {
       lanes: fakeLanes,
       conductor: {
-        publishLane: vi.fn(), syncLane: vi.fn(), isPublishing: vi.fn(), reconcile: vi.fn()
+        publishLane: vi.fn(), syncLane: vi.fn(), reconcile: vi.fn()
       } as unknown as import('../src/main/conductor').Conductor,
       settings,
       createSession: vi.fn(async () => ({ id: 'sess' })),
@@ -568,7 +583,13 @@ describe('Task 5: the backend as the lock/persistence boundary', () => {
     let lockTaken = false
     const { invoke, broadcast } = harness({
       state: vi.fn(async () => ({
-        enabled: true, publishing: lockTaken ? 'lane-1' : null, lanes: [lane()], facts: {}, needsAttention: false
+        enabled: true,
+        publishing: lockTaken ? 'lane-1' : null,
+        lanes: [lane()],
+        facts: {},
+        needsAttention: false,
+        operations: [],
+        reconciled: true
       })),
       publishLane: vi.fn(() => {
         lockTaken = true
@@ -576,19 +597,25 @@ describe('Task 5: the backend as the lock/persistence boundary', () => {
       })
     })
 
-    const invokePromise = invoke(IPC.CONDUCTOR_PUBLISH, 'lane-1')
+    const invokePromise = invoke(IPC.CONDUCTOR_PUBLISH, { workspaceId: 'ws-1', laneId: 'lane-1' })
     // Flush microtasks up to (but not past) the pending publishLane promise.
+    await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
 
     expect(broadcast).toHaveBeenCalled()
-    expect(broadcast.mock.calls[0][1]).toMatchObject({ publishing: 'lane-1' })
+    // Every broadcast names the workspace it describes (review finding 1):
+    // a window showing another workspace must be able to ignore it.
+    expect(broadcast.mock.calls[0][1]).toMatchObject({
+      workspaceId: 'ws-1',
+      state: { publishing: 'lane-1' }
+    })
 
     released()
     const outcome = await invokePromise
     expect(outcome).toMatchObject({ ok: true, commit: 'abc' })
-    expect(broadcast.mock.calls.at(-1)?.[1]).toMatchObject({ publishing: null })
+    expect(broadcast.mock.calls.at(-1)?.[1]).toMatchObject({ state: { publishing: null } })
   })
 
   // Finding 2: destroyLane used to skip the lock entirely and never close
@@ -707,6 +734,122 @@ describe('Task 5: the backend as the lock/persistence boundary', () => {
     const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
     await backend.reconcile()
     await expect(backend.publishLane(created.id)).resolves.toMatchObject({ ok: true })
+  })
+
+  // Review finding 2: reconcile is what reads the journal. A publish before
+  // that has happened becomes the newest journal entry and hides an
+  // interrupted one for good — so publish and sync are refused until one
+  // reconcile has actually COMPLETED for this backend.
+  it('refuses publishLane and syncLane before any reconcile has completed', async () => {
+    const runtime = fakeRuntime()
+    const backend = createShippedConductorBackend(runtime as never)
+    const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+
+    expect(await backend.publishLane(created.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+    expect(await backend.syncLane(created.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+    expect(runtime.conductor.publishLane).not.toHaveBeenCalled()
+    expect(runtime.conductor.syncLane).not.toHaveBeenCalled()
+    expect((await backend.state()).reconciled).toBe(false)
+  })
+
+  it('opens the gate once a reconcile has completed', async () => {
+    const runtime = fakeRuntime()
+    const backend = createShippedConductorBackend(runtime as never)
+    const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    await backend.reconcile()
+    expect((await backend.state()).reconciled).toBe(true)
+    await expect(backend.publishLane(created.id)).resolves.toMatchObject({ ok: true })
+  })
+
+  // A busy reconcile never read the journal, so it cannot open the gate.
+  it('keeps the gate closed when the only reconcile was refused as busy', async () => {
+    const runtime = fakeRuntime({
+      conductor: { reconcile: vi.fn(async () => { throw new ConductorBusyError() }) }
+    })
+    const backend = createShippedConductorBackend(runtime as never)
+    const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    await expect(backend.reconcile()).resolves.toMatchObject({ busy: true })
+    expect((await backend.state()).reconciled).toBe(false)
+    expect(await backend.publishLane(created.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+  })
+
+  // state() must name the operations, not merely count them: the panel has
+  // to tell the user WHICH operation is holding publish and sync.
+  it('reports the reconciled operations in state(), for the panel to name them', async () => {
+    const operations = [{
+      opId: '1', laneId: 'lane-1', classification: 'interrupted-merge' as const,
+      summary: 'publish of builder may be half-applied', safeToRedo: false, requiresHuman: true
+    }]
+    const runtime = fakeRuntime({
+      conductor: { reconcile: vi.fn(async () => ({ needsAttention: true, operations })) }
+    })
+    const backend = createShippedConductorBackend(runtime as never)
+    await backend.reconcile()
+    const state = await backend.state()
+    expect(state.needsAttention).toBe(true)
+    expect(state.operations).toEqual(operations)
+  })
+
+  // Review finding 8: lanes.destroy({ force: false }) refuses any lane whose
+  // branch is not merged, so the old order (close the session, then destroy)
+  // killed the agent and then failed — leaving a lane that still existed on
+  // disk pointing at a dead session id.
+  it('refuses to destroy a lane with unpublished commits BEFORE closing its session, item 8', async () => {
+    const closeSession = vi.fn()
+    const destroy = vi.fn(async (_lane: ConductorLane, _opts: { force: boolean }) => undefined)
+    const runtime = fakeRuntime({
+      lanes: { destroy, facts: vi.fn(async () => ({ ahead: 3, behind: 0, dirtyTracked: false, untracked: false, laneTip: 't', baseSha: 'b' })) },
+      closeSession
+    })
+    const backend = createShippedConductorBackend(runtime as never)
+    const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    ;(created as ConductorLane).sessionId = 'sess-1'
+
+    await expect(backend.destroyLane(created.id)).rejects.toThrow(/unpublished commit/)
+    expect(closeSession).not.toHaveBeenCalled()
+    expect(destroy).not.toHaveBeenCalled()
+    // The lane is untouched, session id included — nothing half-done.
+    const state = await backend.state()
+    expect(state.lanes.find((l) => l.id === created.id)?.sessionId).toBe('sess-1')
+    // …and the lock it took is back.
+    expect(runtime.conductor.lockHolder()).toBeNull()
+  })
+
+  it('destroys a lane with unpublished commits when force is passed, and passes force through to the lane manager, item 8', async () => {
+    const destroy = vi.fn(async (_lane: ConductorLane, _opts: { force: boolean }) => undefined)
+    const runtime = fakeRuntime({
+      lanes: { destroy, facts: vi.fn(async () => ({ ahead: 3, behind: 0, dirtyTracked: false, untracked: false, laneTip: 't', baseSha: 'b' })) },
+      closeSession: vi.fn()
+    })
+    const backend = createShippedConductorBackend(runtime as never)
+    const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+
+    await backend.destroyLane(created.id, { force: true })
+    expect(destroy).toHaveBeenCalledTimes(1)
+    expect(destroy.mock.calls[0][1]).toEqual({ force: true })
+  })
+
+  it('stops a surviving lane claiming a session it already closed, item 8', async () => {
+    const saved: ConductorLane[][] = []
+    const runtime = fakeRuntime({
+      lanes: { destroy: vi.fn(async () => { throw new Error('branch checked out elsewhere') }) },
+      closeSession: vi.fn()
+    })
+    const backend = createShippedConductorBackend(runtime as never, {
+      workspaceId: 'workspace-mine',
+      loadLanes: () => [],
+      saveLanes: (list) => { saved.push(list); return list }
+    })
+    const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    ;(created as ConductorLane).sessionId = 'sess-1'
+
+    await expect(backend.destroyLane(created.id)).rejects.toThrow('branch checked out elsewhere')
+    const state = await backend.state()
+    const survivor = state.lanes.find((l) => l.id === created.id)
+    expect(survivor).toBeDefined()
+    expect(survivor!.sessionId).toBeNull()
+    // …and persisted that way, so a restart doesn't resurrect the claim.
+    expect(saved.at(-1)!.find((l) => l.id === created.id)!.sessionId).toBeNull()
   })
 
   // Finding 7: lanesById must hydrate from the store on construction and

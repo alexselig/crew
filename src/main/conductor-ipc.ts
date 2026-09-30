@@ -8,6 +8,7 @@ import { ConductorBusyError, type Conductor } from './conductor'
 import { composeRun, type ComposeDeps } from './conductor-compose'
 import type {
   ConductorSnapshot,
+  TestRecipe,
   LaneCreateRequest,
   ConductorLane,
   ConductorSettings,
@@ -25,21 +26,41 @@ import { validateRoster, type ComposeResult, type RosterDraft, type RosterRow } 
 export interface ConductorBackend {
   state(): Promise<ConductorSnapshot>
   createLane(request: LaneCreateRequest): Promise<ConductorLane>
-  destroyLane(laneId: string): Promise<void>
+  /** `force` skips the "is this lane's work already published?" gate AND
+   *  passes force through to git. Without it, a lane carrying unpublished
+   *  commits is refused BEFORE its session is killed (review finding 8). */
+  destroyLane(laneId: string, options?: { force?: boolean }): Promise<void>
   publishLane(laneId: string): Promise<PublishOutcome>
   syncLane(laneId: string): Promise<SyncOutcome>
   reconcile(): Promise<ReconcileReport>
   compose(draft: RosterDraft): Promise<ComposeResult>
 }
 
+/** Resolves the backend for one workspace. Review finding 1: main used to
+ *  hold a single "active workspace" of its own, fed only by the File menu,
+ *  so conductor was bound to the wrong workspace (or, after an ordinary
+ *  launch, to none) whenever the user switched workspaces in the UI — and
+ *  could never be right for two windows showing two workspaces at once.
+ *  Every handler below now takes the workspace id from its own call and
+ *  resolves the backend through this, so the caller's workspace is the only
+ *  thing that decides which conductor answers. `null` ("All Sessions")
+ *  resolves to the disabled backend. */
+export type ConductorBackendFor = (workspaceId: string | null) => ConductorBackend
+
 type Broadcast = (channel: string, payload: unknown) => void
+
+/** The wire shape of every mutating conductor channel: the workspace id
+ *  always travels with the payload. */
+interface LaneMessage { workspaceId: string | null; laneId: string; force?: boolean }
+interface CreateMessage { workspaceId: string | null; request: LaneCreateRequest }
+interface ComposeMessage { workspaceId: string | null; draft: RosterDraft }
 
 export function registerConductorIpc(
   ipc: Pick<IpcMain, 'handle'>,
-  backend: ConductorBackend,
+  backendFor: ConductorBackendFor,
   broadcast: Broadcast
 ): void {
-  const publishState = async (): Promise<void> => {
+  const publishState = async (workspaceId: string | null): Promise<void> => {
     // Finding 5: this runs after a mutation has already committed (lane
     // created/destroyed, publish/sync outcome decided). A broadcast is a
     // side effect for other windows, not a load-bearing part of the
@@ -49,7 +70,8 @@ export function registerConductorIpc(
     // rather than throw for a single bad lane, so this is a last-resort
     // guard, not the primary defense).
     try {
-      broadcast(IPC.EVT_CONDUCTOR_STATE, await backend.state())
+      const state = await backendFor(workspaceId).state()
+      broadcast(IPC.EVT_CONDUCTOR_STATE, { workspaceId, state })
     } catch (error) {
       // Fix 5: swallowed on purpose (see comment above), but not silently —
       // a broadcast that never reaches other windows should at least be
@@ -59,7 +81,7 @@ export function registerConductorIpc(
     }
   }
 
-  ipc.handle(IPC.CONDUCTOR_STATE, () => backend.state())
+  ipc.handle(IPC.CONDUCTOR_STATE, (_event, workspaceId: string | null) => backendFor(workspaceId).state())
 
   // Every mutating handler re-broadcasts, including on a rejected outcome: a
   // rejection still changes what the user should see (the lane is now
@@ -76,18 +98,18 @@ export function registerConductorIpc(
   // unhandled rejection and never leaks the actual main-process Error
   // instance across the bridge — only its message crosses, exactly like
   // every other thrown handler in this codebase (see custom-view-ipc.ts).
-  ipc.handle(IPC.CONDUCTOR_LANE_CREATE, async (_event, request: LaneCreateRequest) => {
-    const lane = await backend.createLane(request)
-    await publishState()
+  ipc.handle(IPC.CONDUCTOR_LANE_CREATE, async (_event, message: CreateMessage) => {
+    const lane = await backendFor(message.workspaceId).createLane(message.request)
+    await publishState(message.workspaceId)
     return lane
   })
 
-  ipc.handle(IPC.CONDUCTOR_LANE_DESTROY, async (_event, laneId: string) => {
-    await backend.destroyLane(laneId)
-    await publishState()
+  ipc.handle(IPC.CONDUCTOR_LANE_DESTROY, async (_event, message: LaneMessage) => {
+    await backendFor(message.workspaceId).destroyLane(message.laneId, { force: message.force === true })
+    await publishState(message.workspaceId)
   })
 
-  ipc.handle(IPC.CONDUCTOR_PUBLISH, async (_event, laneId: string) => {
+  ipc.handle(IPC.CONDUCTOR_PUBLISH, async (_event, message: LaneMessage) => {
     // Finding 1: broadcast once before awaiting the outcome, not only after.
     // By the time backend.publishLane(laneId) returns a promise, the shipped
     // backend has already run its synchronous prefix into
@@ -97,26 +119,34 @@ export function registerConductorIpc(
     // the operation's whole duration, not merely its eventual result. The
     // second, in the finally, reports the lock released (or whatever else
     // changed) once the operation actually settles, exactly as before.
-    const pending = backend.publishLane(laneId)
-    await publishState()
+    const pending = backendFor(message.workspaceId).publishLane(message.laneId)
+    await publishState(message.workspaceId)
     try {
       return await pending
     } finally {
-      await publishState()
+      await publishState(message.workspaceId)
     }
   })
 
-  ipc.handle(IPC.CONDUCTOR_SYNC, async (_event, laneId: string) => {
-    const pending = backend.syncLane(laneId)
-    await publishState()
+  ipc.handle(IPC.CONDUCTOR_SYNC, async (_event, message: LaneMessage) => {
+    const pending = backendFor(message.workspaceId).syncLane(message.laneId)
+    await publishState(message.workspaceId)
     try {
       return await pending
     } finally {
-      await publishState()
+      await publishState(message.workspaceId)
     }
   })
 
-  ipc.handle(IPC.CONDUCTOR_RECONCILE, () => backend.reconcile())
+  // Reconcile is how the user gets OUT of the needs-attention gate (review
+  // finding 7), so its result must reach every window, not only the caller:
+  // a reconcile that finds everything complete clears the gate, and the
+  // panel's Publish/Sync buttons must stop being refused accordingly.
+  ipc.handle(IPC.CONDUCTOR_RECONCILE, async (_event, workspaceId: string | null) => {
+    const report = await backendFor(workspaceId).reconcile()
+    await publishState(workspaceId)
+    return report
+  })
 
   // A rejected draft (validation errors, or a row that failed to spawn)
   // normally rolls back everything it created, so nothing about conductor
@@ -124,10 +154,10 @@ export function registerConductorIpc(
   // fails to fully undo what it created (a lane or a session survives), state
   // HAS changed — the premise "nothing to see" no longer holds — so that case
   // broadcasts too, same as every other mutating handler above.
-  ipc.handle(IPC.CONDUCTOR_COMPOSE, async (_event, draft: RosterDraft) => {
-    const result = await backend.compose(draft)
+  ipc.handle(IPC.CONDUCTOR_COMPOSE, async (_event, message: ComposeMessage) => {
+    const result = await backendFor(message.workspaceId).compose(message.draft)
     const cleanupFailed = !result.ok && 'cleanupFailures' in result && result.cleanupFailures.length > 0
-    if (result.ok || cleanupFailed) await publishState()
+    if (result.ok || cleanupFailed) await publishState(message.workspaceId)
     return result
   })
 }
@@ -140,34 +170,40 @@ export type ConductorRuntime = {
   closeSession: ComposeDeps['closeSession']
 }
 
-/** Optional persistence for the shipped backend's lane roster (Task 5,
- *  finding 7). src/main/index.ts (Task 6) is the only real caller and is out
- *  of scope here, so this is injected rather than reached for directly —
- *  the backend must stay constructible, and must behave exactly as it does
- *  today (in-memory only, forgetting every lane on restart), when this is
- *  omitted. loadLanes/saveLanes are the store's own whole-collection
- *  get/save (Task 1: getConductorLanes/saveConductorLanes) — never
- *  per-record — so this backend, not the store, is what scopes them to one
- *  workspace; see hydrateLanes/persistLanes below for why. */
-export interface ConductorLanePersistence {
+/** Optional persistence for everything the shipped backend must remember
+ *  across a restart: its lane roster, and the test recipe a successful
+ *  compose put in force. Injected rather than reached for directly (the
+ *  backend must stay constructible, and behave exactly as it does today —
+ *  in-memory only — when this is omitted); conductor-bootstrap.ts supplies
+ *  the real store-backed implementation. loadLanes/saveLanes are the
+ *  store's own whole-collection get/save (getConductorLanes/
+ *  saveConductorLanes) — never per-record — so this backend, not the store,
+ *  is what scopes them to one workspace; see persistLanes below for why. */
+export interface ConductorPersistence {
   workspaceId: string
   loadLanes(): ConductorLane[]
   saveLanes(lanes: ConductorLane[]): void
+  /** Review finding 3: a test recipe entered in the composer used to reach
+   *  only the LIVE runtime settings, so after a restart the persisted
+   *  config still said `test: null` and every publish silently skipped the
+   *  tests it was supposed to gate on. Writing it through here is what
+   *  makes the recipe survive. Optional so a backend without persistence
+   *  behaves exactly as before. */
+  saveTestRecipe?(recipe: TestRecipe | null): void
 }
 
-// The shipped backend, extracted from src/main/index.ts so its disabled path
-// (runtime === null) is exercisable under environment: 'node' the same way
-// registerConductorIpc is. Built independent of `manager`/`store`, because a
-// lane's git identity has nothing to do with a session's PTY identity: the
-// IPC surface deals in lane ids, the runtime in lane objects (per Task 9's
-// brief), so this backend is the one place that resolves one to the other.
-// No composer exists yet to produce real ConductorSettings (repo path,
-// integration branch/worktree, lanes dir, test recipe) — that lands in a
-// later task. Until wired, index.ts passes null and the backend reports
-// itself disabled rather than guessing at settings.
+// The shipped backend: one per conducted workspace, built by
+// conductor-bootstrap.ts. Extracted from src/main/index.ts so its disabled
+// path (runtime === null) is exercisable under environment: 'node' the same
+// way registerConductorIpc is. Built independent of `manager`/`store`,
+// because a lane's git identity has nothing to do with a session's PTY
+// identity: the IPC surface deals in lane ids, the runtime in lane objects,
+// so this backend is the one place that resolves one to the other. A
+// workspace with no ConductorConfig gets `runtime === null`, and the backend
+// reports itself disabled — a normal capability state, never an error.
 export function createShippedConductorBackend(
   conductorRuntime: ConductorRuntime | null,
-  persistence?: ConductorLanePersistence
+  persistence?: ConductorPersistence
 ): ConductorBackend {
   const lanesById = new Map<string, ConductorLane>()
   // Task 5, finding 5: the last reconcile report this backend has seen.
@@ -175,6 +211,17 @@ export function createShippedConductorBackend(
   // unacknowledged interrupted operation must not be silently papered over
   // by a new publish or sync just because the lock itself is free.
   let lastReconcile: ReconcileReport = { needsAttention: false, operations: [] }
+  // Review finding 2: `lastReconcile` defaulting to needsAttention: false
+  // meant the gate was OFF until a reconcile had run — and nothing
+  // guaranteed one ever did. A publish before the first reconcile writes
+  // journal entries of its own, making it the newest operation, and
+  // reconcile only ever classifies the newest one — so an operation
+  // interrupted by a crash would be hidden for good. Publish and sync are
+  // therefore refused until one reconcile has actually COMPLETED for this
+  // backend (a 'busy' reconcile has not: it never read the journal).
+  // conductor-bootstrap.ts starts that reconcile eagerly the moment a
+  // backend is built, so this is normally clear within milliseconds.
+  let reconciled = false
 
   // Finding 7: hydrated once, synchronously, at construction — every lane
   // this process will manage for this workspace must already be in
@@ -225,11 +272,48 @@ export function createShippedConductorBackend(
     return lane
   }
 
+  /** The one place publish and sync decide to stand down. Two distinct
+   *  situations, one reason code, because the caller's options are the same
+   *  in both: run a reconcile and look at what it says.
+   *  - not reconciled yet: the journal has not been read since launch, so
+   *    an interrupted operation may be sitting there unseen (review
+   *    finding 2).
+   *  - reconciled, and it found something needing a human (Task 5,
+   *    finding 5).
+   *  Returned, never thrown: publish/sync report refusals as data — only
+   *  conductor.reconcile() throws (ConductorBusyError). */
+  const attentionRefusal = (
+    verb: 'publishing' | 'syncing'
+  ): { ok: false; reason: 'needs-attention'; message: string } | null => {
+    if (!reconciled) {
+      return {
+        ok: false,
+        reason: 'needs-attention',
+        message: 'conductor has not finished checking for interrupted operations yet — re-check, then try again'
+      }
+    }
+    if (lastReconcile.needsAttention) {
+      return {
+        ok: false,
+        reason: 'needs-attention',
+        message: `the last reconcile found an operation that still needs a human — resolve it before ${verb}`
+      }
+    }
+    return null
+  }
+
   return {
     async state() {
       const runtime = conductorRuntime
       if (!runtime) {
-        return { enabled: false, publishing: null, lanes: [], facts: {}, needsAttention: false }
+        return {
+          enabled: false, publishing: null, lanes: [], facts: {},
+          // reconciled: true, not false — a workspace with no conductor
+          // config has no journal to read and nothing that could have been
+          // interrupted, so the gate publish/sync sit behind is open, not
+          // pending. Its refusal is 'not configured', never 'still checking'.
+          needsAttention: false, operations: [], reconciled: true
+        }
       }
       const lanes = [...lanesById.values()]
       const facts: Record<string, LaneFacts> = {}
@@ -257,7 +341,11 @@ export function createShippedConductorBackend(
         publishing: runtime.conductor.lockHolder(),
         lanes,
         facts,
-        needsAttention: lastReconcile.needsAttention
+        needsAttention: lastReconcile.needsAttention,
+        // Named, not merely counted: the panel has to tell the user WHICH
+        // operation is holding publish and sync (review finding 7).
+        operations: lastReconcile.operations,
+        reconciled
       }
     },
     async createLane(request) {
@@ -294,9 +382,10 @@ export function createShippedConductorBackend(
       persistLanes()
       return lane
     },
-    async destroyLane(laneId) {
+    async destroyLane(laneId, options = {}) {
       const runtime = requireWired()
       const lane = requireLane(laneId)
+      const force = options.force === true
       // Finding 2: destroying a lane must not race a publish/sync/reconcile
       // reading or merging that same worktree — Phase 1 has one lock for
       // the whole conductor, not one per lane, exactly like syncLane's own
@@ -308,6 +397,30 @@ export function createShippedConductorBackend(
         throw new Error(`conductor is busy (${runtime.conductor.lockHolder()}); cannot destroy a lane right now`)
       }
       try {
+        // Review finding 8: this check must happen BEFORE the session is
+        // closed. lanes.destroy({ force: false }) refuses any lane whose
+        // branch is not merged — the usual case — so the old order killed
+        // the agent and then failed, leaving a lane that still exists on
+        // disk pointing at a dead session id. Asking for the facts first
+        // means an unpublished lane is refused while its agent is still
+        // running, and the caller is told to publish or pass force.
+        if (!force) {
+          let unpublished = 0
+          try {
+            unpublished = (await runtime.lanes.facts(lane)).ahead
+          } catch (error) {
+            // Facts are unmeasurable (worktree already gone, git broken):
+            // this cannot PROVE there is unpublished work, and refusing
+            // here would leave a broken lane undestroyable through any
+            // path at all. Proceed, but never silently.
+            console.warn(`[crew] conductor: could not measure lane ${lane.roleId} before destroy:`, error)
+          }
+          if (unpublished > 0) {
+            throw new Error(
+              `lane ${lane.roleId} has ${unpublished} unpublished commit(s) — publish them, or destroy it with force`
+            )
+          }
+        }
         // The session must close before the worktree is touched: a session
         // whose cwd vanishes out from under it while still running is
         // exactly the orphan compose's own rollback exists to prevent (see
@@ -319,6 +432,12 @@ export function createShippedConductorBackend(
         // with each other.
         if (lane.sessionId) {
           runtime.closeSession(lane.sessionId)
+          // Review finding 8's second half: the session is gone, so the
+          // lane must stop claiming it immediately — even if the destroy
+          // below fails and the lane survives, it must never be left
+          // carrying a dead session id.
+          lane.sessionId = null
+          persistLanes()
         }
         // Only removed from lanesById once destroy() has actually
         // succeeded (finding 2's second half): if lanes.destroy() throws —
@@ -327,7 +446,7 @@ export function createShippedConductorBackend(
         // on disk. Dropping it here regardless would tell state() (and
         // therefore the renderer) that a lane no longer exists when git
         // would tell a very different story.
-        await runtime.lanes.destroy(lane, { force: false })
+        await runtime.lanes.destroy(lane, { force })
         lanesById.delete(laneId)
         persistLanes()
       } finally {
@@ -346,25 +465,15 @@ export function createShippedConductorBackend(
       // lock is ever touched — conductor.publishLane is never called at
       // all while this holds, so it never even gets the chance to report
       // 'busy' instead.
-      if (lastReconcile.needsAttention) {
-        return {
-          ok: false,
-          reason: 'needs-attention',
-          message: 'the last reconcile found an operation that still needs a human — resolve it before publishing'
-        }
-      }
+      const refusal = attentionRefusal('publishing')
+      if (refusal) return refusal
       return conductor.publishLane(lane)
     },
     async syncLane(laneId) {
       const { conductor } = requireWired()
       const lane = requireLane(laneId)
-      if (lastReconcile.needsAttention) {
-        return {
-          ok: false,
-          reason: 'needs-attention',
-          message: 'the last reconcile found an operation that still needs a human — resolve it before syncing'
-        }
-      }
+      const refusal = attentionRefusal('syncing')
+      if (refusal) return refusal
       return conductor.syncLane(lane)
     },
     async reconcile() {
@@ -381,6 +490,9 @@ export function createShippedConductorBackend(
       // other unhandled error in this backend.
       try {
         lastReconcile = await conductor.reconcile()
+        // Only a reconcile that actually ran clears the gate. A busy one
+        // (below) never read the journal, so it proves nothing.
+        reconciled = true
       } catch (error) {
         if (error instanceof ConductorBusyError) {
           return { needsAttention: false, operations: [], busy: true }
@@ -400,10 +512,21 @@ export function createShippedConductorBackend(
           // Task 4's seam: composeRun calls this once a run fully succeeds.
           // Mutating runtime.settings here (rather than composeRun reaching
           // into it directly) keeps that write in the one layer that owns
-          // the live runtime; persisting it to the store so it survives a
-          // restart is a later task's job (this task's is only the lane
-          // roster — see persistLanes above).
-          setTestRecipe: (recipe) => { runtime.settings.test = recipe }
+          // the live runtime. Review finding 3: the recipe must ALSO reach
+          // the persisted ConductorConfig, or a restart silently reverts to
+          // `test: null` and every later publish skips the tests it was
+          // supposed to gate on. Persisting is best-effort in the same
+          // sense persistLanes is — the live runtime is already correct —
+          // so a failing write is logged, never thrown back into a compose
+          // that otherwise succeeded.
+          setTestRecipe: (recipe) => {
+            runtime.settings.test = recipe
+            try {
+              persistence?.saveTestRecipe?.(recipe)
+            } catch (error) {
+              console.warn('[crew] conductor test recipe persistence failed:', error)
+            }
+          }
         },
         draft
       )

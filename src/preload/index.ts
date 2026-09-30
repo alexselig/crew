@@ -32,13 +32,19 @@ const api: CrewAPI = {
     ipcRenderer.invoke(IPC.CUSTOM_VIEW_CREATE, input),
   updateCustomView: (id, input) => ipcRenderer.invoke(IPC.CUSTOM_VIEW_UPDATE, { id, input }),
   deleteCustomView: (id) => ipcRenderer.invoke(IPC.CUSTOM_VIEW_DELETE, id),
-  getConductorState: () => ipcRenderer.invoke(IPC.CONDUCTOR_STATE),
-  createLane: (request) => ipcRenderer.invoke(IPC.CONDUCTOR_LANE_CREATE, request),
-  destroyLane: (laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_LANE_DESTROY, laneId),
-  publishLane: (laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_PUBLISH, laneId),
-  syncLane: (laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_SYNC, laneId),
-  reconcileConductor: () => ipcRenderer.invoke(IPC.CONDUCTOR_RECONCILE),
-  composeConductedWorkspace: (draft: RosterDraft) => ipcRenderer.invoke(IPC.CONDUCTOR_COMPOSE, draft),
+  // Every conductor call carries the workspace it is for: main keeps no
+  // active-workspace of its own for conductor, because each window has its
+  // own and they can differ.
+  getConductorState: (workspaceId) => ipcRenderer.invoke(IPC.CONDUCTOR_STATE, workspaceId),
+  createLane: (workspaceId, request) =>
+    ipcRenderer.invoke(IPC.CONDUCTOR_LANE_CREATE, { workspaceId, request }),
+  destroyLane: (workspaceId, laneId, options) =>
+    ipcRenderer.invoke(IPC.CONDUCTOR_LANE_DESTROY, { workspaceId, laneId, force: options?.force === true }),
+  publishLane: (workspaceId, laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_PUBLISH, { workspaceId, laneId }),
+  syncLane: (workspaceId, laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_SYNC, { workspaceId, laneId }),
+  reconcileConductor: (workspaceId) => ipcRenderer.invoke(IPC.CONDUCTOR_RECONCILE, workspaceId),
+  composeConductedWorkspace: (workspaceId, draft: RosterDraft) =>
+    ipcRenderer.invoke(IPC.CONDUCTOR_COMPOSE, { workspaceId, draft }),
   createWorkspace: (name) => ipcRenderer.invoke(IPC.WORKSPACE_CREATE, name),
   renameWorkspace: (id, name) => ipcRenderer.invoke(IPC.WORKSPACE_RENAME, { id, name }),
   describeWorkspace: (id, description) => ipcRenderer.invoke(IPC.WORKSPACE_DESCRIBE, { id, description }),

@@ -401,15 +401,14 @@ function openNewSession(): void {
 }
 
 /** Switch the active workspace filter: tell the focused window and refresh the
- *  menu checkmark. `name` is a workspace name or null for "All Sessions". */
-function setActiveWorkspace(name: string | null): void {
-  activeWorkspace = name
-  // Conductor's bound runtime must follow the active workspace (Task 6): the
-  // controller is created once, in app.whenReady(), so it doesn't exist yet
-  // for a call this function makes before that (it never does — the menu
-  // that triggers it is built after ready — but the guard costs nothing).
-  conductorController?.setActiveWorkspace(name)
-  focusedWindow()?.webContents.send(IPC.EVT_WORKSPACE, name)
+ *  menu checkmark. `id` is a workspace **id** or null for "All Sessions".
+ *  Conductor deliberately does NOT follow this (review finding 1): each
+ *  window keeps its own active workspace and can change it from the palette
+ *  or the sidebar without ever reaching main, so every conductor IPC call
+ *  names its own workspace instead. */
+function setActiveWorkspace(id: string | null): void {
+  activeWorkspace = id
+  focusedWindow()?.webContents.send(IPC.EVT_WORKSPACE, id)
   rebuildAppMenu()
 }
 
@@ -824,22 +823,26 @@ function registerIpc(): void {
   registerCustomViewIpc(ipcMain, store, broadcast)
 
   // ── Conductor (Phase 1) ──
-  // conductorController (Task 6) binds Conductor's runtime to whichever
-  // workspace is active, deriving and persisting a ConductorConfig on a
-  // workspace's first compose() if it doesn't have one yet, and rebinding
-  // whenever setActiveWorkspace() runs. The backend it hands back stays
-  // 'enabled: false' — a supported, non-error state — for a workspace with
-  // no ConductorConfig, exactly as before this task wired anything real in.
+  // conductorController owns one Conductor backend per workspace and builds
+  // them lazily. Every conductor IPC call carries its own workspace id, so
+  // the controller resolves the right backend per call — main holds no
+  // active-workspace of its own for conductor (review finding 1), and two
+  // windows showing two workspaces each get the truth. A workspace with no
+  // ConductorConfig reports 'enabled: false' — a supported, non-error state.
   conductorController = createConductorController({
     userDataDir: app.getPath('userData'),
     getConductorConfigs: () => store.getConductorConfigs(),
     saveConductorConfigs: (list) => store.saveConductorConfigs(list),
     getConductorLanes: () => store.getConductorLanes(),
     saveConductorLanes: (list) => store.saveConductorLanes(list),
+    getWorkspaces: () => store.getWorkspaces().map((w) => ({ id: w.id, name: w.name })),
+    getSessions: () => store.getSessions().map((s) => ({
+      id: s.id, label: s.label, workspaceIds: s.workspaceIds
+    })),
+    broadcast,
     ...createLaneSessionBridge({ manager, resolvePreset: getPreset })
   })
-  conductorController.setActiveWorkspace(activeWorkspace)
-  registerConductorIpc(ipcMain, conductorController.backend, broadcast)
+  registerConductorIpc(ipcMain, (workspaceId) => conductorController!.backendFor(workspaceId), broadcast)
 
   // ── First-class workspaces (Workspace Manager) ──
   const pushWorkspaces = (): Workspace[] => {
@@ -1005,12 +1008,15 @@ if (!app.requestSingleInstanceLock()) {
   createWindow()
 
   // Run once, after the window exists so its result can reach the renderer
-  // via broadcast. A run never auto-resumes — this only surfaces an
-  // interrupted operation (needsAttention) to the human; it never touches
-  // the integration branch itself. Guarded internally (conductor-bootstrap.ts)
-  // against any throw, so a corrupt journal or a startup race can never
-  // block the app from launching — fire-and-forget is safe here.
-  void conductorController?.reconcileOnLaunch(broadcast)
+  // via broadcast. Reconciles EVERY workspace that has a ConductorConfig,
+  // not merely one: a crash mid-publish must surface for whichever
+  // workspace it happened in, whatever a window happens to be showing. A
+  // run never auto-resumes — this only surfaces an interrupted operation
+  // (needsAttention) to the human; it never touches the integration branch
+  // itself. Guarded internally (conductor-bootstrap.ts) against any throw,
+  // so a corrupt journal or a startup race can never block the app from
+  // launching — fire-and-forget is safe here.
+  void conductorController?.reconcileOnLaunch()
 
   tray = new CrewTray({
     onShow: showWindow,
