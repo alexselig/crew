@@ -376,10 +376,19 @@ describe('index.ts wiring (source-text assertions; index.ts imports electron and
   })
 
   it('runs the launch reconcile after the window is created', () => {
-    const windowIdx = main.indexOf('createWindow()')
-    const reconcileIdx = main.indexOf('reconcileOnLaunch')
-    expect(windowIdx).toBeGreaterThan(-1)
-    expect(reconcileIdx).toBeGreaterThan(windowIdx)
+    // Anchor to the actual launch sequence inside app.whenReady().then(...),
+    // not the first textual match of createWindow() anywhere in the file —
+    // createWindow() also appears earlier (e.g. openWindow()) and later
+    // (app.on('activate', ...)), so a bare indexOf() pair would still pass
+    // even if reconcileOnLaunch were hoisted above the launch-time
+    // createWindow() call.
+    const whenReadyMatch = main.match(/app\.whenReady\(\)\.then\(\(\) => \{[\s\S]*?\n\}\)/)
+    expect(whenReadyMatch).not.toBeNull()
+    const launchBody = whenReadyMatch![0]
+
+    expect(launchBody).toMatch(
+      /registerIpc\(\)[\s\S]*rebuildAppMenu\(\)[\s\S]*createWindow\(\)[\s\S]*reconcileOnLaunch\(broadcast\)/
+    )
   })
 
   it('rebinds the conductor controller when the active workspace changes', () => {
