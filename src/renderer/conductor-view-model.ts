@@ -191,7 +191,12 @@ export function describeReconcileReport(report: ReconcileReport): string {
   }
   const blocking = report.operations.filter((op) => op.requiresHuman)
   if (blocking.length > 0) {
-    return `Still needs a human: ${blocking.map((op) => op.summary).join('; ')}`
+    // Wave 3, finding 7: naming the problem without naming the way out left
+    // the user with a dead end — reviewing the operation and acknowledging
+    // it is what closes it on the record and reopens publish and sync, and
+    // that is true whether or not it needed human judgement.
+    return `Still needs a human: ${blocking.map((op) => op.summary).join('; ')} ` +
+      'Review it, then Acknowledge it to continue.'
   }
   // I-1: an operation that needs no human judgement (e.g. 'not-started',
   // whose own summary reads "Nothing ran. Safe to publish again.") still

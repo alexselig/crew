@@ -439,7 +439,12 @@ describe('describeReconcileReport', () => {
     expect(message).not.toContain('needs a human')
   })
 
-  it('names what still needs a human', () => {
+  // Wave 3, finding 7: naming the operation is not enough — "Still needs a
+  // human" told the user what was wrong and nothing about what to do, even
+  // though reviewing it and acknowledging it is exactly what reopens the
+  // gate. The guidance has to be actionable for an operation that genuinely
+  // needs judgement too, not only for the easy ones.
+  it('names what still needs a human, and says what to do about it', () => {
     const message = describeReconcileReport({
       needsAttention: true,
       operations: [
@@ -447,5 +452,23 @@ describe('describeReconcileReport', () => {
       ]
     })
     expect(message).toContain('publish of builder may be half-applied')
+    expect(message).toContain('Acknowledge')
+  })
+})
+
+// Wave 3, finding 3: acknowledging is refused outright while the integration
+// worktree is still mid-merge, because publish would fail the instant the
+// user tried it. The panel has to say that nothing changed and name what
+// needs attention — never "available again".
+describe('describeAcknowledgeOutcome, when the worktree is still wedged', () => {
+  it('says nothing was acknowledged and passes the repair failure through', () => {
+    const message = describeAcknowledgeOutcome({
+      ok: false,
+      reason: 'worktree-wedged',
+      message: 'the integration worktree at /w is still mid-merge and could not be repaired (permission denied)'
+    })
+    expect(message).toContain('Nothing was acknowledged')
+    expect(message).toContain('permission denied')
+    expect(message).not.toContain('available again')
   })
 })
