@@ -382,13 +382,47 @@ describe('index.ts wiring (source-text assertions; index.ts imports electron and
     // (app.on('activate', ...)), so a bare indexOf() pair would still pass
     // even if reconcileOnLaunch were hoisted above the launch-time
     // createWindow() call.
-    const whenReadyMatch = main.match(/app\.whenReady\(\)\.then\(\(\) => \{[\s\S]*?\n\}\)/)
-    expect(whenReadyMatch).not.toBeNull()
-    const launchBody = whenReadyMatch![0]
-
-    expect(launchBody).toMatch(
-      /registerIpc\(\)[\s\S]*rebuildAppMenu\(\)[\s\S]*createWindow\(\)[\s\S]*reconcileOnLaunch\(broadcast\)/
+    //
+    // Tolerant of `async`, extra whitespace/line breaks before the `{`; if the
+    // body can't be found at all, fail loudly rather than silently matching
+    // nothing (a vacuously-true assertion is worse than the brittle regex it
+    // replaced).
+    const whenReadyMatch = main.match(
+      /app\.whenReady\(\)\s*\.\s*then\(\s*(?:async\s*)?\(\)\s*=>\s*\{[\s\S]*?\n\}\)/
     )
+    expect(whenReadyMatch, 'could not locate app.whenReady().then(...) body in src/main/index.ts').not.toBeNull()
+    const launchBody = whenReadyMatch![0]
+    expect(launchBody.length, 'app.whenReady().then(...) body matched but was empty').toBeGreaterThan(0)
+
+    // Strip comments so a mention inside a `//` line comment or a `/* */`
+    // block (e.g. a bypassed reordering with `// createWindow()` left behind
+    // as a decoy) can never satisfy the order assertion below.
+    const withoutBlockComments = launchBody.replace(/\/\*[\s\S]*?\*\//g, '')
+    const withoutComments = withoutBlockComments.replace(/\/\/.*$/gm, '')
+
+    // Each step must appear as its own executable statement line, not merely
+    // as a substring anywhere in the body (which would also match a comment,
+    // a string literal, or part of a longer identifier).
+    const stepPattern = (name: string) => new RegExp(`^\\s*${name}\\s*;?\\s*$`, 'm')
+    const steps = [
+      ['registerIpc()', stepPattern('registerIpc\\(\\)')],
+      ['rebuildAppMenu()', stepPattern('rebuildAppMenu\\(\\)')],
+      ['createWindow()', stepPattern('createWindow\\(\\)')],
+      ['reconcileOnLaunch(broadcast)', stepPattern('void conductorController\\?\\.reconcileOnLaunch\\(broadcast\\)')]
+    ] as const
+
+    const indices = steps.map(([label, pattern]) => {
+      const match = withoutComments.match(pattern)
+      expect(match, `expected to find a "${label}" statement line in the launch sequence`).not.toBeNull()
+      return withoutComments.indexOf(match![0])
+    })
+
+    for (let i = 1; i < indices.length; i++) {
+      expect(
+        indices[i],
+        `expected "${steps[i][0]}" to run after "${steps[i - 1][0]}" in the launch sequence`
+      ).toBeGreaterThan(indices[i - 1])
+    }
   })
 
   it('rebinds the conductor controller when the active workspace changes', () => {
