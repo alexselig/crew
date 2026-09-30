@@ -2,8 +2,8 @@
 // so the conductor runtime never shells out itself.
 
 import { mkdir } from 'node:fs/promises'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { runGit } from './supervise'
 import type { ConductorLane, ConductorSettings, LaneFacts, LaneAgent, MergeResult, PublishResult } from '../shared/conductor'
@@ -70,6 +70,41 @@ const realOrSelf = (path: string): string => {
  *  Conductor-owned linked worktrees; only the words differ. */
 export type OwnedWorktreeKind = 'integration worktree' | 'lane worktree'
 
+/** Wave 6, B-5: `lstat`, never `stat` — the question is what the NAME is,
+ *  not what it leads to. A path that does not exist is not a symlink; a
+ *  dangling one is. */
+const isSymlink = (path: string): boolean => {
+  try {
+    return lstatSync(path).isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
+/** Wave 6, B-5 (A8/A8a/A8p): every other half of this guard resolves
+ *  symlinks before comparing, which is right for `/var` -> `/private/var`
+ *  and fatal for a symlink planted where a Conductor worktree belongs:
+ *  `realOrSelf` resolved it on BOTH sides, so the check compared the user's
+ *  own worktree with itself and said yes — and a real worktree of theirs
+ *  has a perfectly correct back-pointer, so the second half said yes too.
+ *  Publish then returned `ok: true` while the forced checkout detached the
+ *  user's HEAD, the merge overwrote their index and `clean -fd` deleted
+ *  their untracked files.
+ *
+ *  Conductor creates its worktrees with `git worktree add`, which makes
+ *  real directories; a symlink at the leaf, or at the folder containing it
+ *  (A8p aims the WORKSPACE folder elsewhere), is therefore never something
+ *  Conductor made. It is checked with `lstat` on the lexically resolved
+ *  path, BEFORE any realpath call can resolve the deception away. Only the
+ *  leaf and its parent: Conductor derives those two, while the directories
+ *  above them are the platform's (`/var` -> `/private/var` on macOS is a
+ *  symlinked ancestor of every temp path) and refusing on those would
+ *  reject every legitimate workspace. */
+const isSymlinkedPath = (dir: string): boolean => {
+  const resolved = resolve(dir)
+  return isSymlink(resolved) || isSymlink(dirname(resolved))
+}
+
 /** Wave 5, B-4: `--show-toplevel` alone only proves that *some* `.git` entry
  *  sits at `dir` — it reports `dir` itself even when that `.git` file points
  *  its gitdir at the user's own repository (or at one of the user's linked
@@ -93,7 +128,15 @@ async function hasBackPointerTo(dir: string): Promise<boolean> {
     return false
   }
   if (backPointer.length === 0) return false
-  return realOrSelf(backPointer) === realOrSelf(join(dir, '.git'))
+  // Wave 6, B-6 (A12): with `worktree.useRelativePaths` (git >= 2.48) git
+  // writes this file as a path RELATIVE to the administrative directory
+  // holding it (`../../../../integration/.git`). Resolving it against
+  // `process.cwd()` — whatever directory Crew's main process happens to
+  // have been started in — made it name a directory that does not exist,
+  // so the guard said no to Conductor's own worktrees and every publish
+  // and sync in the workspace failed with the wrong message. An absolute
+  // back-pointer is unaffected: `resolve` returns it unchanged.
+  return realOrSelf(resolve(administrative, backPointer)) === realOrSelf(join(dir, '.git'))
 }
 
 /** Wave 4, B-2: true only when `dir` is the root of the git worktree git
@@ -112,6 +155,8 @@ async function hasBackPointerTo(dir: string): Promise<boolean> {
  *  and the repair then wiped the user's merge state while reporting
  *  success. */
 export async function isOwnWorktree(dir: string): Promise<boolean> {
+  // Wave 6, B-5: first, and before any realpath call — see isSymlinkedPath.
+  if (isSymlinkedPath(dir)) return false
   const top = await runGit(['rev-parse', '--show-toplevel'], { cwd: dir })
   if (top.code !== 0) return false
   const reported = top.stdout.trim()
@@ -130,6 +175,15 @@ export function notOwnWorktreeMessage(dir: string, kind: OwnedWorktreeKind = 'in
   if (!existsSync(dir)) {
     return (
       `the ${kind} at ${dir} does not exist, so no git command may be run in it; refusing to touch it`
+    )
+  }
+  // Wave 6, B-5: a symlink is never something `git worktree add` created,
+  // so saying "it resolves to some enclosing repository" would send the
+  // user looking for a repository that has nothing to do with it.
+  if (isSymlinkedPath(dir)) {
+    return (
+      `the ${kind} at ${dir} is a symbolic link (or sits directly inside one), which is never something ` +
+      'Conductor created, so no git command may be run in it; refusing to touch it'
     )
   }
   return (

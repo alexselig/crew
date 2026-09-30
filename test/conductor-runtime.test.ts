@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync, existsSync, realpathSync } from 'node:fs'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync, chmodSync, readFileSync, existsSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, isAbsolute, resolve } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
@@ -1998,8 +1998,67 @@ describe('the integration-worktree reset', () => {
     expect(conductor.lockHolder()).toBeNull()
   })
 
-  // F-11: the base the repair checks out comes from the journal, which lives
-  // in userData — only as trustworthy as that directory. A tampered entry
+  // Wave 6, B-5 (A8a): the A1 outcome returning by another door. A symlink
+  // standing where the integration worktree belongs, aimed at one of the
+  // user's own worktrees that is mid-merge, satisfied both halves of the
+  // guard — `realOrSelf` resolved the link on both sides of every
+  // comparison, and a real worktree of the user's has a correct
+  // back-pointer. Acknowledge then returned `ok: true, phase: 'aborted'`
+  // after `merge --abort` threw away their MERGE_HEAD, their half-resolved
+  // file and their branch's HEAD.
+  it('refuses to repair through a symlink aimed at one of the user’s worktrees', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const facts = await lanes.facts(lane)
+
+    // One of the user's own worktrees of this very repository, left
+    // half-way through a conflict they were resolving by hand.
+    const userWorktree = join(root, 'users-worktree')
+    git(['worktree', 'add', '-b', 'users-work', userWorktree], settings.repo)
+    commit(userWorktree, 'shared.txt', 'theirs\n', 'user side')
+    git(['checkout', '-b', 'users-other', 'HEAD~1'], userWorktree)
+    commit(userWorktree, 'shared.txt', 'ours\n', 'user other side')
+    try {
+      execFileSync('git', ['merge', '--no-edit', 'users-work'], {
+        cwd: userWorktree, encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...ENV }
+      })
+    } catch {
+      /* the user's own conflict, mid-resolution */
+    }
+    writeFileSync(join(userWorktree, 'shared.txt'), 'half resolved by hand\n')
+    const userMergeHead = git(['rev-parse', 'MERGE_HEAD'], userWorktree)
+    const userHead = git(['rev-parse', 'HEAD'], userWorktree)
+
+    rmSync(settings.integrationWorktree, { recursive: true, force: true })
+    symlinkSync(userWorktree, settings.integrationWorktree)
+
+    journal.append({
+      opId: 'op-symlink', laneId: lane.id, phase: 'intent',
+      baseSha: git(['rev-parse', 'crew/integration'], settings.repo),
+      laneTip: facts.laneTip, at: 1
+    })
+
+    await conductor.reconcile()
+    const outcome = await conductor.acknowledgeOperation('op-symlink', 'reviewed')
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'worktree-wedged' })
+    if (!outcome.ok) expect(outcome.message).toMatch(/symbolic link/i)
+    // Load-bearing: the user's merge, their hand-edited file and their
+    // branch are all exactly as they left them. Before the fix this
+    // returned ok with phase 'aborted' and every one of these was gone.
+    expect(git(['rev-parse', 'MERGE_HEAD'], userWorktree)).toBe(userMergeHead)
+    expect(git(['rev-parse', 'HEAD'], userWorktree)).toBe(userHead)
+    expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], userWorktree)).toBe('users-other')
+    expect(readFileSync(join(userWorktree, 'shared.txt'), 'utf8')).toBe('half resolved by hand\n')
+    // Fail closed: nothing acknowledged, the gate still shut.
+    expect(journal.read().map((e) => e.phase)).toEqual(['intent'])
+    expect((await conductor.reconcile()).needsAttention).toBe(true)
+  })
+
+  // F-11: the base the repair checks out comes from the journal, which lives  // in userData — only as trustworthy as that directory. A tampered entry
   // naming a branch (or a `--flag`) is not a commit id, and the repair must
   // say so rather than handing it to `checkout`.
   it('refuses a recorded base that is not a commit id', async () => {

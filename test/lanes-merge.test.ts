@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, realpathSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, readFileSync, existsSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, isAbsolute, resolve } from 'node:path'
 import { createLaneManager, isOwnWorktree, notOwnWorktreeMessage } from '../src/main/lanes'
@@ -552,6 +552,143 @@ describe('the ownership guard', () => {
     expect(git(['rev-parse', 'HEAD'], userWorktree)).toBe(userHead)
     expect(git(['diff', '--cached', '--name-only'], userWorktree)).toContain('scratch.txt')
     expect(readFileSync(join(userWorktree, 'scratch.txt'), 'utf8')).toBe('work in the user’s worktree\n')
+  })
+
+  /** One of the user's own linked worktrees of the very repository
+   *  Conductor is conducting, with a staged file, an unstaged edit to a
+   *  tracked file and an untracked file — the three kinds of work a forced
+   *  checkout plus `clean -fd` destroys. */
+  function userWorktreeWithWork(name: string): {
+    dir: string
+    head: string
+    branch: string
+  } {
+    commit(settings.repo, 'tracked.txt', 'committed\n', 'user tracked')
+    const dir = join(root, name)
+    git(['worktree', 'add', '-b', 'users-work', dir], settings.repo)
+    writeFileSync(join(dir, 'staged.txt'), 'work the user staged\n')
+    git(['add', 'staged.txt'], dir)
+    writeFileSync(join(dir, 'tracked.txt'), 'edited but not staged\n')
+    writeFileSync(join(dir, 'untracked.txt'), 'never committed anywhere\n')
+    return {
+      dir,
+      head: git(['rev-parse', 'HEAD'], dir),
+      branch: git(['rev-parse', '--abbrev-ref', 'HEAD'], dir)
+    }
+  }
+
+  /** Everything the guard exists to protect, asserted in one place. */
+  function expectUserWorkIntact(user: { dir: string; head: string; branch: string }): void {
+    expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], user.dir)).toBe(user.branch)
+    expect(git(['rev-parse', 'HEAD'], user.dir)).toBe(user.head)
+    expect(git(['diff', '--cached', '--name-only'], user.dir)).toContain('staged.txt')
+    expect(readFileSync(join(user.dir, 'tracked.txt'), 'utf8')).toBe('edited but not staged\n')
+    expect(existsSync(join(user.dir, 'untracked.txt'))).toBe(true)
+  }
+
+  // Wave 6, B-5 (A8): `realOrSelf` resolved the symlink on BOTH sides of
+  // every comparison, so a symlink standing where the integration worktree
+  // should be made the guard compare the user's worktree with itself — and
+  // a real worktree of theirs has a perfectly correct back-pointer, so both
+  // halves of the check said yes. Publish then returned `ok: true` while
+  // the forced checkout detached the user's HEAD, the merge overwrote their
+  // index and `clean -fd` deleted their untracked file. A symlink is never
+  // something Conductor created, so the path itself is refused before any
+  // realpath call can resolve the deception away.
+  it('refuses an integration path that is a symlink to one of the user’s worktrees', async () => {
+    const user = userWorktreeWithWork('userwt')
+
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    rmSync(settings.integrationWorktree, { recursive: true, force: true })
+    symlinkSync(user.dir, settings.integrationWorktree)
+
+    await expect(lanes.mergeInIntegration(tip, base)).rejects.toThrow(/integration worktree/i)
+    expect(await isOwnWorktree(settings.integrationWorktree)).toBe(false)
+    expectUserWorkIntact(user)
+  })
+
+  // The same deception aimed at a LANE, which reaches the guard through
+  // `syncLane` rather than through the publication path.
+  it('refuses a lane path that is a symlink to one of the user’s worktrees', async () => {
+    const user = userWorktreeWithWork('userwt')
+
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    rmSync(lane.worktree, { recursive: true, force: true })
+    symlinkSync(user.dir, lane.worktree)
+
+    expect(await isOwnWorktree(lane.worktree)).toBe(false)
+    await expect(lanes.syncLane(lane, base)).rejects.toThrow(/lane worktree/i)
+    expectUserWorkIntact(user)
+  })
+
+  // Wave 6, B-5 (A8p): the leaf need not be the symlink. When the folder
+  // CONTAINING the integration worktree is a symlink to a directory that
+  // happens to hold a worktree of the user's called `integration`, every
+  // path Conductor derives lands in the user's tree — so the parent is
+  // checked too.
+  it('refuses when the folder containing the integration worktree is a symlink', async () => {
+    const elsewhere = join(root, 'elsewhere')
+    mkdirSync(elsewhere)
+    const planted = join(elsewhere, 'integration')
+    git(['worktree', 'add', '-b', 'users-work', planted], settings.repo)
+    writeFileSync(join(planted, 'staged.txt'), 'work the user staged\n')
+    git(['add', 'staged.txt'], planted)
+    const head = git(['rev-parse', 'HEAD'], planted)
+
+    const workspace = join(root, 'workspace')
+    symlinkSync(elsewhere, workspace)
+    settings.integrationWorktree = join(workspace, 'integration')
+
+    expect(await isOwnWorktree(settings.integrationWorktree)).toBe(false)
+    const lanes = createLaneManager(settings)
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    await expect(lanes.mergeInIntegration(tip, base)).rejects.toThrow(/integration worktree/i)
+    expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], planted)).toBe('users-work')
+    expect(git(['rev-parse', 'HEAD'], planted)).toBe(head)
+    expect(git(['diff', '--cached', '--name-only'], planted)).toContain('staged.txt')
+  })
+
+  // Wave 6, B-6 (A12): with `worktree.useRelativePaths` (git ≥ 2.48) git
+  // writes the back-pointer as a path relative to the administrative
+  // directory that holds it. Resolving it against `process.cwd()` made it
+  // name a directory that does not exist, so the guard said no to
+  // Conductor's OWN worktrees and every publish and sync in the workspace
+  // failed — a false reject is every bit as much a defect as a false
+  // accept.
+  it('accepts its own worktrees when git writes relative back-pointers', async () => {
+    git(['config', 'worktree.useRelativePaths', 'true'], settings.repo)
+
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    // The scenario is only meaningful if git really did write a relative
+    // back-pointer; on a git without the option it would be absolute.
+    const administrative = readFileSync(join(settings.integrationWorktree, '.git'), 'utf8')
+      .trim()
+      .replace(/^gitdir:\s*/, '')
+    expect(isAbsolute(administrative)).toBe(false)
+
+    expect(await isOwnWorktree(settings.integrationWorktree)).toBe(true)
+    expect(await isOwnWorktree(lane.worktree)).toBe(true)
+
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+    expect(await lanes.mergeInIntegration(tip, base)).toMatchObject({ ok: true })
   })
 
   // The guard must still say yes to the folder Conductor actually owns —
