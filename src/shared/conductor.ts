@@ -39,6 +39,17 @@ export interface ConductorLane {
   /** Every dispatch is counted, not only handoffs, so Phase 2's needs-changes
    *  loop is bounded. Always 0 in Phase 1. */
   dispatches: number
+  /** Which workspace's Conductor created this lane. Optional: lanes.create()
+   *  (Task 5's runtime, already scoped to one workspace) never sets it, and
+   *  every in-memory consumer of a lane already knows which workspace it
+   *  came from. It exists solely for the store's flat conductorLanes
+   *  collection (Task 1 — one ConductorLane[] array, not indexed by
+   *  workspace): without a discriminator, hydrating one workspace's backend
+   *  would either see every other workspace's lanes too, or saving would
+   *  silently drop them. Set by the backend only when it persists a lane
+   *  (see createShippedConductorBackend's persistLanes), never by
+   *  lanes.create() itself. */
+  workspaceId?: string
 }
 
 export interface TestRecipe {
@@ -126,6 +137,12 @@ export type Classification =
 export type PublishFailure =
   | { ok: false; reason: 'busy' }
   | { ok: false; reason: 'nothing-to-publish' }
+  /** Task 5, finding 5: refused at the backend boundary because the last
+   *  reconcile() found an interrupted operation still needing a human, and
+   *  papering over that with a fresh publish would risk double-applying or
+   *  losing whatever it left behind. Distinct from 'busy': the lock may be
+   *  completely free — this is a standing hold, not a transient one. */
+  | { ok: false; reason: 'needs-attention'; message: string }
   | { ok: false; reason: 'journal-failed'; message: string }
   | { ok: false; reason: 'conflict'; conflictPaths: string[]; message: string }
   | { ok: false; reason: 'tests-failed'; output: string }
@@ -137,7 +154,7 @@ export type PublishOutcome =
 
 export type SyncOutcome =
   | { ok: true; resultSha: string; fastForward: boolean }
-  | { ok: false; reason: 'busy' | 'conflict' | 'error'; conflictPaths?: string[]; message: string }
+  | { ok: false; reason: 'busy' | 'conflict' | 'needs-attention' | 'error'; conflictPaths?: string[]; message: string }
 
 export interface ReconciledOperation {
   opId: string
@@ -151,6 +168,14 @@ export interface ReconciledOperation {
 export interface ReconcileReport {
   needsAttention: boolean
   operations: ReconciledOperation[]
+  /** Set (true) only when this report is a stand-in produced because the
+   *  single-flight lock was already held (Task 5, finding 4): the shipped
+   *  backend catches conductor.reconcile()'s thrown ConductorBusyError at
+   *  the IPC boundary and returns this shape instead, so a caller never has
+   *  to string-match a thrown error's message to tell "busy, try again"
+   *  apart from "ran, and found nothing wrong". Absent (not merely false)
+   *  when reconcile actually ran to completion. */
+  busy?: boolean
 }
 
 export interface ConductorSnapshot {

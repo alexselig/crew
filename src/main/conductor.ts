@@ -38,6 +38,26 @@ export interface Conductor {
   publishLane(lane: ConductorLane): Promise<PublishOutcome>
   syncLane(lane: ConductorLane): Promise<SyncOutcome>
   isPublishing(): boolean
+  /** The lane id (or the 'reconcile' sentinel) currently holding the
+   *  single-flight lock, or null when nothing does. Task 5, finding 1: the
+   *  IPC backend used to track its own `publishingLaneId`, fed only by its
+   *  own before/after bookkeeping around publishLane/syncLane — never by
+   *  reconcile(), and clobbered by a second busy caller's `finally` while
+   *  the first was still running. Reading straight from the lock this file
+   *  already owns replaces that shadow copy with the one true answer. */
+  lockHolder(): string | null
+  /** Reserves the single-flight lock for an operation that is not itself a
+   *  publish/sync/reconcile (Task 5, finding 2: lane destruction) but still
+   *  must not run concurrently with one — removing a lane's worktree out
+   *  from under an in-flight merge is exactly the race publishLane's and
+   *  syncLane's own reservation comments exist to prevent. Returns false,
+   *  reserving nothing, when the lock is already held; true when this call
+   *  took it. Checked and set synchronously, before any await, for the same
+   *  TOCTOU reason every other acquisition in this file is. */
+  reserveLock(holder: string): boolean
+  /** Releases a lock this caller reserved via reserveLock(). Always call
+   *  from a finally, exactly like every other release in this file. */
+  releaseLock(): void
   reconcile(): Promise<ReconcileReport>
 }
 
@@ -92,6 +112,18 @@ export function createConductor(deps: ConductorDeps): Conductor {
   let publishing: string | null = null
 
   const isPublishing = (): boolean => publishing !== null
+
+  const lockHolder = (): string | null => publishing
+
+  const reserveLock = (holder: string): boolean => {
+    if (publishing !== null) return false
+    publishing = holder
+    return true
+  }
+
+  const releaseLock = (): void => {
+    publishing = null
+  }
 
   const publishLane = async (lane: ConductorLane): Promise<PublishOutcome> => {
     if (publishing !== null) return { ok: false, reason: 'busy' }
@@ -620,5 +652,5 @@ export function createConductor(deps: ConductorDeps): Conductor {
     return { needsAttention: operations.length > 0, operations }
   }
 
-  return { publishLane, syncLane, isPublishing, reconcile }
+  return { publishLane, syncLane, isPublishing, lockHolder, reserveLock, releaseLock, reconcile }
 }

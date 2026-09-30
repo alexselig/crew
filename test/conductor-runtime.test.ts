@@ -660,6 +660,47 @@ describe('syncLane', () => {
     }
     await reconcilePromise
   })
+
+  // Task 5, finding 1: lockHolder() is the single source of truth the
+  // backend now reads instead of maintaining its own shadow copy. Load-
+  // bearing on lockHolder() actually reflecting the SAME lock
+  // publishLane/isPublishing reserve, not a second independent variable.
+  it('lockHolder() reports the lane id holding the lock while a publish is in flight, then null once released', async () => {
+    const { lanes, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    expect(conductor.lockHolder()).toBeNull()
+    const publishPromise = conductor.publishLane(lane)
+    expect(conductor.lockHolder()).toBe(lane.id)
+    await publishPromise
+    expect(conductor.lockHolder()).toBeNull()
+  })
+
+  // Task 5, finding 2: destroyLane needs to reserve the SAME lock a publish
+  // holds, or a destroy could race a merge reading the same worktree.
+  // reserveLock/releaseLock are the primitive that makes that possible for
+  // an operation (lane destruction) that isn't itself a publish/sync/
+  // reconcile.
+  it('reserveLock refuses while the lock is held and lets a later caller take it once released', async () => {
+    const { lanes, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const publishPromise = conductor.publishLane(lane)
+    expect(conductor.reserveLock('destroy:other')).toBe(false)
+    expect(conductor.lockHolder()).toBe(lane.id)
+    await publishPromise
+
+    expect(conductor.reserveLock('destroy:other')).toBe(true)
+    expect(conductor.lockHolder()).toBe('destroy:other')
+    expect(conductor.isPublishing()).toBe(true)
+    conductor.releaseLock()
+    expect(conductor.lockHolder()).toBeNull()
+    expect(conductor.isPublishing()).toBe(false)
+  })
 }, { timeout: 30_000 })
 
 describe('reconcile', () => {
