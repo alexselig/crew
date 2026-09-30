@@ -25,19 +25,35 @@ export class InvalidWorkspaceIdError extends Error {
   }
 }
 
-// A workspaceId must be usable as exactly one path segment: no separators
-// (forward or back slash — Electron ships on Windows too), no ".." or "."
-// (which would name the parent or the directory itself rather than a child
-// of it), no null bytes, and non-empty. Anything else is rejected rather
-// than stripped/escaped: silently rewriting an attacker-controlled string
-// into "something plausible" is exactly the bug class this guards against.
+// A workspaceId must be usable as exactly one path segment on every
+// platform Electron ships on, including Windows. That rules out:
+//   - the Windows-reserved path characters `<>:"/\|?*` (`:` also introduces
+//     a drive letter like "C:" or a stream name like "C:foo", either of
+//     which would resolve outside <userDataDir> on Windows even though it
+//     contains no `/` or `\`);
+//   - ASCII control characters (0x00-0x1F, 0x7F), which are invalid in
+//     Windows filenames and can smuggle unexpected bytes (e.g. a newline)
+//     into anything that later logs or shells out with the derived path;
+//   - "." or ".." (or a string made up only of dots), which would name the
+//     directory itself or its parent rather than a child of it;
+//   - the empty string;
+//   - unbounded length, which some filesystems refuse outright.
+// Anything else is rejected rather than stripped/escaped: silently
+// rewriting an attacker-controlled string into "something plausible" is
+// exactly the bug class this guards against.
+const WINDOWS_RESERVED_CHARS = /[<>:"/\\|?*]/
+// eslint-disable-next-line no-control-regex
+const ASCII_CONTROL_CHARS = /[\u0000-\u001f\u007f]/
+const ONLY_DOTS = /^\.+$/
+const MAX_WORKSPACE_ID_LENGTH = 255
+
 const isValidWorkspaceId = (workspaceId: unknown): workspaceId is string => {
   if (typeof workspaceId !== 'string') return false
   if (workspaceId.length === 0) return false
-  if (workspaceId === '.' || workspaceId === '..') return false
-  if (workspaceId.includes('/') || workspaceId.includes('\\')) return false
-  if (workspaceId.includes('..')) return false
-  if (workspaceId.includes('\u0000')) return false
+  if (workspaceId.length > MAX_WORKSPACE_ID_LENGTH) return false
+  if (ONLY_DOTS.test(workspaceId)) return false
+  if (WINDOWS_RESERVED_CHARS.test(workspaceId)) return false
+  if (ASCII_CONTROL_CHARS.test(workspaceId)) return false
   return true
 }
 
