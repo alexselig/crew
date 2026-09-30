@@ -97,7 +97,8 @@ export const DEFAULT_SETTINGS: Settings = {
   minimizedAsList: true,
   enhancedTerminal: false,
   showGithubButton: true,
-  githubButtonOpensRepo: true
+  githubButtonOpensRepo: true,
+  calmMotion: false
 }
 
 interface StoreData {

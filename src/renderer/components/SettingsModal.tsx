@@ -35,6 +35,11 @@ const TOGGLES: { key: keyof Settings; label: string; desc: string }[] = [
     label: 'Show minimized in grid as list',
     desc: 'Collect minimized sessions into one list card at the end of the grid, instead of a “show more” inside each group.'
   },
+  {
+    key: 'calmMotion',
+    label: 'Calm working animation',
+    desc: 'Working sessions breathe instead of bobbing. Steadier when many sessions run at once, and keeps the at-a-glance “working” signal.'
+  },
   { key: 'launchAtLogin', label: 'Launch at login', desc: 'Start Crew automatically when you log in.' },
   {
     key: 'enhancedTerminal',

@@ -120,6 +120,14 @@ export interface Settings {
   /** When the GitHub chip is clicked, also open the repo in the browser (true) or
    * only copy its URL to the clipboard (false). Only applies when the chip is shown. */
   githubButtonOpensRepo: boolean
+  /** Replace the working mascot's bob-and-scale with the calmer opacity breathe.
+   *
+   * The bob is a per-session animation, so it is quiet with a handful of working
+   * sessions and reads as flicker with a dozen bobbing out of phase — which is
+   * what a large roster running in parallel looks like. macOS Reduce Motion
+   * already swaps in the breathe; this is the same swap, available without
+   * turning motion off system-wide. Off by default. */
+  calmMotion: boolean
 }
 
 /** A reusable specialist agent invoked headless against a session's context. */

@@ -9,6 +9,8 @@ import { WorkspaceSessionCard } from '../components/WorkspaceSessionCard'
 import { TranscriptPane } from '../components/TranscriptPane'
 import { CustomViewOrganizer } from '../components/CustomViewOrganizer'
 import { SettingsModal } from '../components/SettingsModal'
+import { Character } from '../components/Character'
+import { useCalmMotion } from '../calm-motion'
 import { getPooled, getTranscript, writeTo, snapshotOf } from '../terminal/pool'
 import { createXtermEngine } from '../terminal/xterm-engine'
 import { setEngineMode } from '../terminal/facade'
@@ -109,11 +111,13 @@ const defaultSettings: Settings = {
   minimizedAsList: true,
   enhancedTerminal: false,
   showGithubButton: true,
-  githubButtonOpensRepo: true
+  githubButtonOpensRepo: true,
+  calmMotion: false
 }
 const controls: RendererRegressionControls = {
   replay: null,
   replayAlt: null,
+  animationOfWorkingMascot: () => null,
   activeWorkspace: 'a',
   currentSelected: null,
   selected: [],
@@ -474,6 +478,30 @@ function SettingsFixture() {
   )
 }
 
+// The "Calm working animation" setting, end to end: the real SettingsModal row
+// flips the real setting, the real hook publishes it on <html>, and the real
+// stylesheet decides what a working mascot animates with. Asserting on the
+// computed animation is what makes this a test of the swap rather than of the
+// attribute — an attribute nothing keys off would still pass a class check.
+function CalmMotionFixture() {
+  const [settings, setSettings] = useState<Settings>(defaultSettings)
+  useCalmMotion(settings.calmMotion)
+  controls.animationOfWorkingMascot = () => {
+    const art = document.querySelector('.character--run .character__art')
+    return art ? getComputedStyle(art).animationName : null
+  }
+  return (
+    <div className="app">
+      <Character glyph="🦊" state="WORKING" id="fox" />
+      <SettingsModal
+        settings={settings}
+        onToggle={(key, value) => setSettings((s) => ({ ...s, [key]: value }))}
+        onClose={noop}
+      />
+    </div>
+  )
+}
+
 // Real Roster + real GridView with the real reveal wiring, and enough sessions
 // that the grid actually scrolls horizontally. The `app` fixture stubs both
 // components, so it cannot exercise scroll alignment. Sessions are exited so
@@ -730,6 +758,7 @@ createRoot(document.getElementById('root')!).render(
   kind === 'snapshot-replay' ? <SnapshotReplayFixture /> :
   kind === 'nav-float' ? <NavFloatFixture /> :
   kind === 'settings' ? <SettingsFixture /> :
+  kind === 'calm-motion' ? <CalmMotionFixture /> :
   kind === 'organizer-new' ? <OrganizerFixture view={null} /> :
   kind === 'organizer-edit' ? <OrganizerFixture view={organizerView} /> :
   <App />

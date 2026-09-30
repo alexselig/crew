@@ -21,6 +21,13 @@ running and supervising multiple AI CLI agent sessions at a glance.
   a terminal the user was looking at stayed empty until its agent happened to
   emit another byte. The viewport is now repainted as part of the swap.
 
+### Added
+
+- **Calm working animation** (Settings). The working mascot bobs up and down to
+  mark a live session, which reads as flicker once a dozen sessions are working
+  at once and a dozen bobs run out of phase. Turning this on keeps the working
+  signal but carries it with the slow opacity breathe instead of movement.
+
 ## 0.7.5 — 2026-09-30
 
 ### Fixed
