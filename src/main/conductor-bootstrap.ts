@@ -208,6 +208,23 @@ export function createConductorController(deps: ConductorBootstrapDeps): Conduct
 
   const buildFromConfig = (config: ConductorConfig): BoundEntry => {
     const paths = conductorPaths(deps.userDataDir, config.workspaceId)
+    // Wave 4 finding F-5: the journal path was re-derived here but the
+    // worktree paths were taken from the store as saved. A store edited by
+    // hand, migrated from another machine, or corrupted could therefore aim
+    // Conductor's integration worktree at an arbitrary directory — and the
+    // repair path (merge --abort, forced checkout, clean -fd) runs git
+    // commands there. Conductor's paths are derived, never trusted: the
+    // derived values win, and the mismatch is reported. `config` is mutated
+    // in place because it is the same object the runtime and
+    // persistenceFor's saveTestRecipe hold.
+    if (config.integrationWorktree !== paths.integrationWorktree || config.lanesDir !== paths.lanesDir) {
+      warn(
+        `stored conductor paths for workspace ${config.workspaceId} are not the derived ones; using the derived paths`,
+        { stored: { integrationWorktree: config.integrationWorktree, lanesDir: config.lanesDir }, derived: paths }
+      )
+      config.integrationWorktree = paths.integrationWorktree
+      config.lanesDir = paths.lanesDir
+    }
     const runtime: ConductorRuntime = createConductorRuntimeFn({
       config,
       journalPath: paths.journal,

@@ -129,8 +129,10 @@ function existingConfig(workspaceId: string, overrides: Partial<ConductorConfig>
     workspaceId,
     repo: `/repo-${workspaceId}`,
     integrationBranch: 'crew/integration',
-    integrationWorktree: `/int-${workspaceId}`,
-    lanesDir: `/lanes-${workspaceId}`,
+    // The paths a healthy store holds are exactly the derived ones — see the
+    // F-5 test below for what happens when they are not.
+    integrationWorktree: join(USER_DATA_DIR, 'conductor', workspaceId, 'integration'),
+    lanesDir: join(USER_DATA_DIR, 'conductor', workspaceId, 'lanes'),
     maxLanes: 4,
     test: null,
     ...overrides
@@ -387,6 +389,28 @@ describe('createConductorController: per-call workspace resolution', () => {
     await controller.backendFor('ws-a').state()
     await controller.backendFor('ws-b').state()
     expect((await controller.backendFor('ws-a').state()).publishing).toBe('lane-1')
+  })
+
+  // Wave 4 finding F-5: after a restart the journal path was re-derived but
+  // the worktree paths were taken from the store as saved. Conductor's
+  // repair path runs `merge --abort`, a forced checkout and `clean -fd` in
+  // the integration worktree, so a store carrying some other directory
+  // (hand-edited, migrated from another machine, corrupted) would aim those
+  // at it. Every Conductor path is derived, never trusted.
+  it('re-derives the worktree paths from userDataDir rather than trusting the stored ones', async () => {
+    const deps = fakeDeps()
+    deps.saveConductorConfigs([existingConfig('ws-1', {
+      integrationWorktree: '/Users/test/code/some-project',
+      lanesDir: '/Users/test/code/some-project/.crew-lanes'
+    })])
+    const createConductorRuntime = vi.fn((_d: { config: ConductorConfig }) => fakeRuntime())
+    const controller = createConductorController({ ...deps, createConductorRuntime })
+
+    await controller.backendFor('ws-1').state()
+
+    const bound = createConductorRuntime.mock.calls[0][0].config
+    expect(bound.integrationWorktree).toBe(join(USER_DATA_DIR, 'conductor', 'ws-1', 'integration'))
+    expect(bound.lanesDir).toBe(join(USER_DATA_DIR, 'conductor', 'ws-1', 'lanes'))
   })
 })
 
