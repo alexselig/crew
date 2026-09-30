@@ -2098,4 +2098,47 @@ describe('the integration-worktree reset', () => {
     expect(journal.read().map((e) => e.phase)).toEqual(['intent'])
     expect((await conductor.reconcile()).needsAttention).toBe(true)
   })
+
+  // Wave 6, F-13: `'main'` is rejected by an UNANCHORED pattern too, so the
+  // test above proved nothing about the anchors — and unanchored is the
+  // whole vulnerability, because `refs/heads/cafebabe1` contains a hex run
+  // and `checkout` would happily take it. This entry passes
+  // /[0-9a-f]{7,64}/ and must still be refused.
+  it('refuses a recorded base that merely contains a run of hex digits', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const one = await lanes.create('one', { presetId: 'shell', model: null })
+    const two = await lanes.create('two', { presetId: 'shell', model: null })
+    commit(one.worktree, 'README.md', 'one\n', 'one edits the readme')
+    commit(two.worktree, 'README.md', 'two\n', 'two edits the readme')
+    const facts = await lanes.facts(one)
+    const twoTip = git(['rev-parse', two.branch as string], settings.repo)
+    git(['checkout', '--detach', facts.laneTip], settings.integrationWorktree)
+    try {
+      execFileSync('git', ['merge', '--no-edit', twoTip], {
+        cwd: settings.integrationWorktree, encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...ENV }
+      })
+    } catch {
+      /* the conflict is the point */
+    }
+
+    // A real ref, resolvable by `checkout`, whose name contains a hex run.
+    git(['branch', 'cafebabe1', facts.laneTip], settings.repo)
+    const tampered = 'refs/heads/cafebabe1'
+    expect(/[0-9a-f]{7,64}/.test(tampered)).toBe(true)
+
+    journal.append({
+      opId: 'op-hexish', laneId: one.id, phase: 'intent',
+      baseSha: tampered, laneTip: facts.laneTip, at: 1
+    })
+
+    await conductor.reconcile()
+    const outcome = await conductor.acknowledgeOperation('op-hexish', 'reviewed')
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'worktree-wedged' })
+    if (!outcome.ok) expect(outcome.message).toMatch(/not a commit id/i)
+    expect(journal.read().map((e) => e.phase)).toEqual(['intent'])
+    expect((await conductor.reconcile()).needsAttention).toBe(true)
+  })
 }, { timeout: 30_000 })

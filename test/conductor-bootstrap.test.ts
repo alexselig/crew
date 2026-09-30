@@ -442,6 +442,39 @@ describe('createConductorController: per-call workspace resolution', () => {
     expect(stored?.integrationWorktree).toBe(join(USER_DATA_DIR, 'conductor', 'ws-1', 'integration'))
     expect(stored?.lanesDir).toBe(join(USER_DATA_DIR, 'conductor', 'ws-1', 'lanes'))
   })
+
+  // Wave 6, F-13: the write-back is guarded by "does this workspace still
+  // have a stored record?", and that guard was uncovered — replacing it
+  // with `true` passed every test. A real store re-reads the file on each
+  // call, so the record can disappear between the read that found the
+  // config and the write-back: the user stopped conducting that workspace
+  // in another window. Writing then RESURRECTS a record they deleted.
+  it('does not resurrect a stored record that disappeared between the read and the path correction', async () => {
+    const disk: ConductorConfig[] = [existingConfig('ws-1', {
+      integrationWorktree: '/Users/test/code/some-project',
+      lanesDir: '/Users/test/code/some-project/.crew-lanes'
+    })]
+    const getConductorConfigs = vi.fn(() => {
+      // The first read is the one that finds the config to bind; by the
+      // second, the workspace is no longer conducted.
+      const snapshot = disk.map((c) => ({ ...c }))
+      disk.length = 0
+      return snapshot
+    })
+    const saveConductorConfigs = vi.fn((list: ConductorConfig[]) => {
+      disk.splice(0, disk.length, ...list.map((c) => ({ ...c })))
+      return disk
+    })
+    const controller = createConductorController({
+      ...fakeDeps({ getConductorConfigs, saveConductorConfigs }),
+      createConductorRuntime: () => fakeRuntime()
+    })
+
+    await controller.backendFor('ws-1').state()
+
+    expect(saveConductorConfigs).not.toHaveBeenCalled()
+    expect(disk).toEqual([])
+  })
 })
 
 // Review finding 3: the test recipe a successful compose put in force has to
@@ -495,6 +528,71 @@ describe('createConductorController: test recipe persistence', () => {
     await controller.compose('ws-1', DRAFT)
     expect(deps._configs).toHaveLength(1)
     expect(deps._configs[0].test).toEqual(recipe)
+  })
+
+  // Wave 6, F-13: saveTestRecipe's "is this workspace stored?" guard was
+  // uncovered too — `true` passed 31/31, because on the first-compose path
+  // compose saves the config afterwards anyway. Two things distinguish
+  // them: a recipe set mid-compose must write NOTHING (a compose that then
+  // fails leaves no config behind), and a recipe set after the workspace
+  // stopped being conducted must not resurrect its record.
+  it('writes nothing when a recipe is set during a first compose that then fails', async () => {
+    const deps = fakeDeps()
+    const recipe: TestRecipe = { command: 'npm', args: ['test'], cwd: '.', timeoutMs: 60_000 }
+    let storedWhenRecipeSet: ConductorConfig[] | null = null
+    const { factory } = fakeBackendFactory()
+    const persistenceSeen: ConductorPersistence[] = []
+    const controller = createConductorController({
+      ...deps,
+      createConductorRuntime: vi.fn(() => fakeRuntime()),
+      createShippedConductorBackend: vi.fn((runtime, persistence) => {
+        if (persistence) persistenceSeen.push(persistence)
+        const backend = factory(runtime, persistence)
+        return {
+          ...backend,
+          compose: (async () => {
+            persistence?.saveTestRecipe?.(recipe)
+            storedWhenRecipeSet = deps.getConductorConfigs()
+            return { ok: false, errors: [{ field: 'repo', message: 'no' }] }
+          }) as ConductorBackend['compose']
+        }
+      })
+    })
+
+    const result = await controller.compose('ws-1', DRAFT)
+
+    expect(result.ok).toBe(false)
+    expect(persistenceSeen.length).toBeGreaterThan(0)
+    expect(storedWhenRecipeSet).toEqual([])
+    expect(deps._configs).toEqual([])
+    expect(deps.saveConductorConfigs).not.toHaveBeenCalled()
+  })
+
+  it('does not resurrect a stored record when a recipe arrives after the workspace stopped being conducted', async () => {
+    const disk: ConductorConfig[] = [existingConfig('ws-1')]
+    const saveConductorConfigs = vi.fn((list: ConductorConfig[]) => {
+      disk.splice(0, disk.length, ...list.map((c) => ({ ...c })))
+      return disk
+    })
+    const { factory, built } = fakeBackendFactory()
+    const controller = createConductorController({
+      ...fakeDeps({
+        getConductorConfigs: vi.fn(() => disk.map((c) => ({ ...c }))),
+        saveConductorConfigs
+      }),
+      createConductorRuntime: vi.fn(() => fakeRuntime()),
+      createShippedConductorBackend: factory
+    })
+    await controller.backendFor('ws-1').state()
+
+    // The user stops conducting ws-1 in another window; the backend built
+    // a moment ago is still live and its run finishes.
+    disk.length = 0
+    const recipe: TestRecipe = { command: 'npm', args: ['test'], cwd: '.', timeoutMs: 60_000 }
+    built.at(-1)!.persistence!.saveTestRecipe!(recipe)
+
+    expect(saveConductorConfigs).not.toHaveBeenCalled()
+    expect(disk).toEqual([])
   })
 })
 

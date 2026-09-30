@@ -186,6 +186,21 @@ export function notOwnWorktreeMessage(dir: string, kind: OwnedWorktreeKind = 'in
       'Conductor created, so no git command may be run in it; refusing to touch it'
     )
   }
+  // Wave 6, F-8 (A15): a folder that is simply EMPTY of git earned the
+  // "resolves to some enclosing repository" wording too, even where no
+  // enclosing repository exists — and it left the user with no stated way
+  // out, while every later publish failed identically. Conductor may not
+  // re-create this folder itself (wave 4, B-2: it may be full of somebody's
+  // work), so the message has to carry the recovery.
+  if (!existsSync(join(dir, '.git'))) {
+    return (
+      `the ${kind} at ${dir} is not a Conductor worktree: it has no .git entry, so git run there would ` +
+      'act on whatever repository the folder happens to sit inside; refusing to touch it. Conductor will ' +
+      'not re-create it for you, because it may hold work: move anything you need out of that folder and ' +
+      `delete it (or run \`git worktree repair ${dir}\` from the repository if it was a worktree), then ` +
+      'publish again.'
+    )
+  }
   return (
     `the ${kind} at ${dir} is not a git worktree of its own — git there resolves to some ` +
     'enclosing repository, so no git command may be run in it; refusing to touch it'
@@ -236,7 +251,15 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     // --detach is the whole design: integrationBranch is checked out nowhere,
     // so update-ref can advance it without desynchronising any working copy,
     // and the user stays free to check it out themselves.
-    await inRepo(['worktree', 'add', ...(already ? ['--force'] : []), '--detach', settings.integrationWorktree, base])
+    // Wave 6, F-14: `--force` twice, not once. A single force is refused
+    // outright for "a missing but locked worktree" — git names `add -f -f`
+    // in its own error — and a locked registration outlives the folder, so
+    // one force left the workspace with no way forward from the panel. The
+    // second force only overrides the lock and the missing folder: the add
+    // is `--detach`, so it is never claiming a branch from anybody.
+    await inRepo([
+      'worktree', 'add', ...(already ? ['--force', '--force'] : []), '--detach', settings.integrationWorktree, base
+    ])
   }
 
   const create = async (name: string, agent: LaneAgent): Promise<ConductorLane> => {

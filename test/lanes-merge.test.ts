@@ -711,12 +711,34 @@ describe('the ownership guard', () => {
   // volume's own casing for both sides. Skipped where the volume really is
   // case-sensitive, because there the two paths are genuinely different
   // directories and rejecting is correct.
-  it('accepts a path whose letter case differs, on a case-insensitive volume', async () => {
+  //
+  // Wave 6, F-13: this test used to `return` early on a case-sensitive
+  // volume, so on such a volume it asserted NOTHING while still reporting
+  // green. Both volumes are now asserted: insensitive → the variant is the
+  // same worktree and is accepted; sensitive → it is a different path
+  // altogether and refusing it is the right answer. Which volume this is
+  // is decided by a probe, and stated, so the branch taken is never a
+  // silent one.
+  it('accepts a path whose letter case differs on a case-insensitive volume, and refuses it on a case-sensitive one', async () => {
     const lanes = createLaneManager(settings)
     await lanes.ensureIntegrationWorktree()
+
+    // The probe: a file created in one spelling, looked for in another.
+    const probe = join(root, 'case-probe')
+    writeFileSync(probe, 'probe\n')
+    const caseInsensitive = existsSync(join(root, 'CASE-PROBE'))
+
     const variant = join(root, 'INTEGRATION')
-    if (!existsSync(join(variant, '.git'))) return // case-sensitive volume: nothing to assert
-    expect(await isOwnWorktree(variant)).toBe(true)
+    expect(existsSync(join(variant, '.git'))).toBe(caseInsensitive)
+    expect(await isOwnWorktree(variant)).toBe(caseInsensitive)
+    if (caseInsensitive) {
+      // The point of realpathSync.native: the volume's own spelling, for
+      // both sides, so the comparison is between directories and not
+      // between the letters somebody happened to type.
+      expect(realpathSync.native(variant)).toBe(realpathSync.native(settings.integrationWorktree))
+    } else {
+      expect(notOwnWorktreeMessage(variant)).toMatch(/does not exist/i)
+    }
   })
 
   // F-8 (A5): git keeps listing a deleted worktree as "prunable", so
@@ -749,6 +771,57 @@ describe('the ownership guard', () => {
     const message = notOwnWorktreeMessage(join(root, 'nowhere'))
     expect(message).toMatch(/does not exist/i)
     expect(message).not.toMatch(/enclosing repository/i)
+  })
+
+  // Wave 6, F-8 (A15): a folder that is present but has lost its `.git`
+  // was told it "resolves to some enclosing repository" even when no
+  // enclosing repository exists, and was given no way out — every later
+  // publish failed identically. Conductor still refuses to touch it (it may
+  // be full of somebody's work), but now says what it is and how to clear
+  // it.
+  it('says a folder with no .git is not a Conductor worktree, and how to recover it', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    rmSync(join(settings.integrationWorktree, '.git'), { force: true })
+    writeFileSync(join(settings.integrationWorktree, 'someones-work.txt'), 'not ours\n')
+
+    const message = notOwnWorktreeMessage(settings.integrationWorktree)
+    expect(message).toMatch(/not a Conductor worktree/i)
+    expect(message).toMatch(/no \.git entry/i)
+    expect(message).toMatch(/delete it/i)
+    expect(message).toMatch(/git worktree repair/i)
+    expect(message).not.toMatch(/enclosing repository/i)
+    expect(message).not.toMatch(/does not exist/i)
+
+    // …and it is still a refusal: the folder and its contents survive.
+    await expect(lanes.mergeInIntegration(tip, base)).rejects.toThrow(/not a Conductor worktree/i)
+    expect(existsSync(join(settings.integrationWorktree, 'someones-work.txt'))).toBe(true)
+  })
+
+  // Wave 6, F-14: `git worktree lock` outlives the folder, and a single
+  // `--force` is refused outright for "a missing but locked worktree" —
+  // git's own error names `add -f -f`. One force left the workspace with no
+  // way forward from the panel.
+  it('re-creates an integration folder that was deleted while its registration was locked', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    git(['worktree', 'lock', settings.integrationWorktree], settings.repo)
+    rmSync(settings.integrationWorktree, { recursive: true, force: true })
+
+    const result = await lanes.mergeInIntegration(tip, base)
+
+    expect(result).toMatchObject({ ok: true })
+    expect(await isOwnWorktree(settings.integrationWorktree)).toBe(true)
   })
 
   // Wave 6, F-12 (A8b): `lane.worktree` arrives from the saved store, which
