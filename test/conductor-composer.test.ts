@@ -1,5 +1,15 @@
+import * as ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { UNSUPPORTED_CUSTOM_PRESET, validateRoster, type RosterDraft } from '../src/shared/conductor-composer'
+import {
+  parseSource,
+  hasNamedImport,
+  findFunctionVariable,
+  findCallsTo,
+  findAll,
+  findTryStatement,
+  flattenPropertyAccess
+} from './helpers/ts-ast'
 
 function draft(overrides: Partial<RosterDraft> = {}): RosterDraft {
   return {
@@ -9,6 +19,7 @@ function draft(overrides: Partial<RosterDraft> = {}): RosterDraft {
       { roleName: 'builder', kind: 'author', agent: { presetId: 'copilot-cli', model: 'gpt-6-astra' } },
       { roleName: 'reviewer', kind: 'reviewer', agent: { presetId: 'copilot-cli', model: 'claude-opus-5' } }
     ],
+    test: null,
     ...overrides
   }
 }
@@ -90,5 +101,71 @@ describe('validateRoster', () => {
     const result = validateRoster(draft({ rows }), { maxLanes: 2 })
     expect(result.ok).toBe(false)
     expect(result.errors).toContainEqual({ field: 'rows[0].agent.presetId', message: 'choose an agent' })
+  })
+})
+
+describe('ConductorComposer.tsx — never claims a failed compose left nothing behind', () => {
+  // The component itself renders nothing under vitest's node-only config;
+  // this pins the WIRING (the pure text of describeComposeFailure is
+  // covered directly in conductor-view-model.test.ts) — that submit routes
+  // through it rather than a shortcut like `'message' in result` that drops
+  // survivingLanes on the floor (Task 5 finding 3, re-broken once already).
+  //
+  // Task 7 fix round 1, Finding 2: previously a plain source-text scan
+  // (indexOf/regex), which still passes if the real wiring is deleted and
+  // replaced by a comment or string literal containing the same text. This
+  // walks the real TypeScript AST instead, so the assertion requires an
+  // actual CallExpression (and the absence of an actual `in` BinaryExpression).
+  const source = parseSource('src/renderer/components/ConductorComposer.tsx')
+
+  it('imports describeComposeFailure via a real import declaration from the pure view-model', () => {
+    expect(hasNamedImport(source, '../conductor-view-model', 'describeComposeFailure')).toBe(true)
+  })
+
+  it('routes the submit failure through a real describeComposeFailure(result) call, not a string-matched shortcut', () => {
+    const submit = findFunctionVariable(source, 'submit')
+    expect(submit).toBeDefined()
+    const body = submit!.body
+
+    const setSubmitErrorCalls = findCallsTo(body, 'setSubmitError')
+    expect(setSubmitErrorCalls.some((call) => {
+      const arg = call.arguments[0]
+      return arg !== undefined && ts.isCallExpression(arg) &&
+        flattenPropertyAccess(arg.expression) === 'describeComposeFailure' &&
+        arg.arguments[0]?.getText() === 'result'
+    })).toBe(true)
+
+    // The regression this guards against used `'message' in result` as a
+    // shortcut instead — assert no real `in` expression exists in the body
+    // at all, not just that the particular substring is absent.
+    const inExpressions = findAll(body, ts.isBinaryExpression).filter(
+      (b) => b.operatorToken.kind === ts.SyntaxKind.InKeyword
+    )
+    expect(inExpressions).toHaveLength(0)
+  })
+
+  // Review finding 6: compose goes over IPC, and an IPC call can REJECT
+  // rather than return — main throwing, a dead channel. Without a catch the
+  // rejection was unhandled: the spinner stopped and the form sat there
+  // looking idle, telling the user nothing at all.
+  it('catches a rejected compose and reports it, rather than leaving an unhandled rejection', () => {
+    const submit = findFunctionVariable(source, 'submit')
+    expect(submit).toBeDefined()
+    const tryStatement = findTryStatement(submit!.body)
+    expect(tryStatement).toBeDefined()
+    expect(tryStatement!.catchClause).toBeDefined()
+    expect(tryStatement!.catchClause!.variableDeclaration?.name.getText()).toBe('error')
+
+    const reported = findCallsTo(tryStatement!.catchClause!.block, 'setSubmitError')
+    expect(reported.some((call) => {
+      const arg = call.arguments[0]
+      return arg !== undefined && ts.isCallExpression(arg) &&
+        flattenPropertyAccess(arg.expression) === 'describeUnexpectedFailure' &&
+        arg.arguments[1]?.getText() === 'error'
+    })).toBe(true)
+
+    // And the real IPC call is inside that try, not hoisted out of it.
+    const composeCalls = findCallsTo(tryStatement!.tryBlock, 'onCompose')
+    expect(composeCalls.some((c) => c.arguments[0]?.getText() === 'draft')).toBe(true)
   })
 })

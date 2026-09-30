@@ -11,6 +11,12 @@ import { dirname, join, basename } from 'node:path'
 import type { Agent, CustomView, CustomViewGroupBy, CustomViewItem, CustomViewMode, Settings, SessionSet } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
+import type { ConductorConfig, ConductorLane, LaneAgent, TestRecipe } from '../shared/conductor'
+import {
+  validateMembershipChange,
+  type MembershipSession,
+  type MembershipWorkspace
+} from '../shared/conductor-membership'
 import { AtomicWriteError, atomicWriteFile, syncParentDirectory } from './atomic-file'
 
 interface PersistInternalOptions {
@@ -103,6 +109,13 @@ interface StoreData {
   workspaces: Workspace[]
   customViews: CustomView[]
   agents: Agent[]
+  /** Per-workspace Conductor settings, one record per workspaceId. Validated
+   * per-record on load: a malformed record is dropped, never coerced (see
+   * isValidConductorConfig). */
+  conductorConfigs: ConductorConfig[]
+  /** The lane roster. Persisted so an app restart never orphans a lane's
+   * worktree or its running session (see isValidConductorLane). */
+  conductorLanes: ConductorLane[]
   windowBounds?: WindowBounds
   /** Ids of the one-time data migrations already applied to this store (see
    * MIGRATIONS), so each runs at most once. */
@@ -117,7 +130,9 @@ const EMPTY: StoreData = {
   sets: [],
   workspaces: [],
   customViews: [],
-  agents: []
+  agents: [],
+  conductorConfigs: [],
+  conductorLanes: []
 }
 
 /** One-time, ordered data migrations. Each is recorded by id in
@@ -328,6 +343,188 @@ function optionalFields(record: Record<string, unknown>, keys: string[], valid: 
   return keys.every((key) => record[key] === undefined || valid(record[key]))
 }
 
+/** Keeps individual malformed entries out of a collection without failing the
+ * whole store over them (unlike validateStore's whole-array validators). A
+ * corrupt conductor record must not be able to take the session roster down
+ * with it — see conductor-journal.ts's header comment for the same principle
+ * applied to the journal. Collection-level corruption (present but not an
+ * array) is caught earlier, in validateStore, and throws before this runs;
+ * an absent key still defaults to [] here for back-compat. */
+function filterValid<T>(value: unknown, valid: (v: unknown) => v is T): T[] {
+  return Array.isArray(value) ? value.filter(valid) : []
+}
+
+function isValidTestRecipeStep(value: unknown): value is { command: string; args: string[]; timeoutMs: number } {
+  return isRecord(value) && isString(value.command) && isStrings(value.args) && isNumber(value.timeoutMs)
+}
+
+function isValidTestRecipe(value: unknown): value is TestRecipe {
+  return isRecord(value) &&
+    isString(value.command) && isStrings(value.args) && isString(value.cwd) && isNumber(value.timeoutMs) &&
+    (value.setup === undefined || isValidTestRecipeStep(value.setup))
+}
+
+/** A malformed record is dropped, never coerced: workspaceId, repo,
+ * integrationBranch, integrationWorktree and lanesDir are the identity and
+ * the filesystem paths this config points at, so an empty one is unusable,
+ * not merely incomplete. */
+function isValidConductorConfig(value: unknown): value is ConductorConfig {
+  return isRecord(value) &&
+    isString(value.workspaceId) && value.workspaceId.length > 0 &&
+    isString(value.repo) && value.repo.length > 0 &&
+    isString(value.integrationBranch) && value.integrationBranch.length > 0 &&
+    isString(value.integrationWorktree) && value.integrationWorktree.length > 0 &&
+    isString(value.lanesDir) && value.lanesDir.length > 0 &&
+    isNumber(value.maxLanes) &&
+    (value.test === null || isValidTestRecipe(value.test))
+}
+
+function isValidLaneAgent(value: unknown): value is LaneAgent {
+  return isRecord(value) && isString(value.presetId) && (value.model === null || isString(value.model))
+}
+
+const LANE_STATUSES = ['working', 'publishing', 'blocked', 'done']
+
+/** A lane whose id, worktree or branch is empty is malformed and dropped —
+ * it points at a worktree that may not exist. branch is null for a reviewer
+ * lane (detached, owns no branch): null is a valid state, only '' is not.
+ * Task 5, finding 2 (fix round 1): workspaceId is optional on the
+ * ConductorLane TYPE (an in-memory lane, fresh out of lanes.create(), has no
+ * workspace concept of its own — see its doc comment in shared/conductor.ts)
+ * but is required on a PERSISTED lane record: hydration
+ * (createShippedConductorBackend) can only ever recover a lane for a
+ * workspace whose id it can compare against, so a record with a missing,
+ * non-string or empty workspaceId is not merely incomplete, it is
+ * unreachable by every workspace forever — exactly the orphan-worktree
+ * failure mode this whole subsystem exists to prevent. Dropped per-record,
+ * like every other malformed field here: one bad lane must not quarantine
+ * every workspace's roster. */
+function isValidConductorLane(value: unknown): value is ConductorLane {
+  return isRecord(value) &&
+    isString(value.id) && value.id.length > 0 &&
+    isString(value.roleId) &&
+    (value.kind === 'author' || value.kind === 'reviewer') &&
+    isValidLaneAgent(value.agent) &&
+    isString(value.worktree) && value.worktree.length > 0 &&
+    (value.branch === null || (isString(value.branch) && value.branch.length > 0)) &&
+    (value.sessionId === null || isString(value.sessionId)) &&
+    isString(value.status) && LANE_STATUSES.includes(value.status) &&
+    optionalFields(value, ['blockedReason'], isString) &&
+    isNumber(value.dispatches) &&
+    isString(value.workspaceId) && value.workspaceId.length > 0
+}
+
+/**
+ * The single enforcement point for src/shared/conductor-membership.ts's
+ * exclusivity rule: no session may end up a member of more than one
+ * conducted workspace. Every session-membership mutation in
+ * session-manager.ts (setWorkspaceIds/addToWorkspace/removeFromWorkspace/
+ * moveToWorkspace/archiveSession/…) bottoms out in Store.saveSessions with
+ * the FULL proposed session list, so enforcing it exactly once here — rather
+ * than at each of those call sites — is what makes it impossible to bypass.
+ *
+ * A workspace is "conducted" iff it has a persisted ConductorConfig; there
+ * is no separate `conducted` flag on Workspace itself.
+ *
+ * Fail-closed, but NEVER by throwing (review finding 5). This runs on every
+ * ordinary session save — including the one at the end of restore() during
+ * launch — for every user, conductor or not. validateMembershipChange's
+ * graph check throws MalformedMembershipError on data that really does
+ * occur: SessionManager.create()/restore() never de-duplicate workspaceIds,
+ * and the 2026-08-workspaces-firstclass migration can map two case-variant
+ * set names onto one id, so `workspaceIds: ['a','a']` is reachable. A
+ * session save must not be the thing that fails because of it. Three
+ * defences, in order: return early when nothing is conducted (there is no
+ * rule to enforce); de-duplicate before validating; and wrap the whole pass
+ * so any throw at all logs and saves the caller's list unchanged.
+ *
+ * When the rule does apply, a session whose proposed workspaceIds would
+ * violate exclusivity has every conducted workspace AFTER THE FIRST clamped
+ * off (the same choice validateRoster's caller effectively already made by
+ * proposing the earlier one first); every non-conducted membership, and a
+ * workspace id that no longer exists at all, passes through unexamined.
+ */
+export function enforceMembershipExclusivity(
+  sessions: readonly PersistedSession[],
+  workspaces: readonly Workspace[],
+  conductorConfigs: readonly ConductorConfig[]
+): PersistedSession[] {
+  // No conducted workspace ⇒ no exclusivity rule to enforce, and nothing
+  // this function could legitimately change. The overwhelmingly common
+  // case, and the one finding 5 was actually observed throwing in.
+  if (!conductorConfigs || conductorConfigs.length === 0) return [...sessions]
+  if (!sessions.some((s) => s.workspaceIds && s.workspaceIds.length > 1)) return [...sessions]
+
+  try {
+    return clampMemberships(sessions, workspaces, conductorConfigs)
+  } catch (error) {
+    // Logged, never rethrown: an unenforced exclusivity rule is a conductor
+    // inconvenience; a throwing saveSessions loses the user's session list.
+    console.warn('[crew] conductor membership check failed; saving sessions unchanged:', error)
+    return [...sessions]
+  }
+}
+
+function clampMemberships(
+  sessions: readonly PersistedSession[],
+  workspaces: readonly Workspace[],
+  conductorConfigs: readonly ConductorConfig[]
+): PersistedSession[] {
+  const knownWorkspaceIds = new Set(workspaces.map((w) => w.id))
+  const conductedIds = new Set(conductorConfigs.map((c) => c.workspaceId))
+  const membershipWorkspaces: MembershipWorkspace[] = workspaces.map((w) => ({
+    id: w.id,
+    name: w.name,
+    conducted: conductedIds.has(w.id)
+  }))
+  const originalWorkspaceIds: string[][] = sessions.map((s) => s.workspaceIds ?? [])
+  // A workspace id the graph does not recognise would make
+  // validateMembershipChange's own graph check throw, so it is filtered out
+  // of the copy fed to validation ONLY. saveSessions is a hot, shared path
+  // used by the whole app, not just conductor — an unknown id (stale,
+  // deleted concurrently, whatever) must round-trip untouched, not get
+  // silently dropped by this enforcement pass. The clamp below is applied
+  // to the ORIGINAL ids, so a genuine conflict is still removed and
+  // anything else — known non-conducted, or unknown entirely — survives.
+  //
+  // De-duplicated for the same reason (finding 5): a session legitimately
+  // reaches here with the same id listed twice, and the graph check treats
+  // that as malformed. A duplicate says nothing about exclusivity — one
+  // membership named twice is still one membership — so collapsing it is
+  // the honest reading, not a workaround.
+  const validationWorkspaceIds: string[][] = originalWorkspaceIds.map((ids) =>
+    [...new Set(ids)].filter((id) => knownWorkspaceIds.has(id))
+  )
+  // Duplicate session ids are likewise rejected by the graph check. Only
+  // the first occurrence of an id goes into the validation graph; the
+  // clamp below still runs for every session in the caller's list.
+  const seenSessionIds = new Set<string>()
+  const membershipSessions: MembershipSession[] = []
+  sessions.forEach((s, index) => {
+    if (seenSessionIds.has(s.id)) return
+    seenSessionIds.add(s.id)
+    membershipSessions.push({
+      id: s.id,
+      label: s.label,
+      workspaceIds: validationWorkspaceIds[index]
+    })
+  })
+
+  return sessions.map((session, index) => {
+    const original = originalWorkspaceIds[index]
+    const verdict = validateMembershipChange(membershipWorkspaces, membershipSessions, {
+      sessionId: session.id,
+      nextWorkspaceIds: validationWorkspaceIds[index]
+    })
+    const kept = verdict.ok
+      ? original
+      : original.filter((id) => !verdict.conflicts.some((c) => c.otherWorkspaceId === id))
+
+    const unchanged = original.length === kept.length && original.every((id, i) => id === kept[i])
+    return unchanged ? session : { ...session, workspaceIds: kept }
+  })
+}
+
 function validSession(value: unknown, savedSet = false): boolean {
   return isRecord(value) &&
     ['command', 'cwd', 'label', ...(savedSet ? [] : ['id', 'characterId'])].every((key) => isString(value[key])) &&
@@ -359,6 +556,20 @@ function validateStore(raw: unknown): asserts raw is Partial<StoreData> {
   for (const [key, valid] of Object.entries(arrays)) {
     const value = raw[key]
     if (value !== undefined && (!Array.isArray(value) || !value.every(valid))) {
+      throw new InvalidStoreError(`invalid store ${key}`)
+    }
+  }
+  // conductorConfigs/conductorLanes are validated per-record, not here (see
+  // filterValid in readFrom): a single malformed lane must not quarantine the
+  // whole store. But an absent key defaults to [] for back-compat with a
+  // store written before this field existed, while a *present* non-array
+  // value is not "empty", it's corrupt — treating it as absent would erase
+  // the collection and the very next persist() would cement that loss. So
+  // only the top-level shape is checked here, and only to route corruption
+  // through the normal invalid-store recovery path like every other field.
+  for (const key of ['conductorConfigs', 'conductorLanes'] as const) {
+    const value = raw[key]
+    if (value !== undefined && !Array.isArray(value)) {
       throw new InvalidStoreError(`invalid store ${key}`)
     }
   }
@@ -549,6 +760,8 @@ export class Store {
       workspaces: raw.workspaces ?? [],
       customViews: raw.customViews ?? [],
       agents: raw.agents ?? [],
+      conductorConfigs: filterValid(raw.conductorConfigs, isValidConductorConfig),
+      conductorLanes: filterValid(raw.conductorLanes, isValidConductorLane),
       windowBounds: raw.windowBounds,
       migrations: [...(raw.migrations ?? [])]
     }
@@ -884,7 +1097,7 @@ export class Store {
   }
 
   saveSessions(list: PersistedSession[]): void {
-    this.data.sessions = list
+    this.data.sessions = enforceMembershipExclusivity(list, this.data.workspaces, this.data.conductorConfigs)
     this.persist()
   }
 
@@ -913,6 +1126,34 @@ export class Store {
     this.data.workspaces = list
     this.persist()
     return this.data.workspaces
+  }
+
+  /** Per-workspace Conductor settings. Modelled on getWorkspaces/saveWorkspaces:
+   * same shallow storage, same persist-then-return shape. Malformed records
+   * are dropped on load (see isValidConductorConfig), never coerced. */
+  getConductorConfigs(): ConductorConfig[] {
+    return this.data.conductorConfigs
+  }
+
+  saveConductorConfigs(list: ConductorConfig[]): ConductorConfig[] {
+    this.data.conductorConfigs = list
+    this.persist()
+    return this.data.conductorConfigs
+  }
+
+  /** The lane roster. Persisting it here — rather than leaving it as the
+   * in-memory Map conductor-ipc.ts used to keep — is what stops an app
+   * restart from orphaning every lane worktree and every lane session.
+   * Malformed records are dropped on load (see isValidConductorLane), never
+   * coerced. */
+  getConductorLanes(): ConductorLane[] {
+    return this.data.conductorLanes
+  }
+
+  saveConductorLanes(list: ConductorLane[]): ConductorLane[] {
+    this.data.conductorLanes = list
+    this.persist()
+    return this.data.conductorLanes
   }
 
   getCustomViews(): CustomView[] {

@@ -17,10 +17,12 @@ import type {
 } from './types'
 import type {
   ConductorSnapshot,
+  ConductorStateEvent,
   LaneCreateRequest,
   ConductorLane,
   PublishOutcome,
   SyncOutcome,
+  AcknowledgeOutcome,
   ReconcileReport
 } from './conductor'
 import type { RosterDraft, ComposeResult } from './conductor-composer'
@@ -112,13 +114,28 @@ export interface CrewAPI {
   updateCustomView(id: string, input: CustomViewInput): Promise<CustomView[]>
   deleteCustomView(id: string): Promise<CustomView[]>
   // ── Conductor (Phase 1) ──
-  getConductorState(): Promise<ConductorSnapshot>
-  createLane(request: LaneCreateRequest): Promise<ConductorLane>
-  destroyLane(laneId: string): Promise<void>
-  publishLane(laneId: string): Promise<PublishOutcome>
-  syncLane(laneId: string): Promise<SyncOutcome>
-  reconcileConductor(): Promise<ReconcileReport>
-  composeConductedWorkspace(draft: RosterDraft): Promise<ComposeResult>
+  // Every conductor call names the workspace it is for. Main holds no
+  // "currently conducted workspace" of its own: each window keeps its own
+  // active workspace (and can change it from the palette, the sidebar or the
+  // menu), so binding conductor to a single main-side selection bound it to
+  // the wrong workspace, or to none at all. `null` means "All Sessions" — a
+  // legitimate state where conductor is simply disabled.
+  getConductorState(workspaceId: string | null): Promise<ConductorSnapshot>
+  createLane(workspaceId: string | null, request: LaneCreateRequest): Promise<ConductorLane>
+  destroyLane(workspaceId: string | null, laneId: string, options?: { force?: boolean }): Promise<void>
+  publishLane(workspaceId: string | null, laneId: string): Promise<PublishOutcome>
+  syncLane(workspaceId: string | null, laneId: string): Promise<SyncOutcome>
+  reconcileConductor(workspaceId: string | null): Promise<ReconcileReport>
+  /** Closes an interrupted operation on the record so publish and sync stop
+   *  being refused (re-review finding I-1). `opId` must be the operation the
+   *  panel is showing — the newest one in the journal — and `detail` is the
+   *  reason recorded alongside the closure. */
+  acknowledgeConductorOperation(
+    workspaceId: string | null,
+    opId: string,
+    detail: string
+  ): Promise<AcknowledgeOutcome>
+  composeConductedWorkspace(workspaceId: string | null, draft: RosterDraft): Promise<ComposeResult>
   /** Replace a session's workspace-id membership. */
   setSessionWorkspaces(id: string, workspaceIds: string[]): Promise<void>
   addSessionToWorkspace(id: string, wsId: string): Promise<void>
@@ -247,6 +264,9 @@ export interface CrewAPI {
   onAssets(cb: (e: AssetsEvent) => void): Unsubscribe
   /** Fired when a background check finds a newer published release. */
   onUpdate(cb: (info: UpdateInfo) => void): Unsubscribe
-  /** The conductor's lanes, facts, or publication lock changed. */
-  onConductorState(cb: (state: ConductorSnapshot) => void): Unsubscribe
+  /** The conductor's lanes, facts, or publication lock changed. The event
+   *  names the workspace it describes, because two windows may be showing
+   *  two different workspaces at once — a listener must ignore an event for
+   *  a workspace it is not displaying. */
+  onConductorState(cb: (event: ConductorStateEvent) => void): Unsubscribe
 }

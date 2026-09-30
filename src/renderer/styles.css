@@ -973,6 +973,29 @@ button {
   color: var(--text-faint);
 }
 
+.conductor-composer-test-recipe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.conductor-composer-test-recipe legend {
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.conductor-composer-test-recipe .field {
+  flex: 1 1 140px;
+}
+
 .conductor-composer-actions {
   display: flex;
   justify-content: flex-end;
@@ -6762,6 +6785,19 @@ button.grid-topbar__wordmark:hover {
   box-shadow: var(--shadow);
   z-index: 20;
 }
+.conductor--empty {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+}
+.conductor-plan-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
 .conductor-head {
   flex: 0 0 auto;
   display: flex;
@@ -6778,6 +6814,37 @@ button.grid-topbar__wordmark:hover {
 }
 .conductor-attention {
   font-size: 11px;
+  color: var(--danger);
+}
+.conductor-recheck {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.conductor-operations {
+  flex: 0 0 auto;
+  list-style: none;
+  margin: 0;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.conductor-operation {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.conductor-operation-summary {
+  flex: 1 1 auto;
+}
+.conductor-acknowledge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.conductor-operation--human {
   color: var(--danger);
 }
 .conductor-roster {
@@ -6853,4 +6920,20 @@ button.grid-topbar__wordmark:hover {
   border-top: 1px solid var(--border-soft);
   font-size: 11px;
   color: var(--text-dim);
+}
+/* Rendered as a loose sibling of the fixed .conductor panel (App.tsx), not
+ * nested inside it, so it needs its own fixed placement -- a small card
+ * floating just above the panel, matching .conductor's own right/bottom
+ * anchor and .update-toast's card treatment. */
+.conductor-plan-load-error {
+  position: fixed;
+  right: 16px;
+  bottom: calc(60vh + 24px);
+  z-index: 20;
+  max-width: 320px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
 }

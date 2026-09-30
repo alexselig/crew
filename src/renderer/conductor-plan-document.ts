@@ -27,8 +27,6 @@ export interface PlanDocument {
   bands: PlanDocumentBand[]
   rows: PlanDocumentRow[]
   rosterNotes: string[]
-  blockingCount: number
-  canCreate: boolean
 }
 
 function paragraphs(body: string): string[] {
@@ -65,27 +63,24 @@ export function buildPlanDocument(roster: ReconciledRoster): PlanDocument {
   }))
 
   const rosterNotes: string[] = []
-  let blockingCount = 0
 
   for (const note of roster.notes) {
     if (note.row === -1) {
       rosterNotes.push(note.message)
-      if (note.severity === 'blocking') blockingCount += 1
       continue
     }
     const target = rows[note.row]
-    // A note aimed past the end of the roster is stale, not fatal. Dropping it
-    // is safe; counting it as blocking would wedge Create with no visible cause.
+    // A note aimed past the end of the roster is stale, not fatal. Dropping
+    // it is safe — the composer's own validateRoster is the real create gate.
     if (!target) continue
     if (note.severity === 'blocking') {
       target.problems.push(note.message)
-      blockingCount += 1
     } else {
       target.warnings.push(note.message)
     }
   }
 
-  return { bands, rows, rosterNotes, blockingCount, canCreate: blockingCount === 0 }
+  return { bands, rows, rosterNotes }
 }
 
 /** The dialog's action bar: Cancel plus exactly ONE forward action. There is

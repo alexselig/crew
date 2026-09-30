@@ -224,7 +224,7 @@ describe('reconcileProposal', () => {
     if (!parsed.ok) throw new Error('fixture should parse')
     const result = reconcileProposal(parsed.proposal, reality, { maxLanes: 3 })
     const validation = validateRoster(
-      { repo: '/tmp/repo', integrationBranch: 'crew/integration', rows: result.rows },
+      { repo: '/tmp/repo', integrationBranch: 'crew/integration', rows: result.rows, test: null },
       { maxLanes: 3 }
     )
     expect(validation.ok).toBe(true)

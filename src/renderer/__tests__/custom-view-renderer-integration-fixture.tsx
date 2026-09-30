@@ -189,7 +189,10 @@ const crew: CrewAPI = {
     publishing: null,
     lanes: [],
     facts: {},
-    needsAttention: false
+    needsAttention: false,
+    operations: [],
+    reconciled: true,
+    reconcileError: null
   }),
   createLane: async () => {
     throw new Error('not implemented in custom-view renderer integration fixture')
@@ -202,6 +205,9 @@ const crew: CrewAPI = {
     throw new Error('not implemented in custom-view renderer integration fixture')
   },
   reconcileConductor: async () => ({ needsAttention: false, operations: [] }),
+  acknowledgeConductorOperation: async () => ({
+    ok: false as const, reason: 'unknown-operation' as const, message: 'no operation'
+  }),
   composeConductedWorkspace: async () => ({ ok: true, lanes: [] }),
   setSessionWorkspaces: async () => {},
   addSessionToWorkspace: async () => {},

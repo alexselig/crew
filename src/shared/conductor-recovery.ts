@@ -94,7 +94,7 @@ export const RECOVERY_ACTIONS: Record<Classification, RecoveryAction> = {
     requiresHuman: false
   },
   'interrupted-merge': {
-    summary: 'A merge was in progress. Continue it or abort it — never silently restart.',
+    summary: 'A merge was interrupted and is still in progress. Acknowledging aborts it and puts the integration worktree back at the commit the operation started from — never a silent restart.',
     safeToRedo: false,
     requiresHuman: true
   },

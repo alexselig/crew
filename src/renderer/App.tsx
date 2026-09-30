@@ -19,6 +19,10 @@ import { repairRendering } from './terminal/repair'
 import { clearPane } from './terminal/pool'
 import { UpdateBanner } from './components/UpdateBanner'
 import { ConductorPanel } from './components/ConductorPanel'
+import { ConductorComposer } from './components/ConductorComposer'
+import { ConductorPlanDialog } from './components/ConductorPlanDialog'
+import { parseProposal, reconcileProposal, type ReconciledRoster } from '../shared/conductor-proposal'
+import type { RosterDraft, ComposeResult } from '../shared/conductor-composer'
 import { TitleSequence } from './components/TitleSequence'
 import { Icon } from './components/Icon'
 import { Character } from './components/Character'
@@ -32,6 +36,13 @@ import { sessionInWorkspaceId } from '../shared/workspaces'
 import { STATE_META } from './state-meta'
 import type { CreateSessionRequest, SessionPresentation } from '../shared/types'
 
+// Mirrors DEFAULT_MAX_LANES in src/main/conductor-bootstrap.ts (main-only,
+// so the renderer cannot import it). Purely advisory client-side gating —
+// the backend's compose() re-validates against the workspace's real
+// configured maxLanes (see src/main/conductor-compose.ts) and is the
+// authoritative check; this only shapes the composer form before submit.
+const CONDUCTOR_DEFAULT_MAX_LANES = 4
+
 export function App(): JSX.Element {
   const c = useCrew()
   const [showSettings, setShowSettings] = useState(false)
@@ -39,6 +50,13 @@ export function App(): JSX.Element {
   const [showBroadcast, setShowBroadcast] = useState(false)
   const [invokeAgentId, setInvokeAgentId] = useState<string | null>(null)
   const [showTranscripts, setShowTranscripts] = useState(false)
+  // Conductor: a blank composer (new workspace, no plan) and an agent-plan
+  // document loaded from disk are two distinct entry points — see
+  // ConductorComposer.tsx's own header comment on why the plan view and the
+  // manual path both bottom out in the same composer, never in each other.
+  const [showConductorComposer, setShowConductorComposer] = useState(false)
+  const [conductorPlan, setConductorPlan] = useState<ReconciledRoster | null>(null)
+  const [conductorPlanError, setConductorPlanError] = useState<string | null>(null)
   const customViewOpenerRef = useRef<HTMLElement | null>(null)
   const suppressTerminalFocusRef = useRef(false)
   // The Project Tracker is a single feature reached from two toolbar buttons that
@@ -66,7 +84,9 @@ export function App(): JSX.Element {
     c.showWorkspaces ||
     c.showCustomViewEditor !== null ||
     invokeAgentId !== null ||
-    c.editingAgent !== null
+    c.editingAgent !== null ||
+    showConductorComposer ||
+    conductorPlan !== null
   // Roster filtered to the active workspace (null = All). Non-destructive: hidden
   // sessions keep running; this only changes what's shown. Filter is by workspace
   // id (first-class membership).
@@ -372,6 +392,55 @@ export function App(): JSX.Element {
     const order = ['two', 'four', 'six'] as const
     c.setGridDensity(order[(order.indexOf(c.gridDensity) + 1) % order.length])
   }
+
+  // Shared by ConductorComposer (blank) and ConductorPlanDialog (agent-plan
+  // accelerator): the ONE place a conducted workspace is actually created.
+  // Closes whichever entry point is open only on success — an ok:false
+  // ComposeResult (including the failed-row/survivingLanes arm) leaves the
+  // dialog open so the user sees describeComposeFailure's message and, per
+  // Task 5 finding 3, is never told a failed compose left nothing behind.
+  const composeConductedWorkspace = async (draft: RosterDraft): Promise<ComposeResult> => {
+    // The workspace is named per call (review finding 1): composing while
+    // "All Sessions" is selected has no workspace to compose for, and main
+    // must not guess one from a stale active-workspace of its own.
+    const result = await window.crew.composeConductedWorkspace(c.activeWorkspace, draft)
+    if (result.ok) {
+      setShowConductorComposer(false)
+      setConductorPlan(null)
+    }
+    return result
+  }
+
+  // The top-level "Load a plan…" entry (ConductorPanel's empty state):
+  // reconciles an agent-written proposal against current reality (models,
+  // presets) and opens ConductorPlanDialog to read it before acting on it.
+  // Distinct from ConductorComposer's OWN inline plan loader, which replaces
+  // the composer's current rows without ever showing the narrative — that
+  // path is for a composer already open; this one is the first look.
+  const loadConductorPlanFile = async (file: File): Promise<void> => {
+    setConductorPlanError(null)
+    const text = await file.text()
+    const parsed = parseProposal(text)
+    if (!parsed.ok) {
+      setConductorPlanError('Could not read that plan file — it is not a well-formed proposal.')
+      return
+    }
+    let models: string[] = []
+    try {
+      models = (await window.crew.listCopilotModels()).models
+    } catch {
+      // An unavailable model catalogue only affects model-specific notes;
+      // the roster still reconciles against whatever presets exist.
+    }
+    setConductorPlan(
+      reconcileProposal(
+        parsed.proposal,
+        { models, presets: c.presets.map((p) => p.id) },
+        { maxLanes: CONDUCTOR_DEFAULT_MAX_LANES }
+      )
+    )
+  }
+
   return (
     <div
       className={`app ${navIsCollapsed ? 'app--nav-collapsed' : ''} ${navFloating ? 'app--nav-floating' : ''}`}
@@ -619,7 +688,38 @@ export function App(): JSX.Element {
         />
       )}
 
-      <ConductorPanel />
+      <ConductorPanel
+        workspaceId={c.activeWorkspace}
+        onNewWorkspace={() => setShowConductorComposer(true)}
+        onLoadPlan={(file) => void loadConductorPlanFile(file)}
+      />
+
+      {conductorPlanError && (
+        <p className="conductor-composer-error conductor-plan-load-error">{conductorPlanError}</p>
+      )}
+
+      {showConductorComposer && (
+        <div className="modal-overlay">
+          <ConductorComposer
+            presets={c.presets}
+            maxLanes={CONDUCTOR_DEFAULT_MAX_LANES}
+            onCancel={() => setShowConductorComposer(false)}
+            onCompose={composeConductedWorkspace}
+          />
+        </div>
+      )}
+
+      {conductorPlan && (
+        <div className="modal-overlay">
+          <ConductorPlanDialog
+            roster={conductorPlan}
+            presets={c.presets}
+            maxLanes={CONDUCTOR_DEFAULT_MAX_LANES}
+            onCompose={composeConductedWorkspace}
+            onCancel={() => setConductorPlan(null)}
+          />
+        </div>
+      )}
 
       {showIntro && <TitleSequence onDone={() => setShowIntro(false)} />}
     </div>

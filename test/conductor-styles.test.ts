@@ -39,9 +39,15 @@ function extractStaticClassTokens(source: string): Set<string> {
 }
 
 describe('conductor CSS coverage (Finding 11)', () => {
-  it('has a styles.css rule for every conductor-* class used by ConductorComposer and ConductorPanel', () => {
+  it('has a styles.css rule for every conductor-* class used by ConductorComposer, ConductorPanel and App', () => {
     const composerSource = read('src/renderer/components/ConductorComposer.tsx')
     const panelSource = read('src/renderer/components/ConductorPanel.tsx')
+    // Task 7 fix round 1, Finding 3: App.tsx itself renders a conductor-*
+    // class (conductor-plan-load-error) that this scan previously never
+    // looked at, so the gap it had (no styles.css rule at all) was
+    // invisible. Scanning App.tsx too means any future conductor class
+    // referenced there is covered the same way.
+    const appSource = read('src/renderer/App.tsx')
     const css = read('src/renderer/styles.css')
 
     const laneStatuses = extractUnionMembers(read('src/shared/conductor.ts'), /type LaneStatus\s*=\s*([^\n]+)/)
@@ -53,6 +59,7 @@ describe('conductor CSS coverage (Finding 11)', () => {
     const used = new Set<string>([
       ...extractStaticClassTokens(composerSource),
       ...extractStaticClassTokens(panelSource),
+      ...extractStaticClassTokens(appSource),
       ...laneStatuses.map((s) => `conductor-lane-${s}`),
       ...severities.map((s) => `conductor-composer-note--${s}`)
     ])
