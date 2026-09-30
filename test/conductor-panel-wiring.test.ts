@@ -41,6 +41,8 @@ import {
   hasStrictEqualityOperand,
   logicalAndOperands,
   resolveAwaitedCall,
+  duplicateBoundKeys,
+  valueVariesWith,
   jsxAttributeValue
 } from './helpers/ts-ast'
 
@@ -53,6 +55,49 @@ function handlerParts(name: string): { body: ts.ConciseBody; tryStatement: ts.Tr
   const tryStatement = findTryStatement(body)
   expect(tryStatement).toBeDefined()
   return { body, tryStatement: tryStatement! }
+}
+
+/** Wave 6, F-9 (F5) and wave 7, F-9 (X1, X2, X6): a handler calling the
+ *  real IPC and a handler REPORTING what it returned are two different
+ *  claims. The message must be computed from the value the call handed
+ *  back, and — the wave-7 half — computed in a way the value can actually
+ *  change: `outcome.ok ? 'Lane synced' : 'Lane synced'` and `outcome &&
+ *  'Lane synced'` both name the outcome while announcing success for a sync
+ *  that conflicted. */
+function expectReportsWhatItReceived(handlerName: string, ipc: string): void {
+  const { tryStatement } = handlerParts(handlerName)
+  const reports = findDirectCallsTo(tryStatement.tryBlock, 'report')
+  expect(reports, `${handlerName} does not report exactly once from its try block`).toHaveLength(1)
+  const argument = reports[0].arguments[0]
+  expect(argument, `${handlerName} reports nothing`).toBeDefined()
+  // A message computed into a local first is the same claim, so the
+  // dataflow is followed one hop through such a declaration.
+  let expression: ts.Expression = argument!
+  if (ts.isIdentifier(expression)) {
+    const local = findDeclarationsOf(tryStatement.tryBlock, expression.text)[0]
+    if (local?.declaration.initializer !== undefined) expression = local.declaration.initializer
+  }
+  // Whatever inside the reported expression carries the IPC call's result:
+  // the `await` itself when it is written inline, or every mention of the
+  // local the await was assigned to.
+  const carriers = new Set<ts.Node>(
+    findAll(expression, ts.isAwaitExpression).filter(
+      (await_) => ts.isCallExpression(await_.expression) &&
+        flattenPropertyAccess(await_.expression.expression) === ipc
+    )
+  )
+  for (const id of findAll(expression, ts.isIdentifier)) {
+    const resolved = resolveAwaitedCall(tryStatement.tryBlock, id)
+    if (resolved !== undefined && flattenPropertyAccess(resolved.expression) === ipc) carriers.add(id)
+  }
+  expect(
+    [...carriers].map((node) => node.getText()),
+    `${handlerName}’s reported message does not carry the awaited result of ${ipc}`
+  ).not.toHaveLength(0)
+  expect(
+    valueVariesWith(expression, carriers),
+    `${handlerName} reports \`${expression.getText()}\`, whose value cannot differ according to what ${ipc} returned — it says the same thing whatever happened`
+  ).toBe(true)
 }
 
 describe('ConductorPanel — publish/sync never leave an unhandled rejection', () => {
@@ -87,28 +132,16 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
   // other assertion in this file stayed green. The message it reports has
   // to be computed from the value the call handed back.
   it('reports the result sync actually received, not a fixed message', () => {
-    const { tryStatement } = handlerParts('sync')
-    const reports = findDirectCallsTo(tryStatement.tryBlock, 'report')
-    expect(reports, 'sync does not report from its try block').toHaveLength(1)
-    const argument = reports[0].arguments[0]
-    expect(argument, 'sync reports nothing').toBeDefined()
-    // A message computed into a local first is the same claim, so the
-    // dataflow is followed one hop through such a declaration.
-    let expression: ts.Expression = argument!
-    if (ts.isIdentifier(expression)) {
-      const local = findDeclarationsOf(tryStatement.tryBlock, expression.text)[0]
-      if (local?.declaration.initializer !== undefined) expression = local.declaration.initializer
-    }
-    const mentions = findIdentifiers(expression, 'outcome')
-    expect(
-      mentions,
-      'sync’s reported message does not mention the outcome it awaited, so it says the same thing whatever happened'
-    ).not.toHaveLength(0)
-    // …and `outcome` is the awaited result of the real syncLane call, not
-    // some other value that merely bears the name.
-    const awaited = resolveAwaitedCall(tryStatement.tryBlock, mentions[0])
-    expect(awaited, 'sync’s outcome is not the awaited result of a call').toBeDefined()
-    expect(flattenPropertyAccess(awaited!.expression)).toBe('window.crew.syncLane')
+    expectReportsWhatItReceived('sync', 'window.crew.syncLane')
+  })
+
+  // Wave 7, F-9 (X6): F5 was closed for sync and only for sync. Publish
+  // could await the real publishLane call, throw the answer away and
+  // announce a fixed 'Published' — a failed, refused or conflicted
+  // publication reported as a success — with every assertion in this file
+  // still green.
+  it('reports the result publish actually received, not a fixed message', () => {
+    expectReportsWhatItReceived('publish', 'window.crew.publishLane')
   })
 
   it('wraps publish in a real try/catch, calling describeUnexpectedFailure in the catch block', () => {    const { tryStatement } = handlerParts('publish')
@@ -303,6 +336,13 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
     // anywhere is a stray.
     const declaration = findUseStateDeclaration(source, 'setMessage')
     expect(declaration, 'setMessage is not bound by a real useState() call').toBeDefined()
+    // Wave 7, F-9 (X5): `const { 0: message, 1: setMessage, 1: say } =
+    // useState(…)` binds the setter twice, so `say('…')` is an unguarded
+    // second name for it that nothing keyed on `setMessage` can see.
+    expect(
+      duplicateBoundKeys(declaration!.name),
+      'the useState binding names one of its slots twice, so the setter has a second name the workspace guard does not cover'
+    ).toHaveLength(0)
     const workspaceEffects = findEffectCalls(source).filter((call) => {
       const deps = call.arguments[1]
       return deps !== undefined && ts.isArrayLiteralExpression(deps) &&
@@ -346,9 +386,17 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
   // it inside a handler would satisfy all of them while the handler acted on
   // some other workspace entirely.
   it('never reassigns or shadows the workspaceId prop', () => {
-    const assignments = findAll(source, ts.isBinaryExpression).filter((expr) =>
-      expr.operatorToken.kind === ts.SyntaxKind.EqualsToken && expr.left.getText() === 'workspaceId')
-    expect(assignments, 'workspaceId is reassigned').toHaveLength(0)
+    // Wave 7, F-9 (X3, X3b, X3c): this compared the left-hand side's TEXT
+    // and the assignment's operator, so `;[workspaceId] = […]`,
+    // `(workspaceId) = …` and `workspaceId ||= …` all re-pointed the
+    // prop's binding unseen — which defeats report()'s drop guard, since
+    // the guard asks whether the panel still shows `workspaceId`. Writes
+    // are found by POSITION in the syntax tree now, exactly as the ref's
+    // are.
+    expect(
+      findWritesTo(source, 'workspaceId').map((write) => write.parent.getText()),
+      'workspaceId is reassigned'
+    ).toHaveLength(0)
     const shadowParams = findAll(source, ts.isParameter).filter(
       (p) => ts.isIdentifier(p.name) && p.name.text === 'workspaceId')
     expect(shadowParams, 'workspaceId is shadowed by a parameter').toHaveLength(0)

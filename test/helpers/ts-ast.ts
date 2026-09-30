@@ -431,19 +431,33 @@ const ASSIGNMENT_OPERATORS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.AmpersandAmpersandEqualsToken
 ])
 
-/** Climbs out of the wrappers that change nothing about what a target IS:
- *  parentheses, `!`, `as T`, `<T>`. `(x.y) = 1` writes to `x.y`. */
+/** The wrappers that change nothing about what an expression IS: they
+ *  carry a type through, or a pair of brackets, and the thing underneath is
+ *  still the same target and still the same value.
+ *
+ *  Wave 7, F-9 (X10, X11): `satisfies` was missing, so
+ *  `(shownWorkspace.current satisfies string | null) = workspaceId`
+ *  compiled, wrote the ref, and no write was seen. */
+const isWrapper = (node: ts.Node): boolean =>
+  ts.isParenthesizedExpression(node) ||
+  ts.isNonNullExpression(node) ||
+  ts.isAsExpression(node) ||
+  ts.isSatisfiesExpression(node) ||
+  ts.isTypeAssertionExpression(node)
+
+/** Climbs OUT of those wrappers, from a node to the outermost one that
+ *  still means it: `(x.y) = 1` writes to `x.y`. */
 function outOfWrappers(node: ts.Node): ts.Node {
   let current = node
-  while (
-    current.parent !== undefined &&
-    (ts.isParenthesizedExpression(current.parent) ||
-      ts.isNonNullExpression(current.parent) ||
-      ts.isAsExpression(current.parent) ||
-      ts.isTypeAssertionExpression(current.parent))
-  ) {
-    current = current.parent
-  }
+  while (current.parent !== undefined && isWrapper(current.parent)) current = current.parent
+  return current
+}
+
+/** Climbs IN through the same wrappers, from an expression to the thing it
+ *  really is. */
+function intoWrappers(node: ts.Expression): ts.Expression {
+  let current = node
+  while (isWrapper(current)) current = (current as ts.ParenthesizedExpression).expression
   return current
 }
 
@@ -472,6 +486,10 @@ export function isWriteTarget(node: ts.Node): boolean {
     ts.isArrayLiteralExpression(parent) ||
     ts.isObjectLiteralExpression(parent) ||
     ts.isSpreadElement(parent) ||
+    // Wave 7, F-9 (X4): `({ ...(shownWorkspace.current as any) } = {})` is
+    // an object-spread ASSIGNMENT target, a different node kind from the
+    // array spread beside it, and it wrote the ref unseen.
+    ts.isSpreadAssignment(parent) ||
     ts.isPropertyAssignment(parent) ||
     ts.isShorthandPropertyAssignment(parent)
   ) {
@@ -581,4 +599,82 @@ export function resolveAwaitedCall(root: ts.Node, argument: ts.Expression): ts.C
     .find((d) => ts.isIdentifier(d.name) && d.name.text === name)
   const init = decl?.initializer
   return init ? unwrap(init) : undefined
+}
+
+/** Every property key a destructuring pattern binds MORE THAN ONCE, looking
+ *  into nested patterns as well.
+ *
+ *  Wave 7, F-9 (X5): `const { 0: message, 1: setMessage, 1: say } =
+ *  useState(…)` is legal, compiles, and binds the state setter to two
+ *  names — so `say('…')` called from a handler puts an unguarded message on
+ *  screen while every check keyed on the NAME `setMessage` stays green. One
+ *  slot of a useState tuple may be bound once; a second name for it is an
+ *  alias by another route. */
+export function duplicateBoundKeys(name: ts.BindingName): string[] {
+  if (!ts.isObjectBindingPattern(name) && !ts.isArrayBindingPattern(name)) return []
+  const counts = new Map<string, number>()
+  const duplicates: string[] = []
+  if (ts.isObjectBindingPattern(name)) {
+    for (const element of name.elements) {
+      const key = element.propertyName?.getText() ?? element.name.getText()
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+      if (counts.get(key) === 2) duplicates.push(key)
+    }
+  }
+  for (const element of name.elements) {
+    if (ts.isBindingElement(element)) duplicates.push(...duplicateBoundKeys(element.name))
+  }
+  return duplicates
+}
+
+/** The operators whose result is one operand or the other, untouched. */
+const SHORT_CIRCUIT_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.QuestionQuestionToken
+])
+
+/** True when the VALUE of `expr` can actually differ according to the
+ *  nodes in `carriers` — not merely when one of them is mentioned
+ *  somewhere inside it.
+ *
+ *  Wave 7, F-9 (X1, X2): "the reported message mentions the outcome" was
+ *  satisfied by `report(outcome.ok ? 'Lane synced' : 'Lane synced')` and by
+ *  `report(outcome && 'Lane synced')`, both of which announce success for a
+ *  sync that CONFLICTED — the very regression F5 was raised to close, back
+ *  again with the outcome named but not used. Mentioning is not using, so
+ *  each expression form is asked what its value can be:
+ *
+ *  - a conditional chooses between its arms, so identical arms report the
+ *    same thing whatever happened, and one of the arms (or the condition
+ *    that picks between them) must carry the result;
+ *  - `&&`, `||` and `??` return one operand or the other, so BOTH have to
+ *    carry it;
+ *  - a template varies if one of its substitutions does;
+ *  - a call varies if it is handed something that varies (that is the
+ *    `describeOutcome(await …)` shape);
+ *  - anything else varies if it contains a carrier at all. */
+export function valueVariesWith(expr: ts.Expression, carriers: ReadonlySet<ts.Node>): boolean {
+  const carried = (node: ts.Node): boolean => {
+    for (const carrier of carriers) {
+      if (isWithin(carrier, node)) return true
+    }
+    return false
+  }
+  const varies = (node: ts.Expression): boolean => {
+    const e = intoWrappers(node)
+    if (ts.isConditionalExpression(e)) {
+      if (intoWrappers(e.whenTrue).getText() === intoWrappers(e.whenFalse).getText()) return false
+      return carried(e.condition) || varies(e.whenTrue) || varies(e.whenFalse)
+    }
+    if (ts.isBinaryExpression(e) && SHORT_CIRCUIT_OPERATORS.has(e.operatorToken.kind)) {
+      return varies(e.left) && varies(e.right)
+    }
+    if (ts.isTemplateExpression(e)) return e.templateSpans.some((span) => varies(span.expression))
+    if (ts.isCallExpression(e)) {
+      return carried(e.expression) || e.arguments.some((argument) => varies(argument))
+    }
+    return carried(e)
+  }
+  return varies(expr)
 }
