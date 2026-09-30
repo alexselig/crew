@@ -74,41 +74,51 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
     if (shownWorkspace.current === workspaceId) setSnapshot(state)
   }, [workspaceId])
 
+  // Wave 3, finding 2: I-4 dropped a late SNAPSHOT belonging to another
+  // workspace but left its MESSAGE alone, so a publish on A that finished
+  // after a switch still announced "Published…" or "tests failed" in B's
+  // panel — a result describing work B's lanes never did, sitting under B's
+  // roster. Every handler reports through here, so the drop rule is one
+  // guard rather than four copies that can drift apart.
+  const report = useCallback((text: string) => {
+    if (shownWorkspace.current === workspaceId) setMessage(text)
+  }, [workspaceId])
+
   const publish = useCallback(async (laneId: string) => {
     try {
-      setMessage(describeOutcome(await window.crew.publishLane(workspaceId, laneId)))
+      report(describeOutcome(await window.crew.publishLane(workspaceId, laneId)))
     } catch (error) {
-      setMessage(describeUnexpectedFailure('publish', error))
+      report(describeUnexpectedFailure('publish', error))
     } finally {
       void refresh()
     }
-  }, [workspaceId, refresh])
+  }, [workspaceId, refresh, report])
 
   const sync = useCallback(async (laneId: string) => {
     try {
       const outcome = await window.crew.syncLane(workspaceId, laneId)
-      setMessage(outcome.ok ? 'Lane synced' : outcome.message)
+      report(outcome.ok ? 'Lane synced' : outcome.message)
     } catch (error) {
-      setMessage(describeUnexpectedFailure('sync', error))
+      report(describeUnexpectedFailure('sync', error))
     } finally {
       void refresh()
     }
-  }, [workspaceId, refresh])
+  }, [workspaceId, refresh, report])
 
   // The way out of the needs-attention gate (review finding 7). Publish and
-  // sync refuse while an interrupted operation is outstanding, and a
-  // reconcile is the only thing that clears it — without a control that runs
-  // one, a single crashed publish left the workspace permanently read-only
-  // until the app was restarted.
+  // sync refuse while an interrupted operation is outstanding; a Re-check
+  // reports what is holding them, and Acknowledge (below) is what closes it
+  // on the record — without both controls, a single crashed publish left the
+  // workspace read-only until the app was restarted.
   const recheck = useCallback(async () => {
     try {
-      setMessage(describeReconcileReport(await window.crew.reconcileConductor(workspaceId)))
+      report(describeReconcileReport(await window.crew.reconcileConductor(workspaceId)))
     } catch (error) {
-      setMessage(describeUnexpectedFailure('recheck', error))
+      report(describeUnexpectedFailure('recheck', error))
     } finally {
       void refresh()
     }
-  }, [workspaceId, refresh])
+  }, [workspaceId, refresh, report])
 
   // Finding I-1: the actual exit from the needs-attention gate. A reconcile
   // can only REPORT an interrupted operation — nothing it does closes one,
@@ -125,13 +135,13 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
         opId,
         'reviewed and acknowledged in the conductor panel'
       )
-      setMessage(describeAcknowledgeOutcome(outcome))
+      report(describeAcknowledgeOutcome(outcome))
     } catch (error) {
-      setMessage(describeUnexpectedFailure('acknowledge', error))
+      report(describeUnexpectedFailure('acknowledge', error))
     } finally {
       void refresh()
     }
-  }, [workspaceId, refresh])
+  }, [workspaceId, refresh, report])
 
   const mode = conductorPanelMode(snapshot)
   if (mode === 'loading') return null

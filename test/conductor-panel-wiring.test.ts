@@ -23,12 +23,16 @@ import {
   findCallbackVariable,
   findCallsTo,
   findDirectCallsTo,
+  findEffectCalls,
   findEffectDependencies,
+  findHookCall,
   findJsxTags,
   findTryStatement,
+  hasDirectAssignment,
   enclosingIfStatement,
   hasStrictEqualityOperand,
   logicalAndOperands,
+  resolveAwaitedCall,
   jsxAttributeValue
 } from './helpers/ts-ast'
 
@@ -137,12 +141,96 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
     }
   })
 
+  // Wave 3 finding 1: the test above pins the GUARD, but the guard is only
+  // as good as the ref it reads. With `shownWorkspace.current = workspaceId`
+  // deleted the ref stays pinned to the first workspace forever, so a late
+  // refresh for A is drawn under B and B's own refresh is dropped — the very
+  // bug I-4 exists to fix — and every other assertion in this file still
+  // passed. This pins the update itself: a real `useRef` declaration, and a
+  // real assignment statement executed by the effect that fires on a
+  // workspace change (not by some nested callback it merely defines).
+  it('re-points the shown-workspace ref at the new workspace whenever the workspace changes', () => {
+    const ref = findHookCall(source, 'shownWorkspace', 'useRef')
+    expect(ref, 'shownWorkspace is not declared from a real useRef() call').toBeDefined()
+    expect(ref!.arguments[0]?.getText()).toBe('workspaceId')
+
+    const effects = findEffectCalls(source).filter((call) => {
+      const deps = call.arguments[1]
+      return deps !== undefined && ts.isArrayLiteralExpression(deps) &&
+        deps.elements.some((el) => el.getText() === 'workspaceId')
+    })
+    expect(effects, 'no useEffect depends on workspaceId').not.toHaveLength(0)
+    const updating = effects.filter((call) => {
+      const body = call.arguments[0]
+      return body !== undefined && hasDirectAssignment(body, 'shownWorkspace.current', 'workspaceId')
+    })
+    expect(
+      updating,
+      'no [workspaceId] effect assigns shownWorkspace.current = workspaceId, so the ref never follows the panel'
+    ).toHaveLength(1)
+  })
+
+  // Wave 3 finding 2: the same drop rule, applied to the MESSAGE. A publish
+  // on A that finishes after a switch must not announce "Published…" or
+  // "tests failed" in B's panel. Asserting both halves — that no handler
+  // calls setMessage directly, and that the one reporter they do call
+  // guards setMessage with the real comparison — is what makes this
+  // load-bearing: removing the guard fails, and so does routing around it.
+  it('drops a result message belonging to a workspace the panel no longer shows', () => {
+    const report = findCallbackVariable(source, 'report')
+    expect(report, 'no report handler found').toBeDefined()
+    const parameter = report!.parameters[0]?.name.getText()
+    expect(parameter, 'report takes no message parameter').toBeDefined()
+
+    const sets = findDirectCallsTo(report!.body, 'setMessage')
+    expect(sets, 'report() does not call setMessage').not.toHaveLength(0)
+    for (const set of sets) {
+      expect(set.arguments[0]?.getText(), 'report() sets a message other than the one it was given').toBe(parameter)
+      const guard = enclosingIfStatement(set)
+      expect(guard, 'setMessage in report() is not inside an if statement').toBeDefined()
+      const operands = logicalAndOperands(guard!.expression)
+      expect(
+        hasStrictEqualityOperand(operands, 'shownWorkspace.current', 'workspaceId'),
+        'report() does not compare the shown workspace against the one the result belongs to'
+      ).toBe(true)
+    }
+
+    for (const name of ['publish', 'sync', 'recheck', 'acknowledge']) {
+      const handler = findCallbackVariable(source, name)
+      expect(handler, `no ${name} handler found`).toBeDefined()
+      expect(
+        findDirectCallsTo(handler!.body, 'setMessage'),
+        `${name} calls setMessage directly, bypassing the workspace guard`
+      ).toHaveLength(0)
+      expect(
+        findDirectCallsTo(handler!.body, 'report'),
+        `${name} never reports its result`
+      ).not.toHaveLength(0)
+    }
+  })
+
+  // Wave 3 finding 4 (second half): every assertion in this file that names
+  // `workspaceId` assumes it still means the prop. Reassigning or shadowing
+  // it inside a handler would satisfy all of them while the handler acted on
+  // some other workspace entirely.
+  it('never reassigns or shadows the workspaceId prop', () => {
+    const assignments = findAll(source, ts.isBinaryExpression).filter((expr) =>
+      expr.operatorToken.kind === ts.SyntaxKind.EqualsToken && expr.left.getText() === 'workspaceId')
+    expect(assignments, 'workspaceId is reassigned').toHaveLength(0)
+    const shadowParams = findAll(source, ts.isParameter).filter(
+      (p) => ts.isIdentifier(p.name) && p.name.text === 'workspaceId')
+    expect(shadowParams, 'workspaceId is shadowed by a parameter').toHaveLength(0)
+    const shadowVars = findAll(source, ts.isVariableDeclaration).filter(
+      (d) => ts.isIdentifier(d.name) && d.name.text === 'workspaceId')
+    expect(shadowVars, 'workspaceId is shadowed by a local declaration').toHaveLength(0)
+  })
+
   // Re-review finding I-3: with `[workspaceId]` emptied in every hook, all
   // of this file's other assertions still passed while publish, sync and
   // Re-check silently kept acting on the workspace the panel FIRST showed.
   // A deps array is part of the wiring, not a formality.
   it('re-creates every conductor hook when the workspace changes', () => {
-    for (const name of ['refresh', 'publish', 'sync', 'recheck', 'acknowledge']) {
+    for (const name of ['refresh', 'report', 'publish', 'sync', 'recheck', 'acknowledge']) {
       const deps = findCallbackDependencies(source, name)
       expect(deps, `${name} is not a useCallback with a dependency array`).toBeDefined()
       expect(deps, `${name} does not depend on workspaceId`).toContain('workspaceId')
@@ -248,7 +336,17 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
     const described = findDirectCallsTo(tryStatement.tryBlock, 'describeAcknowledgeOutcome')
     expect(described).toHaveLength(1)
     // …and it describes THIS acknowledge's outcome, not something else.
-    expect(described[0].arguments[0]?.getText()).toBe('outcome')
+    // Wave 3 finding 4: checking only that the argument is spelled
+    // `outcome` passed when the IPC call's result was thrown away and a
+    // literal named `outcome` was described instead — the panel would then
+    // report an acknowledgement that never happened. The argument must
+    // carry the awaited result of the call asserted above, exactly as the
+    // recheck assertion does for describeReconcileReport.
+    const argument = described[0].arguments[0]
+    expect(argument, 'describeAcknowledgeOutcome was called with no argument').toBeDefined()
+    const awaited = resolveAwaitedCall(tryStatement.tryBlock, argument!)
+    expect(awaited, 'describeAcknowledgeOutcome is not given an awaited call result').toBeDefined()
+    expect(calls).toContain(awaited!)
 
     expect(tryStatement.catchClause).toBeDefined()
     const failures = findDirectCallsTo(tryStatement.catchClause!.block, 'describeUnexpectedFailure')

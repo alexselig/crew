@@ -277,3 +277,74 @@ export function findThenCalls(root: ts.Node, baseCallee: string): ts.CallExpress
     return ts.isCallExpression(obj) && flattenPropertyAccess(obj.expression) === baseCallee
   })
 }
+
+/** Every `useEffect(fn, deps)` call in the file, in source order — the
+ *  companion to `findEffectDependencies`, which returns only their deps.
+ *  Wave 3 finding 1: an assertion about a deps array proves nothing about
+ *  what the effect's BODY does, and the I-4 fix lives in that body. */
+export function findEffectCalls(source: ts.SourceFile): ts.CallExpression[] {
+  return findAll(source, ts.isCallExpression)
+    .filter((call) => ts.isIdentifier(call.expression) && call.expression.text === 'useEffect')
+}
+
+/** The initializer of `const name = <hookName>(...)`, or undefined when
+ *  `name` is not declared from a call to that hook. Real call identity: a
+ *  comment or a string literal naming `useRef` is not a CallExpression. */
+export function findHookCall(source: ts.SourceFile, name: string, hookName: string): ts.CallExpression | undefined {
+  const decl = findAll(source, ts.isVariableDeclaration).find((d) => ts.isIdentifier(d.name) && d.name.text === name)
+  const init = decl?.initializer
+  if (init && ts.isCallExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === hookName) {
+    return init
+  }
+  return undefined
+}
+
+/** True iff `root` ITSELF executes a real assignment `left = right` — never
+ *  one sitting in a nested function that `root` merely defines, and never a
+ *  comment or string literal with the same text. Wave 3 finding 1: the
+ *  workspace-tracking ref is only correct if the statement that updates it
+ *  actually runs in the effect that fires on a workspace change. */
+export function hasDirectAssignment(root: ts.Node, left: string, right: string): boolean {
+  let found = false
+  const visit = (node: ts.Node): void => {
+    if (found) return
+    if (node !== root && isFunctionLike(node)) return
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      node.left.getText() === left &&
+      node.right.getText() === right
+    ) {
+      found = true
+      return
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(root)
+  return found
+}
+
+/** Resolves an argument to the awaited call whose RESULT it carries: either
+ *  `f(await call())` given directly, or `const x = await call(); f(x)` where
+ *  `x` is declared inside `root`. Returns undefined for a literal, a
+ *  differently-named variable, or anything else.
+ *
+ *  Wave 3 finding 4: asserting only that an argument is spelled `outcome`
+ *  passes when the real IPC call's result is thrown away and some unrelated
+ *  `outcome` is described instead — the panel would then report an
+ *  acknowledgement that never happened. Following the dataflow back to the
+ *  call is what makes such an assertion load-bearing. */
+export function resolveAwaitedCall(root: ts.Node, argument: ts.Expression): ts.CallExpression | undefined {
+  const unwrap = (expr: ts.Expression): ts.CallExpression | undefined => {
+    if (ts.isAwaitExpression(expr) && ts.isCallExpression(expr.expression)) return expr.expression
+    return undefined
+  }
+  const direct = unwrap(argument)
+  if (direct) return direct
+  if (!ts.isIdentifier(argument)) return undefined
+  const name = argument.text
+  const decl = findAll(root, ts.isVariableDeclaration)
+    .find((d) => ts.isIdentifier(d.name) && d.name.text === name)
+  const init = decl?.initializer
+  return init ? unwrap(init) : undefined
+}
