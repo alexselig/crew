@@ -43,6 +43,8 @@ const api: CrewAPI = {
   publishLane: (workspaceId, laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_PUBLISH, { workspaceId, laneId }),
   syncLane: (workspaceId, laneId) => ipcRenderer.invoke(IPC.CONDUCTOR_SYNC, { workspaceId, laneId }),
   reconcileConductor: (workspaceId) => ipcRenderer.invoke(IPC.CONDUCTOR_RECONCILE, workspaceId),
+  acknowledgeConductorOperation: (workspaceId, opId, detail) =>
+    ipcRenderer.invoke(IPC.CONDUCTOR_ACKNOWLEDGE, { workspaceId, opId, detail }),
   composeConductedWorkspace: (workspaceId, draft: RosterDraft) =>
     ipcRenderer.invoke(IPC.CONDUCTOR_COMPOSE, { workspaceId, draft }),
   createWorkspace: (name) => ipcRenderer.invoke(IPC.WORKSPACE_CREATE, name),

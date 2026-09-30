@@ -2,7 +2,13 @@
 // so the rules that decide what the user may press are tested in milliseconds
 // under node rather than through a browser.
 
-import type { ConductorSnapshot, LaneStatus, PublishOutcome, ReconcileReport } from '../shared/conductor'
+import type {
+  AcknowledgeOutcome,
+  ConductorSnapshot,
+  LaneStatus,
+  PublishOutcome,
+  ReconcileReport
+} from '../shared/conductor'
 import type { ProposalNote } from '../shared/conductor-proposal'
 import type { ComposeResult } from '../shared/conductor-composer'
 
@@ -159,12 +165,13 @@ export function describeUnexpectedFailure(action: ConductorAction, error: unknow
  *  reconcile the panel runs to get OUT of the needs-attention gate (review
  *  finding 7) — without it, one interrupted publish blocks publish and sync
  *  for that workspace with no way back. */
-export type ConductorAction = 'publish' | 'sync' | 'recheck' | 'compose'
+export type ConductorAction = 'publish' | 'sync' | 'recheck' | 'acknowledge' | 'compose'
 
 const ACTION_LABELS: Record<ConductorAction, string> = {
   publish: 'Publish',
   sync: 'Sync',
   recheck: 'Re-check',
+  acknowledge: 'Acknowledge',
   compose: 'Creating the run'
 }
 
@@ -183,10 +190,18 @@ export function describeReconcileReport(report: ReconcileReport): string {
     return 'Checked: no interrupted operation. Publish and sync are available again.'
   }
   const blocking = report.operations.filter((op) => op.requiresHuman)
-  const named = (blocking.length > 0 ? blocking : report.operations).map((op) => op.summary).join('; ')
+  if (blocking.length > 0) {
+    return `Still needs a human: ${blocking.map((op) => op.summary).join('; ')}`
+  }
+  // I-1: an operation that needs no human judgement (e.g. 'not-started',
+  // whose own summary reads "Nothing ran. Safe to publish again.") still
+  // holds the gate until it is closed on the record — so say that, instead
+  // of the old blanket "still needs a human", which contradicted both the
+  // summary shown next to it and the action actually available.
+  const named = report.operations.map((op) => op.summary).join('; ')
   return named.length > 0
-    ? `Still needs a human: ${named}`
-    : 'Still needs a human: an interrupted operation could not be resolved automatically.'
+    ? `Still held by an interrupted operation: ${named} Acknowledge it to continue.`
+    : 'Still held by an interrupted operation — acknowledge it to continue.'
 }
 
 /**
@@ -198,14 +213,56 @@ export function describeReconcileReport(report: ReconcileReport): string {
 export function describeAttention(snapshot: ConductorSnapshot): string | null {
   if (!snapshot.enabled) return null
   if (!snapshot.reconciled) {
-    return 'Checking for interrupted operations…'
+    // m-2: a reconcile that failed or came back busy is NOT "still
+    // checking" — nothing is checking any more, and the user has to press
+    // Re-check for anything further to happen. Saying "checking…" there
+    // left the panel claiming progress that had already stopped.
+    return snapshot.reconcileError
+      ? `Could not check for interrupted operations: ${snapshot.reconcileError}. ` +
+        'Publish and sync stay closed until a Re-check succeeds.'
+      : 'Checking for interrupted operations…'
   }
   if (!snapshot.needsAttention) return null
   const summaries = snapshot.operations.filter((op) => op.requiresHuman).map((op) => op.summary)
   const detail = (summaries.length > 0 ? summaries : snapshot.operations.map((op) => op.summary)).join('; ')
+  // I-1: the banner and the refusal must agree, and both must name the way
+  // out. The old text announced that something "needs review" while the
+  // operation's own summary could say "Nothing ran. Safe to publish again."
+  // and no control existed to act on either — acknowledging is what closes
+  // the operation on the record and reopens publish and sync.
   return detail.length > 0
-    ? `An interrupted operation needs review: ${detail}`
-    : 'An interrupted operation needs review'
+    ? `An interrupted operation is holding publish and sync: ${detail} ` +
+      'Acknowledge it to record that it was reviewed and continue.'
+    : 'An interrupted operation is holding publish and sync — acknowledge it to continue.'
+}
+
+/**
+ * What acknowledging an interrupted operation actually did (I-1). A
+ * successful acknowledge is only genuinely useful if the gate it exists to
+ * open really opened, so this reports the reconcile that ran immediately
+ * afterwards rather than assuming success means "clear".
+ */
+export function describeAcknowledgeOutcome(outcome: AcknowledgeOutcome): string {
+  if (outcome.ok) {
+    if (outcome.report.needsAttention) {
+      const detail = outcome.report.operations.map((op) => op.summary).join('; ')
+      return detail.length > 0
+        ? `Acknowledged — but another interrupted operation is still outstanding: ${detail}`
+        : 'Acknowledged — but an interrupted operation is still outstanding.'
+    }
+    return 'Acknowledged and recorded. Publish and sync are available again.'
+  }
+  switch (outcome.reason) {
+    case 'busy':
+      return 'Conductor is busy with another operation — acknowledge it once that finishes.'
+    case 'stale':
+    case 'already-closed':
+      return `${outcome.message}`
+    case 'unknown-operation':
+      return 'There is no interrupted operation left to acknowledge — re-check to refresh.'
+    default:
+      return `Could not record the acknowledgement, so nothing changed: ${outcome.message}`
+  }
 }
 
 /**

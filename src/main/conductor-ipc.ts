@@ -13,6 +13,7 @@ import type {
   ConductorLane,
   ConductorSettings,
   LaneFacts,
+  AcknowledgeOutcome,
   PublishOutcome,
   SyncOutcome,
   ReconcileReport
@@ -33,6 +34,12 @@ export interface ConductorBackend {
   publishLane(laneId: string): Promise<PublishOutcome>
   syncLane(laneId: string): Promise<SyncOutcome>
   reconcile(): Promise<ReconcileReport>
+  /** Re-review finding I-1: the user's way OUT of the needs-attention gate.
+   *  Closes the newest journalled operation with a terminal entry and
+   *  reconciles again, so publish and sync stop being refused. Explicit and
+   *  journalled by design — an interrupted operation is never silently
+   *  overwritten by the next publish. */
+  acknowledgeOperation(opId: string, detail: string): Promise<AcknowledgeOutcome>
   compose(draft: RosterDraft): Promise<ComposeResult>
 }
 
@@ -54,6 +61,7 @@ type Broadcast = (channel: string, payload: unknown) => void
 interface LaneMessage { workspaceId: string | null; laneId: string; force?: boolean }
 interface CreateMessage { workspaceId: string | null; request: LaneCreateRequest }
 interface ComposeMessage { workspaceId: string | null; draft: RosterDraft }
+interface AcknowledgeMessage { workspaceId: string | null; opId: string; detail: string }
 
 export function registerConductorIpc(
   ipc: Pick<IpcMain, 'handle'>,
@@ -148,6 +156,17 @@ export function registerConductorIpc(
     return report
   })
 
+  // Re-review finding I-1: acknowledging is the only thing that can close an
+  // interrupted operation, and therefore the only thing that reopens the
+  // gate for a workspace whose last publish was killed mid-flight. Like
+  // reconcile, its effect must reach every window, not only the caller.
+  ipc.handle(IPC.CONDUCTOR_ACKNOWLEDGE, async (_event, message: AcknowledgeMessage) => {
+    const outcome = await backendFor(message.workspaceId)
+      .acknowledgeOperation(message.opId, message.detail)
+    await publishState(message.workspaceId)
+    return outcome
+  })
+
   // A rejected draft (validation errors, or a row that failed to spawn)
   // normally rolls back everything it created, so nothing about conductor
   // state has changed and no broadcast is needed. But when rollback itself
@@ -222,6 +241,12 @@ export function createShippedConductorBackend(
   // conductor-bootstrap.ts starts that reconcile eagerly the moment a
   // backend is built, so this is normally clear within milliseconds.
   let reconciled = false
+  // Re-review m-2: why the last reconcile attempt did not complete, or null
+  // when it did (or when none has been attempted yet). Without this, a
+  // reconcile that came back busy or threw was indistinguishable from one
+  // still in flight, and the panel went on claiming to be "checking for
+  // interrupted operations" when nothing was.
+  let reconcileError: string | null = null
 
   // Finding 7: hydrated once, synchronously, at construction — every lane
   // this process will manage for this workspace must already be in
@@ -289,14 +314,24 @@ export function createShippedConductorBackend(
       return {
         ok: false,
         reason: 'needs-attention',
-        message: 'conductor has not finished checking for interrupted operations yet — re-check, then try again'
+        message: reconcileError
+          ? `conductor could not check for interrupted operations (${reconcileError}) — re-check, then try again`
+          : 'conductor has not finished checking for interrupted operations yet — re-check, then try again'
       }
     }
     if (lastReconcile.needsAttention) {
+      // Re-review I-1: worded to match what the panel shows and what the
+      // user can actually DO. The old text ("still needs a human") claimed
+      // every held operation required human judgement, which contradicted
+      // the panel for a classification like not-started ("Nothing ran. Safe
+      // to publish again.") and named no way out — there was none. There is
+      // one now: acknowledge the operation, which journals its closure.
       return {
         ok: false,
         reason: 'needs-attention',
-        message: `the last reconcile found an operation that still needs a human — resolve it before ${verb}`
+        message:
+          `an interrupted operation from an earlier run has not been acknowledged yet — ` +
+          `review it and acknowledge it before ${verb}`
       }
     }
     return null
@@ -312,7 +347,7 @@ export function createShippedConductorBackend(
           // config has no journal to read and nothing that could have been
           // interrupted, so the gate publish/sync sit behind is open, not
           // pending. Its refusal is 'not configured', never 'still checking'.
-          needsAttention: false, operations: [], reconciled: true
+          needsAttention: false, operations: [], reconciled: true, reconcileError: null
         }
       }
       const lanes = [...lanesById.values()]
@@ -345,7 +380,8 @@ export function createShippedConductorBackend(
         // Named, not merely counted: the panel has to tell the user WHICH
         // operation is holding publish and sync (review finding 7).
         operations: lastReconcile.operations,
-        reconciled
+        reconciled,
+        reconcileError
       }
     },
     async createLane(request) {
@@ -493,13 +529,45 @@ export function createShippedConductorBackend(
         // Only a reconcile that actually ran clears the gate. A busy one
         // (below) never read the journal, so it proves nothing.
         reconciled = true
+        reconcileError = null
       } catch (error) {
         if (error instanceof ConductorBusyError) {
+          // m-2: remembered, so the panel can say "could not check" rather
+          // than going on claiming a check is still in progress.
+          reconcileError = 'conductor was busy with another operation'
           return { needsAttention: false, operations: [], busy: true }
         }
+        reconcileError = error instanceof Error ? error.message : String(error)
         throw error
       }
       return lastReconcile
+    },
+    async acknowledgeOperation(opId, detail) {
+      // A workspace with no conductor configured has no journal and so no
+      // interrupted operation to close. That is a capability state, not an
+      // error, and the panel renders the refusal like any other.
+      if (!conductorRuntime) {
+        return {
+          ok: false as const,
+          reason: 'unknown-operation' as const,
+          message: 'conductor is not configured for this workspace'
+        }
+      }
+      const { conductor } = requireWired()
+      // Re-review I-1. The acknowledge itself is journalled by
+      // conductor.acknowledgeOperation, under the lock, and it reconciles
+      // again before returning — so on success this backend adopts that
+      // report as its own. That is what actually reopens the gate for the
+      // very next publishLane/syncLane call, with no extra round trip and
+      // no window in which the panel believes one thing and the backend
+      // another. A refusal changes nothing here.
+      const outcome = await conductor.acknowledgeOperation(opId, detail)
+      if (outcome.ok) {
+        lastReconcile = outcome.report
+        reconciled = true
+        reconcileError = null
+      }
+      return outcome
     },
     async compose(draft) {
       const runtime = requireWired()

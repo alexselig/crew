@@ -178,6 +178,41 @@ export interface ReconcileReport {
   busy?: boolean
 }
 
+/**
+ * The result of the user acknowledging an interrupted operation (re-review
+ * finding I-1). The needs-attention gate used to have no exit at all:
+ * reconcile only reports 'complete' for an operation whose journal carries a
+ * terminal 'aborted' or 'notified' entry, and nothing in the app ever wrote
+ * one — while publish (the only other writer) was refused, so no newer
+ * operation could ever be journalled either. Acknowledging is that exit, and
+ * it is deliberately an explicit user action that is ITSELF journalled: an
+ * interrupted operation is never silently overwritten, it is closed on the
+ * record, with a reason, by a human who was shown what it was.
+ *
+ * `phase` names which terminal entry was appended: 'notified' when the
+ * operation had already journalled 'published' (the publication landed;
+ * only telling teammates was left, and there are no bulletins in Phase 1),
+ * 'aborted' otherwise. The report is the reconcile run immediately
+ * afterwards, under the same lock, so the caller learns whether the gate
+ * actually reopened rather than having to guess.
+ */
+export type AcknowledgeOutcome =
+  | { ok: true; phase: 'aborted' | 'notified'; report: ReconcileReport }
+  | {
+      ok: false
+      /** 'busy': the single-flight lock is held, try again shortly.
+       *  'stale': `opId` is no longer the newest operation in the journal —
+       *    the panel was showing something older than what is on disk, and
+       *    closing it would close the wrong operation.
+       *  'already-closed': that operation already carries a terminal entry.
+       *  'unknown-operation': the journal has no entry for it at all.
+       *  'journal-failed': the terminal entry could not be made durable, so
+       *    nothing was acknowledged (fail closed, exactly like every other
+       *    journal write in this feature). */
+      reason: 'busy' | 'stale' | 'already-closed' | 'unknown-operation' | 'journal-failed'
+      message: string
+    }
+
 export interface ConductorSnapshot {
   enabled: boolean
   /** The lane id holding the publication lock, or null. */
@@ -196,6 +231,14 @@ export interface ConductorSnapshot {
    *  has actually been read, and a fresh publish before that would bury the
    *  interrupted operation under a newer one for good. */
   reconciled: boolean
+  /** Why the last reconcile attempt did not complete, or null when the last
+   *  attempt completed (or none has been made yet and one is still in
+   *  flight). Re-review m-2: a reconcile that came back busy, or threw,
+   *  left `reconciled: false` with no other trace, so the panel went on
+   *  saying "Checking for interrupted operations…" forever even though
+   *  nothing was checking any more. The panel distinguishes the two states
+   *  from this field (see describeAttention). */
+  reconcileError: string | null
 }
 
 /** The payload of EVT_CONDUCTOR_STATE. Carries the workspace the snapshot

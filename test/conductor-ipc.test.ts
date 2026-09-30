@@ -64,6 +64,9 @@ function fakeConductor(overrides: Partial<import('../src/main/conductor').Conduc
     }),
     releaseLock: vi.fn((holder: string) => { if (locked === holder) locked = null }),
     reconcile: vi.fn(async () => ({ needsAttention: false, operations: [] })),
+    acknowledgeOperation: vi.fn(async () => ({
+      ok: false as const, reason: 'unknown-operation' as const, message: 'unused'
+    })),
     ...overrides
   } as unknown as import('../src/main/conductor').Conductor
 }
@@ -103,13 +106,17 @@ function harness(backend: Partial<ConductorBackend> = {}) {
       facts: {},
       needsAttention: false,
       operations: [],
-      reconciled: true
+      reconciled: true,
+      reconcileError: null
     })),
     createLane: vi.fn(async () => lane({ id: 'lane-2' })),
     destroyLane: vi.fn(async () => undefined),
     publishLane: vi.fn(async () => ({ ok: true as const, commit: 'abc', touchedPaths: [], warnings: [] })),
     syncLane: vi.fn(async () => ({ ok: true as const, resultSha: 'def', fastForward: true })),
     reconcile: vi.fn(async () => ({ needsAttention: false, operations: [] })),
+    acknowledgeOperation: vi.fn(async () => ({
+      ok: false as const, reason: 'unknown-operation' as const, message: 'unused'
+    })),
     compose: vi.fn(async () => ({ ok: true as const, lanes: [lane({ id: 'lane-3' })] })),
     ...backend
   }
@@ -141,6 +148,7 @@ describe('conductor IPC contract', () => {
         IPC.CONDUCTOR_PUBLISH,
         IPC.CONDUCTOR_SYNC,
         IPC.CONDUCTOR_RECONCILE,
+        IPC.CONDUCTOR_ACKNOWLEDGE,
         IPC.CONDUCTOR_COMPOSE
       ].sort()
     )
@@ -221,11 +229,45 @@ describe('conductor IPC contract', () => {
     expect(broadcast).not.toHaveBeenCalled()
   })
 
+  // Re-review I-1: the acknowledge has to reach the backend for the
+  // workspace the renderer named, carrying the operation it is closing, and
+  // push fresh state afterwards — otherwise the gate reopens in main while
+  // the panel still renders it shut.
+  it('routes acknowledge to the named workspace and broadcasts fresh state', async () => {
+    const { invoke, broadcast, backend, resolved } = harness({
+      acknowledgeOperation: vi.fn(async () => ({
+        ok: true as const, phase: 'aborted' as const, report: { needsAttention: false, operations: [] }
+      }))
+    })
+    const outcome = await invoke(IPC.CONDUCTOR_ACKNOWLEDGE, {
+      workspaceId: 'ws-1', opId: 'op-1', detail: 'reviewed in the panel'
+    })
+    expect(outcome).toMatchObject({ ok: true, phase: 'aborted' })
+    expect(backend.acknowledgeOperation).toHaveBeenCalledWith('op-1', 'reviewed in the panel')
+    expect(resolved).toContain('ws-1')
+    expect(broadcast).toHaveBeenCalled()
+    expect(broadcast.mock.calls.at(-1)![1]).toMatchObject({ workspaceId: 'ws-1' })
+  })
+
+  it('still pushes fresh state when an acknowledge was refused, so the panel is not left stale', async () => {
+    const { invoke, broadcast } = harness({
+      acknowledgeOperation: vi.fn(async () => ({
+        ok: false as const, reason: 'stale' as const, message: 'not the newest operation'
+      }))
+    })
+    const outcome = await invoke(IPC.CONDUCTOR_ACKNOWLEDGE, {
+      workspaceId: 'ws-1', opId: 'op-1', detail: 'reviewed in the panel'
+    })
+    expect(outcome).toMatchObject({ ok: false, reason: 'stale' })
+    expect(broadcast).toHaveBeenCalled()
+  })
+
   it('exposes every conductor channel through the preload bridge', () => {
     const preload = readFileSync(new URL('../src/preload/index.ts', import.meta.url), 'utf8')
     for (const key of [
       'CONDUCTOR_STATE', 'CONDUCTOR_LANE_CREATE', 'CONDUCTOR_LANE_DESTROY',
-      'CONDUCTOR_PUBLISH', 'CONDUCTOR_SYNC', 'CONDUCTOR_RECONCILE', 'CONDUCTOR_COMPOSE',
+      'CONDUCTOR_PUBLISH', 'CONDUCTOR_SYNC', 'CONDUCTOR_RECONCILE', 'CONDUCTOR_ACKNOWLEDGE',
+      'CONDUCTOR_COMPOSE',
       'EVT_CONDUCTOR_STATE'
     ]) {
       expect(preload).toContain(`IPC.${key}`)
@@ -307,7 +349,9 @@ describe('the shipped conductor backend for a workspace with no ConductorConfig'
       // the gate publish/sync sit behind is open rather than pending — the
       // refusal a disabled backend gives is 'not configured', not
       // 'still checking'.
-      reconciled: true
+      reconciled: true,
+      // …and no failure to report, since nothing was attempted.
+      reconcileError: null
     })
   })
 
@@ -589,7 +633,8 @@ describe('Task 5: the backend as the lock/persistence boundary', () => {
         facts: {},
         needsAttention: false,
         operations: [],
-        reconciled: true
+        reconciled: true,
+        reconcileError: null
       })),
       publishLane: vi.fn(() => {
         lockTaken = true
@@ -771,6 +816,120 @@ describe('Task 5: the backend as the lock/persistence boundary', () => {
     await expect(backend.reconcile()).resolves.toMatchObject({ busy: true })
     expect((await backend.state()).reconciled).toBe(false)
     expect(await backend.publishLane(created.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+  })
+
+  // ── Re-review finding I-1: the gate needs an exit ──
+  // Before this, the needs-attention gate had NO exit at all: reconcile
+  // reports 'complete' only when the newest operation carries an 'aborted'
+  // or 'notified' entry, and nothing in the product ever wrote one. Every
+  // test shipped so far only proved the gate CLOSING. These prove it opens.
+  it('reopens the gate when acknowledging an operation, adopting the reconcile that followed', async () => {
+    const blocked = {
+      needsAttention: true,
+      operations: [{ opId: 'op-1', laneId: 'lane-1', classification: 'interrupted-merge' as const, summary: 's', safeToRedo: false, requiresHuman: true }]
+    }
+    const cleared = { needsAttention: false, operations: [] }
+    const runtime = fakeRuntime({
+      conductor: {
+        reconcile: vi.fn(async () => blocked),
+        acknowledgeOperation: vi.fn(async () => ({ ok: true as const, phase: 'aborted' as const, report: cleared }))
+      }
+    })
+    const backend = createShippedConductorBackend(runtime as never)
+    const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    await backend.reconcile()
+    expect(await backend.publishLane(created.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+
+    await expect(backend.acknowledgeOperation('op-1', 'reviewed')).resolves.toMatchObject({ ok: true })
+    expect(runtime.conductor.acknowledgeOperation).toHaveBeenCalledWith('op-1', 'reviewed')
+
+    const state = await backend.state()
+    expect(state.needsAttention).toBe(false)
+    expect(state.operations).toEqual([])
+    // …and the gate is genuinely open: a publish now reaches the runtime.
+    await expect(backend.publishLane(created.id)).resolves.toMatchObject({ ok: true })
+    expect(runtime.conductor.publishLane).toHaveBeenCalled()
+  })
+
+  it('keeps the gate shut when the acknowledge was refused', async () => {
+    const blocked = {
+      needsAttention: true,
+      operations: [{ opId: 'op-1', laneId: 'lane-1', classification: 'interrupted-merge' as const, summary: 's', safeToRedo: false, requiresHuman: true }]
+    }
+    const runtime = fakeRuntime({
+      conductor: {
+        reconcile: vi.fn(async () => blocked),
+        acknowledgeOperation: vi.fn(async () => ({ ok: false as const, reason: 'stale' as const, message: 'not the newest operation' }))
+      }
+    })
+    const backend = createShippedConductorBackend(runtime as never)
+    const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    await backend.reconcile()
+
+    await expect(backend.acknowledgeOperation('op-1', 'reviewed')).resolves.toMatchObject({ ok: false, reason: 'stale' })
+    expect((await backend.state()).needsAttention).toBe(true)
+    expect(await backend.publishLane(created.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+  })
+
+  // An acknowledge whose journal append failed must change nothing: the
+  // interrupted operation is still outstanding on disk, and a gate opened
+  // on a write that did not land is exactly the silent overwrite this
+  // design exists to prevent.
+  it('leaves an unacknowledged operation outstanding when the journal write failed', async () => {
+    const blocked = {
+      needsAttention: true,
+      operations: [{ opId: 'op-1', laneId: 'lane-1', classification: 'interrupted-merge' as const, summary: 's', safeToRedo: false, requiresHuman: true }]
+    }
+    const runtime = fakeRuntime({
+      conductor: {
+        reconcile: vi.fn(async () => blocked),
+        acknowledgeOperation: vi.fn(async () => ({ ok: false as const, reason: 'journal-failed' as const, message: 'disk full' }))
+      }
+    })
+    const backend = createShippedConductorBackend(runtime as never)
+    await backend.reconcile()
+    await expect(backend.acknowledgeOperation('op-1', 'reviewed')).resolves.toMatchObject({ ok: false, reason: 'journal-failed' })
+    expect((await backend.state()).needsAttention).toBe(true)
+  })
+
+  it('refuses to acknowledge for a disabled workspace instead of crashing', async () => {
+    const backend = createShippedConductorBackend(null)
+    await expect(backend.acknowledgeOperation('op-1', 'reviewed')).resolves.toMatchObject({ ok: false })
+    expect((await backend.state()).enabled).toBe(false)
+  })
+
+  // ── Re-review "also fix" m-2: a reconcile that failed is not "checking…" ──
+  it('reports why a reconcile could not run, so the panel stops claiming a check is in flight', async () => {
+    const runtime = fakeRuntime({
+      conductor: { reconcile: vi.fn(async () => { throw new Error('integration worktree is missing') }) }
+    })
+    const backend = createShippedConductorBackend(runtime as never)
+    await expect(backend.reconcile()).rejects.toThrow(/integration worktree is missing/)
+    const state = await backend.state()
+    expect(state.reconciled).toBe(false)
+    expect(state.reconcileError).toContain('integration worktree is missing')
+  })
+
+  it('reports a busy reconcile as a reason too, rather than leaving the panel silent', async () => {
+    const runtime = fakeRuntime({
+      conductor: { reconcile: vi.fn(async () => { throw new ConductorBusyError() }) }
+    })
+    const backend = createShippedConductorBackend(runtime as never)
+    await backend.reconcile()
+    expect((await backend.state()).reconcileError).toMatch(/busy/)
+  })
+
+  it('clears the reason once a reconcile completes', async () => {
+    const reconcile = vi.fn(async (): Promise<{ needsAttention: boolean; operations: [] }> => {
+      throw new ConductorBusyError()
+    })
+    const runtime = fakeRuntime({ conductor: { reconcile } })
+    const backend = createShippedConductorBackend(runtime as never)
+    await backend.reconcile()
+    expect((await backend.state()).reconcileError).not.toBeNull()
+    reconcile.mockImplementation(async () => ({ needsAttention: false, operations: [] }))
+    await backend.reconcile()
+    expect((await backend.state()).reconcileError).toBeNull()
   })
 
   // state() must name the operations, not merely count them: the panel has

@@ -22,6 +22,7 @@ import type {
   ConductorLane,
   PublishOutcome,
   SyncOutcome,
+  AcknowledgeOutcome,
   ReconcileReport
 } from './conductor'
 import type { RosterDraft, ComposeResult } from './conductor-composer'
@@ -125,6 +126,15 @@ export interface CrewAPI {
   publishLane(workspaceId: string | null, laneId: string): Promise<PublishOutcome>
   syncLane(workspaceId: string | null, laneId: string): Promise<SyncOutcome>
   reconcileConductor(workspaceId: string | null): Promise<ReconcileReport>
+  /** Closes an interrupted operation on the record so publish and sync stop
+   *  being refused (re-review finding I-1). `opId` must be the operation the
+   *  panel is showing — the newest one in the journal — and `detail` is the
+   *  reason recorded alongside the closure. */
+  acknowledgeConductorOperation(
+    workspaceId: string | null,
+    opId: string,
+    detail: string
+  ): Promise<AcknowledgeOutcome>
   composeConductedWorkspace(workspaceId: string | null, draft: RosterDraft): Promise<ComposeResult>
   /** Replace a session's workspace-id membership. */
   setSessionWorkspaces(id: string, workspaceIds: string[]): Promise<void>

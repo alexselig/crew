@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   buildRoster,
   conductorPanelMode,
+  describeAcknowledgeOutcome,
   describeAttention,
   describeOutcome,
   describeReconcileReport,
@@ -26,8 +27,17 @@ interface Props {
 export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Props): JSX.Element | null {
   const [snapshot, setSnapshot] = useState<ConductorSnapshot | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  // Re-review finding I-4: which workspace this panel is showing RIGHT NOW,
+  // readable from inside a promise callback that was started for an older
+  // one. A publish that runs tests takes minutes, so a workspace switch
+  // between the call and its `finally` is ordinary, not exotic — and
+  // without this the refresh below would drop workspace A's snapshot onto a
+  // panel now showing B, whose buttons would then send B's workspace id
+  // with A's lane ids ("unknown lane").
+  const shownWorkspace = useRef(workspaceId)
 
   useEffect(() => {
+    shownWorkspace.current = workspaceId
     let cancelled = false
     // Dropped, not kept: the previous workspace's snapshot must not be on
     // screen while this one loads, or the user acts on another workspace's
@@ -48,21 +58,31 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
     }
   }, [workspaceId])
 
-  // Both handlers refresh the snapshot straight from getConductorState() in
-  // a `finally`, not only on the happy path — a rejected IPC call (transport
-  // failure, never a structured refusal; see describeUnexpectedFailure) must
-  // never leave the panel trusting a stale broadcast. Re-fetching the real,
-  // current lock state is what stops a lane looking permanently "publishing"
-  // after a rejection that no later broadcast ever corrected.
+  // Every handler refreshes the snapshot straight from getConductorState()
+  // in a `finally`, not only on the happy path — a rejected IPC call
+  // (transport failure, never a structured refusal; see
+  // describeUnexpectedFailure) must never leave the panel trusting a stale
+  // broadcast. Re-fetching the real, current lock state is what stops a lane
+  // looking permanently "publishing" after a rejection that no later
+  // broadcast ever corrected.
+  //
+  // Finding I-4: the result is applied only if this panel is still showing
+  // the workspace the call was made for. A late answer for a workspace the
+  // user has already switched away from is dropped, never rendered.
+  const refresh = useCallback(async () => {
+    const state = await window.crew.getConductorState(workspaceId)
+    if (shownWorkspace.current === workspaceId) setSnapshot(state)
+  }, [workspaceId])
+
   const publish = useCallback(async (laneId: string) => {
     try {
       setMessage(describeOutcome(await window.crew.publishLane(workspaceId, laneId)))
     } catch (error) {
       setMessage(describeUnexpectedFailure('publish', error))
     } finally {
-      void window.crew.getConductorState(workspaceId).then(setSnapshot)
+      void refresh()
     }
-  }, [workspaceId])
+  }, [workspaceId, refresh])
 
   const sync = useCallback(async (laneId: string) => {
     try {
@@ -71,9 +91,9 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
     } catch (error) {
       setMessage(describeUnexpectedFailure('sync', error))
     } finally {
-      void window.crew.getConductorState(workspaceId).then(setSnapshot)
+      void refresh()
     }
-  }, [workspaceId])
+  }, [workspaceId, refresh])
 
   // The way out of the needs-attention gate (review finding 7). Publish and
   // sync refuse while an interrupted operation is outstanding, and a
@@ -86,9 +106,32 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
     } catch (error) {
       setMessage(describeUnexpectedFailure('recheck', error))
     } finally {
-      void window.crew.getConductorState(workspaceId).then(setSnapshot)
+      void refresh()
     }
-  }, [workspaceId])
+  }, [workspaceId, refresh])
+
+  // Finding I-1: the actual exit from the needs-attention gate. A reconcile
+  // can only REPORT an interrupted operation — nothing it does closes one,
+  // so before this control existed a crash mid-publish refused publish and
+  // sync in that workspace forever (and no git action escaped it, because
+  // the journal, not git, is what reconcile classifies). Acknowledging
+  // appends a terminal journal entry for the operation the user is looking
+  // at, which is why it is a deliberate, per-operation button rather than
+  // something a Re-check does silently on the user's behalf.
+  const acknowledge = useCallback(async (opId: string) => {
+    try {
+      const outcome = await window.crew.acknowledgeConductorOperation(
+        workspaceId,
+        opId,
+        'reviewed and acknowledged in the conductor panel'
+      )
+      setMessage(describeAcknowledgeOutcome(outcome))
+    } catch (error) {
+      setMessage(describeUnexpectedFailure('acknowledge', error))
+    } finally {
+      void refresh()
+    }
+  }, [workspaceId, refresh])
 
   const mode = conductorPanelMode(snapshot)
   if (mode === 'loading') return null
@@ -137,7 +180,14 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
               key={op.opId}
               className={op.requiresHuman ? 'conductor-operation conductor-operation--human' : 'conductor-operation'}
             >
-              {op.summary}
+              <span className="conductor-operation-summary">{op.summary}</span>
+              <button
+                type="button"
+                className="conductor-acknowledge"
+                onClick={() => void acknowledge(op.opId)}
+              >
+                Acknowledge
+              </button>
             </li>
           ))}
         </ul>

@@ -16,6 +16,7 @@ import type {
   TestRecipe,
   PublishOutcome,
   SyncOutcome,
+  AcknowledgeOutcome,
   ReconciledOperation,
   ReconcileReport
 } from '../shared/conductor'
@@ -78,6 +79,20 @@ export interface Conductor {
    *  swallowed outright. */
   releaseLock(holder: string): void
   reconcile(): Promise<ReconcileReport>
+  /** Closes the newest journalled operation on the record, so the
+   *  needs-attention gate publish and sync sit behind can actually reopen
+   *  (re-review finding I-1). Appends a terminal entry — 'notified' when the
+   *  operation already journalled 'published', 'aborted' (carrying `detail`)
+   *  otherwise — under the single-flight lock, then reconciles again and
+   *  returns what that found.
+   *
+   *  `opId` is required, and must be the newest operation in the journal:
+   *  the caller acknowledges the operation it was SHOWN, and an operation
+   *  that is no longer the newest is refused ('stale') rather than closed
+   *  blind. Nothing here inspects or repairs git — acknowledging records a
+   *  human decision, it does not undo a merge. Returned, never thrown, like
+   *  publishLane/syncLane: only reconcile() throws. */
+  acknowledgeOperation(opId: string, detail: string): Promise<AcknowledgeOutcome>
 }
 
 /**
@@ -572,6 +587,94 @@ export function createConductor(deps: ConductorDeps): Conductor {
     }
   }
 
+  /** Re-review finding I-1: the one exit from the needs-attention gate. See
+   *  the interface doc comment above for the contract; the reasoning for
+   *  each refusal is inline below. */
+  const acknowledgeOperation = async (opId: string, detail: string): Promise<AcknowledgeOutcome> => {
+    // Same synchronous reservation every other routine in this file makes,
+    // and for the same reason: this reads the journal, appends to it, and
+    // then reconciles, and a publication running in any of those gaps would
+    // make the entry it appends describe an operation that is no longer the
+    // newest one.
+    if (publishing !== null) {
+      return { ok: false, reason: 'busy', message: 'conductor is busy' }
+    }
+    publishing = 'acknowledge'
+    try {
+      const entries = journal.read()
+      const newestOpId = entries.length > 0 ? entries[entries.length - 1].opId : null
+      if (newestOpId === null) {
+        return {
+          ok: false,
+          reason: 'unknown-operation',
+          message: 'there is no journalled operation to acknowledge'
+        }
+      }
+      // Acknowledging closes the operation the user was SHOWN. reconcile()
+      // only ever classifies the newest operation, so if the newest one has
+      // changed since the panel rendered (a publish landed in another
+      // window), acknowledging would close an operation nobody reviewed.
+      if (newestOpId !== opId) {
+        return {
+          ok: false,
+          reason: 'stale',
+          message:
+            `operation ${opId} is no longer the most recent one in the journal — ` +
+            're-check, then acknowledge what that reports'
+        }
+      }
+      const group = entries.filter((e) => e.opId === opId)
+      const phases = new Set(group.map((e) => e.phase))
+      if (phases.has('aborted') || phases.has('notified')) {
+        return {
+          ok: false,
+          reason: 'already-closed',
+          message: `operation ${opId} is already closed — re-check to refresh what conductor believes`
+        }
+      }
+      // 'published' journalled means the compare-and-swap already landed;
+      // the only step left in that operation was telling teammates, and
+      // Phase 1 has no bulletins to send — so the honest terminal entry is
+      // 'notified', not 'aborted'. Everything else the user is closing is
+      // an operation that never completed: 'aborted', carrying their reason.
+      const closing: JournalPhase = phases.has('published') ? 'notified' : 'aborted'
+      const last = group[group.length - 1]
+      const resultSha = group.find((e) => e.resultSha !== undefined)?.resultSha
+      // 'aborted' requires a non-empty detail (conductor-journal.ts's
+      // write-time validator), and a blank one would be useless to the next
+      // human anyway, so a caller that supplies nothing gets a truthful
+      // stand-in rather than a rejected append.
+      const reason = detail.trim().length > 0 ? detail.trim() : 'acknowledged by the user'
+      try {
+        journal.append({
+          opId,
+          laneId: last.laneId,
+          phase: closing,
+          baseSha: last.baseSha,
+          laneTip: last.laneTip,
+          resultSha,
+          detail: reason,
+          at: now()
+        })
+      } catch (error) {
+        // Fail closed, exactly like every other journal write here: if the
+        // record cannot be made durable, nothing was acknowledged and the
+        // gate must stay shut.
+        return {
+          ok: false,
+          reason: 'journal-failed',
+          message: error instanceof Error ? error.message : String(error)
+        }
+      }
+      // Reconciled here, under the lock this call already holds, so the
+      // caller learns from data whether the gate actually reopened instead
+      // of assuming it did.
+      return { ok: true, phase: closing, report: await reconcileLocked() }
+    } finally {
+      publishing = null
+    }
+  }
+
   const reconcileLocked = async (): Promise<ReconcileReport> => {
     const entries = journal.read()
     if (entries.length === 0) return { needsAttention: false, operations: [] }
@@ -680,5 +783,5 @@ export function createConductor(deps: ConductorDeps): Conductor {
     return { needsAttention: operations.length > 0, operations }
   }
 
-  return { publishLane, syncLane, lockHolder, reserveLock, releaseLock, reconcile }
+  return { publishLane, syncLane, lockHolder, reserveLock, releaseLock, reconcile, acknowledgeOperation }
 }

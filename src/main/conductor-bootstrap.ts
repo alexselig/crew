@@ -42,14 +42,23 @@
 //     lock, the cached backend's `state()` still reports the true holder,
 //     and a second publish/sync against it still correctly reports 'busy',
 //     because it is genuinely the same Conductor instance rather than a
-//     fresh one with an amnesiac lock. Two live Conductor instances on one
-//     on-disk integration worktree are impossible by construction.
+//     fresh one with an amnesiac lock. What this does NOT do is make two
+//     live Conductor instances on one integration worktree impossible —
+//     an earlier version of this comment claimed exactly that, and it is
+//     false (re-review m-1, deliberately left unfixed for a follow-up):
+//     `compose()` builds a provisional runtime BEFORE anything is cached,
+//     so two first-composes for the same workspace, racing in two windows,
+//     each build their own runtime over the same on-disk integration
+//     worktree, with two independent single-flight locks. The cache only
+//     makes that impossible once a workspace is bound.
 //
 //  4. Every backend reconciles once, eagerly, the moment it is built (review
 //     finding 2), and the result is broadcast. Publish and sync refuse until
 //     that reconcile has completed, because a publish before the journal has
 //     been read would become the newest operation and hide an interrupted
-//     one for good.
+//     one for good. When that reconcile DOES find an interrupted operation,
+//     the way back out is the user acknowledging it (re-review I-1), which
+//     journals its closure — see Conductor.acknowledgeOperation.
 
 import { IPC } from '../shared/types'
 import type { ConductorConfig, ConductorLane, TestRecipe } from '../shared/conductor'
@@ -268,6 +277,7 @@ export function createConductorController(deps: ConductorBootstrapDeps): Conduct
     publishLane: (laneId) => entryBackend(workspaceId).publishLane(laneId),
     syncLane: (laneId) => entryBackend(workspaceId).syncLane(laneId),
     reconcile: () => entryBackend(workspaceId).reconcile(),
+    acknowledgeOperation: (opId, detail) => entryBackend(workspaceId).acknowledgeOperation(opId, detail),
     compose: (draft) => compose(workspaceId, draft)
   })
 

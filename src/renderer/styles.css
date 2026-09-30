@@ -6832,6 +6832,17 @@ button.grid-topbar__wordmark:hover {
   font-size: 11px;
   color: var(--text-dim);
   line-height: 1.5;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.conductor-operation-summary {
+  flex: 1 1 auto;
+}
+.conductor-acknowledge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 8px;
 }
 .conductor-operation--human {
   color: var(--danger);

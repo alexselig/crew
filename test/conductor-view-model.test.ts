@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRoster,
   conductorPanelMode,
+  describeAcknowledgeOutcome,
   describeAttention,
   describeComposeFailure,
   describeOutcome,
@@ -35,6 +36,7 @@ function snapshot(overrides: Partial<ConductorSnapshot> = {}): ConductorSnapshot
     operations: [],
     // Reconciled by default: the interesting cases set it explicitly.
     reconciled: true,
+    reconcileError: null,
     ...overrides
   }
 }
@@ -321,8 +323,93 @@ describe('describeAttention', () => {
   })
 
   it('still says something useful when needsAttention is set with no operations to name', () => {
-    expect(describeAttention(snapshot({ needsAttention: true, operations: [] })))
-      .toBe('An interrupted operation needs review')
+    const message = describeAttention(snapshot({ needsAttention: true, operations: [] }))
+    expect(message).toContain('holding publish and sync')
+    // I-1: the banner has to name the way out, or the user is told only
+    // that they are stuck.
+    expect(message).toContain('acknowledge')
+  })
+
+  // I-1: the banner and the refusal have to agree, and the banner must not
+  // contradict the operation summary printed beside it. An operation that
+  // needs no human judgement still holds the gate until acknowledged.
+  it('names acknowledging as the exit even when no operation requires a human', () => {
+    const message = describeAttention(snapshot({
+      needsAttention: true,
+      operations: [
+        { opId: 'op-1', laneId: 'lane-1', classification: 'not-started', summary: 'Nothing ran. Safe to publish again.', safeToRedo: true, requiresHuman: false }
+      ]
+    }))
+    expect(message).toContain('Nothing ran. Safe to publish again.')
+    expect(message).toContain('Acknowledge')
+    expect(message).not.toContain('needs a human')
+  })
+
+  // m-2: a reconcile that failed or came back busy is a stopped check, not
+  // an in-flight one. Reporting "checking…" there claimed progress that had
+  // already ended, and hid the only thing that would help: pressing
+  // Re-check.
+  it('reports a failed reconcile instead of claiming a check is still running', () => {
+    const message = describeAttention(snapshot({ reconciled: false, reconcileError: 'integration worktree is missing' }))
+    expect(message).toContain('integration worktree is missing')
+    expect(message).not.toContain('Checking for interrupted operations…')
+    expect(message).toContain('Re-check')
+  })
+
+  it('reports a busy reconcile the same way, since nothing is checking after it either', () => {
+    const message = describeAttention(snapshot({
+      reconciled: false,
+      reconcileError: 'conductor was busy with another operation'
+    }))
+    expect(message).toContain('busy')
+    expect(message).not.toContain('Checking for interrupted operations…')
+  })
+})
+
+describe('describeAcknowledgeOutcome', () => {
+  const report = (needsAttention: boolean, summaries: string[] = []) => ({
+    needsAttention,
+    operations: summaries.map((summary, index) => ({
+      opId: `op-${index}`,
+      laneId: 'lane-1',
+      classification: 'interrupted-merge' as const,
+      summary,
+      safeToRedo: false,
+      requiresHuman: true
+    }))
+  })
+
+  it('reports the gate reopening only when the reconcile that followed found nothing', () => {
+    const message = describeAcknowledgeOutcome({ ok: true, phase: 'aborted', report: report(false) })
+    expect(message).toContain('available again')
+  })
+
+  // Acknowledging closes ONE operation. If another is outstanding the gate
+  // is still shut, so claiming success there would be a lie the user acts on.
+  it('does not claim the gate reopened when another operation is still outstanding', () => {
+    const message = describeAcknowledgeOutcome({
+      ok: true,
+      phase: 'notified',
+      report: report(true, ['publish of scout may be half-applied'])
+    })
+    expect(message).toContain('publish of scout may be half-applied')
+    expect(message).not.toContain('available again')
+  })
+
+  it('reports a busy refusal as a retry, not a failure', () => {
+    expect(describeAcknowledgeOutcome({ ok: false, reason: 'busy', message: 'busy' }))
+      .toContain('busy')
+  })
+
+  it('passes through the specific reason a stale acknowledge was refused', () => {
+    expect(describeAcknowledgeOutcome({ ok: false, reason: 'stale', message: 'op-1 is no longer the newest operation' }))
+      .toContain('op-1 is no longer the newest operation')
+  })
+
+  it('tells the user nothing changed when the journal write failed', () => {
+    const message = describeAcknowledgeOutcome({ ok: false, reason: 'journal-failed', message: 'disk full' })
+    expect(message).toContain('nothing changed')
+    expect(message).toContain('disk full')
   })
 })
 
@@ -335,6 +422,21 @@ describe('describeReconcileReport', () => {
   it('reports the gate reopening when nothing was interrupted', () => {
     expect(describeReconcileReport({ needsAttention: false, operations: [] }))
       .toContain('no interrupted operation')
+  })
+
+  // I-1: 'not-started' means nothing ran, so "still needs a human"
+  // contradicted the summary printed next to it. It still holds the gate,
+  // but what it needs is an acknowledgement, not a judgement call.
+  it('tells the user to acknowledge, not to adjudicate, when no operation requires a human', () => {
+    const message = describeReconcileReport({
+      needsAttention: true,
+      operations: [
+        { opId: 'op-1', laneId: 'lane-1', classification: 'not-started', summary: 'Nothing ran. Safe to publish again.', safeToRedo: true, requiresHuman: false }
+      ]
+    })
+    expect(message).toContain('Nothing ran. Safe to publish again.')
+    expect(message).toContain('Acknowledge')
+    expect(message).not.toContain('needs a human')
   })
 
   it('names what still needs a human', () => {

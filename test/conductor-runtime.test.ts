@@ -6,9 +6,11 @@ import { join, isAbsolute, resolve } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
 import { createJournal } from '../src/main/conductor-journal'
 import { createConductor, ConductorBusyError } from '../src/main/conductor'
+import { createShippedConductorBackend } from '../src/main/conductor-ipc'
 import { classifyOperation } from '../src/shared/conductor-recovery'
 import type { RecoveryJournalEntry } from '../src/shared/conductor-recovery'
-import type { ConductorSettings } from '../src/shared/conductor'
+import type { ConductorConfig, ConductorLane, ConductorSettings } from '../src/shared/conductor'
+import { createConductorController } from '../src/main/conductor-bootstrap'
 
 let root: string
 let settings: ConductorSettings
@@ -1116,3 +1118,244 @@ describe('reconcile', () => {
     expect(outcome.ok).toBe(true)
   })
 }, { timeout: 30_000 })
+
+// ── Re-review finding I-1: the needs-attention gate must have an exit ──
+// Every test shipped before this one proved only that the gate CLOSES.
+// classifyOperation returns 'complete' as soon as an operation carries an
+// 'aborted' or 'notified' entry, and until now nothing in the product ever
+// wrote one — so a single interrupted operation shut publish and sync for
+// that workspace permanently, with no control, no command and no code path
+// that could reopen them. These tests drive the real journal on disk and
+// real git, and assert the gate REOPENS.
+describe('acknowledgeOperation (the needs-attention gate\'s only exit)', () => {
+  // The state a crash leaves behind: an operation that recorded its intent
+  // and then never came back.
+  async function interruptedOperation() {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const facts = await lanes.facts(lane)
+    journal.append({
+      opId: 'op-crash', laneId: lane.id, phase: 'intent',
+      baseSha: facts.baseSha, laneTip: facts.laneTip, at: 1
+    })
+    return { lanes, journal, conductor, lane }
+  }
+
+  it('reopens a gate that a crashed operation had closed', async () => {
+    const { journal, conductor } = await interruptedOperation()
+
+    const before = await conductor.reconcile()
+    expect(before.needsAttention).toBe(true)
+    expect(before.operations[0].opId).toBe('op-crash')
+
+    const outcome = await conductor.acknowledgeOperation('op-crash', 'reviewed: nothing had run')
+    expect(outcome).toMatchObject({ ok: true })
+    if (!outcome.ok) return
+
+    // The gate is open in the report acknowledge itself returns…
+    expect(outcome.report.needsAttention).toBe(false)
+    // …and on a fresh, independent read of the journal on disk, which is
+    // what a restart would do.
+    const after = await conductor.reconcile()
+    expect(after.needsAttention).toBe(false)
+    expect(after.operations).toHaveLength(0)
+    expect(createJournal(journalPath).read().some((e) => e.phase === 'aborted')).toBe(true)
+    expect(journal.read().at(-1)).toMatchObject({ opId: 'op-crash', phase: 'aborted' })
+  })
+
+  // The acknowledgement is itself a journal record, not a flag in memory:
+  // an unreviewed interrupted operation must never be silently overwritten,
+  // and the record must say a human did it and why.
+  it('records who closed the operation and with what note, durably', async () => {
+    const { conductor } = await interruptedOperation()
+    await conductor.reconcile()
+    await conductor.acknowledgeOperation('op-crash', 'reviewed: nothing had run')
+
+    const entry = createJournal(journalPath).read().at(-1)!
+    expect(entry.phase).toBe('aborted')
+    expect(entry.detail).toContain('reviewed: nothing had run')
+  })
+
+  // A publish that DID land must be closed as 'notified', not 'aborted' —
+  // the two mean opposite things to anyone reading the journal afterwards.
+  it('closes an operation that had already published as notified, not aborted', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const facts = await lanes.facts(lane)
+    const merged = await lanes.mergeInIntegration(facts.laneTip, facts.baseSha)
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+    for (const [phase, at] of [['intent', 1], ['merged', 2], ['published', 3]] as const) {
+      journal.append({
+        opId: 'op-half', laneId: lane.id, phase,
+        baseSha: facts.baseSha, laneTip: facts.laneTip,
+        resultSha: phase === 'intent' ? undefined : merged.resultSha, at
+      })
+    }
+
+    await conductor.reconcile()
+    const outcome = await conductor.acknowledgeOperation('op-half', 'confirmed the merge landed')
+    expect(outcome).toMatchObject({ ok: true, phase: 'notified' })
+    expect(journal.read().at(-1)).toMatchObject({ opId: 'op-half', phase: 'notified' })
+  })
+
+  it('refuses an operation that is not the one reconcile reported, rather than closing the wrong one', async () => {
+    const { journal, conductor } = await interruptedOperation()
+    await conductor.reconcile()
+
+    const outcome = await conductor.acknowledgeOperation('op-some-other', 'oops')
+    expect(outcome).toMatchObject({ ok: false, reason: 'stale' })
+    // Nothing was written, so the real operation is still outstanding.
+    expect(journal.read().map((e) => e.phase)).toEqual(['intent'])
+    expect((await conductor.reconcile()).needsAttention).toBe(true)
+  })
+
+  it('refuses to close an operation twice', async () => {
+    const { journal, conductor } = await interruptedOperation()
+    await conductor.reconcile()
+    await conductor.acknowledgeOperation('op-crash', 'reviewed')
+    const again = await conductor.acknowledgeOperation('op-crash', 'reviewed again')
+    expect(again).toMatchObject({ ok: false, reason: 'already-closed' })
+    // A duplicate phase for one opId makes classifyOperation throw, so a
+    // second write here would corrupt the journal outright.
+    expect(journal.read().filter((e) => e.phase === 'aborted')).toHaveLength(1)
+  })
+
+  it('refuses while a publication holds the single-flight lock', async () => {
+    const { conductor } = await interruptedOperation()
+    await conductor.reconcile()
+    expect(conductor.reserveLock('someone-else')).toBe(true)
+    try {
+      await expect(conductor.acknowledgeOperation('op-crash', 'reviewed'))
+        .resolves.toMatchObject({ ok: false, reason: 'busy' })
+    } finally {
+      conductor.releaseLock('someone-else')
+    }
+    // …and the lock it did not take is still the other holder's.
+    expect(conductor.lockHolder()).toBeNull()
+  })
+
+  it('leaves nothing acknowledged when the journal write fails', async () => {
+    const { lanes, conductor } = await interruptedOperation()
+    expect(lanes).toBeDefined()
+    await conductor.reconcile()
+    chmodSync(root, 0o500)
+    let outcome: Awaited<ReturnType<typeof conductor.acknowledgeOperation>>
+    try {
+      outcome = await conductor.acknowledgeOperation('op-crash', 'reviewed')
+    } finally {
+      chmodSync(root, 0o700)
+    }
+    expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
+    expect(createJournal(journalPath).read().map((e) => e.phase)).toEqual(['intent'])
+    expect((await conductor.reconcile()).needsAttention).toBe(true)
+    expect(conductor.lockHolder()).toBeNull()
+  })
+
+  it('refuses when there is no operation at all to acknowledge', async () => {
+    const { conductor } = build()
+    await expect(conductor.acknowledgeOperation('op-crash', 'reviewed'))
+      .resolves.toMatchObject({ ok: false, reason: 'unknown-operation' })
+  })
+
+  // End to end through the shipped backend — the layer the panel actually
+  // talks to — because that is where the gate is enforced.
+  it('lets the very next publish through, after an acknowledge', async () => {
+    const { lanes, conductor, lane } = await interruptedOperation()
+    const backend = createShippedConductorBackend({
+      lanes, conductor, settings,
+      createSession: async () => ({ id: 'sess' }),
+      closeSession: async () => undefined
+    } as never)
+    // Re-adopt the lane the crash left behind, the way a restart would.
+    const adopted = await backend.createLane({ roleId: 'redo', agent: { presetId: 'shell', model: null } })
+    commit(adopted.worktree, 'b.txt', 'two\n', 'redo lane work')
+    expect(lane.id).not.toBe(adopted.id)
+
+    await backend.reconcile()
+    expect(await backend.publishLane(adopted.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+
+    const outcome = await backend.acknowledgeOperation('op-crash', 'reviewed in the panel')
+    expect(outcome).toMatchObject({ ok: true })
+    expect((await backend.state()).needsAttention).toBe(false)
+
+    const published = await backend.publishLane(adopted.id)
+    expect(published).toMatchObject({ ok: true })
+    if (published.ok) {
+      expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(published.commit)
+    }
+  })
+})
+
+// ── Re-review "also fix": the test-recipe restart test that finding 3 asked
+// for. The two tests shipped for it stopped at the store — they proved the
+// recipe was WRITTEN, never that a rebuilt controller's publish actually
+// runs it. That is the whole point of persisting it: before the fix, a
+// restart reverted to `test: null` and every publish silently skipped the
+// tests it was supposed to gate on, while the UI still showed the recipe.
+// This drives the real controller, real store round trip, real git and the
+// real (uninjected) test runner.
+describe('a test recipe put in force survives a restart', () => {
+  it('runs the test phase on a publish made by a controller rebuilt from the store', async () => {
+    const configs: ConductorConfig[] = []
+    const storedLanes: ConductorLane[] = []
+    const deps = {
+      userDataDir: root,
+      getConductorConfigs: () => configs,
+      saveConductorConfigs: (list: ConductorConfig[]) => {
+        configs.splice(0, configs.length, ...list)
+        return configs
+      },
+      getConductorLanes: () => storedLanes,
+      saveConductorLanes: (list: ConductorLane[]) => {
+        storedLanes.splice(0, storedLanes.length, ...list)
+        return storedLanes
+      },
+      createSession: async () => ({ id: 'session-1' }),
+      closeSession: async () => undefined,
+      broadcast: () => undefined
+    }
+
+    // A recipe that fails deterministically: a publish that runs it is
+    // refused and journals a 'tests' phase, while a publish that skipped it
+    // would sail through — so "did the test phase run?" is answerable from
+    // behaviour rather than from a spy.
+    const recipe = { command: 'sh', args: ['-c', 'exit 3'], cwd: '.', timeoutMs: 10_000 }
+
+    const first = createConductorController(deps)
+    const composed = await first.compose('ws-1', {
+      repo: settings.repo,
+      integrationBranch: 'crew/integration',
+      rows: [{ roleName: 'builder', kind: 'author' as const, agent: { presetId: 'shell', model: null } }],
+      test: recipe
+    })
+    expect(composed.ok).toBe(true)
+    expect(configs[0].test).toEqual(recipe)
+
+    // The restart: a brand-new controller, sharing nothing with the first
+    // but the store's contents.
+    const restarted = createConductorController(deps)
+    const backend = restarted.backendFor('ws-1')
+    const state = await backend.state()
+    expect(state.enabled).toBe(true)
+    expect(state.lanes).toHaveLength(1)
+
+    const lane = state.lanes[0]
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const before = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    await backend.reconcile()
+    const outcome = await backend.publishLane(lane.id)
+
+    // Load-bearing: with the recipe lost across the restart, this publish
+    // succeeds and the ref moves.
+    expect(outcome).toMatchObject({ ok: false, reason: 'tests-failed' })
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
+    const phases = createJournal(join(root, 'conductor', 'ws-1', 'journal.ndjson')).read().map((e) => e.phase)
+    expect(phases).toContain('tests')
+  })
+})
