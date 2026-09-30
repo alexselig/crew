@@ -1203,6 +1203,94 @@ describe('acknowledgeOperation (the needs-attention gate\'s only exit)', () => {
     expect(journal.read().at(-1)).toMatchObject({ opId: 'op-half', phase: 'notified' })
   })
 
+  // Wave 3, finding 3: Acknowledge used to reply "Publish and sync are
+  // available again" while the integration worktree was still sitting in an
+  // unresolved merge, and every publish afterwards died on `checkout
+  // --detach` ("you need to resolve your current index first"), appending
+  // another intent/aborted pair to the journal each time. Conductor owns
+  // that worktree, so closing the operation on the record must also put the
+  // worktree back where the record says it is.
+  it('repairs an integration worktree left mid-merge, so publish really is available again', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const one = await lanes.create('one', { presetId: 'shell', model: null })
+    const two = await lanes.create('two', { presetId: 'shell', model: null })
+    commit(one.worktree, 'README.md', 'one\n', 'one edits the readme')
+    commit(two.worktree, 'README.md', 'two\n', 'two edits the readme')
+    const facts = await lanes.facts(one)
+    const twoTip = git(['rev-parse', two.branch as string], settings.repo)
+
+    // The crash window: a conflicting merge started and never aborted.
+    git(['checkout', '--detach', facts.laneTip], settings.integrationWorktree)
+    try {
+      execFileSync('git', ['merge', '--no-edit', twoTip], {
+        cwd: settings.integrationWorktree, encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...ENV }
+      })
+    } catch {
+      /* the conflict is the point */
+    }
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toMatch(/^UU /m)
+    journal.append({
+      opId: 'op-wedged', laneId: one.id, phase: 'intent',
+      baseSha: facts.baseSha, laneTip: facts.laneTip, at: 1
+    })
+
+    const before = await conductor.reconcile()
+    expect(before.operations[0]).toMatchObject({ opId: 'op-wedged', classification: 'interrupted-merge' })
+
+    const outcome = await conductor.acknowledgeOperation('op-wedged', 'reviewed the conflict')
+    expect(outcome).toMatchObject({ ok: true })
+    if (!outcome.ok) return
+    expect(outcome.report.needsAttention).toBe(false)
+
+    // The worktree agrees with the record: nothing half-merged is left.
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toBe('')
+    expect(() => execFileSync('git', ['rev-parse', '--verify', 'MERGE_HEAD'], {
+      cwd: settings.integrationWorktree, stdio: ['ignore', 'pipe', 'pipe']
+    })).toThrow()
+
+    // …and the claim it made is true: the very next publish works.
+    const published = await conductor.publishLane(one)
+    expect(published).toMatchObject({ ok: true })
+    if (published.ok) {
+      expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(published.commit)
+    }
+  })
+
+  // Wave 3, finding 5: the closing phase used to be read off the journal
+  // alone, so an operation whose compare-and-swap had actually landed
+  // (published-unrecorded: the ref already moved, the 'published' entry
+  // never got written) was closed as 'aborted' — a journal that says the
+  // opposite of what git says. Nothing is merged twice either way; the
+  // record is what goes wrong, and the record is the whole point of it.
+  it('closes a publish that really landed as notified, even when the journal never recorded it', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const facts = await lanes.facts(lane)
+    const merged = await lanes.mergeInIntegration(facts.laneTip, facts.baseSha)
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+    for (const [phase, at] of [['intent', 1], ['merged', 2]] as const) {
+      journal.append({
+        opId: 'op-landed', laneId: lane.id, phase,
+        baseSha: facts.baseSha, laneTip: facts.laneTip,
+        resultSha: phase === 'intent' ? undefined : merged.resultSha, at
+      })
+    }
+    // The CAS landed; the crash came before anything recorded it.
+    git(['update-ref', 'refs/heads/crew/integration', merged.resultSha, facts.baseSha], settings.repo)
+
+    const before = await conductor.reconcile()
+    expect(before.operations[0]).toMatchObject({ classification: 'published-unrecorded' })
+
+    const outcome = await conductor.acknowledgeOperation('op-landed', 'confirmed it landed')
+    expect(outcome).toMatchObject({ ok: true, phase: 'notified' })
+    expect(journal.read().at(-1)).toMatchObject({ opId: 'op-landed', phase: 'notified' })
+  })
+
   it('refuses an operation that is not the one reconcile reported, rather than closing the wrong one', async () => {
     const { journal, conductor } = await interruptedOperation()
     await conductor.reconcile()
@@ -1359,3 +1447,87 @@ describe('a test recipe put in force survives a restart', () => {
     expect(phases).toContain('tests')
   })
 })
+
+// ── Wave 3, finding 6: a publish that fails AFTER the merge, without a
+// crash, used to leave the journal with no closing entry and the backend's
+// gate wide open. Nothing re-ran reconcile in that session, so the next
+// publish started a newer operation — and reconcile only ever classifies
+// the newest one, which buried the interrupted operation for good. Every
+// post-merge exit must either close the operation on the record or shut the
+// gate until a Re-check has looked at what it left behind.
+describe('a publish that fails after the merge', () => {
+  function brokenPublishBackend() {
+    const lanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    const broken = {
+      ...lanes,
+      publish: async () => { throw new Error('update-ref exploded') }
+    }
+    const conductor = createConductor({ lanes: broken, journal, settings })
+    const backend = createShippedConductorBackend({
+      lanes: broken, conductor, settings,
+      createSession: async () => ({ id: 'sess' }),
+      closeSession: async () => undefined
+    } as never)
+    return { lanes, journal, conductor, backend }
+  }
+
+  it('shuts the gate, so the next publish cannot bury the operation it left open', async () => {
+    const { lanes, journal, backend } = brokenPublishBackend()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    await backend.reconcile()
+    expect((await backend.state()).reconciled).toBe(true)
+
+    const failed = await backend.publishLane(lane.id)
+    expect(failed).toMatchObject({ ok: false, reason: 'error' })
+    // The merge happened and nothing closed it on the record…
+    const phases = journal.read().map((e) => e.phase)
+    expect(phases).toContain('merged')
+    expect(phases).not.toContain('aborted')
+    expect(phases).not.toContain('notified')
+
+    // …so the gate is shut until a Re-check has actually looked at it.
+    const state = await backend.state()
+    expect(state.reconciled).toBe(false)
+    expect(await backend.publishLane(lane.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+
+    // And the Re-check surfaces that operation rather than losing it.
+    const report = await backend.reconcile()
+    expect(report.needsAttention).toBe(true)
+    expect(report.operations[0].laneId).toBe(lane.id)
+  })
+
+  it('shuts the gate when the merge could not be journalled either', async () => {
+    const lanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    let writes = 0
+    const flaky = {
+      read: () => journal.read(),
+      append: (entry: RecoveryJournalEntry) => {
+        writes += 1
+        // intent lands; the 'merged' write that must precede everything
+        // after the merge does not.
+        if (writes > 1) throw new Error('journal disk full')
+        journal.append(entry)
+      }
+    }
+    const conductor = createConductor({ lanes, journal: flaky as never, settings })
+    const backend = createShippedConductorBackend({
+      lanes, conductor, settings,
+      createSession: async () => ({ id: 'sess' }),
+      closeSession: async () => undefined
+    } as never)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    await backend.reconcile()
+    const failed = await backend.publishLane(lane.id)
+    expect(failed).toMatchObject({ ok: false, reason: 'journal-failed' })
+    expect((await backend.state()).reconciled).toBe(false)
+    expect(await backend.publishLane(lane.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+  })
+}, { timeout: 30_000 })

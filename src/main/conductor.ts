@@ -301,7 +301,11 @@ export function createConductor(deps: ConductorDeps): Conductor {
         return {
           ok: false,
           reason: 'journal-failed',
-          message: fullMessage
+          message: fullMessage,
+          // Wave 3, finding 6: the merge happened and no closing entry was
+          // written, so this operation is still open on the record and the
+          // gate must shut until a Re-check has looked at it.
+          unreconciled: true
         }
       }
 
@@ -333,7 +337,9 @@ export function createConductor(deps: ConductorDeps): Conductor {
           return {
             ok: false,
             reason: 'journal-failed',
-            message: fullMessage
+            message: fullMessage,
+            // Wave 3, finding 6: post-merge exit with no closing entry.
+            unreconciled: true
           }
         }
         const tested = await runTests(settings.integrationWorktree, settings.test)
@@ -366,7 +372,10 @@ export function createConductor(deps: ConductorDeps): Conductor {
               reason: 'journal-failed',
               message:
                 `tests failed on the merge result (${tested.output}); ` +
-                `additionally failed to record the abort: ${writeMessage}`
+                `additionally failed to record the abort: ${writeMessage}`,
+              // Wave 3, finding 6: the abort could not be recorded, so the
+              // operation is still open on the record.
+              unreconciled: true
             }
           }
           const resetFailure = await tryResetIntegrationTo(baseSha)
@@ -436,6 +445,11 @@ export function createConductor(deps: ConductorDeps): Conductor {
             `${settings.integrationWorktree} could not be reset and needs manual attention (${resetFailure})`
         }
       }
+      // Wave 3, finding 6: whether this operation ended up CLOSED on the
+      // record is the thing the gate depends on — not whether a close was
+      // attempted. A swallowed append failure leaves it just as open as
+      // the deliberate no-write above does.
+      let closedOnTheRecord = false
       if (journalledIntent && safeToRecordAborted) {
         try {
           journal.append({
@@ -443,6 +457,7 @@ export function createConductor(deps: ConductorDeps): Conductor {
             baseSha: '', laneTip: '', at: now(),
             detail: finalMessage
           })
+          closedOnTheRecord = true
         } catch { /* the journal is already the thing that failed */ }
       }
       lane.status = 'blocked'
@@ -450,7 +465,15 @@ export function createConductor(deps: ConductorDeps): Conductor {
       return {
         ok: false,
         reason: 'error',
-        message: finalMessage
+        message: finalMessage,
+        // Wave 3, finding 6: when a merge commit exists and this path
+        // deliberately wrote no 'aborted' entry (see safeToRecordAborted
+        // above), the operation is still open on the record — and nothing
+        // in this session re-runs reconcile on its own. Telling the caller
+        // so is what shuts the needs-attention gate; without it the next
+        // publish starts a newer operation and reconcile, which only ever
+        // classifies the newest one, buries this one unreviewed.
+        ...(journalledIntent && !closedOnTheRecord ? { unreconciled: true as const } : {})
       }
     } finally {
       // 11. Released on EVERY exit path, and only here — every lane-manager
@@ -632,12 +655,43 @@ export function createConductor(deps: ConductorDeps): Conductor {
           message: `operation ${opId} is already closed — re-check to refresh what conductor believes`
         }
       }
+      // Wave 3, finding 5: how the operation ENDED is a fact about git, not
+      // only about the journal. An operation whose compare-and-swap landed
+      // but whose 'published' entry never got written is classified
+      // published-unrecorded, and closing that as 'aborted' — as reading
+      // the journal alone did — leaves a record saying the opposite of what
+      // the integration branch says. Classified before any repair below,
+      // because the repair deliberately changes the git reality that
+      // classification is drawn from.
+      const beforeReport = await reconcileLocked()
+      const classification = beforeReport.operations.find((op) => op.opId === opId)?.classification
+      const landed = classification === 'published-unrecorded' || classification === 'published-unnotified'
+
+      // Wave 3, finding 3: a crash between a conflicting `git merge` and its
+      // `--abort` leaves MERGE_HEAD and an unmerged index in the integration
+      // worktree. Closing the operation on the record while that is still
+      // there produces the worst answer available: "Publish and sync are
+      // available again" followed by every publish dying on `checkout
+      // --detach`. Conductor owns this worktree, so acknowledging — which
+      // holds the single-flight lock for its whole duration — is exactly
+      // the moment to put it back where the record will say it is. Fails
+      // closed: if the repair does not work, nothing is acknowledged.
+      const repairFailure = await repairIntegrationWorktree(group)
+      if (repairFailure) {
+        return {
+          ok: false,
+          reason: 'worktree-wedged',
+          message:
+            `the integration worktree at ${settings.integrationWorktree} is still mid-merge and could not be ` +
+            `repaired (${repairFailure}); nothing was acknowledged, because publish would fail immediately`
+        }
+      }
       // 'published' journalled means the compare-and-swap already landed;
       // the only step left in that operation was telling teammates, and
       // Phase 1 has no bulletins to send — so the honest terminal entry is
       // 'notified', not 'aborted'. Everything else the user is closing is
       // an operation that never completed: 'aborted', carrying their reason.
-      const closing: JournalPhase = phases.has('published') ? 'notified' : 'aborted'
+      const closing: JournalPhase = phases.has('published') || landed ? 'notified' : 'aborted'
       const last = group[group.length - 1]
       const resultSha = group.find((e) => e.resultSha !== undefined)?.resultSha
       // 'aborted' requires a non-empty detail (conductor-journal.ts's
@@ -673,6 +727,31 @@ export function createConductor(deps: ConductorDeps): Conductor {
     } finally {
       publishing = null
     }
+  }
+
+  // Wave 3, finding 3: clears an interrupted merge out of the integration
+  // worktree — `merge --abort` when MERGE_HEAD is present, then the same
+  // hard reset and clean every other recovery path here uses. Returns the
+  // failure message when the worktree could not be put back, undefined when
+  // there was nothing to repair or the repair worked. Never touches the
+  // ref: only the Crew-owned worktree.
+  const repairIntegrationWorktree = async (
+    group: readonly { baseSha: string }[]
+  ): Promise<string | undefined> => {
+    const mergeHead = await runGit(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'], {
+      cwd: settings.integrationWorktree
+    })
+    if (!(mergeHead.code === 0 && mergeHead.stdout.trim().length > 0)) return undefined
+    const abort = await runGit(['merge', '--abort'], { cwd: settings.integrationWorktree })
+    const base = group.find((e) => e.baseSha.length > 0)?.baseSha
+    if (base === undefined) {
+      // Nothing recorded a base to return to. The abort is then the only
+      // repair available, and its failure is the answer.
+      return abort.code === 0
+        ? undefined
+        : abort.stderr.trim() || abort.stdout.trim() || `git merge --abort exited ${abort.code}`
+    }
+    return tryResetIntegrationTo(base)
   }
 
   const reconcileLocked = async (): Promise<ReconcileReport> => {

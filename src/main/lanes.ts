@@ -186,8 +186,36 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     }
   }
 
+  // Wave 3, finding 3: a crash in the window between a conflicting `git
+  // merge` and the `--abort` below leaves MERGE_HEAD and an unmerged index
+  // in the integration worktree, and every later publication then dies on
+  // `checkout --detach` with "you need to resolve your current index first"
+  // — a failure the user cannot act on from the panel, on a worktree
+  // Conductor owns outright and no human is supposed to be editing. So the
+  // wedge is cleared here, before anything else touches the worktree:
+  // abort the merge if one is in progress, then hard-reset and clean so the
+  // checkout that follows starts from the pinned base and nothing else.
+  // Only reached when the worktree is actually wedged or dirty, so an
+  // ordinary publication's git work is unchanged.
+  const clearInterruptedMerge = async (base: string): Promise<void> => {
+    const cwd = settings.integrationWorktree
+    const mergeHead = await runGit(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'], { cwd })
+    const merging = mergeHead.code === 0 && mergeHead.stdout.trim().length > 0
+    if (merging) {
+      // A failed abort is not fatal here: the reset below clears MERGE_HEAD
+      // and the index either way, and it reports its own failure if it
+      // cannot.
+      await runGit(['merge', '--abort'], { cwd })
+    }
+    const status = await runGit(['status', '--porcelain', '--untracked-files=no'], { cwd })
+    if (!merging && status.stdout.trim().length === 0) return
+    await inDir(cwd, ['reset', '--hard', base])
+    await inDir(cwd, ['clean', '-fd'])
+  }
+
   const mergeInIntegration = async (candidate: string, base: string): Promise<MergeResult> => {
     await ensureIntegrationWorktree()
+    await clearInterruptedMerge(base)
     // Detach at the pinned base every time. The worktree may be sitting at the
     // result of an earlier publication, and publication must be against the
     // base the caller pinned, not "wherever this worktree happens to be".

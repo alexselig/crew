@@ -148,6 +148,42 @@ describe('mergeInIntegration', () => {
 
     await expect(lanes.mergeInIntegration('not-a-real-revision', base)).rejects.toThrow(/git merge/)
   })
+
+  // Wave 3, finding 3: the app can be killed in the brief window between a
+  // conflicting `git merge` and the `--abort` that follows it, and git then
+  // leaves MERGE_HEAD and an unmerged index behind. Conductor owns this
+  // worktree outright, so nothing else can be waiting on that state — but
+  // until this fix every later publication died on `checkout --detach` with
+  // "you need to resolve your current index first", which is not a conflict
+  // and not something the user could act on from the panel.
+  it('recovers an integration worktree a crash left mid-merge, instead of wedging every later publish', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+    const one = await lanes.create('one', { presetId: 'shell', model: null })
+    const two = await lanes.create('two', { presetId: 'shell', model: null })
+    commit(one.worktree, 'README.md', 'one\n', 'one edits the readme')
+    commit(two.worktree, 'README.md', 'two\n', 'two edits the readme')
+    const oneTip = git(['rev-parse', one.branch as string], settings.repo)
+    const twoTip = git(['rev-parse', two.branch as string], settings.repo)
+
+    // Exactly the state the crash leaves: a conflicting merge started in the
+    // integration worktree and never aborted.
+    git(['checkout', '--detach', oneTip], settings.integrationWorktree)
+    try {
+      gitExpectFailure(['merge', '--no-edit', twoTip], settings.integrationWorktree)
+    } catch {
+      /* the conflict is the point */
+    }
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toMatch(/^UU /m)
+    expect(existsSync(join(settings.integrationWorktree, '.git'))).toBe(true)
+
+    const result = await lanes.mergeInIntegration(oneTip, base)
+
+    expect(result).toMatchObject({ ok: true })
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toBe('')
+    expect(() => gitExpectFailure(['rev-parse', '--verify', 'MERGE_HEAD'], settings.integrationWorktree)).toThrow()
+  })
 }, { timeout: 30_000 })
 
 describe('syncLane', () => {

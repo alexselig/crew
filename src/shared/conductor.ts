@@ -143,10 +143,17 @@ export type PublishFailure =
    *  losing whatever it left behind. Distinct from 'busy': the lock may be
    *  completely free — this is a standing hold, not a transient one. */
   | { ok: false; reason: 'needs-attention'; message: string }
-  | { ok: false; reason: 'journal-failed'; message: string }
+  /** `unreconciled` (wave 3, finding 6): the merge already produced a commit
+   *  and this exit path wrote no closing journal entry, so the operation is
+   *  still open on the record. The backend must shut its needs-attention
+   *  gate on seeing it — otherwise the next publish starts a newer
+   *  operation, and reconcile only ever classifies the newest one, which
+   *  buries this one unreviewed. Fail closed: a Re-check is what reopens
+   *  the gate, after a human has seen what was left behind. */
+  | { ok: false; reason: 'journal-failed'; message: string; unreconciled?: true }
   | { ok: false; reason: 'conflict'; conflictPaths: string[]; message: string }
   | { ok: false; reason: 'tests-failed'; output: string }
-  | { ok: false; reason: 'ref-moved' | 'branch-checked-out' | 'error'; message: string }
+  | { ok: false; reason: 'ref-moved' | 'branch-checked-out' | 'error'; message: string; unreconciled?: true }
 
 export type PublishOutcome =
   | { ok: true; commit: string; touchedPaths: string[]; warnings: string[] }
@@ -208,8 +215,12 @@ export type AcknowledgeOutcome =
        *  'unknown-operation': the journal has no entry for it at all.
        *  'journal-failed': the terminal entry could not be made durable, so
        *    nothing was acknowledged (fail closed, exactly like every other
-       *    journal write in this feature). */
-      reason: 'busy' | 'stale' | 'already-closed' | 'unknown-operation' | 'journal-failed'
+       *    journal write in this feature).
+       *  'worktree-wedged': the integration worktree is still sitting in an
+       *    interrupted merge and could not be repaired, so acknowledging
+       *    would promise a publish that is certain to fail (wave 3,
+       *    finding 3). Nothing was acknowledged. */
+      reason: 'busy' | 'stale' | 'already-closed' | 'unknown-operation' | 'journal-failed' | 'worktree-wedged'
       message: string
     }
 

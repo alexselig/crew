@@ -258,6 +258,12 @@ export function describeAcknowledgeOutcome(outcome: AcknowledgeOutcome): string 
     case 'stale':
     case 'already-closed':
       return `${outcome.message}`
+    case 'worktree-wedged':
+      // Wave 3, finding 3: the acknowledgement was refused precisely so the
+      // panel would not claim publish is available while the integration
+      // worktree is still mid-merge. The message already names the path and
+      // what failed, so it is passed through rather than paraphrased.
+      return `Nothing was acknowledged: ${outcome.message}`
     case 'unknown-operation':
       return 'There is no interrupted operation left to acknowledge — re-check to refresh.'
     default:

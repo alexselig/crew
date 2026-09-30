@@ -503,7 +503,21 @@ export function createShippedConductorBackend(
       // 'busy' instead.
       const refusal = attentionRefusal('publishing')
       if (refusal) return refusal
-      return conductor.publishLane(lane)
+      const outcome = await conductor.publishLane(lane)
+      // Wave 3, finding 6: a publish that failed AFTER the merge without
+      // writing a closing journal entry leaves its operation open on the
+      // record, and nothing re-runs reconcile on its own. Leaving the gate
+      // open here is what let the NEXT publish start a newer operation and
+      // bury this one — reconcile only ever classifies the newest. Shutting
+      // it means the user must Re-check (and, if it needs one, acknowledge)
+      // before publishing again. Fail closed.
+      if (!outcome.ok && 'unreconciled' in outcome && outcome.unreconciled === true) {
+        reconciled = false
+        reconcileError =
+          `a publish stopped after merging without recording an outcome (${outcome.message}), ` +
+          'so what it left behind has not been checked'
+      }
+      return outcome
     },
     async syncLane(laneId) {
       const { conductor } = requireWired()
