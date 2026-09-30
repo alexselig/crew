@@ -63,7 +63,7 @@ function fakeConductor(overrides: Partial<import('../src/main/conductor').Conduc
       locked = holder
       return true
     }),
-    releaseLock: vi.fn(() => { locked = null }),
+    releaseLock: vi.fn((holder: string) => { if (locked === holder) locked = null }),
     reconcile: vi.fn(async () => ({ needsAttention: false, operations: [] })),
     ...overrides
   } as unknown as import('../src/main/conductor').Conductor
@@ -259,7 +259,8 @@ describe('conductor IPC contract', () => {
         failedRow: 1,
         message: 'preset not installed',
         errors: [],
-        cleanupFailures: [{ resource: 'lane' as const, id: 'builder', message: 'permission denied' }]
+        cleanupFailures: [{ resource: 'lane' as const, id: 'builder', message: 'permission denied' }],
+        survivingLanes: []
       }))
     })
     const draft = {
@@ -497,6 +498,58 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
     })
     expect(result).toMatchObject({ ok: false, errors: [{ field: 'repo' }] })
   })
+
+  // Task 5, finding 3 (fix round 1): a lane rollback could not remove used
+  // to be announced (cleanupFailures) but never registered anywhere — not
+  // in lanesById, not in state(), not persisted. Load-bearing: the surviving
+  // lane must appear in backend.state() AND in whatever persistence.
+  // saveLanes() last received, tagged with this workspace's id like any
+  // other persisted lane.
+  it('registers and persists a lane compose rollback could not remove, so it appears in state() and in persistence', async () => {
+    const builderLane = lane({ id: 'lane-builder', roleId: 'builder', sessionId: 'sess-builder' })
+    const scoutLane = lane({ id: 'lane-scout', roleId: 'scout', sessionId: null })
+    const create = vi.fn(async (roleName: string) =>
+      roleName === 'builder' ? builderLane : scoutLane
+    )
+    // builder's session closes fine, then destroy() is asked to remove it
+    // and fails — exactly conductor-compose.test.ts's "reports a lane
+    // rollback could not remove" scenario, at the IPC/backend layer.
+    const destroy = vi.fn(async (l: ConductorLane) => {
+      if (l.roleId === 'builder') throw new Error('git worktree remove failed')
+    })
+    const createSession = vi.fn()
+      .mockResolvedValueOnce({ id: 'sess-builder' })
+      .mockRejectedValueOnce(new Error('preset not installed'))
+    let stored: ConductorLane[] = []
+    const saveLanes = vi.fn((list: ConductorLane[]) => { stored = list })
+    const runtime = fakeRuntime({
+      lanes: { create, destroy },
+      createSession
+    })
+    const backend = createShippedConductorBackend(runtime as never, {
+      workspaceId: 'workspace-mine', loadLanes: () => [], saveLanes
+    })
+
+    const result = await backend.compose({
+      repo: runtime.settings.repo,
+      integrationBranch: runtime.settings.integrationBranch,
+      rows: [
+        { roleName: 'builder', kind: 'author' as const, agent: { presetId: 'shell', model: null } },
+        { roleName: 'scout', kind: 'author' as const, agent: { presetId: 'shell', model: null } }
+      ],
+      test: null
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok || !('survivingLanes' in result)) throw new Error('expected a row failure')
+    expect(result.survivingLanes).toContainEqual(expect.objectContaining({ roleId: 'builder' }))
+
+    const state = await backend.state()
+    expect(state.lanes.map((l) => l.roleId)).toContain('builder')
+
+    expect(saveLanes).toHaveBeenCalled()
+    expect(stored.find((l) => l.roleId === 'builder')).toMatchObject({ workspaceId: 'workspace-mine' })
+  })
 })
 
 describe('Task 5: the backend as the lock/persistence boundary', () => {
@@ -569,7 +622,7 @@ describe('Task 5: the backend as the lock/persistence boundary', () => {
     runtime.conductor.reserveLock('lane-second-publishing')
     await expect(backend.destroyLane(secondLane.id)).rejects.toThrow(/busy/i)
     expect(destroy).toHaveBeenCalledTimes(1)
-    runtime.conductor.releaseLock()
+    runtime.conductor.releaseLock('lane-second-publishing')
   })
 
   it('destroyLane leaves the lane in the map, not dropped, when lanes.destroy() fails to actually destroy it, item 2', async () => {
@@ -709,5 +762,55 @@ describe('Task 5: the backend as the lock/persistence boundary', () => {
     const created = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
     const state = await backend.state()
     expect(state.lanes.map((l) => l.id)).toContain(created.id)
+  })
+
+  // Task 5, finding 2 (fix round 1): the store now drops any persisted lane
+  // whose workspaceId is missing/empty/non-string, so this backend must
+  // never be the one writing such a record in the first place, on ANY
+  // mutation path — create, compose, and destroy (which re-persists the
+  // surviving roster). Load-bearing: every element of every saveLanes()
+  // call this test observes must carry this backend's own workspaceId,
+  // and none may be blank.
+  it('never writes a lane with a missing or blank workspaceId, on any mutation path (create, compose, destroy), item 2', async () => {
+    const saveLanes = vi.fn()
+    let stored: ConductorLane[] = []
+    const runtime = fakeRuntime({
+      createSession: vi.fn(async () => ({ id: 'sess-compose' }))
+    })
+    const backend = createShippedConductorBackend(runtime as never, {
+      workspaceId: 'workspace-mine',
+      loadLanes: () => stored,
+      saveLanes: (list) => { stored = list; saveLanes(list) }
+    })
+
+    const assertAllStamped = (): void => {
+      for (const call of saveLanes.mock.calls) {
+        const list = call[0] as ConductorLane[]
+        for (const l of list) {
+          expect(typeof l.workspaceId).toBe('string')
+          expect((l.workspaceId ?? '').length).toBeGreaterThan(0)
+        }
+      }
+    }
+
+    // create
+    await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    assertAllStamped()
+
+    // compose
+    await backend.compose({
+      repo: runtime.settings.repo,
+      integrationBranch: runtime.settings.integrationBranch,
+      rows: [{ roleName: 'reviewer-row', kind: 'author' as const, agent: { presetId: 'shell', model: null } }],
+      test: null
+    })
+    assertAllStamped()
+
+    // destroy
+    const survivor = stored.find((l) => l.roleId === 'builder')!
+    await backend.destroyLane(survivor.id)
+    assertAllStamped()
+
+    expect(saveLanes).toHaveBeenCalled()
   })
 })

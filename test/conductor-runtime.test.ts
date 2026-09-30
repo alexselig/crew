@@ -697,9 +697,33 @@ describe('syncLane', () => {
     expect(conductor.reserveLock('destroy:other')).toBe(true)
     expect(conductor.lockHolder()).toBe('destroy:other')
     expect(conductor.isPublishing()).toBe(true)
-    conductor.releaseLock()
+    conductor.releaseLock('destroy:other')
     expect(conductor.lockHolder()).toBeNull()
     expect(conductor.isPublishing()).toBe(false)
+  })
+
+  // Task 5, finding 1 (fix round 1): releaseLock() used to take no owner at
+  // all, so ANY caller could clear ANY other caller's lock. Load-bearing:
+  // revert releaseLock to accept no argument and unconditionally clear the
+  // lock, and this test fails because the impostor's release would succeed.
+  it('releaseLock() from a non-holder is a no-op: the true holder still holds the lock', async () => {
+    const { lanes, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const publishPromise = conductor.publishLane(lane)
+    expect(conductor.lockHolder()).toBe(lane.id)
+
+    // An impostor that never reserved the lock (or reserved it and lost the
+    // race) tries to release it anyway, using a holder string that is not
+    // the true holder.
+    conductor.releaseLock('impostor')
+    expect(conductor.lockHolder()).toBe(lane.id)
+    expect(conductor.isPublishing()).toBe(true)
+
+    await publishPromise
+    expect(conductor.lockHolder()).toBeNull()
   })
 }, { timeout: 30_000 })
 

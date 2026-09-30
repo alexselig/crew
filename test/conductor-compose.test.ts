@@ -203,6 +203,12 @@ describe('composeRun', () => {
       expect(result.cleanupFailures).toContainEqual(
         expect.objectContaining({ resource: 'lane', id: 'builder' })
       )
+      // Task 5, finding 3 (fix round 1): the lane rollback could not remove
+      // must come back as a real ConductorLane, not merely be announced by
+      // name — the backend needs the full object to register/persist it.
+      expect(result.survivingLanes).toContainEqual(
+        expect.objectContaining({ roleId: 'builder' })
+      )
     } finally {
       // Must run even if an assertion above throws, or the temp dir left by
       // afterEach's rmSync becomes unremovable.
@@ -245,6 +251,11 @@ describe('composeRun', () => {
     // builder's session closed fine, so its lane must still be cleaned up —
     // scout's stuck session must not strand the rest of rollback.
     expect(existsSync(join(settings.lanesDir, 'builder'))).toBe(false)
+    // Task 5, finding 3 (fix round 1): scout's surviving worktree must be
+    // reported as a real lane the backend can register/persist; builder's
+    // lane is genuinely gone and must NOT appear here.
+    expect(result.survivingLanes).toContainEqual(expect.objectContaining({ roleId: 'scout' }))
+    expect(result.survivingLanes.some((l) => l.roleId === 'builder')).toBe(false)
   })
 
   // The app has no repository concept of its own; the composer draft is the

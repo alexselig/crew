@@ -56,8 +56,28 @@ export interface Conductor {
    *  TOCTOU reason every other acquisition in this file is. */
   reserveLock(holder: string): boolean
   /** Releases a lock this caller reserved via reserveLock(). Always call
-   *  from a finally, exactly like every other release in this file. */
-  releaseLock(): void
+   *  from a finally, exactly like every other release in this file.
+   *
+   *  Task 5, finding 1 (fix round 1): ownership-checked. `holder` must be
+   *  the exact string this caller passed to the reserveLock() that
+   *  succeeded; a release from anyone else — a caller that never held the
+   *  lock, already released it, or is racing the true holder — is a no-op,
+   *  not a release. Without this, releaseLock() taking no owner meant ANY
+   *  caller could clear ANY other caller's lock: a stray or duplicate
+   *  destroyLane() release (e.g. a second call after a first already
+   *  released, or a caller that mis-tracked whether its own reserveLock()
+   *  call actually succeeded) could unlock a publish that is still
+   *  mid-transaction, re-opening a race worse than the one reserveLock/
+   *  releaseLock were added to close. A throw was considered instead (fail
+   *  loudly rather than silently ignore); a no-op was chosen because every
+   *  real call site already releases from a `finally`, where a caller
+   *  cannot always know in advance whether ITS OWN earlier reserveLock()
+   *  call is what is currently held (e.g. after an exception between
+   *  reserveLock and the try) — turning a defensive cleanup call into a new
+   *  throw site would trade a silent-corruption bug for a crash-on-cleanup
+   *  bug. A mismatched release is still observable: it is logged, never
+   *  swallowed outright. */
+  releaseLock(holder: string): void
   reconcile(): Promise<ReconcileReport>
 }
 
@@ -121,7 +141,18 @@ export function createConductor(deps: ConductorDeps): Conductor {
     return true
   }
 
-  const releaseLock = (): void => {
+  const releaseLock = (holder: string): void => {
+    // Ownership-checked (Task 5, finding 1 — see the interface doc comment
+    // above for the full reasoning): only the caller that actually holds the
+    // lock can clear it. Anyone else's release is inert, not destructive,
+    // but is still logged so a caller bug that mis-tracks its own holder
+    // string is observable rather than silently invisible.
+    if (publishing !== holder) {
+      console.warn(
+        `[crew] conductor.releaseLock() called by '${holder}' but the lock is held by '${publishing}'; ignored`
+      )
+      return
+    }
     publishing = null
   }
 

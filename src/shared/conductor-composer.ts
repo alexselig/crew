@@ -53,6 +53,19 @@ export type ComposeResult =
       errors: RosterError[]
       /** Empty when rollback fully undid every lane/session it had created. */
       cleanupFailures: CleanupFailure[]
+      /** Task 5, finding 3 (fix round 1): the actual ConductorLane objects
+       *  rollback could NOT remove — i.e. the lanes backing every
+       *  `cleanupFailures` entry whose resource is 'lane' (a lane whose
+       *  session alone survived, with the worktree itself successfully
+       *  destroyed, has nothing to recover here and is not included).
+       *  CleanupFailure alone carries only { resource, id, message } — not
+       *  enough to reconstruct a real lane (worktree path, branch, agent,
+       *  kind…) for the backend to register and persist. Plain
+       *  ConductorLane[], the same serialisable shape the `ok: true` arm
+       *  already exposes to the renderer through src/shared/api.ts, so this
+       *  never needs an import from src/main. Empty whenever
+       *  cleanupFailures has no 'lane' entries. */
+      survivingLanes: ConductorLane[]
     }
 
 /** Not a real preset: the composer form used to offer a "custom command"

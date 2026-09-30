@@ -85,13 +85,14 @@ export async function composeRun(
       lane.sessionId = session.id
     } catch (error) {
       // 3. Roll back, newest first, so a lane is never left without its session.
-      const cleanupFailures = await rollback(deps, created)
+      const { cleanupFailures, survivingLanes } = await rollback(deps, created)
       return {
         ok: false,
         failedRow: index,
         message: error instanceof Error ? error.message : String(error),
         errors: [],
-        cleanupFailures
+        cleanupFailures,
+        survivingLanes
       }
     }
   }
@@ -104,8 +105,19 @@ export async function composeRun(
   return { ok: true, lanes: created }
 }
 
-async function rollback(deps: ComposeDeps, created: ConductorLane[]): Promise<CleanupFailure[]> {
+async function rollback(
+  deps: ComposeDeps,
+  created: ConductorLane[]
+): Promise<{ cleanupFailures: CleanupFailure[]; survivingLanes: ConductorLane[] }> {
   const cleanupFailures: CleanupFailure[] = []
+  // Task 5, finding 3 (fix round 1): the actual lane objects rollback could
+  // not remove, carried alongside cleanupFailures so the backend can
+  // register and persist them — a lane that genuinely still exists on disk
+  // must be known to someone, not merely announced-then-forgotten. Only a
+  // lane whose WORKTREE survives goes here: a lane whose session alone
+  // failed to close but whose worktree was still destroyed is gone, and
+  // there is nothing left to recover.
+  const survivingLanes: ConductorLane[] = []
   for (const lane of [...created].reverse()) {
     // The session must go first: it holds the lane's worktree as its cwd,
     // and a worktree removed out from under a still-running session is
@@ -131,7 +143,13 @@ async function rollback(deps: ComposeDeps, created: ConductorLane[]): Promise<Cl
         })
       }
     }
-    if (!sessionClosed) continue
+    if (!sessionClosed) {
+      // The worktree was never touched, and the session is still alive —
+      // this lane, with the session id it already carries, still exists
+      // exactly as it did before the run failed.
+      survivingLanes.push(lane)
+      continue
+    }
     try {
       await deps.lanes.destroy(lane, { force: true })
     } catch (error) {
@@ -140,7 +158,8 @@ async function rollback(deps: ComposeDeps, created: ConductorLane[]): Promise<Cl
         id: lane.roleId,
         message: error instanceof Error ? error.message : String(error)
       })
+      survivingLanes.push(lane)
     }
   }
-  return cleanupFailures
+  return { cleanupFailures, survivingLanes }
 }

@@ -43,6 +43,7 @@ function makeLane(overrides: Partial<ConductorLane> = {}): ConductorLane {
     sessionId: null,
     status: 'working',
     dispatches: 0,
+    workspaceId: 'ws_1',
     ...overrides
   }
 }
@@ -103,6 +104,26 @@ describe('Store — conductor lanes', () => {
 
     const store = new Store(path)
     expect(store.getConductorLanes()).toEqual([reviewer])
+  })
+
+  // Task 5, finding 2 (fix round 1): workspaceId is required and validated
+  // on a PERSISTED lane, even though it is optional on the ConductorLane
+  // type itself — a record without one is unreachable by every workspace's
+  // hydration, exactly the orphan this system exists to prevent. Dropped
+  // per-record (like every other malformed lane field above), never
+  // quarantining the whole store, and a valid sibling in the same load
+  // must survive untouched.
+  it('drops a lane with a missing, non-string or empty workspaceId, while a valid sibling survives', () => {
+    const path = tmpStorePath()
+    const good = makeLane({ id: 'lane_good', workspaceId: 'ws_good' })
+    const missing = { ...makeLane({ id: 'lane_missing' }) } as Record<string, unknown>
+    delete missing.workspaceId
+    const emptyString = makeLane({ id: 'lane_empty', workspaceId: '' })
+    const nonString = { ...makeLane({ id: 'lane_bad_type' }), workspaceId: 42 }
+    seed(path, { conductorLanes: [good, missing, emptyString, nonString] })
+
+    const store = new Store(path)
+    expect(store.getConductorLanes()).toEqual([good])
   })
 
   it('persists conductor lanes so a restart never orphans the roster', () => {

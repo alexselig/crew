@@ -382,7 +382,18 @@ const LANE_STATUSES = ['working', 'publishing', 'blocked', 'done']
 
 /** A lane whose id, worktree or branch is empty is malformed and dropped —
  * it points at a worktree that may not exist. branch is null for a reviewer
- * lane (detached, owns no branch): null is a valid state, only '' is not. */
+ * lane (detached, owns no branch): null is a valid state, only '' is not.
+ * Task 5, finding 2 (fix round 1): workspaceId is optional on the
+ * ConductorLane TYPE (an in-memory lane, fresh out of lanes.create(), has no
+ * workspace concept of its own — see its doc comment in shared/conductor.ts)
+ * but is required on a PERSISTED lane record: hydration
+ * (createShippedConductorBackend) can only ever recover a lane for a
+ * workspace whose id it can compare against, so a record with a missing,
+ * non-string or empty workspaceId is not merely incomplete, it is
+ * unreachable by every workspace forever — exactly the orphan-worktree
+ * failure mode this whole subsystem exists to prevent. Dropped per-record,
+ * like every other malformed field here: one bad lane must not quarantine
+ * every workspace's roster. */
 function isValidConductorLane(value: unknown): value is ConductorLane {
   return isRecord(value) &&
     isString(value.id) && value.id.length > 0 &&
@@ -394,7 +405,8 @@ function isValidConductorLane(value: unknown): value is ConductorLane {
     (value.sessionId === null || isString(value.sessionId)) &&
     isString(value.status) && LANE_STATUSES.includes(value.status) &&
     optionalFields(value, ['blockedReason'], isString) &&
-    isNumber(value.dispatches)
+    isNumber(value.dispatches) &&
+    isString(value.workspaceId) && value.workspaceId.length > 0
 }
 
 function validSession(value: unknown, savedSet = false): boolean {

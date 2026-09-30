@@ -331,7 +331,10 @@ export function createShippedConductorBackend(
         lanesById.delete(laneId)
         persistLanes()
       } finally {
-        runtime.conductor.releaseLock()
+        // Task 5, finding 1: releaseLock() is now ownership-checked, so this
+        // must pass the exact holder string reserveLock(laneId) used above —
+        // otherwise a legitimate release would itself be silently ignored.
+        runtime.conductor.releaseLock(laneId)
       }
     },
     async publishLane(laneId) {
@@ -406,6 +409,15 @@ export function createShippedConductorBackend(
       )
       if (result.ok) {
         for (const lane of result.lanes) lanesById.set(lane.id, lane)
+        persistLanes()
+      } else if ('survivingLanes' in result && result.survivingLanes.length > 0) {
+        // Task 5, finding 3 (fix round 1): a lane rollback could not remove
+        // really exists on disk — the user must be able to see it and
+        // destroy it, exactly like any other lane this backend knows
+        // about. Registered and persisted the same way a successful
+        // compose's lanes are; the only difference is these came back on
+        // the failure arm of ComposeResult.
+        for (const lane of result.survivingLanes) lanesById.set(lane.id, lane)
         persistLanes()
       }
       return result
