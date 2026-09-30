@@ -342,7 +342,9 @@ function optionalFields(record: Record<string, unknown>, keys: string[], valid: 
  * whole store over them (unlike validateStore's whole-array validators). A
  * corrupt conductor record must not be able to take the session roster down
  * with it — see conductor-journal.ts's header comment for the same principle
- * applied to the journal. Non-array input is treated as absent, not fatal. */
+ * applied to the journal. Collection-level corruption (present but not an
+ * array) is caught earlier, in validateStore, and throws before this runs;
+ * an absent key still defaults to [] here for back-compat. */
 function filterValid<T>(value: unknown, valid: (v: unknown) => v is T): T[] {
   return Array.isArray(value) ? value.filter(valid) : []
 }
@@ -426,6 +428,20 @@ function validateStore(raw: unknown): asserts raw is Partial<StoreData> {
   for (const [key, valid] of Object.entries(arrays)) {
     const value = raw[key]
     if (value !== undefined && (!Array.isArray(value) || !value.every(valid))) {
+      throw new InvalidStoreError(`invalid store ${key}`)
+    }
+  }
+  // conductorConfigs/conductorLanes are validated per-record, not here (see
+  // filterValid in readFrom): a single malformed lane must not quarantine the
+  // whole store. But an absent key defaults to [] for back-compat with a
+  // store written before this field existed, while a *present* non-array
+  // value is not "empty", it's corrupt — treating it as absent would erase
+  // the collection and the very next persist() would cement that loss. So
+  // only the top-level shape is checked here, and only to route corruption
+  // through the normal invalid-store recovery path like every other field.
+  for (const key of ['conductorConfigs', 'conductorLanes'] as const) {
+    const value = raw[key]
+    if (value !== undefined && !Array.isArray(value)) {
       throw new InvalidStoreError(`invalid store ${key}`)
     }
   }

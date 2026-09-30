@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../src/main/store'
@@ -114,9 +114,10 @@ describe('Store — conductor lanes', () => {
     expect(persisted.conductorLanes).toEqual([makeLane()])
   })
 
-  it('does not touch an unrelated invalid workspaces entry\'s independent quarantine behaviour', () => {
-    // Sanity check that conductor collections are validated per-record and do
-    // not ride along with the whole-file quarantine used for other arrays.
+  it('drops a malformed lane element on load without quarantining the rest of the store', () => {
+    // Distinct from Store's whole-array validators (workspaces, sessions,
+    // etc.), which throw and quarantine the entire file if any one element
+    // is invalid. A malformed lane element must only cost that one lane.
     const path = tmpStorePath()
     const good = makeLane({ id: 'lane_ok' })
     const bad = makeLane({ id: '' })
@@ -128,5 +129,37 @@ describe('Store — conductor lanes', () => {
     const store = new Store(path)
     expect(store.getConductorLanes()).toEqual([good])
     expect(store.recentDirs).toEqual(['/some/dir'])
+  })
+
+  it('defaults both collections to [] when the keys are absent (back-compat with a pre-existing store)', () => {
+    const path = tmpStorePath()
+    seed(path, { recentDirs: ['/some/dir'] })
+
+    const store = new Store(path)
+    expect(store.getConductorConfigs()).toEqual([])
+    expect(store.getConductorLanes()).toEqual([])
+  })
+
+  it('recovers from .bak, rather than silently erasing the roster, when conductorLanes is present but not an array', () => {
+    // A malformed *element* is dropped (see above), but a corrupt collection
+    // — present, valid JSON, but not an array at all — is not "empty", it is
+    // damaged. Treating it as [] would erase the roster and the very next
+    // persist() would cement that loss. It must instead go through the same
+    // invalid-store recovery path as every other Store collection.
+    const path = tmpStorePath()
+    const lane = makeLane()
+    const store = new Store(path)
+    store.saveConductorLanes([lane])
+    store.saveConductorLanes([lane]) // second save leaves a good .bak behind
+
+    const corrupted = JSON.parse(readFileSync(path, 'utf8'))
+    corrupted.conductorLanes = 'not-an-array'
+    writeFileSync(path, JSON.stringify(corrupted))
+
+    const reopened = new Store(path)
+    expect(reopened.getConductorLanes()).toEqual([lane])
+    // The corrupt live file is preserved for inspection, not silently discarded.
+    const preserved = existsSync(path) && JSON.parse(readFileSync(path, 'utf8'))
+    expect(preserved.conductorLanes).toEqual([lane])
   })
 })
