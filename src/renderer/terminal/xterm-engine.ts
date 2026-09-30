@@ -148,6 +148,13 @@ export class XtermEngine implements TerminalEngine {
   private webgl: WebglAddon | null = null
   private serializer: SerializeAddon | null = null
   private webglCanvas: HTMLCanvasElement | null = null
+  /**
+   * Bound so add/removeEventListener see the same function identity. Kept as a
+   * field rather than an inline arrow for that reason alone.
+   */
+  private readonly onCanvasContextLost = (): void => {
+    this.releaseWebgl()
+  }
   private linkActivator: (uri: string) => void = () => {}
   readonly capabilities: EngineCapabilities = { webgl: false, images: false }
 
@@ -229,6 +236,15 @@ export class XtermEngine implements TerminalEngine {
       // Remember the canvas the addon just created so releaseWebgl can hand the
       // GL context back immediately (see there).
       this.webglCanvas = this.canvases().find((c) => !before.has(c)) ?? null
+      // The addon calls preventDefault() on webglcontextlost and then waits
+      // THREE SECONDS for a restore before it fires onContextLoss. A lost
+      // context paints nothing, so that grace period is three seconds of black
+      // pane — and macOS drops contexts across the whole renderer whenever the
+      // window is occluded, so every visible terminal blacks out together every
+      // time the user clicks away. Correct text beats a GPU round-trip: drop to
+      // the DOM renderer the moment the context goes, rather than waiting to
+      // find out whether it comes back.
+      this.webglCanvas?.addEventListener('webglcontextlost', this.onCanvasContextLost)
       this.webgl = webgl
       accelerated.add(this)
       this.capabilities.webgl = true
@@ -252,11 +268,24 @@ export class XtermEngine implements TerminalEngine {
     this.webglCanvas = null
     accelerated.delete(this)
     this.capabilities.webgl = false
+    canvas?.removeEventListener('webglcontextlost', this.onCanvasContextLost)
     if (!webgl) return
     try {
       webgl.dispose()
     } catch {
       /* already disposed (e.g. by context loss) */
+    }
+    // Disposing the addon swaps in the DOM renderer, but only the rows xterm
+    // thinks are dirty get drawn — and after a context loss nothing is marked
+    // dirty, because the pane's content never changed, only the thing painting
+    // it. A terminal the user is looking at would sit blank until its agent
+    // happened to emit a byte. Repaint the viewport so the swap is invisible.
+    if (this.mounted) {
+      try {
+        this.term.refresh(0, this.term.rows - 1)
+      } catch {
+        /* terminal disposed mid-release */
+      }
     }
     // Disposing the addon drops the canvas, but the GL context itself is only
     // reclaimed when the browser gets round to collecting it. Chromium counts

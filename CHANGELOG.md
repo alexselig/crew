@@ -3,6 +3,24 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## Unreleased
+
+### Fixed
+
+- Every visible terminal going black when the Crew window lost focus, and coming
+  back mispainted. macOS drops GPU contexts for an occluded window — across the
+  whole renderer at once, which is why it was never one pane but all of them.
+  xterm's WebGL renderer answers that loss by asking the browser to restore the
+  context and waiting three seconds before giving up, and a lost context paints
+  nothing, so every accelerated pane went black for those three seconds on each
+  click away. Crew now drops to the DOM renderer the instant the context goes,
+  rather than waiting to find out whether it comes back: correct text beats a
+  GPU round-trip.
+- A pane left blank after that fallback. Swapping renderers leaves xterm with no
+  rows marked dirty — the content never changed, only the thing painting it — so
+  a terminal the user was looking at stayed empty until its agent happened to
+  emit another byte. The viewport is now repainted as part of the swap.
+
 ## 0.7.5 — 2026-09-30
 
 ### Fixed

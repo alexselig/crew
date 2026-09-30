@@ -36,6 +36,7 @@ const { FakeWebglAddon, FakeTerminal } = vi.hoisted(() => {
   }
 
   class FakeTerminal {
+    refreshed: Array<[number, number]> = []
     element: {
       parentElement: unknown
       isConnected: boolean
@@ -46,12 +47,38 @@ const { FakeWebglAddon, FakeTerminal } = vi.hoisted(() => {
     buffer = { active: { type: 'normal', cursorY: 0, viewportY: 0, getLine: () => null } }
     cols = 80
     rows = 24
-    loadAddon(): void {}
+    /** Stand-in for the canvas the real WebglAddon appends on load. */
+    readonly canvases: Array<{
+      listeners: Record<string, Array<() => void>>
+      addEventListener(type: string, cb: () => void): void
+      removeEventListener(type: string, cb: () => void): void
+      getContext(): null
+      emit(type: string): void
+    }> = []
+    refresh(start: number, end: number): void {
+      this.refreshed.push([start, end])
+    }
+    loadAddon(): void {
+      const listeners: Record<string, Array<() => void>> = {}
+      this.canvases.push({
+        listeners,
+        addEventListener(type, cb) {
+          ;(listeners[type] ??= []).push(cb)
+        },
+        removeEventListener(type, cb) {
+          listeners[type] = (listeners[type] ?? []).filter((f) => f !== cb)
+        },
+        getContext: () => null,
+        emit(type) {
+          for (const cb of [...(listeners[type] ?? [])]) cb()
+        }
+      })
+    }
     open(host: { appendChild(el: unknown): void }): void {
       const el = {
         parentElement: null as unknown,
         isConnected: false,
-        querySelectorAll: () => [] as unknown[]
+        querySelectorAll: () => this.canvases as unknown[]
       }
       this.element = el
       host.appendChild(el)
@@ -121,6 +148,20 @@ import {
   _resetWebglBudget,
   _MAX_WEBGL_CONTEXTS
 } from '../src/renderer/terminal/xterm-engine'
+
+/**
+ * The canvas the WebglAddon added, as the engine itself tracked it. Reached
+ * through the engine rather than by index into the terminal's canvases: the
+ * image addon adds one first, so index 0 is the wrong canvas.
+ */
+function webglCanvasOf(engine: ReturnType<typeof createXtermEngine>): {
+  emit(type: string): void
+} {
+  const canvas = (engine as unknown as { webglCanvas: { emit(type: string): void } | null })
+    .webglCanvas
+  if (!canvas) throw new Error('engine holds no WebGL canvas')
+  return canvas
+}
 
 /** One pooled session: an engine plus the DOM host its view mounts into. */
 function makeSession(): { engine: ReturnType<typeof createXtermEngine>; host: FakeHost } {
@@ -230,8 +271,57 @@ describe('WebGL context budget', () => {
     expect(FakeWebglAddon.live).toBe(0)
   })
 
-  it('frees the context when a session is closed', () => {
-    const sessions = Array.from({ length: 4 }, makeSession)
+  /**
+   * Regression: every visible terminal turned black whenever the Crew window
+   * lost focus, and came back with the viewport mispainted.
+   *
+   * macOS drops GPU contexts for an occluded window, across the whole renderer
+   * at once. The WebglAddon answers webglcontextlost with preventDefault() and
+   * a THREE SECOND wait for a restore before it fires onContextLoss — and a
+   * lost context paints nothing, so that grace period is three seconds of black
+   * in every accelerated pane. Crew now swaps to the DOM renderer on the loss
+   * event itself and repaints the viewport, because after a swap xterm has no
+   * dirty rows to redraw: the content never changed, only the painter did.
+   */
+  it('falls back to the DOM renderer on the loss event, without the addon grace period', () => {
+    const s = makeSession()
+    s.engine.mount(s.host as unknown as HTMLElement)
+    expect(_webglContextCount()).toBe(1)
+
+    // The canvas event fires immediately; the addon's onContextLoss would not
+    // arrive for another three seconds, so it is deliberately NOT called here.
+    webglCanvasOf(s.engine).emit('webglcontextlost')
+
+    expect(s.engine.capabilities.webgl).toBe(false)
+    expect(_webglContextCount()).toBe(0)
+    expect(FakeWebglAddon.live).toBe(0)
+  })
+
+  it('repaints the whole viewport when a visible terminal drops to the DOM renderer', () => {
+    const s = makeSession()
+    s.engine.mount(s.host as unknown as HTMLElement)
+    const term = (s.engine as unknown as { term: InstanceType<typeof FakeTerminal> }).term
+    term.refreshed.length = 0
+
+    webglCanvasOf(s.engine).emit('webglcontextlost')
+
+    // Without this the pane stays blank until its agent happens to emit a byte.
+    expect(term.refreshed).toContainEqual([0, term.rows - 1])
+  })
+
+  it('does not repaint an off-screen terminal whose context was reclaimed', () => {
+    const s = makeSession()
+    s.engine.mount(s.host as unknown as HTMLElement)
+    s.engine.unmount(s.host as unknown as HTMLElement)
+    const term = (s.engine as unknown as { term: InstanceType<typeof FakeTerminal> }).term
+    term.refreshed.length = 0
+
+    s.engine.releaseWebgl()
+
+    expect(term.refreshed).toEqual([])
+  })
+
+  it('frees the context when a session is closed', () => {    const sessions = Array.from({ length: 4 }, makeSession)
     for (const s of sessions) s.engine.mount(s.host as unknown as HTMLElement)
     expect(_webglContextCount()).toBe(4)
 
