@@ -6,6 +6,7 @@
 // wired up.
 
 import { join, resolve, sep } from 'node:path'
+import { realpathSync } from 'node:fs'
 import { createLaneManager } from './lanes'
 import { createJournal } from './conductor-journal'
 import { createConductor } from './conductor'
@@ -107,15 +108,55 @@ export function conductorPaths(
   }
 }
 
-/** Pure. Compares two filesystem paths the way a repository identity check
- *  needs to: resolved against the current working directory and normalised
- *  (so a trailing slash or a `.`/`..` segment never produces a spurious
- *  mismatch), but with no attempt to resolve symlinks — this is an identity
- *  check for "did the caller mean the same repo", not a filesystem-truth
- *  check. Shared by conductor-compose.ts so that discipline lives in one
- *  place rather than being re-derived at each comparison site. */
-export function samePath(a: string, b: string): boolean {
-  return resolve(a) === resolve(b)
+export interface SamePathDeps {
+  /** Injectable for tests. Must throw (not return a fabricated path) when
+   *  `path` cannot be resolved on disk — samePath() relies on that to know
+   *  when to fall back. Defaults to `fs.realpathSync.native`, which on
+   *  macOS also returns the true on-disk casing, settling case, symlink and
+   *  most alias questions in the one call. */
+  realpath?(path: string): string
+}
+
+function canonicalize(path: string, realpath: (path: string) => string): { value: string; resolved: boolean } {
+  try {
+    return { value: realpath(path), resolved: true }
+  } catch {
+    // Doesn't exist (yet), or otherwise unresolvable: not an error condition
+    // for an identity check — fall back to the plain resolve()-based path.
+    return { value: resolve(path), resolved: false }
+  }
+}
+
+/** Pure (aside from the filesystem read realpath() itself performs).
+ *  Compares two filesystem paths the way a repository identity check needs
+ *  to: the same directory should compare equal regardless of a trailing
+ *  slash, a `.`/`..` segment, a case-variant alias on a case-insensitive
+ *  filesystem, an NFC/NFD Unicode alias, or a symlink — while a genuinely
+ *  different directory must never compare equal. Shared by
+ *  conductor-compose.ts so that discipline lives in one place rather than
+ *  being re-derived at each comparison site.
+ *
+ *  Strategy: canonicalize each side with realpath() first, since on macOS
+ *  that resolves case, symlinks and Unicode aliasing all at once for
+ *  anything that actually exists on disk. Only when a side cannot be
+ *  resolved (most commonly: it doesn't exist yet) does this fall back to
+ *  resolve() plus, on case-insensitive platforms only (darwin, win32), a
+ *  case-insensitive comparison — realpath already settled the case question
+ *  correctly for anything it *could* resolve, so that fallback must never
+ *  apply when both sides resolved. */
+export function samePath(a: string, b: string, deps: SamePathDeps = {}): boolean {
+  const realpath = deps.realpath ?? ((path: string) => realpathSync.native(path))
+  const canonA = canonicalize(a, realpath)
+  const canonB = canonicalize(b, realpath)
+
+  const normalizedA = canonA.value.normalize('NFC')
+  const normalizedB = canonB.value.normalize('NFC')
+  if (normalizedA === normalizedB) return true
+  if (canonA.resolved && canonB.resolved) return false
+
+  const isCaseInsensitivePlatform = process.platform === 'darwin' || process.platform === 'win32'
+  if (!isCaseInsensitivePlatform) return false
+  return normalizedA.toLowerCase() === normalizedB.toLowerCase()
 }
 
 export interface CreateConductorRuntimeDeps {

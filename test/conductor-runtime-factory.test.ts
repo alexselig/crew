@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import { conductorPaths, createConductorRuntime, InvalidWorkspaceIdError } from '../src/main/conductor-runtime'
+import { mkdtempSync, mkdirSync, rmSync, realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { conductorPaths, createConductorRuntime, InvalidWorkspaceIdError, samePath } from '../src/main/conductor-runtime'
 import type { ConductorConfig } from '../src/shared/conductor'
 
 // A real containment proof: `child` is inside-or-equal-to `parent` iff
@@ -232,5 +234,69 @@ describe('createConductorRuntime', () => {
     expect(typeof runtime.conductor.publishLane).toBe('function')
     expect(runtime.createSession).toBe(createSession)
     expect(runtime.closeSession).toBe(closeSession)
+  })
+})
+
+// composeRun's repo-mismatch check (conductor-compose.ts) is the load-bearing
+// caller of samePath(): a false reject there blocks a legitimate run, a false
+// accept creates lanes in the wrong repository. Under-normalized comparison
+// (plain resolve()) gets both wrong on macOS: a case-variant or NFD/NFC
+// alias of the user's own repo path would be wrongly rejected as "a
+// different repository".
+describe('samePath', () => {
+  let root: string
+
+  beforeEach(() => {
+    root = realpathSync.native(mkdtempSync(join(tmpdir(), 'samepath-')))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('treats a case-variant of a real directory as the same path (case-insensitive filesystem only)', () => {
+    if (process.platform !== 'darwin' && process.platform !== 'win32') {
+      // Case-insensitivity is a filesystem property, not something to fake:
+      // on a genuinely case-sensitive filesystem /repo and /REPO really are
+      // different directories, so there is nothing portable to assert here.
+      return
+    }
+    const dir = join(root, 'MyRepo')
+    mkdirSync(dir)
+    expect(samePath(dir, join(root, 'MYREPO'))).toBe(true)
+    expect(samePath(dir, join(root, 'myrepo'))).toBe(true)
+  })
+
+  it('treats an NFD-encoded path as the same as its NFC alias for a real directory', () => {
+    const nfc = 'caf\u00e9' // "café", precomposed
+    const nfd = 'cafe\u0301' // "café", combining acute accent
+    expect(nfc).not.toBe(nfd) // sanity: genuinely different code sequences
+    const dirNfc = join(root, nfc)
+    mkdirSync(dirNfc)
+    expect(samePath(dirNfc, join(root, nfd))).toBe(true)
+  })
+
+  it('rejects a genuinely different repo even when both exist', () => {
+    const repoA = join(root, 'repo-a')
+    const repoB = join(root, 'repo-b')
+    mkdirSync(repoA)
+    mkdirSync(repoB)
+    expect(samePath(repoA, repoB)).toBe(false)
+  })
+
+  it('does not throw for a path that does not exist yet, and never treats unrelated non-existent paths as equal', () => {
+    const missingA = join(root, 'does-not-exist-a')
+    const missingB = join(root, 'does-not-exist-b')
+    expect(() => samePath(missingA, missingB)).not.toThrow()
+    expect(samePath(missingA, missingB)).toBe(false)
+    expect(samePath(missingA, missingA)).toBe(true)
+  })
+
+  it('falls back to a resolve()-based comparison when realpath cannot resolve either side', () => {
+    const unresolvable = (): string => {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    }
+    expect(samePath('/some/repo/', '/some/repo', { realpath: unresolvable })).toBe(true)
+    expect(samePath('/some/repo', '/some/other', { realpath: unresolvable })).toBe(false)
   })
 })
