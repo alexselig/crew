@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import * as ts from 'typescript'
+import { findAll, findCallsTo, flattenPropertyAccess, hasNamedImport, parseSource } from './helpers/ts-ast'
 import {
   createConductorController,
   DEFAULT_MAX_LANES,
@@ -83,7 +85,8 @@ const EMPTY_SNAPSHOT = {
   facts: {},
   needsAttention: false,
   operations: [],
-  reconciled: true
+  reconciled: true,
+  reconcileError: null
 }
 
 /** A backend factory whose backends are distinguishable per runtime, and
@@ -106,6 +109,7 @@ function fakeBackendFactory(options: {
       publishLane: async () => ({ ok: true }) as never,
       syncLane: async () => ({ ok: true }) as never,
       reconcile: async () => ({ needsAttention: false, operations: [] }),
+      acknowledgeOperation: async () => ({ ok: false, reason: 'unknown-operation' as const, message: 'unused' }),
       compose: (async (draft: unknown) =>
         options.compose ? options.compose(draft) : { ok: true, lanes: [] }) as ConductorBackend['compose']
     }
@@ -138,7 +142,7 @@ describe('createConductorController: "All Sessions" (no workspace)', () => {
     const controller = createConductorController(fakeDeps())
     await expect(controller.backendFor(null).state()).resolves.toEqual({
       enabled: false, publishing: null, lanes: [], facts: {}, needsAttention: false,
-      operations: [], reconciled: true
+      operations: [], reconciled: true, reconcileError: null
     })
   })
 
@@ -420,6 +424,7 @@ describe('createConductorController: test recipe persistence', () => {
         publishLane: async () => ({ ok: true }) as never,
         syncLane: async () => ({ ok: true }) as never,
         reconcile: async () => ({ needsAttention: false, operations: [] }),
+      acknowledgeOperation: async () => ({ ok: false, reason: 'unknown-operation' as const, message: 'unused' }),
         compose: (async () => {
           // What composeRun does on success: put the run's recipe in force.
           persistence?.saveTestRecipe?.(recipe)
@@ -591,19 +596,53 @@ describe('createConductorController: eager and launch reconcile', () => {
   })
 })
 
-describe('index.ts wiring (source-text assertions; index.ts imports electron and cannot run under environment: node)', () => {
-  const main = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8')
-  const withoutComments = main
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '')
+describe('index.ts wiring (AST assertions; index.ts imports electron and cannot run under environment: node)', () => {
+  // Re-review finding I-2: these used to be regexes over source text with
+  // full-line `//` comments stripped. That left a real bypass the reviewer
+  // demonstrated — deleting the per-call backend lookup and leaving the old
+  // code as a TRAILING comment on the same line kept every assertion green,
+  // because only whole-comment-lines were removed. Parsing the real AST
+  // removes the class of bypass entirely: a comment or a string literal
+  // containing the same characters is not a CallExpression.
+  const source = parseSource(fileURLToPath(new URL('../src/main/index.ts', import.meta.url)))
+  const main = source.getFullText()
 
   it('no longer constructs the shipped backend with a literal null runtime', () => {
-    expect(main).not.toMatch(/createShippedConductorBackend\(\s*null\s*\)/)
+    const disabled = findCallsTo(source, 'createShippedConductorBackend')
+      .filter((call) => call.arguments[0]?.kind === ts.SyntaxKind.NullKeyword)
+    expect(disabled).toHaveLength(0)
   })
 
   it('builds the conductor controller from the bootstrap module', () => {
-    expect(withoutComments).toContain('createConductorController')
-    expect(withoutComments).toContain("from './conductor-bootstrap'")
+    expect(hasNamedImport(source, 'conductor-bootstrap', 'createConductorController')).toBe(true)
+    expect(findCallsTo(source, 'createConductorController')).toHaveLength(1)
+  })
+
+  // m-5.3: the controller needs the workspace and session readers to name
+  // lanes and bind sessions. Asserting only that SOME call happens left
+  // dropping either of them invisible here.
+  it('gives the controller real readers for workspaces and sessions', () => {
+    const construction = findCallsTo(source, 'createConductorController')[0]
+    const literal = construction.arguments[0]
+    expect(literal && ts.isObjectLiteralExpression(literal)).toBe(true)
+    const properties = new Map(
+      (literal as ts.ObjectLiteralExpression).properties
+        .filter(ts.isPropertyAssignment)
+        .map((prop) => [prop.name.getText(), prop.initializer])
+    )
+    for (const [name, reader] of [
+      ['getWorkspaces', 'store.getWorkspaces'],
+      ['getSessions', 'store.getSessions'],
+      ['getConductorConfigs', 'store.getConductorConfigs'],
+      ['getConductorLanes', 'store.getConductorLanes']
+    ]) {
+      const initializer = properties.get(name)
+      expect(initializer, `createConductorController was given no ${name}`).toBeDefined()
+      expect(
+        findCallsTo(initializer!, reader).length,
+        `${name} does not read from ${reader}()`
+      ).toBeGreaterThan(0)
+    }
   })
 
   it('runs the launch reconcile, for every workspace, after the window is created', () => {
@@ -644,12 +683,38 @@ describe('index.ts wiring (source-text assertions; index.ts imports electron and
 
   // Review finding 1: conductor must not follow main's active workspace.
   it('never binds the conductor controller to main\'s active workspace', () => {
-    expect(withoutComments).not.toMatch(/conductorController\s*\??\.\s*setActiveWorkspace/)
+    const bindings = findAll(source, ts.isCallExpression).filter((call) => {
+      const callee = flattenPropertyAccess(call.expression)
+      return callee !== undefined && callee.endsWith('setActiveWorkspace') && callee.includes('conductor')
+    })
+    expect(bindings).toHaveLength(0)
   })
 
+  // Re-review finding I-2 in full: the resolver must be a real function of
+  // its own parameter. Pinning the exact argument NODES — rather than
+  // matching characters — is what rejects the reviewer's bypass, in which
+  // the live code closed over main's `activeWorkspace` and the correct call
+  // survived only as a trailing comment.
   it('resolves the conductor backend per call, from the workspace id the call carries', () => {
-    expect(withoutComments).toMatch(
-      /registerConductorIpc\(\s*ipcMain\s*,\s*\(\s*workspaceId\s*\)\s*=>\s*conductorController!?\.backendFor\(\s*workspaceId\s*\)/
+    const registrations = findCallsTo(source, 'registerConductorIpc')
+    expect(registrations).toHaveLength(1)
+    const [channels, resolver] = registrations[0].arguments
+    expect(channels?.getText()).toBe('ipcMain')
+    expect(resolver && ts.isArrowFunction(resolver), 'the backend resolver is not an arrow function').toBe(true)
+
+    const arrow = resolver as ts.ArrowFunction
+    expect(arrow.parameters, 'the backend resolver takes no workspace id').toHaveLength(1)
+    const parameter = arrow.parameters[0].name.getText()
+
+    const lookups = findAll(arrow.body, ts.isCallExpression).filter((call) =>
+      ts.isPropertyAccessExpression(call.expression) && call.expression.name.text === 'backendFor'
     )
+    expect(lookups, 'the resolver does not call backendFor').toHaveLength(1)
+    // The id it looks up is the one THIS call carried — not a captured
+    // variable that happens to be in scope.
+    expect(
+      lookups[0].arguments[0]?.getText(),
+      'backendFor is not given the resolver\'s own parameter'
+    ).toBe(parameter)
   })
 })

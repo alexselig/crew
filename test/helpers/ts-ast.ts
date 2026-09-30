@@ -172,6 +172,95 @@ export function findCallsTo(root: ts.Node, calleeText: string): ts.CallExpressio
   return findAll(root, ts.isCallExpression).filter((call) => flattenPropertyAccess(call.expression) === calleeText)
 }
 
+function isFunctionLike(node: ts.Node): boolean {
+  return ts.isArrowFunction(node) || ts.isFunctionExpression(node) ||
+    ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)
+}
+
+/** Like `findCallsTo`, but never descends into a nested function body.
+ *
+ *  Re-review m-5: `findCallsTo(tryStatement.tryBlock, …)` also matches a
+ *  call sitting inside a closure that the try block merely DEFINES and
+ *  never runs — so the real, awaited call could be moved outside the
+ *  try/catch entirely (resurrecting the unhandled rejection those tests
+ *  exist to prevent) while a dead `const unused = () => window.crew.publishLane(...)`
+ *  left behind inside it kept the assertion green. Only a call actually
+ *  executed by `root` itself counts here. */
+export function findDirectCallsTo(root: ts.Node, calleeText: string): ts.CallExpression[] {
+  const out: ts.CallExpression[] = []
+  const visit = (node: ts.Node): void => {
+    if (node !== root && isFunctionLike(node)) return
+    if (ts.isCallExpression(node) && flattenPropertyAccess(node.expression) === calleeText) out.push(node)
+    ts.forEachChild(node, visit)
+  }
+  visit(root)
+  return out
+}
+
+/** The dependency-array element texts of `const name = useCallback(fn, [deps])`,
+ *  or undefined when `name` is not a useCallback with an array literal
+ *  second argument. Re-review I-3: a hook whose deps omit `workspaceId`
+ *  keeps the FIRST workspace's closure alive forever, so after a switch the
+ *  panel's buttons act on the old workspace — invisible to any assertion
+ *  that only inspects the handler body. */
+export function findCallbackDependencies(source: ts.SourceFile, name: string): string[] | undefined {
+  const decl = findAll(source, ts.isVariableDeclaration).find((d) => ts.isIdentifier(d.name) && d.name.text === name)
+  const init = decl?.initializer
+  if (!init || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression)) return undefined
+  if (init.expression.text !== 'useCallback') return undefined
+  const deps = init.arguments[1]
+  if (!deps || !ts.isArrayLiteralExpression(deps)) return undefined
+  return deps.elements.map((el) => el.getText())
+}
+
+/** The dependency-array element texts of every `useEffect(fn, [deps])` in
+ *  the file (one entry per effect; undefined for an effect with no array
+ *  literal deps). */
+export function findEffectDependencies(source: ts.SourceFile): (string[] | undefined)[] {
+  return findAll(source, ts.isCallExpression)
+    .filter((call) => ts.isIdentifier(call.expression) && call.expression.text === 'useEffect')
+    .map((call) => {
+      const deps = call.arguments[1]
+      return deps && ts.isArrayLiteralExpression(deps) ? deps.elements.map((el) => el.getText()) : undefined
+    })
+}
+
+/** The nearest enclosing `if` statement whose THEN branch actually contains
+ *  `node` — the real-AST way to ask "is this call guarded?", as opposed to
+ *  checking that a comparison appears somewhere in the same function. */
+export function enclosingIfStatement(node: ts.Node): ts.IfStatement | undefined {
+  let current: ts.Node = node
+  while (current.parent) {
+    const parent = current.parent
+    if (ts.isIfStatement(parent) && parent.thenStatement === current) return parent
+    current = parent
+  }
+  return undefined
+}
+
+/** Flattens a `a && b && c` chain into its operand expressions (a single
+ *  non-`&&` expression flattens to itself). */
+export function logicalAndOperands(expr: ts.Expression): ts.Expression[] {
+  if (ts.isBinaryExpression(expr) && expr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+    return [...logicalAndOperands(expr.left), ...logicalAndOperands(expr.right)]
+  }
+  if (ts.isParenthesizedExpression(expr)) return logicalAndOperands(expr.expression)
+  return [expr]
+}
+
+/** True when `operands` contains a real `left === right` comparison. */
+export function hasStrictEqualityOperand(
+  operands: readonly ts.Expression[],
+  left: string,
+  right: string
+): boolean {
+  return operands.some((operand) =>
+    ts.isBinaryExpression(operand) &&
+    operand.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+    operand.left.getText() === left &&
+    operand.right.getText() === right)
+}
+
 /** The nearest TryStatement inside `root`, or undefined. */
 export function findTryStatement(root: ts.Node): ts.TryStatement | undefined {
   return findAll(root, ts.isTryStatement)[0]
