@@ -33,25 +33,41 @@ cd "$REPO_DIR"
 
 IDENTITY="${CREW_SIGN_IDENTITY:-Developer ID Application: Aaron Selig (42KAR3VVM7)}"
 PROFILE="${CREW_NOTARY_PROFILE:-crew-notary}"
-# Notarization credentials. The stored keychain profile is the norm, but it can
-# go missing, and `notarytool store-credentials` can validate against Apple and
-# still fail to write the keychain item — leaving a release signed but
-# un-notarizable. The APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
-# variables documented in MACOS-SIGNING.md are accepted as a fallback so the
-# release is never blocked on the keychain, and the absence of both is reported
-# BEFORE the multi-minute signing run rather than after it.
+# Notarization credentials, in preference order: keychain profile, App Store
+# Connect API key, then Apple ID + app-specific password.
 #
-# The probe must be `notarytool` itself. notarytool keeps profiles in the
-# data-protection keychain, which `security(1)` cannot enumerate at all, so
+# The stored keychain profile is the norm, but it can go missing, and
+# `notarytool store-credentials` can validate against Apple and still fail to
+# write the keychain item — leaving a release signed but un-notarizable. On an
+# MDM-managed Mac that failure can be permanent: the login keychain accepts
+# writes normally while the data-protection keychain notarytool uses refuses
+# them, so no amount of retrying stores the profile.
+#
+# The API key is therefore the durable path here. It is a .p8 file plus two
+# non-secret identifiers, it never touches the keychain, and unlike an
+# app-specific password it does not have to be typed into a shell. Generate one
+# at App Store Connect ▸ Users and Access ▸ Integrations (Developer role).
+#
+# All three routes are documented in MACOS-SIGNING.md, and the absence of every
+# one is reported BEFORE the multi-minute signing run rather than after it.
+#
+# The keychain probe must be `notarytool` itself. notarytool keeps profiles in
+# the data-protection keychain, which `security(1)` cannot enumerate at all, so
 # `security find-generic-password` reports a perfectly good profile as missing
-# and sends the release down the env-var path it does not need.
+# and sends the release down a fallback path it does not need.
 NOTARY_ARGS=(--keychain-profile "$PROFILE")
 if ! xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
-  if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+  if [ -n "${APPLE_API_KEY:-}" ] && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "${APPLE_API_ISSUER:-}" ]; then
+    [ -f "$APPLE_API_KEY" ] || { echo "ERROR: APPLE_API_KEY is set but '$APPLE_API_KEY' is not a file." >&2; exit 1; }
+    NOTARY_ARGS=(--key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
+    echo "==> Notary profile '$PROFILE' is not in the keychain; using the App Store Connect API key."
+  elif [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
     NOTARY_ARGS=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
     echo "==> Notary profile '$PROFILE' is not in the keychain; using APPLE_* environment credentials."
   else
-    echo "WARNING: notary profile '$PROFILE' is not in the keychain, and APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID are not set." >&2
+    echo "WARNING: notary profile '$PROFILE' is not in the keychain, and no fallback credentials are set." >&2
+    echo "         Set APPLE_API_KEY/APPLE_API_KEY_ID/APPLE_API_ISSUER (preferred) or" >&2
+    echo "         APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID." >&2
     echo "         Signing will proceed but notarization will fail. See MACOS-SIGNING.md." >&2
   fi
 fi

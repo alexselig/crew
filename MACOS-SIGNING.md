@@ -121,6 +121,39 @@ This is the current distribution model. After one-time setup, use
    ```
 
 ### 2. Notarization credentials
+
+`scripts/sign-notarize.sh` accepts three routes, in preference order: a stored
+keychain profile, an App Store Connect API key, then an Apple ID with an
+app-specific password.
+
+**Keychain profile (normal machines).**
+```bash
+xcrun notarytool store-credentials "crew-notary" \
+  --apple-id "you@example.com" --team-id 42KAR3VVM7
+```
+Verify with `xcrun notarytool history --keychain-profile crew-notary`. The probe
+must be `notarytool`, not `security(1)` — see the note at the end of this section.
+
+**App Store Connect API key (preferred on MDM-managed Macs).** On a managed Mac
+`store-credentials` can validate against Apple and still fail to write the
+keychain item, permanently: the login keychain accepts writes normally while the
+data-protection keychain `notarytool` uses refuses them. This happened on this
+machine between 0.7.4 and 0.7.5. An API key sidesteps the keychain entirely, and
+unlike an app-specific password it never has to be typed into a shell.
+
+1. App Store Connect ▸ **Users and Access** ▸ **Integrations** ▸ App Store Connect
+   API ▸ generate a key with the **Developer** role.
+2. Download the `.p8` — **it downloads once only** — and keep it outside the repo
+   (`~/private_keys/` is the conventional location). Note the **Key ID** and the
+   **Issuer ID**.
+3. Export before building:
+   ```bash
+   export APPLE_API_KEY="$HOME/private_keys/AuthKey_XXXXXXXXXX.p8"
+   export APPLE_API_KEY_ID="XXXXXXXXXX"
+   export APPLE_API_ISSUER="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+   ```
+
+**Apple ID + app-specific password (last resort).**
 1. At https://appleid.apple.com ▸ Sign-In and Security ▸ **App-Specific Passwords**,
    generate one (e.g. `crew-notarize`).
 2. Note your **Team ID** (developer.apple.com ▸ Membership, or the `(TEAMID)` in the
@@ -131,6 +164,11 @@ This is the current distribution model. After one-time setup, use
    export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
    export APPLE_TEAM_ID="ABCDE12345"
    ```
+
+> Never probe for a keychain profile with `security find-generic-password`.
+> notarytool stores profiles in the data-protection keychain, which `security(1)`
+> cannot enumerate, so it reports a working profile as missing and sends the
+> release down a fallback path it does not need.
 
 ### 3. Flip on signing in `electron-builder.yml`
 Replace the `mac:` block's `identity: null` with the notarized profile (the exact
