@@ -2,7 +2,7 @@
 // is decided here, before the composer creates anything, because a partially
 // created run leaves worktrees the user cannot see.
 
-import type { ConductorLane, LaneAgent, RoleKind } from './conductor'
+import type { ConductorLane, LaneAgent, RoleKind, TestRecipe } from './conductor'
 
 export interface RosterRow {
   roleName: string
@@ -14,6 +14,10 @@ export interface RosterDraft {
   repo: string
   integrationBranch: string
   rows: RosterRow[]
+  /** The test recipe the run should carry, or null for none. Phase 1 dropped
+   *  this from the composer because nothing consumed it; a runtime now does
+   *  (see ConductorConfig/ConductorSettings), so it is restored here. */
+  test: TestRecipe | null
 }
 
 export interface RosterError {

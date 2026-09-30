@@ -5,10 +5,12 @@ import {
   validateRoster,
   type CleanupFailure,
   type ComposeResult,
-  type RosterDraft
+  type RosterDraft,
+  type RosterError
 } from '../shared/conductor-composer'
 import type { LaneManager } from './lanes'
-import type { ConductorLane, ConductorSettings } from '../shared/conductor'
+import type { ConductorLane, ConductorSettings, TestRecipe } from '../shared/conductor'
+import { samePath } from './conductor-runtime'
 
 export type { ComposeResult } from '../shared/conductor-composer'
 
@@ -26,6 +28,14 @@ export interface ComposeDeps {
    *  BEFORE it removes the lane's worktree: a session whose cwd vanishes out
    *  from under it is exactly the orphan this composer exists to prevent. */
   closeSession(id: string): void
+  /** Called once, only after every lane and session in the run has been
+   *  created successfully, with the recipe the draft carried (null for
+   *  none). This is the seam that lets the recipe reach the ConductorConfig
+   *  the runtime actually uses, without composeRun reaching into settings
+   *  (a shared object other in-flight code also reads) itself. The caller
+   *  decides what "now in force" means — Task 4 wires it to the live
+   *  runtime's settings; persisting it to the store is a later task's job. */
+  setTestRecipe(recipe: TestRecipe | null): void
 }
 
 export async function composeRun(
@@ -35,6 +45,26 @@ export async function composeRun(
   // 1. Everything decidable up front is decided up front.
   const validation = validateRoster(draft, { maxLanes: deps.settings.maxLanes })
   if (!validation.ok) return { ok: false, errors: validation.errors }
+
+  // The app has no repository concept of its own — the draft the composer
+  // built IS the source of truth for repo/integrationBranch (see Phase 1.5's
+  // design decision). So rather than trusting draft.repo/integrationBranch
+  // and silently building lanes in whatever repo the runtime happens to be
+  // wired to (a wrong-target bug, review finding 4), a mismatch here is
+  // rejected outright, before anything is created. Compared as paths, not
+  // raw strings, so a trailing slash or a "./" segment is never a spurious
+  // mismatch, while a genuinely different repo always is.
+  const mismatches: RosterError[] = []
+  if (!samePath(draft.repo, deps.settings.repo)) {
+    mismatches.push({ field: 'repo', message: 'this run was composed for a different repository' })
+  }
+  if (draft.integrationBranch.trim() !== deps.settings.integrationBranch.trim()) {
+    mismatches.push({
+      field: 'integrationBranch',
+      message: 'this run was composed for a different integration branch'
+    })
+  }
+  if (mismatches.length > 0) return { ok: false, errors: mismatches }
 
   await deps.lanes.ensureIntegrationWorktree()
 
@@ -65,6 +95,11 @@ export async function composeRun(
       }
     }
   }
+
+  // The recipe only ever takes effect once every lane/session in the run
+  // exists — a rejected or rolled-back run must leave the recipe untouched,
+  // the same way it leaves everything else untouched.
+  deps.setTestRecipe(draft.test)
 
   return { ok: true, lanes: created }
 }

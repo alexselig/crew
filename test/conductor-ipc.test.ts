@@ -263,7 +263,7 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
   it('refuses composing a run cleanly', async () => {
     const backend = createShippedConductorBackend(null)
     await expect(
-      backend.compose({ repo: '/repo', integrationBranch: 'crew/integration', rows: [] })
+      backend.compose({ repo: '/repo', integrationBranch: 'crew/integration', rows: [], test: null })
     ).rejects.toThrow('conductor is not configured for this workspace yet')
   })
 
@@ -339,5 +339,75 @@ describe('the shipped conductor backend, with no settings composer wired yet', (
     expect(state.lanes).toHaveLength(2)
     expect(state.facts['lane-good']).toEqual(goodFacts)
     expect(state.facts['lane-bad']).toBeUndefined()
+  })
+
+  // Task 4's seam: composeRun calls deps.setTestRecipe once a run fully
+  // succeeds, and createShippedConductorBackend's compose() must actually
+  // wire that seam to the live runtime it was handed — not merely accept
+  // the field and drop it, which would be the same silent bug review
+  // finding 4 raised, just moved one field over.
+  it('writes a successfully composed test recipe into the live runtime settings', async () => {
+    const createdLane = lane({ id: 'lane-x', roleId: 'builder' })
+    const fakeLanes = {
+      ensureIntegrationWorktree: vi.fn(async () => undefined),
+      create: vi.fn(async () => createdLane),
+      facts: vi.fn(async () => ({
+        ahead: 0, behind: 0, dirtyTracked: false, untracked: false, laneTip: 't', baseSha: 'b'
+      })),
+      mergeInIntegration: vi.fn(),
+      syncLane: vi.fn(),
+      publish: vi.fn(),
+      destroy: vi.fn()
+    } as unknown as import('../src/main/lanes').LaneManager
+    const settings: import('../src/shared/conductor').ConductorSettings = {
+      repo: '/repo',
+      integrationBranch: 'crew/integration',
+      integrationWorktree: '/repo-integration',
+      lanesDir: '/lanes',
+      maxLanes: 3,
+      test: null
+    }
+    const runtime = {
+      lanes: fakeLanes,
+      conductor: {
+        publishLane: vi.fn(), syncLane: vi.fn(), isPublishing: vi.fn(), reconcile: vi.fn()
+      } as unknown as import('../src/main/conductor').Conductor,
+      settings,
+      createSession: vi.fn(async () => ({ id: 'sess' })),
+      closeSession: vi.fn()
+    }
+    const backend = createShippedConductorBackend(runtime)
+    const recipe = { command: 'npm', args: ['test'], cwd: '.', timeoutMs: 5000 }
+
+    const result = await backend.compose({
+      repo: '/repo',
+      integrationBranch: 'crew/integration',
+      rows: [{ roleName: 'builder', kind: 'author' as const, agent: { presetId: 'shell', model: null } }],
+      test: recipe
+    })
+
+    expect(result.ok).toBe(true)
+    expect(runtime.settings.test).toEqual(recipe)
+  })
+
+  it('rejects a compose whose draft repo does not match the live runtime, over IPC too', async () => {
+    const runtime = {
+      lanes: {} as import('../src/main/lanes').LaneManager,
+      conductor: {} as import('../src/main/conductor').Conductor,
+      settings: {
+        repo: '/repo', integrationBranch: 'crew/integration',
+        integrationWorktree: '/repo-integration', lanesDir: '/lanes', maxLanes: 3, test: null
+      },
+      createSession: vi.fn(),
+      closeSession: vi.fn()
+    }
+    const backend = createShippedConductorBackend(runtime)
+    const result = await backend.compose({
+      repo: '/somewhere-else',
+      integrationBranch: 'crew/integration',
+      rows: [{ roleName: 'builder', kind: 'author' as const, agent: { presetId: 'shell', model: null } }],
+      test: null
+    })
+    expect(result).toMatchObject({ ok: false, errors: [{ field: 'repo' }] })
   })
 })

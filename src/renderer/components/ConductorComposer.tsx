@@ -16,6 +16,11 @@ import {
 import { invalidateProposalNotes } from '../conductor-view-model'
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
 import { defaultLaneAgent, getCopilotModelSelection } from '../new-session-model'
+import {
+  EMPTY_TEST_RECIPE_INPUT,
+  testRecipeFromInput,
+  type TestRecipeFormInput
+} from '../conductor-test-recipe'
 
 interface Props {
   presets: Preset[]
@@ -60,6 +65,7 @@ function errorFor(errors: { field: string; message: string }[], field: string): 
 export function ConductorComposer({ presets, maxLanes, initial, onCancel, onCompose }: Props): JSX.Element {
   const [repo, setRepo] = useState('')
   const [integrationBranch, setIntegrationBranch] = useState('crew/integration')
+  const [testRecipeInput, setTestRecipeInput] = useState<TestRecipeFormInput>(EMPTY_TEST_RECIPE_INPUT)
   const [rows, setRows] = useState<DraftRow[]>(
     () => initial ? draftRowsFromReconciled(initial.rows) : [newRow('row-0', presets[0]?.id ?? '')]
   )
@@ -108,7 +114,8 @@ export function ConductorComposer({ presets, maxLanes, initial, onCancel, onComp
   const draft: RosterDraft = {
     repo,
     integrationBranch,
-    rows: rows.map(({ key: _key, rationale: _rationale, ...row }) => row)
+    rows: rows.map(({ key: _key, rationale: _rationale, ...row }) => row),
+    test: testRecipeFromInput(testRecipeInput)
   }
   const validation = validateRoster(draft, { maxLanes })
   const hasBlockingNotes = notes.some((n) => n.severity === 'blocking')
@@ -233,6 +240,46 @@ export function ConductorComposer({ presets, maxLanes, initial, onCancel, onComp
           <span className="conductor-composer-error">{errorFor(validation.errors, 'integrationBranch')}</span>
         )}
       </label>
+
+      <fieldset className="conductor-composer-test-recipe">
+        <legend>Test recipe (optional)</legend>
+        <label className="field">
+          <span className="field__label">Command</span>
+          <input
+            className="field__input"
+            value={testRecipeInput.command}
+            onChange={(e) => setTestRecipeInput((prev) => ({ ...prev, command: e.target.value }))}
+            placeholder="npm test"
+          />
+        </label>
+        <label className="field">
+          <span className="field__label">Args</span>
+          <input
+            className="field__input"
+            value={testRecipeInput.args}
+            onChange={(e) => setTestRecipeInput((prev) => ({ ...prev, args: e.target.value }))}
+            placeholder="run test --silent"
+          />
+        </label>
+        <label className="field">
+          <span className="field__label">Working directory</span>
+          <input
+            className="field__input"
+            value={testRecipeInput.cwd}
+            onChange={(e) => setTestRecipeInput((prev) => ({ ...prev, cwd: e.target.value }))}
+            placeholder="."
+          />
+        </label>
+        <label className="field">
+          <span className="field__label">Timeout (ms)</span>
+          <input
+            className="field__input"
+            value={testRecipeInput.timeoutMs}
+            onChange={(e) => setTestRecipeInput((prev) => ({ ...prev, timeoutMs: e.target.value }))}
+            placeholder="300000"
+          />
+        </label>
+      </fieldset>
 
       <table className="conductor-composer-roster">
         <thead>

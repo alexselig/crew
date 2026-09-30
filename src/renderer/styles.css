@@ -973,6 +973,29 @@ button {
   color: var(--text-faint);
 }
 
+.conductor-composer-test-recipe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.conductor-composer-test-recipe legend {
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.conductor-composer-test-recipe .field {
+  flex: 1 1 140px;
+}
+
 .conductor-composer-actions {
   display: flex;
   justify-content: flex-end;

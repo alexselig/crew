@@ -220,7 +220,13 @@ export function createShippedConductorBackend(conductorRuntime: ConductorRuntime
           lanes: runtime.lanes,
           settings: runtime.settings,
           createSession: runtime.createSession,
-          closeSession: runtime.closeSession
+          closeSession: runtime.closeSession,
+          // Task 4's seam: composeRun calls this once a run fully succeeds.
+          // Mutating runtime.settings here (rather than composeRun reaching
+          // into it directly) keeps that write in the one layer that owns
+          // the live runtime; persisting it to the store so it survives a
+          // restart is Task 5's job, not this one's.
+          setTestRecipe: (recipe) => { runtime.settings.test = recipe }
         },
         draft
       )

@@ -9,6 +9,7 @@ function draft(overrides: Partial<RosterDraft> = {}): RosterDraft {
       { roleName: 'builder', kind: 'author', agent: { presetId: 'copilot-cli', model: 'gpt-6-astra' } },
       { roleName: 'reviewer', kind: 'reviewer', agent: { presetId: 'copilot-cli', model: 'claude-opus-5' } }
     ],
+    test: null,
     ...overrides
   }
 }

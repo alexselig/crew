@@ -107,6 +107,17 @@ export function conductorPaths(
   }
 }
 
+/** Pure. Compares two filesystem paths the way a repository identity check
+ *  needs to: resolved against the current working directory and normalised
+ *  (so a trailing slash or a `.`/`..` segment never produces a spurious
+ *  mismatch), but with no attempt to resolve symlinks — this is an identity
+ *  check for "did the caller mean the same repo", not a filesystem-truth
+ *  check. Shared by conductor-compose.ts so that discipline lives in one
+ *  place rather than being re-derived at each comparison site. */
+export function samePath(a: string, b: string): boolean {
+  return resolve(a) === resolve(b)
+}
+
 export interface CreateConductorRuntimeDeps {
   config: ConductorConfig
   journalPath: string
