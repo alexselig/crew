@@ -92,17 +92,55 @@ const isSymlink = (path: string): boolean => {
  *  their untracked files.
  *
  *  Conductor creates its worktrees with `git worktree add`, which makes
- *  real directories; a symlink at the leaf, or at the folder containing it
- *  (A8p aims the WORKSPACE folder elsewhere), is therefore never something
- *  Conductor made. It is checked with `lstat` on the lexically resolved
- *  path, BEFORE any realpath call can resolve the deception away. Only the
- *  leaf and its parent: Conductor derives those two, while the directories
- *  above them are the platform's (`/var` -> `/private/var` on macOS is a
- *  symlinked ancestor of every temp path) and refusing on those would
- *  reject every legitimate workspace. */
-const isSymlinkedPath = (dir: string): boolean => {
-  const resolved = resolve(dir)
-  return isSymlink(resolved) || isSymlink(dirname(resolved))
+ *  real directories; a symlink at the leaf, or anywhere on the run of
+ *  ancestors Conductor DERIVES above it (A8p aims the WORKSPACE folder
+ *  elsewhere), is therefore never something Conductor made. It is checked
+ *  with `lstat` on the lexically resolved path, BEFORE any realpath call
+ *  can resolve the deception away.
+ *
+ *  Wave 7, B-7: it used to stop at the leaf's parent, on the stated grounds
+ *  that everything above was "the platform's". That was simply false.
+ *  conductorPaths() (conductor-runtime.ts) derives
+ *  `<userData>/conductor/<workspaceId>/integration` and
+ *  `<userData>/conductor/<workspaceId>/lanes/<lane>` — so `conductor`,
+ *  `<workspaceId>` and `lanes` are all Conductor's own, and a symlink at
+ *  any of them aims every path Conductor derives at somewhere else with
+ *  filesystem access alone, no tampered store needed. A symlink at
+ *  `conductor` pointing at a folder holding one of the USER's worktrees of
+ *  the same repo passed both halves of the guard — the back-pointer check
+ *  says yes because it really IS a git-created worktree, just not ours —
+ *  and publish then reported `ok: true` while the forced checkout detached
+ *  the user's HEAD, the merge overwrote their index and `clean -fd` deleted
+ *  their untracked files. `destroy(lane, { force: true })`, reachable from
+ *  the compose rollback and from the IPC destroy-lane call, deleted the
+ *  user's worktree folder outright.
+ *
+ *  So every derived level is checked, and NOT one level more: `<userData>`
+ *  itself and everything above it belongs to the platform (`/var` ->
+ *  `/private/var` on macOS is a symlinked ancestor of every temp path, and
+ *  a symlinked userData is a supported configuration), so refusing on those
+ *  would reject legitimate workspaces — a false reject is every bit as much
+ *  a defect as a false accept. Which levels are Conductor's depends on what
+ *  the path is meant to be, hence `kind`. */
+const DERIVED_LEVELS: Readonly<Record<OwnedWorktreeKind, number>> = {
+  // <userData>/conductor/<workspaceId>/integration
+  'integration worktree': 3,
+  // <userData>/conductor/<workspaceId>/lanes/<lane>
+  'lane worktree': 4
+}
+
+const isSymlinkedPath = (dir: string, kind: OwnedWorktreeKind = 'integration worktree'): boolean => {
+  let current = resolve(dir)
+  for (let level = 0; level < DERIVED_LEVELS[kind]; level += 1) {
+    if (isSymlink(current)) return true
+    const parent = dirname(current)
+    // A path with fewer levels than Conductor derives cannot be one of
+    // Conductor's; stopping at the filesystem root just avoids lstat'ing
+    // `/` over and over.
+    if (parent === current) return false
+    current = parent
+  }
+  return false
 }
 
 /** Wave 5, B-4: `--show-toplevel` alone only proves that *some* `.git` entry
@@ -154,9 +192,9 @@ async function hasBackPointerTo(dir: string): Promise<boolean> {
  *  half a `.git` file aimed into the user's repository passed this check
  *  and the repair then wiped the user's merge state while reporting
  *  success. */
-export async function isOwnWorktree(dir: string): Promise<boolean> {
+export async function isOwnWorktree(dir: string, kind: OwnedWorktreeKind = 'integration worktree'): Promise<boolean> {
   // Wave 6, B-5: first, and before any realpath call — see isSymlinkedPath.
-  if (isSymlinkedPath(dir)) return false
+  if (isSymlinkedPath(dir, kind)) return false
   const top = await runGit(['rev-parse', '--show-toplevel'], { cwd: dir })
   if (top.code !== 0) return false
   const reported = top.stdout.trim()
@@ -180,10 +218,11 @@ export function notOwnWorktreeMessage(dir: string, kind: OwnedWorktreeKind = 'in
   // Wave 6, B-5: a symlink is never something `git worktree add` created,
   // so saying "it resolves to some enclosing repository" would send the
   // user looking for a repository that has nothing to do with it.
-  if (isSymlinkedPath(dir)) {
+  if (isSymlinkedPath(dir, kind)) {
     return (
-      `the ${kind} at ${dir} is a symbolic link (or sits directly inside one), which is never something ` +
-      'Conductor created, so no git command may be run in it; refusing to touch it'
+      `the ${kind} at ${dir} is a symbolic link (or sits inside one of the folders Conductor derives ` +
+      'above it), which is never something Conductor created, so no git command may be run in it; ' +
+      'refusing to touch it'
     )
   }
   // Wave 6, F-8 (A15): a folder that is simply EMPTY of git earned the
@@ -208,8 +247,25 @@ export function notOwnWorktreeMessage(dir: string, kind: OwnedWorktreeKind = 'in
 }
 
 async function requireOwnWorktree(dir: string, kind: OwnedWorktreeKind = 'integration worktree'): Promise<void> {
-  if (!(await isOwnWorktree(dir))) throw new Error(notOwnWorktreeMessage(dir, kind))
+  if (!(await isOwnWorktree(dir, kind))) throw new Error(notOwnWorktreeMessage(dir, kind))
 }
+
+/** Wave 7, F-15: git runs the repository's hooks for Conductor's OWN
+ *  plumbing too — `worktree add` and `checkout` fire `post-checkout`,
+ *  `merge` fires `pre-merge-commit` and `commit-msg`. So an ordinary
+ *  repository that uses hooks broke Conductor: a `post-checkout` hook
+ *  exiting non-zero failed the integration `worktree add` (H1), husky v8
+ *  failed every non-fast-forward publish (H2), and a failing
+ *  `pre-merge-commit` refused publication outright (H3). All three fail
+ *  CLOSED, so they destroy nothing — they just make Conductor unusable on
+ *  most real repositories. Conductor's internal checkouts, merges and
+ *  worktree creations are not the user's commits and are not what those
+ *  hooks were written for, so they run with hooks disabled: `-c` on the
+ *  command line beats the repository's own `core.hooksPath` (which is
+ *  exactly what husky sets), and a hooksPath holding no hooks is how git is
+ *  told to run none. Scope is deliberately narrow — this is Conductor's own
+ *  plumbing only, and never the git an agent runs inside its own lane. */
+const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null']
 
 export function createLaneManager(settings: ConductorSettings): LaneManager {
   const inRepo = async (args: string[], timeoutMs?: number): Promise<string> => {
@@ -258,6 +314,7 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     // second force only overrides the lock and the missing folder: the add
     // is `--detach`, so it is never claiming a branch from anybody.
     await inRepo([
+      ...NO_HOOKS,
       'worktree', 'add', ...(already ? ['--force', '--force'] : []), '--detach', settings.integrationWorktree, base
     ])
   }
@@ -267,7 +324,7 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     const branch = `crew/lane/${name}`
     const worktree = join(settings.lanesDir, name)
     const base = await inRepo(['rev-parse', settings.integrationBranch])
-    await inRepo(['worktree', 'add', '-b', branch, worktree, base])
+    await inRepo([...NO_HOOKS, 'worktree', 'add', '-b', branch, worktree, base])
     try {
       // Sets the merge target `branch -d` uses at destroy time: without an
       // upstream, git's "fully merged" check falls back to whatever HEAD
@@ -392,7 +449,10 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     // ownership (clearInterruptedMerge); the lane path proved nothing at
     // all. Proving it here covers both callers, and fails closed.
     await requireOwnWorktree(cwd, kind)
-    const merge = await runGit(['merge', '--no-edit', target], { cwd, timeoutMs: 60_000 })
+    const merge = await runGit([...NO_HOOKS, 'merge', '--no-edit', '--no-verify', target], {
+      cwd,
+      timeoutMs: 60_000
+    })
     if (merge.code === 0) {
       const resultSha = (await runGit(['rev-parse', 'HEAD'], { cwd })).stdout.trim()
       return { ok: true, resultSha, fastForward: resultSha === target }
@@ -468,7 +528,7 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     // the working tree and index exactly where a hard reset would, clearing
     // MERGE_HEAD and any unmerged entries with it, while moving no ref at
     // all.
-    await inDir(cwd, ['checkout', '--force', '--detach', base])
+    await inDir(cwd, [...NO_HOOKS, 'checkout', '--force', '--detach', base])
     await inDir(cwd, ['clean', '-fd'])
   }
 
@@ -478,7 +538,7 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     // Detach at the pinned base every time. The worktree may be sitting at the
     // result of an earlier publication, and publication must be against the
     // base the caller pinned, not "wherever this worktree happens to be".
-    await inDir(settings.integrationWorktree, ['checkout', '--detach', base])
+    await inDir(settings.integrationWorktree, [...NO_HOOKS, 'checkout', '--detach', base])
     return mergeAt(settings.integrationWorktree, candidate, 'integration worktree')
   }
 
@@ -562,6 +622,20 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     // --force` deletes the folder outright, so a store entry naming the
     // user's own worktree must never reach it.
     await requireOwnLaneWorktree(lane)
+    // Wave 7, F-16: `lane.branch` arrives from the saved store, an ordinary
+    // JSON file, and reached `branch -d` unchecked — so a tampered entry
+    // could name one of the user's own branches, or a `--flag`, and git
+    // would act on whatever it was handed. `create` only ever mints
+    // `crew/lane/<name>`, so anything else is not a branch Conductor owns.
+    // `..` is rejected too: git's own refname rules forbid it, but the
+    // prefix check alone would not. Checked here, before the worktree
+    // removal below, so a refusal leaves nothing half-destroyed.
+    if (lane.branch !== null && (!lane.branch.startsWith('crew/lane/') || lane.branch.includes('..'))) {
+      throw new Error(
+        `lane ${lane.roleId} records the branch ${lane.branch}, which is not one Conductor created ` +
+          '(every lane branch is named crew/lane/<name>); refusing to touch it'
+      )
+    }
     if (!opts.force) {
       const dirty = await inDir(lane.worktree, ['status', '--porcelain', '--untracked-files=no'])
       if (dirty.length > 0) {

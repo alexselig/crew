@@ -560,7 +560,14 @@ export function createConductor(deps: ConductorDeps): Conductor {
     // may never destroy. `checkout --force --detach` leaves the working
     // tree and index exactly where a hard reset would (MERGE_HEAD and
     // unmerged entries included) and moves no ref at all.
-    const reset = await runGit(['checkout', '--force', '--detach', sha], { cwd: settings.integrationWorktree })
+    // Wave 7, F-15: the same reason lanes.ts disables hooks for Conductor's
+    // own plumbing — this forced checkout is a repair of Crew's scratch
+    // worktree, not one of the user's checkouts, and a repository's
+    // `post-checkout` hook refusing it would leave the worktree wedged with
+    // no way forward from the panel.
+    const reset = await runGit(['-c', 'core.hooksPath=/dev/null', 'checkout', '--force', '--detach', sha], {
+      cwd: settings.integrationWorktree
+    })
     if (reset.code !== 0) {
       throw new Error(
         `git checkout --force --detach ${sha} failed in ${settings.integrationWorktree}: ${reset.stderr.trim() || reset.stdout.trim() || `exit code ${reset.code}`}`
