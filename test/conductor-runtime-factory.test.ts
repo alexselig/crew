@@ -3,16 +3,23 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import { conductorPaths, createConductorRuntime, InvalidWorkspaceIdError } from '../src/main/conductor-runtime'
 import type { ConductorConfig } from '../src/shared/conductor'
 
-// A real containment proof: `child` is inside `parent` iff `path.relative`
-// from parent to child is non-empty, does not climb out with a leading
+// A real containment proof: `child` is inside-or-equal-to `parent` iff
+// `path.relative` from parent to child does not climb out with a leading
 // "..", and is not itself absolute (which `path.relative` returns when the
 // two paths are on different Windows drives). A prefix check like
 // `child.startsWith(parent)` is not equivalent — it also matches a sibling
 // directory that merely shares parent as a string prefix, e.g. parent
 // "/Users/test/data" wrongly "contains" "/Users/test/data-evil/x".
+//
+// Deliberately treats `parent === child` (rel === '') as contained: this is
+// the worst case an "is this path outside the repo" assertion is meant to
+// catch — a derived path that lands exactly on the repo root is not
+// "outside" it, it *is* it. An earlier version of this helper returned
+// false for that case, which would have let a bug that made a derived path
+// equal `repo` slip past the "not contained in repo" assertion below.
 const isContainedIn = (parent: string, child: string): boolean => {
   const rel = relative(resolve(parent), resolve(child))
-  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+  return !rel.startsWith('..') && !isAbsolute(rel)
 }
 
 describe('conductorPaths', () => {
@@ -44,6 +51,18 @@ describe('conductorPaths', () => {
     // "...Crew" is a prefix of "...Crew-evil". `isContainedIn` must not.
     const evilSibling = join(userDataDir + '-evil', 'x')
     expect(isContainedIn(userDataDir, evilSibling)).toBe(false)
+  })
+
+  it('treats a derived path that equals the repo root as contained in it (Finding 4, fix round 2)', () => {
+    // isContainedIn(repo, repo) must be true: it is the worst case the
+    // "outside the repo" assertion above is meant to catch. If a bug ever
+    // made a derived path equal `repo` exactly, `isContainedIn(repo, repo)`
+    // returning false (the old behaviour) would let `expect(...).toBe(false)`
+    // pass right past that bug. With equal-paths-are-contained semantics,
+    // asserting "not contained" against an equal path now genuinely fails.
+    const repo = '/Users/test/code/some-project'
+    expect(isContainedIn(repo, repo)).toBe(true)
+    expect(() => expect(isContainedIn(repo, repo)).toBe(false)).toThrow()
   })
 
   it('rejects a workspaceId containing ".."', () => {
@@ -117,6 +136,61 @@ describe('conductorPaths', () => {
   it('rejects a non-string workspaceId', () => {
     // @ts-expect-error deliberately wrong type, exercising the runtime guard
     expect(() => conductorPaths(userDataDir, 42)).toThrow(InvalidWorkspaceIdError)
+  })
+
+  // Finding 1 (fix round 2): Windows strips trailing dots and spaces from a
+  // path segment, so "ws.", "ws " and "ws.." would all actually name the
+  // same on-disk directory as "ws" — accepting them as distinct ids would
+  // silently alias two different workspaces onto one directory.
+  it('rejects a workspaceId with a trailing dot', () => {
+    expect(() => conductorPaths(userDataDir, 'ws.')).toThrow(InvalidWorkspaceIdError)
+  })
+
+  it('rejects a workspaceId with a trailing space', () => {
+    expect(() => conductorPaths(userDataDir, 'ws ')).toThrow(InvalidWorkspaceIdError)
+  })
+
+  it('rejects a workspaceId with multiple trailing dots', () => {
+    expect(() => conductorPaths(userDataDir, 'ws..')).toThrow(InvalidWorkspaceIdError)
+  })
+
+  it('rejects a workspaceId with a leading space', () => {
+    expect(() => conductorPaths(userDataDir, ' ws')).toThrow(InvalidWorkspaceIdError)
+  })
+
+  // Finding 2 (fix round 2): CON/PRN/AUX/NUL/COM1-9/LPT1-9 are reserved
+  // device basenames on Windows and cannot be used as a child directory
+  // name there, whether alone or with an extension.
+  it('rejects Windows reserved device basenames, case-insensitively', () => {
+    for (const bad of ['CON', 'con', 'Con', 'PRN', 'AUX', 'NUL', 'COM1', 'COM9', 'LPT1', 'LPT9']) {
+      expect(() => conductorPaths(userDataDir, bad)).toThrow(InvalidWorkspaceIdError)
+    }
+  })
+
+  it('rejects a Windows reserved device basename with a trailing extension', () => {
+    expect(() => conductorPaths(userDataDir, 'CON.txt')).toThrow(InvalidWorkspaceIdError)
+  })
+
+  it('accepts a workspaceId that merely contains a reserved name as a substring', () => {
+    // "CONSOLE" is not the reserved basename "CON" — only the segment
+    // before the first dot is checked, and it must match exactly.
+    expect(() => conductorPaths(userDataDir, 'CONSOLE')).not.toThrow()
+  })
+
+  // Finding 3 (fix round 2): macOS's normalising filesystem treats NFC and
+  // NFD encodings of the same visible string as the same directory entry,
+  // so accepting both as distinct ids would alias two workspaces together.
+  // Enforced by rejection (require NFC), not by silently converting.
+  it('rejects a workspaceId that is not in Unicode NFC form (NFD "e" + combining acute)', () => {
+    const nfd = 'caf\u0065\u0301' // "cafe" + combining acute accent, decomposed
+    expect(nfd.normalize('NFC')).not.toBe(nfd)
+    expect(() => conductorPaths(userDataDir, nfd)).toThrow(InvalidWorkspaceIdError)
+  })
+
+  it('accepts the equivalent workspaceId already in NFC form ("café")', () => {
+    const nfc = 'café' // precomposed é (U+00E9)
+    expect(nfc.normalize('NFC')).toBe(nfc)
+    expect(() => conductorPaths(userDataDir, nfc)).not.toThrow()
   })
 })
 

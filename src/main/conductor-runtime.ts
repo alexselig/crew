@@ -37,7 +37,21 @@ export class InvalidWorkspaceIdError extends Error {
 //   - "." or ".." (or a string made up only of dots), which would name the
 //     directory itself or its parent rather than a child of it;
 //   - the empty string;
-//   - unbounded length, which some filesystems refuse outright.
+//   - unbounded length, which some filesystems refuse outright;
+//   - a trailing "." or trailing/leading whitespace: Windows silently
+//     strips trailing dots and spaces from a path segment, so "ws." and
+//     "ws " both actually name the directory "ws" on disk — accepting them
+//     as distinct ids would let two different workspaceIds alias the same
+//     directory;
+//   - a Windows reserved device basename (CON, PRN, AUX, NUL, COM1-9,
+//     LPT1-9), case-insensitively, including a dotted form like "CON.txt"
+//     (Windows matches on the name before the first dot) — these cannot be
+//     used as a child directory name on that platform;
+//   - a workspaceId that is not already in Unicode NFC form: macOS's
+//     normalising (default) filesystem treats the NFC and NFD encodings of
+//     the same visible string (e.g. "é" vs. "e" + combining acute) as the
+//     same directory entry, so two distinct-looking-but-canonically-equal
+//     ids must not both be accepted as separate, non-aliasing workspaces.
 // Anything else is rejected rather than stripped/escaped: silently
 // rewriting an attacker-controlled string into "something plausible" is
 // exactly the bug class this guards against.
@@ -45,7 +59,10 @@ const WINDOWS_RESERVED_CHARS = /[<>:"/\\|?*]/
 // eslint-disable-next-line no-control-regex
 const ASCII_CONTROL_CHARS = /[\u0000-\u001f\u007f]/
 const ONLY_DOTS = /^\.+$/
+const TRAILING_DOT_OR_SPACE = /[. ]$/
+const LEADING_WHITESPACE = /^\s/
 const MAX_WORKSPACE_ID_LENGTH = 255
+const WINDOWS_RESERVED_BASENAME = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
 
 const isValidWorkspaceId = (workspaceId: unknown): workspaceId is string => {
   if (typeof workspaceId !== 'string') return false
@@ -54,6 +71,10 @@ const isValidWorkspaceId = (workspaceId: unknown): workspaceId is string => {
   if (ONLY_DOTS.test(workspaceId)) return false
   if (WINDOWS_RESERVED_CHARS.test(workspaceId)) return false
   if (ASCII_CONTROL_CHARS.test(workspaceId)) return false
+  if (TRAILING_DOT_OR_SPACE.test(workspaceId)) return false
+  if (LEADING_WHITESPACE.test(workspaceId)) return false
+  if (WINDOWS_RESERVED_BASENAME.test(workspaceId.split('.', 1)[0])) return false
+  if (workspaceId.normalize('NFC') !== workspaceId) return false
   return true
 }
 
