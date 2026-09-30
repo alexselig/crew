@@ -426,22 +426,50 @@ function isValidConductorLane(value: unknown): value is ConductorLane {
  * A workspace is "conducted" iff it has a persisted ConductorConfig; there
  * is no separate `conducted` flag on Workspace itself.
  *
- * Fail-closed, but never by throwing: this runs on ordinary session saves,
- * not on a boundary that is allowed to reject a whole write. A session whose
- * proposed workspaceIds would violate exclusivity has every conducted
- * workspace AFTER THE FIRST clamped off (the same choice validateRoster's
- * caller effectively already made by proposing the earlier one first);
- * every non-conducted membership, and a workspace id that no longer exists
- * at all (defensive — normal operation keeps membership referring only to
- * real, current workspaces), passes through unexamined.
+ * Fail-closed, but NEVER by throwing (review finding 5). This runs on every
+ * ordinary session save — including the one at the end of restore() during
+ * launch — for every user, conductor or not. validateMembershipChange's
+ * graph check throws MalformedMembershipError on data that really does
+ * occur: SessionManager.create()/restore() never de-duplicate workspaceIds,
+ * and the 2026-08-workspaces-firstclass migration can map two case-variant
+ * set names onto one id, so `workspaceIds: ['a','a']` is reachable. A
+ * session save must not be the thing that fails because of it. Three
+ * defences, in order: return early when nothing is conducted (there is no
+ * rule to enforce); de-duplicate before validating; and wrap the whole pass
+ * so any throw at all logs and saves the caller's list unchanged.
+ *
+ * When the rule does apply, a session whose proposed workspaceIds would
+ * violate exclusivity has every conducted workspace AFTER THE FIRST clamped
+ * off (the same choice validateRoster's caller effectively already made by
+ * proposing the earlier one first); every non-conducted membership, and a
+ * workspace id that no longer exists at all, passes through unexamined.
  */
 export function enforceMembershipExclusivity(
   sessions: readonly PersistedSession[],
   workspaces: readonly Workspace[],
   conductorConfigs: readonly ConductorConfig[]
 ): PersistedSession[] {
+  // No conducted workspace ⇒ no exclusivity rule to enforce, and nothing
+  // this function could legitimately change. The overwhelmingly common
+  // case, and the one finding 5 was actually observed throwing in.
+  if (!conductorConfigs || conductorConfigs.length === 0) return [...sessions]
   if (!sessions.some((s) => s.workspaceIds && s.workspaceIds.length > 1)) return [...sessions]
 
+  try {
+    return clampMemberships(sessions, workspaces, conductorConfigs)
+  } catch (error) {
+    // Logged, never rethrown: an unenforced exclusivity rule is a conductor
+    // inconvenience; a throwing saveSessions loses the user's session list.
+    console.warn('[crew] conductor membership check failed; saving sessions unchanged:', error)
+    return [...sessions]
+  }
+}
+
+function clampMemberships(
+  sessions: readonly PersistedSession[],
+  workspaces: readonly Workspace[],
+  conductorConfigs: readonly ConductorConfig[]
+): PersistedSession[] {
   const knownWorkspaceIds = new Set(workspaces.map((w) => w.id))
   const conductedIds = new Set(conductorConfigs.map((c) => c.workspaceId))
   const membershipWorkspaces: MembershipWorkspace[] = workspaces.map((w) => ({
@@ -458,14 +486,29 @@ export function enforceMembershipExclusivity(
   // silently dropped by this enforcement pass. The clamp below is applied
   // to the ORIGINAL ids, so a genuine conflict is still removed and
   // anything else — known non-conducted, or unknown entirely — survives.
+  //
+  // De-duplicated for the same reason (finding 5): a session legitimately
+  // reaches here with the same id listed twice, and the graph check treats
+  // that as malformed. A duplicate says nothing about exclusivity — one
+  // membership named twice is still one membership — so collapsing it is
+  // the honest reading, not a workaround.
   const validationWorkspaceIds: string[][] = originalWorkspaceIds.map((ids) =>
-    ids.filter((id) => knownWorkspaceIds.has(id))
+    [...new Set(ids)].filter((id) => knownWorkspaceIds.has(id))
   )
-  const membershipSessions: MembershipSession[] = sessions.map((s, index) => ({
-    id: s.id,
-    label: s.label,
-    workspaceIds: validationWorkspaceIds[index]
-  }))
+  // Duplicate session ids are likewise rejected by the graph check. Only
+  // the first occurrence of an id goes into the validation graph; the
+  // clamp below still runs for every session in the caller's list.
+  const seenSessionIds = new Set<string>()
+  const membershipSessions: MembershipSession[] = []
+  sessions.forEach((s, index) => {
+    if (seenSessionIds.has(s.id)) return
+    seenSessionIds.add(s.id)
+    membershipSessions.push({
+      id: s.id,
+      label: s.label,
+      workspaceIds: validationWorkspaceIds[index]
+    })
+  })
 
   return sessions.map((session, index) => {
     const original = originalWorkspaceIds[index]

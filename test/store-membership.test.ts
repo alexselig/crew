@@ -137,3 +137,48 @@ describe('Store — membership exclusivity on save', () => {
     expect(reloaded.getSessions()[0].workspaceIds).toEqual(['a'])
   })
 })
+
+// Review finding 5. This ships to EVERY user, conducted or not:
+// enforceMembershipExclusivity ran on every saveSessions(), and the
+// membership graph it validated throws MalformedMembershipError on data
+// the app really does produce — SessionManager.create()/restore() never
+// de-duplicate workspaceIds, and the 2026-08-workspaces-firstclass
+// migration can map two case-variant set names onto one id. A duplicate
+// membership then made saving the session list throw.
+describe('Store — saveSessions never throws because of conductor membership', () => {
+  it('saves a session whose workspaceIds contain a duplicate, with no conducted workspace at all', () => {
+    const store = new Store(tmpStorePath())
+    store.saveWorkspaces([workspace('a', 0)])
+    expect(store.getConductorConfigs()).toEqual([])
+
+    const duplicated = session('s1', ['a', 'a'])
+    expect(() => store.saveSessions([duplicated])).not.toThrow()
+    // Unchanged: with nothing conducted there is no exclusivity rule to
+    // apply, so this function has no business rewriting the list at all.
+    expect(store.getSessions()).toEqual([duplicated])
+  })
+
+  it('still enforces exclusivity, without throwing, when the duplicate is on a conducted workspace', () => {
+    const store = new Store(tmpStorePath())
+    store.saveWorkspaces([workspace('a', 0), workspace('b', 1)])
+    store.saveConductorConfigs([config('a'), config('b')])
+
+    expect(() => store.saveSessions([session('s1', ['a', 'a', 'b'])])).not.toThrow()
+    // 'a' twice is still one membership, so 'b' — the second conducted
+    // workspace — is what gets clamped off. The duplicate itself is left
+    // exactly as the caller wrote it: de-duplication happens only for the
+    // validation graph, because rewriting a user's membership list beyond
+    // the exclusivity rule is not this function's business.
+    expect(store.getSessions()[0].workspaceIds).toEqual(['a', 'a'])
+  })
+
+  it('saves the list unchanged rather than throwing when the session ids themselves are duplicated', () => {
+    const store = new Store(tmpStorePath())
+    store.saveWorkspaces([workspace('a', 0), workspace('b', 1)])
+    store.saveConductorConfigs([config('a')])
+
+    const sessions = [session('s1', ['a', 'b']), { ...session('s1', ['a', 'b']), label: 'copy' }]
+    expect(() => store.saveSessions(sessions)).not.toThrow()
+    expect(store.getSessions()).toHaveLength(2)
+  })
+})
