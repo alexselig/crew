@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, isAbsolute, resolve } from 'node:path'
-import { createLaneManager } from '../src/main/lanes'
+import { createLaneManager, isOwnWorktree, notOwnWorktreeMessage } from '../src/main/lanes'
 import type { ConductorSettings } from '../src/shared/conductor'
 
 let root: string
@@ -421,5 +421,196 @@ describe('syncLane', () => {
 
     await expect(lanes.syncLane(reviewerLane, base)).rejects.toThrow(/builder/)
     await expect(lanes.syncLane(reviewerLane, base)).rejects.toThrow(/branch/i)
+  })
+}, { timeout: 30_000 })
+
+// Wave 5, B-3/B-4/F-7/F-8. Every scenario here drives real git against real
+// repositories and asserts on what survives in the USER's repository, never
+// on a mock. GIT_CEILING_DIRECTORIES is set to the scenario root throughout:
+// if a guard ever fails and git walks upwards looking for a repository, it
+// stops at the root of the temp directory instead of finding whatever repo
+// the test runner itself happens to be inside.
+describe('the ownership guard', () => {
+  let previousCeiling: string | undefined
+
+  beforeEach(() => {
+    previousCeiling = process.env.GIT_CEILING_DIRECTORIES
+    process.env.GIT_CEILING_DIRECTORIES = realpathSync.native(root)
+  })
+
+  afterEach(() => {
+    if (previousCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES
+    else process.env.GIT_CEILING_DIRECTORIES = previousCeiling
+  })
+
+  /** A repository of the user's own, left half-way through resolving a
+   *  conflict by hand: MERGE_HEAD present, the conflicted file edited but
+   *  not staged. Everything Conductor must not destroy, in one place. */
+  function userRepoMidMerge(name: string): { dir: string; mergeHead: string; head: string } {
+    const dir = join(root, name)
+    execFileSync('git', ['init', '-b', 'main', dir])
+    commit(dir, 'shared.txt', 'base\n', 'outer base')
+    git(['checkout', '-b', 'side'], dir)
+    commit(dir, 'shared.txt', 'side\n', 'outer side')
+    git(['checkout', 'main'], dir)
+    commit(dir, 'shared.txt', 'main\n', 'outer main')
+    try {
+      gitExpectFailure(['merge', '--no-edit', 'side'], dir)
+    } catch {
+      /* the user's own conflict, mid-resolution */
+    }
+    writeFileSync(join(dir, 'shared.txt'), 'half resolved by hand\n')
+    return {
+      dir,
+      mergeHead: git(['rev-parse', 'MERGE_HEAD'], dir),
+      head: git(['rev-parse', '--abbrev-ref', 'HEAD'], dir)
+    }
+  }
+
+  // B-3: mergeInIntegration proved ownership (wave 4) but syncLane did not,
+  // so a lane that lost its `.git` file inside the user's repository made
+  // `merge --abort` run THERE — reverting the user's hand-resolved file and
+  // throwing away their MERGE_HEAD, then reporting the outer repository's
+  // file as the lane's conflict.
+  it('refuses to sync a lane that is not its own worktree, instead of aborting the merge in the enclosing repo', async () => {
+    const outer = userRepoMidMerge('outer')
+    settings.lanesDir = join(outer.dir, 'lanes')
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    // The lane folder loses its link to the repo; it is now just a directory
+    // inside the user's working tree, and git resolves upwards to the user's
+    // repository from it.
+    rmSync(join(lane.worktree, '.git'), { force: true })
+
+    await expect(lanes.syncLane(lane, base)).rejects.toThrow(/lane worktree/i)
+
+    // Load-bearing: the user's half-resolved merge is exactly as they left it.
+    expect(git(['rev-parse', 'MERGE_HEAD'], outer.dir)).toBe(outer.mergeHead)
+    expect(readFileSync(join(outer.dir, 'shared.txt'), 'utf8')).toBe('half resolved by hand\n')
+  })
+
+  // B-4/A1: a `.git` FILE is enough to make `rev-parse --show-toplevel`
+  // report the folder it sits in, so the wave-4 check accepted a pointer
+  // aimed straight at the user's own repository — and every command then ran
+  // against the user's index, HEAD and MERGE_HEAD while reporting success.
+  it('rejects a .git file that points at the user’s own repository', async () => {
+    const outer = userRepoMidMerge('outer')
+    const staged = join(outer.dir, 'staged.txt')
+    writeFileSync(staged, 'work the user staged\n')
+    git(['add', 'staged.txt'], outer.dir)
+
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    writeFileSync(join(settings.integrationWorktree, '.git'), `gitdir: ${join(outer.dir, '.git')}\n`)
+
+    expect(await isOwnWorktree(settings.integrationWorktree)).toBe(false)
+    await expect(lanes.mergeInIntegration(tip, base)).rejects.toThrow(/integration worktree/i)
+
+    // Load-bearing: merge state, staged work and the user's branch all
+    // survive. On the pre-fix code MERGE_HEAD was gone, the index was reset
+    // and HEAD was detached.
+    expect(git(['rev-parse', 'MERGE_HEAD'], outer.dir)).toBe(outer.mergeHead)
+    expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], outer.dir)).toBe(outer.head)
+    expect(git(['diff', '--cached', '--name-only'], outer.dir)).toContain('staged.txt')
+  })
+
+  // B-4/A1b: the same, aimed at one of the user's LINKED worktrees. Its
+  // administrative directory does have a `gitdir` file — but that file names
+  // the user's folder, not ours, which is exactly what the back-pointer
+  // check asks.
+  it('rejects a .git file that points at one of the user’s linked worktrees', async () => {
+    const outer = userRepoMidMerge('outer')
+    const userWorktree = join(root, 'user-worktree')
+    git(['worktree', 'add', '--detach', userWorktree], outer.dir)
+    writeFileSync(join(userWorktree, 'scratch.txt'), 'work in the user’s worktree\n')
+    git(['add', 'scratch.txt'], userWorktree)
+    const userHead = git(['rev-parse', 'HEAD'], userWorktree)
+
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    const administrative = readFileSync(join(userWorktree, '.git'), 'utf8')
+      .trim()
+      .replace(/^gitdir:\s*/, '')
+    writeFileSync(join(settings.integrationWorktree, '.git'), `gitdir: ${administrative}\n`)
+
+    expect(await isOwnWorktree(settings.integrationWorktree)).toBe(false)
+    await expect(lanes.mergeInIntegration(tip, base)).rejects.toThrow(/integration worktree/i)
+
+    expect(git(['rev-parse', 'HEAD'], userWorktree)).toBe(userHead)
+    expect(git(['diff', '--cached', '--name-only'], userWorktree)).toContain('scratch.txt')
+    expect(readFileSync(join(userWorktree, 'scratch.txt'), 'utf8')).toBe('work in the user’s worktree\n')
+  })
+
+  // The guard must still say yes to the folder Conductor actually owns —
+  // it runs on every publish, so a false reject is not "safe", it is a
+  // dead workspace.
+  it('accepts the worktree Conductor created', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    expect(await isOwnWorktree(settings.integrationWorktree)).toBe(true)
+    expect(await isOwnWorktree(lane.worktree)).toBe(true)
+    // The user's repository itself is never one of ours.
+    expect(await isOwnWorktree(settings.repo)).toBe(false)
+  })
+
+  // F-7 (A4): on a case-insensitive volume a settings path spelled with
+  // different letter case names the SAME directory, and `realpathSync`
+  // (non-native) leaves that spelling alone — so the comparison failed and
+  // every publish returned an error. `realpathSync.native` reports the
+  // volume's own casing for both sides. Skipped where the volume really is
+  // case-sensitive, because there the two paths are genuinely different
+  // directories and rejecting is correct.
+  it('accepts a path whose letter case differs, on a case-insensitive volume', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const variant = join(root, 'INTEGRATION')
+    if (!existsSync(join(variant, '.git'))) return // case-sensitive volume: nothing to assert
+    expect(await isOwnWorktree(variant)).toBe(true)
+  })
+
+  // F-8 (A5): git keeps listing a deleted worktree as "prunable", so
+  // ensureIntegrationWorktree's "is it already registered?" answered yes for
+  // a folder that was not there and returned without creating it. Nothing
+  // Conductor could do recovered from that — only a manual `git worktree
+  // prune`.
+  it('re-creates an integration folder that was deleted but is still registered', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    rmSync(settings.integrationWorktree, { recursive: true, force: true })
+    expect(git(['worktree', 'list', '--porcelain'], settings.repo)).toContain('prunable')
+
+    const result = await lanes.mergeInIntegration(tip, base)
+
+    expect(result).toMatchObject({ ok: true })
+    expect(existsSync(join(settings.integrationWorktree, '.git'))).toBe(true)
+    expect(await isOwnWorktree(settings.integrationWorktree)).toBe(true)
+  })
+
+  // …and when a folder genuinely is not there, the refusal must say so
+  // rather than blaming a "mid-merge enclosing repository" the user would
+  // then go looking for.
+  it('says a missing folder is missing, not that it resolves to an enclosing repository', () => {
+    const message = notOwnWorktreeMessage(join(root, 'nowhere'))
+    expect(message).toMatch(/does not exist/i)
+    expect(message).not.toMatch(/enclosing repository/i)
   })
 }, { timeout: 30_000 })

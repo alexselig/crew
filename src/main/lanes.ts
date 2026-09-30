@@ -2,8 +2,8 @@
 // so the conductor runtime never shells out itself.
 
 import { mkdir } from 'node:fs/promises'
-import { realpathSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { runGit } from './supervise'
 import type { ConductorLane, ConductorSettings, LaneFacts, LaneAgent, MergeResult, PublishResult } from '../shared/conductor'
@@ -36,12 +36,64 @@ class GitError extends Error {
 // macOS puts the system temp dir behind a /var -> /private/var symlink, so
 // git's own path (fully resolved) can differ textually from a caller's
 // settings.integrationWorktree even when they name the same directory.
+// Wave 5, F-7: `realpathSync.native` rather than `realpathSync`, because
+// only the native call returns the true on-disk casing — the plain one
+// leaves a path whose letters differ from the volume's own spelling
+// untouched, so a settings path typed `/Users/.../Crew` against a folder
+// git reports as `/Users/.../crew` compared unequal and EVERY publish then
+// refused. This is the rule already settled for samePath() in
+// conductor-runtime.ts. A realpath failure falls back to the path as given:
+// the comparison then almost certainly fails, which is a refusal, and
+// refusing is the safe direction.
 const realOrSelf = (path: string): string => {
   try {
-    return realpathSync(path)
+    return realpathSync.native(path)
   } catch {
-    return path
+    // The leaf may simply not exist yet (or any more — F-8's deleted
+    // integration folder is exactly that case), while everything above it
+    // does. Resolving the parent and re-attaching the name keeps a missing
+    // folder comparable with the path git reports for it; `.`/`..` leaves
+    // are left alone, because re-attaching those would be a lexical
+    // collapse through a segment nothing has proved exists.
+    const parent = dirname(path)
+    const leaf = basename(path)
+    if (parent === path || leaf === '.' || leaf === '..') return path
+    try {
+      return join(realpathSync.native(parent), leaf)
+    } catch {
+      return path
+    }
   }
+}
+
+/** What `dir` is meant to be, for the refusal message. Both kinds are
+ *  Conductor-owned linked worktrees; only the words differ. */
+export type OwnedWorktreeKind = 'integration worktree' | 'lane worktree'
+
+/** Wave 5, B-4: `--show-toplevel` alone only proves that *some* `.git` entry
+ *  sits at `dir` — it reports `dir` itself even when that `.git` file points
+ *  its gitdir at the user's own repository (or at one of the user's linked
+ *  worktrees), in which case every command Conductor runs there operates on
+ *  the USER's index, HEAD and MERGE_HEAD. The back-pointer is what makes the
+ *  answer load-bearing: a worktree git itself created has an administrative
+ *  directory containing a `gitdir` file naming the `.git` file that points
+ *  back at it. The user's main repository has no such file at all, and a
+ *  user worktree's file names the USER's folder — so both are rejected. */
+async function hasBackPointerTo(dir: string): Promise<boolean> {
+  const gitDir = await runGit(['rev-parse', '--absolute-git-dir'], { cwd: dir })
+  if (gitDir.code !== 0) return false
+  const administrative = gitDir.stdout.trim()
+  if (administrative.length === 0) return false
+  let backPointer: string
+  try {
+    backPointer = readFileSync(join(administrative, 'gitdir'), 'utf8').trim()
+  } catch {
+    // No `gitdir` file: `dir` is not a linked worktree of anything, so the
+    // `.git` entry at it belongs to some other repository's layout.
+    return false
+  }
+  if (backPointer.length === 0) return false
+  return realOrSelf(backPointer) === realOrSelf(join(dir, '.git'))
 }
 
 /** Wave 4, B-2: true only when `dir` is the root of the git worktree git
@@ -52,26 +104,42 @@ const realOrSelf = (path: string): string => {
  *  lands in the user's own repository instead of in Crew's scratch
  *  worktree. Compared after resolving symlinks, because
  *  `rev-parse --show-toplevel` always reports the fully resolved path while
- *  the configured one need not be. */
+ *  the configured one need not be.
+ *
+ *  Wave 5, B-4: and only when git's own administrative directory for `dir`
+ *  points back at `<dir>/.git` — see hasBackPointerTo. Without that second
+ *  half a `.git` file aimed into the user's repository passed this check
+ *  and the repair then wiped the user's merge state while reporting
+ *  success. */
 export async function isOwnWorktree(dir: string): Promise<boolean> {
   const top = await runGit(['rev-parse', '--show-toplevel'], { cwd: dir })
   if (top.code !== 0) return false
   const reported = top.stdout.trim()
   if (reported.length === 0) return false
-  return realOrSelf(reported) === realOrSelf(dir)
+  if (realOrSelf(reported) !== realOrSelf(dir)) return false
+  return hasBackPointerTo(dir)
 }
 
 /** The message `isOwnWorktree` failing earns. Shared so the lane manager and
  *  the conductor's Acknowledge repair refuse in the same words. */
-export function notOwnWorktreeMessage(dir: string): string {
+export function notOwnWorktreeMessage(dir: string, kind: OwnedWorktreeKind = 'integration worktree'): string {
+  // Wave 5, F-8 (A5): a folder that simply is not there earned the
+  // "resolves to some enclosing repository" wording, which sent the user
+  // looking for a mid-merge repo that does not exist. Say what is actually
+  // wrong.
+  if (!existsSync(dir)) {
+    return (
+      `the ${kind} at ${dir} does not exist, so no git command may be run in it; refusing to touch it`
+    )
+  }
   return (
-    `the integration worktree at ${dir} is not a git worktree of its own — git there resolves to some ` +
+    `the ${kind} at ${dir} is not a git worktree of its own — git there resolves to some ` +
     'enclosing repository, so no git command may be run in it; refusing to touch it'
   )
 }
 
-async function requireOwnWorktree(dir: string): Promise<void> {
-  if (!(await isOwnWorktree(dir))) throw new Error(notOwnWorktreeMessage(dir))
+async function requireOwnWorktree(dir: string, kind: OwnedWorktreeKind = 'integration worktree'): Promise<void> {
+  if (!(await isOwnWorktree(dir))) throw new Error(notOwnWorktreeMessage(dir, kind))
 }
 
 export function createLaneManager(settings: ConductorSettings): LaneManager {
@@ -97,12 +165,24 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
       .split('\n')
       .filter((line) => line.startsWith('worktree '))
       .some((line) => realOrSelf(line.slice('worktree '.length)) === target)
-    if (already) return
+    // Wave 5, F-8: "git still lists it" is not "it is there". A deleted or
+    // never-created folder stays in `worktree list` (marked prunable) until
+    // somebody runs `git worktree prune`, so returning early on `already`
+    // alone left the run in a state no Conductor action could leave: every
+    // publish died in the missing folder and the only way out was a manual
+    // git command. The registration is re-used rather than pruned — `add
+    // --force` re-creates the folder for a path git already knows about.
+    // Only an ABSENT folder is re-created: a folder that is present but has
+    // lost its `.git` file is the wave-4 B-2 case, where the safe answer is
+    // to refuse (that folder may be full of somebody's work), not to run
+    // git in it.
+    const present = existsSync(settings.integrationWorktree)
+    if (already && present) return
     const base = await inRepo(['rev-parse', settings.integrationBranch])
     // --detach is the whole design: integrationBranch is checked out nowhere,
     // so update-ref can advance it without desynchronising any working copy,
     // and the user stays free to check it out themselves.
-    await inRepo(['worktree', 'add', '--detach', settings.integrationWorktree, base])
+    await inRepo(['worktree', 'add', ...(already ? ['--force'] : []), '--detach', settings.integrationWorktree, base])
   }
 
   const create = async (name: string, agent: LaneAgent): Promise<ConductorLane> => {
@@ -182,7 +262,16 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     return result.stdout.split('\n').map((line) => line.trim()).filter(Boolean)
   }
 
-  const mergeAt = async (cwd: string, target: string): Promise<MergeResult> => {
+  const mergeAt = async (cwd: string, target: string, kind: OwnedWorktreeKind): Promise<MergeResult> => {
+    // Wave 5, B-3: `merge` and the `merge --abort` below both run with `cwd`
+    // as the working directory, and git walks UPWARDS to find a repository.
+    // A LANE worktree that has lost its `.git` file inside some other
+    // repository therefore made syncLane abort the merge the user was
+    // half-way through resolving THERE, and then report that repository's
+    // conflicting file as the lane's. mergeInIntegration already proved
+    // ownership (clearInterruptedMerge); the lane path proved nothing at
+    // all. Proving it here covers both callers, and fails closed.
+    await requireOwnWorktree(cwd, kind)
     const merge = await runGit(['merge', '--no-edit', target], { cwd, timeoutMs: 60_000 })
     if (merge.code === 0) {
       const resultSha = (await runGit(['rev-parse', 'HEAD'], { cwd })).stdout.trim()
@@ -270,14 +359,14 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     // result of an earlier publication, and publication must be against the
     // base the caller pinned, not "wherever this worktree happens to be".
     await inDir(settings.integrationWorktree, ['checkout', '--detach', base])
-    return mergeAt(settings.integrationWorktree, candidate)
+    return mergeAt(settings.integrationWorktree, candidate, 'integration worktree')
   }
 
   const syncLane = async (lane: ConductorLane, base: string): Promise<MergeResult> => {
     // A reviewer lane is detached at a candidate SHA and owns no branch;
     // merging into it there would strand commits nothing ever tracks.
     requireBranch(lane, 'sync')
-    return mergeAt(lane.worktree, base)
+    return mergeAt(lane.worktree, base, 'lane worktree')
   }
 
   const branchIsCheckedOut = async (): Promise<boolean> => {
