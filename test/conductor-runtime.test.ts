@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, isAbsolute, resolve } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
@@ -1256,6 +1256,225 @@ describe('acknowledgeOperation (the needs-attention gate\'s only exit)', () => {
     if (published.ok) {
       expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(published.commit)
     }
+  })
+
+  // ── Wave 4, B-1/B-2: the repair above must never move a ref, and must
+  // never run git anywhere but in Crew's own worktree. ──────────────────
+  //
+  // Leaves the integration worktree checked out on `branch`, one commit
+  // ahead of where it started, and wedged mid-conflict — the state every
+  // case below hinges on and which nothing tested before wave 4.
+  async function wedgedOnBranch(branch: string) {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const one = await lanes.create('one', { presetId: 'shell', model: null })
+    const two = await lanes.create('two', { presetId: 'shell', model: null })
+    commit(one.worktree, 'README.md', 'one\n', 'one edits the readme')
+    commit(two.worktree, 'README.md', 'two\n', 'two edits the readme')
+    const facts = await lanes.facts(one)
+    const twoTip = git(['rev-parse', two.branch as string], settings.repo)
+    return {
+      lanes, journal, conductor, one, two, facts, twoTip,
+      /** The user checks `branch` out in the integration worktree, commits
+       *  on it, and a conflicting merge is then left mid-flight there. */
+      wedge(): string {
+        git(['checkout', branch], settings.integrationWorktree)
+        // Edits the same file lane two did, so the merge below genuinely
+        // conflicts, and commits it so the branch really has moved.
+        commit(settings.integrationWorktree, 'README.md', 'mine\n', 'a commit the user made here')
+        const tip = git(['rev-parse', branch], settings.repo)
+        try {
+          execFileSync('git', ['merge', '--no-edit', twoTip], {
+            cwd: settings.integrationWorktree, encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...ENV }
+          })
+        } catch {
+          /* the conflict is the point */
+        }
+        expect(git(['status', '--porcelain'], settings.integrationWorktree)).toMatch(/^UU /m)
+        return tip
+      }
+    }
+  }
+
+  // S1: the repair used to `reset --hard <base>`, which moves whatever ref
+  // HEAD points at. With the integration branch itself checked out there,
+  // acknowledging rewound it to the operation's base — the user's commit
+  // left the branch entirely (reflog only) while the journal said 'aborted'.
+  it('never moves the integration branch when the worktree has it checked out (S1)', async () => {
+    const { journal, conductor, one, facts, wedge } = await wedgedOnBranch('crew/integration')
+    const userCommit = wedge()
+    expect(userCommit).not.toBe(facts.baseSha)
+    journal.append({
+      opId: 'op-on-branch', laneId: one.id, phase: 'intent',
+      baseSha: facts.baseSha, laneTip: facts.laneTip, at: 1
+    })
+
+    await conductor.reconcile()
+    const outcome = await conductor.acknowledgeOperation('op-on-branch', 'reviewed')
+    expect(outcome).toMatchObject({ ok: true })
+
+    // Load-bearing: the commit the user made is still on the branch.
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(userCommit)
+    // …and the worktree really was repaired, by detaching rather than by
+    // dragging the branch back.
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toBe('')
+    expect(git(['rev-parse', 'HEAD'], settings.integrationWorktree)).toBe(facts.baseSha)
+    expect(() => execFileSync('git', ['symbolic-ref', '-q', 'HEAD'], {
+      cwd: settings.integrationWorktree, stdio: ['ignore', 'pipe', 'pipe']
+    })).toThrow()
+  })
+
+  // S1b: the same shape, but the operation had already PUBLISHED. Rewinding
+  // the branch there destroys an already-published merge commit — the one
+  // thing this transaction may never do — while the journal closes the
+  // operation as 'notified'.
+  it('never destroys an already-published merge commit while repairing (S1b)', async () => {
+    const { lanes, journal, conductor, one, facts, twoTip } = await wedgedOnBranch('crew/integration')
+    const merged = await lanes.mergeInIntegration(facts.laneTip, facts.baseSha)
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+    // The compare-and-swap landed; the crash came before anything recorded
+    // it, so the journal still says only intent+merged.
+    git(['update-ref', 'refs/heads/crew/integration', merged.resultSha, facts.baseSha], settings.repo)
+    for (const [phase, at] of [['intent', 1], ['merged', 2]] as const) {
+      journal.append({
+        opId: 'op-published', laneId: one.id, phase,
+        baseSha: facts.baseSha, laneTip: facts.laneTip,
+        resultSha: phase === 'intent' ? undefined : merged.resultSha, at
+      })
+    }
+    // …and only then does the user check the integration branch out here
+    // and get stuck in a conflict of their own.
+    git(['checkout', 'crew/integration'], settings.integrationWorktree)
+    try {
+      execFileSync('git', ['merge', '--no-edit', twoTip], {
+        cwd: settings.integrationWorktree, encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...ENV }
+      })
+    } catch {
+      /* the conflict is the point */
+    }
+
+    const before = await conductor.reconcile()
+    expect(before.operations[0]).toMatchObject({ classification: 'published-unrecorded' })
+
+    const outcome = await conductor.acknowledgeOperation('op-published', 'confirmed it landed')
+    expect(outcome).toMatchObject({ ok: true, phase: 'notified' })
+    // Load-bearing: the published commit is still what the branch names.
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(merged.resultSha)
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toBe('')
+  })
+
+  // S2: a publish (not an acknowledge) while the worktree sits on an
+  // unrelated branch with edits. The repair used to rewind that branch and
+  // lose a commit — and publish still reported ok: true.
+  it('publishes without moving an unrelated branch the worktree is sitting on (S2)', async () => {
+    const { lanes, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const facts = await lanes.facts(lane)
+
+    // The user checked an unrelated branch out in the integration worktree,
+    // committed on it, and left uncommitted edits behind — which is what
+    // makes the repair run at all.
+    git(['branch', 'feature', facts.baseSha], settings.repo)
+    git(['checkout', 'feature'], settings.integrationWorktree)
+    commit(settings.integrationWorktree, 'user.txt', 'mine\n', 'a commit the user made on feature')
+    const featureTip = git(['rev-parse', 'feature'], settings.repo)
+    writeFileSync(join(settings.integrationWorktree, 'README.md'), 'edits in progress\n')
+    expect(featureTip).not.toBe(facts.baseSha)
+
+    const published = await conductor.publishLane(lane)
+
+    expect(published).toMatchObject({ ok: true })
+    // Load-bearing: the user's branch still carries their commit. Before the
+    // fix this publish reported success while `feature` was dragged back to
+    // the operation's base.
+    expect(git(['rev-parse', 'feature'], settings.repo)).toBe(featureTip)
+    if (published.ok) {
+      expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(published.commit)
+    }
+  })
+
+  // S3: the integration folder has lost its `.git` file and sits inside
+  // another repository the user is mid-conflict in. `merge --abort` there
+  // threw their half-resolved merge away; the acknowledge must refuse
+  // before running any git at all.
+  it('refuses to repair a folder that is not its own worktree, leaving the enclosing repo untouched (S3)', async () => {
+    const outer = join(root, 'outer')
+    execFileSync('git', ['init', '-b', 'main', outer])
+    commit(outer, 'shared.txt', 'base\n', 'outer base')
+    git(['checkout', '-b', 'side'], outer)
+    commit(outer, 'shared.txt', 'side\n', 'outer side')
+    git(['checkout', 'main'], outer)
+    commit(outer, 'shared.txt', 'main\n', 'outer main')
+    try {
+      execFileSync('git', ['merge', '--no-edit', 'side'], {
+        cwd: outer, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...ENV }
+      })
+    } catch {
+      /* the user's own conflict, mid-resolution */
+    }
+    writeFileSync(join(outer, 'shared.txt'), 'half resolved by hand\n')
+    const outerMergeHead = git(['rev-parse', 'MERGE_HEAD'], outer)
+
+    settings.integrationWorktree = join(outer, 'integration')
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const facts = await lanes.facts(lane)
+    journal.append({
+      opId: 'op-foreign', laneId: lane.id, phase: 'intent',
+      baseSha: facts.baseSha, laneTip: facts.laneTip, at: 1
+    })
+    rmSync(join(settings.integrationWorktree, '.git'), { force: true })
+
+    await conductor.reconcile()
+    const outcome = await conductor.acknowledgeOperation('op-foreign', 'reviewed')
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'worktree-wedged' })
+    // Load-bearing: the user's own conflicted merge is exactly as they left
+    // it, and nothing was acknowledged.
+    expect(git(['rev-parse', 'MERGE_HEAD'], outer)).toBe(outerMergeHead)
+    expect(readFileSync(join(outer, 'shared.txt'), 'utf8')).toBe('half resolved by hand\n')
+    expect(journal.read().map((e) => e.phase)).toEqual(['intent'])
+    expect((await conductor.reconcile()).needsAttention).toBe(true)
+  })
+
+  // Wave 4, F-2 (M6/M3): the repair is an abort AND a return to the
+  // operation's base, strays included. An abort alone leaves whatever the
+  // interrupted run had already changed sitting in the worktree, and the
+  // record would then claim publish is available over it.
+  it('puts the worktree back at the operation base, not merely out of the merge', async () => {
+    const { journal, conductor, one, facts, twoTip } = await wedgedOnBranch('crew/integration')
+    // A tracked edit the merge does not touch (so it survives `merge
+    // --abort`), plus an untracked stray.
+    git(['checkout', '--detach', facts.laneTip], settings.integrationWorktree)
+    commit(settings.integrationWorktree, 'side.txt', 'committed\n', 'an extra tracked file')
+    writeFileSync(join(settings.integrationWorktree, 'side.txt'), 'edited after the fact\n')
+    writeFileSync(join(settings.integrationWorktree, 'stray.txt'), 'left by a killed test run\n')
+    try {
+      execFileSync('git', ['merge', '--no-edit', twoTip], {
+        cwd: settings.integrationWorktree, encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...ENV }
+      })
+    } catch {
+      /* the conflict is the point */
+    }
+    journal.append({
+      opId: 'op-dirty', laneId: one.id, phase: 'intent',
+      baseSha: facts.baseSha, laneTip: facts.laneTip, at: 1
+    })
+
+    await conductor.reconcile()
+    expect(await conductor.acknowledgeOperation('op-dirty', 'reviewed')).toMatchObject({ ok: true })
+
+    expect(git(['rev-parse', 'HEAD'], settings.integrationWorktree)).toBe(facts.baseSha)
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toBe('')
+    expect(existsSync(join(settings.integrationWorktree, 'stray.txt'))).toBe(false)
   })
 
   // Wave 3, finding 5: the closing phase used to be read off the journal

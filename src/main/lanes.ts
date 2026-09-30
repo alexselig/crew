@@ -33,6 +33,47 @@ class GitError extends Error {
   }
 }
 
+// macOS puts the system temp dir behind a /var -> /private/var symlink, so
+// git's own path (fully resolved) can differ textually from a caller's
+// settings.integrationWorktree even when they name the same directory.
+const realOrSelf = (path: string): string => {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
+/** Wave 4, B-2: true only when `dir` is the root of the git worktree git
+ *  itself resolves from `dir`. git searches UPWARDS for a repository, so a
+ *  Conductor-owned folder that has lost its `.git` file resolves to
+ *  whatever repository happens to enclose it — and every destructive
+ *  command Conductor then runs there (`merge --abort`, a forced checkout)
+ *  lands in the user's own repository instead of in Crew's scratch
+ *  worktree. Compared after resolving symlinks, because
+ *  `rev-parse --show-toplevel` always reports the fully resolved path while
+ *  the configured one need not be. */
+export async function isOwnWorktree(dir: string): Promise<boolean> {
+  const top = await runGit(['rev-parse', '--show-toplevel'], { cwd: dir })
+  if (top.code !== 0) return false
+  const reported = top.stdout.trim()
+  if (reported.length === 0) return false
+  return realOrSelf(reported) === realOrSelf(dir)
+}
+
+/** The message `isOwnWorktree` failing earns. Shared so the lane manager and
+ *  the conductor's Acknowledge repair refuse in the same words. */
+export function notOwnWorktreeMessage(dir: string): string {
+  return (
+    `the integration worktree at ${dir} is not a git worktree of its own — git there resolves to some ` +
+    'enclosing repository, so no git command may be run in it; refusing to touch it'
+  )
+}
+
+async function requireOwnWorktree(dir: string): Promise<void> {
+  if (!(await isOwnWorktree(dir))) throw new Error(notOwnWorktreeMessage(dir))
+}
+
 export function createLaneManager(settings: ConductorSettings): LaneManager {
   const inRepo = async (args: string[], timeoutMs?: number): Promise<string> => {
     const result = await runGit(args, { cwd: settings.repo, timeoutMs })
@@ -49,14 +90,6 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
   // macOS puts the system temp dir behind a /var -> /private/var symlink, so
   // git's own path (fully resolved) can differ textually from a caller's
   // settings.integrationWorktree even when they name the same directory.
-  const realOrSelf = (path: string): string => {
-    try {
-      return realpathSync(path)
-    } catch {
-      return path
-    }
-  }
-
   const ensureIntegrationWorktree = async (): Promise<void> => {
     const list = await inRepo(['worktree', 'list', '--porcelain'])
     const target = realOrSelf(settings.integrationWorktree)
@@ -199,6 +232,14 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
   // ordinary publication's git work is unchanged.
   const clearInterruptedMerge = async (base: string): Promise<void> => {
     const cwd = settings.integrationWorktree
+    // Wave 4, B-2: every git command below runs with `cwd` as the working
+    // directory, and git walks UPWARDS to find a repository. If the
+    // integration folder has lost its `.git` file and happens to sit inside
+    // another repository, `merge --abort` (and the checkout after it) land
+    // in that repository instead — throwing away a half-resolved conflict
+    // the user owns. Prove the folder really is its own worktree before
+    // touching git at all, and fail closed when it is not.
+    await requireOwnWorktree(cwd)
     const mergeHead = await runGit(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'], { cwd })
     const merging = mergeHead.code === 0 && mergeHead.stdout.trim().length > 0
     if (merging) {
@@ -209,7 +250,16 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     }
     const status = await runGit(['status', '--porcelain', '--untracked-files=no'], { cwd })
     if (!merging && status.stdout.trim().length === 0) return
-    await inDir(cwd, ['reset', '--hard', base])
+    // Wave 4, B-1: `reset --hard <base>` moves whatever ref HEAD points at.
+    // The integration worktree is normally detached, but nothing guarantees
+    // it — the user can check a branch out in it, and git never stops them.
+    // A repair that rewinds their branch (and, when the operation had
+    // already published, the merge commit on it) is the one thing this
+    // branch's transaction must never do. `checkout --force --detach` puts
+    // the working tree and index exactly where a hard reset would, clearing
+    // MERGE_HEAD and any unmerged entries with it, while moving no ref at
+    // all.
+    await inDir(cwd, ['checkout', '--force', '--detach', base])
     await inDir(cwd, ['clean', '-fd'])
   }
 

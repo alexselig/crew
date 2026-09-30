@@ -184,6 +184,124 @@ describe('mergeInIntegration', () => {
     expect(git(['status', '--porcelain'], settings.integrationWorktree)).toBe('')
     expect(() => gitExpectFailure(['rev-parse', '--verify', 'MERGE_HEAD'], settings.integrationWorktree)).toThrow()
   })
+
+  // Wave 4, B-1 (S2): the integration worktree is normally detached, but
+  // nothing guarantees it — the user can check a branch out in it, and git
+  // never stops them. `reset --hard <base>` moves whatever ref HEAD points
+  // at, so the repair below used to rewind that branch to the operation's
+  // base and throw away commits made on it, while the publication it was
+  // clearing the way for still reported success. The repair must put the
+  // WORKTREE back without ever moving a REF: `checkout --force --detach`.
+  it('repairs a wedged integration worktree whose HEAD is on a branch without moving that branch', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+    const one = await lanes.create('one', { presetId: 'shell', model: null })
+    const two = await lanes.create('two', { presetId: 'shell', model: null })
+    commit(one.worktree, 'README.md', 'one\n', 'one edits the readme')
+    commit(two.worktree, 'README.md', 'two\n', 'two edits the readme')
+    const oneTip = git(['rev-parse', one.branch as string], settings.repo)
+    const twoTip = git(['rev-parse', two.branch as string], settings.repo)
+
+    // The user checked a branch out in the integration worktree and
+    // committed on it. Nothing in Conductor put it there, and nothing in
+    // Conductor may take it away.
+    git(['checkout', '-b', 'feature', oneTip], settings.integrationWorktree)
+    commit(settings.integrationWorktree, 'notes.txt', 'mine\n', 'work the user did on feature')
+    const feature = git(['rev-parse', 'feature'], settings.repo)
+    expect(feature).not.toBe(base)
+
+    // …and then the crash window: a conflicting merge started and never
+    // aborted, which is what makes the repair run at all.
+    try {
+      gitExpectFailure(['merge', '--no-edit', twoTip], settings.integrationWorktree)
+    } catch {
+      /* the conflict is the point */
+    }
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toMatch(/^UU /m)
+
+    const result = await lanes.mergeInIntegration(oneTip, base)
+
+    expect(result).toMatchObject({ ok: true })
+    // Load-bearing: the branch the user had checked out still points where
+    // they left it. With `reset --hard <base>` here, `feature` is rewound to
+    // `base` and the commit above survives only in the reflog.
+    expect(git(['rev-parse', 'feature'], settings.repo)).toBe(feature)
+    // …and the worktree really was repaired: detached, clean, no MERGE_HEAD.
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toBe('')
+    expect(() => gitExpectFailure(['symbolic-ref', '-q', 'HEAD'], settings.integrationWorktree)).toThrow()
+  })
+
+  // Wave 4, B-2 (S3): if the integration folder loses its `.git` file and
+  // happens to sit inside another repository, every git command Conductor
+  // runs there lands in THAT repository instead. `merge --abort` in a repo
+  // the user is mid-conflict in destroys their half-resolved merge. Prove
+  // the folder is its own worktree before touching git at all.
+  it('refuses to repair when the integration folder is not its own worktree, rather than running git in the enclosing repo', async () => {
+    const outer = join(root, 'outer')
+    execFileSync('git', ['init', '-b', 'main', outer])
+    commit(outer, 'shared.txt', 'base\n', 'outer base')
+    git(['checkout', '-b', 'side'], outer)
+    commit(outer, 'shared.txt', 'side\n', 'outer side')
+    git(['checkout', 'main'], outer)
+    commit(outer, 'shared.txt', 'main\n', 'outer main')
+    try {
+      gitExpectFailure(['merge', '--no-edit', 'side'], outer)
+    } catch {
+      /* the user's own conflict, mid-resolution */
+    }
+    writeFileSync(join(outer, 'shared.txt'), 'half resolved by hand\n')
+    const outerMergeHead = git(['rev-parse', 'MERGE_HEAD'], outer)
+
+    settings.integrationWorktree = join(outer, 'integration')
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+
+    // The worktree loses its link to the repo; the folder is now just a
+    // directory inside `outer`'s working tree.
+    rmSync(join(settings.integrationWorktree, '.git'), { force: true })
+
+    await expect(lanes.mergeInIntegration(tip, base)).rejects.toThrow(/integration worktree/i)
+
+    // Load-bearing: the user's own conflicted merge, in their own repo, is
+    // exactly as they left it.
+    expect(git(['rev-parse', 'MERGE_HEAD'], outer)).toBe(outerMergeHead)
+    expect(readFileSync(join(outer, 'shared.txt'), 'utf8')).toBe('half resolved by hand\n')
+  })
+
+  // Wave 4, F-2 (M3): the repair deletes untracked strays as well as
+  // resetting tracked files. Without `clean -fd` a stray left by a killed
+  // test run stays in the worktree and can change what the next
+  // publication's tests see.
+  it('deletes untracked strays from the integration worktree as part of the repair', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+    const one = await lanes.create('one', { presetId: 'shell', model: null })
+    const two = await lanes.create('two', { presetId: 'shell', model: null })
+    commit(one.worktree, 'README.md', 'one\n', 'one edits the readme')
+    commit(two.worktree, 'README.md', 'two\n', 'two edits the readme')
+    const oneTip = git(['rev-parse', one.branch as string], settings.repo)
+    const twoTip = git(['rev-parse', two.branch as string], settings.repo)
+
+    git(['checkout', '--detach', oneTip], settings.integrationWorktree)
+    try {
+      gitExpectFailure(['merge', '--no-edit', twoTip], settings.integrationWorktree)
+    } catch {
+      /* the conflict is the point */
+    }
+    writeFileSync(join(settings.integrationWorktree, 'stray.txt'), 'left by a killed test run\n')
+
+    const result = await lanes.mergeInIntegration(oneTip, base)
+
+    expect(result).toMatchObject({ ok: true })
+    expect(existsSync(join(settings.integrationWorktree, 'stray.txt'))).toBe(false)
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toBe('')
+  })
 }, { timeout: 30_000 })
 
 describe('syncLane', () => {

@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { runGit, runSupervised } from './supervise'
-import type { LaneManager } from './lanes'
+import { isOwnWorktree, notOwnWorktreeMessage, type LaneManager } from './lanes'
 import type { Journal, JournalPhase } from './conductor-journal'
 import { classifyOperation, MalformedJournalError, RECOVERY_ACTIONS } from '../shared/conductor-recovery'
 import type {
@@ -501,6 +501,13 @@ export function createConductor(deps: ConductorDeps): Conductor {
   }
 
   const resetIntegrationTo = async (sha: string): Promise<void> => {
+    // Wave 4, B-2: same reason repairIntegrationWorktree checks it — a
+    // forced checkout in a repository Conductor does not own is every bit
+    // as destructive as a `merge --abort` there, and this routine is
+    // reached from the publication paths too, not only from Acknowledge.
+    if (!(await isOwnWorktree(settings.integrationWorktree))) {
+      throw new Error(notOwnWorktreeMessage(settings.integrationWorktree))
+    }
     // Finding 7: both git invocations' exit codes were previously ignored.
     // A failed reset/clean left the integration worktree in an unknown,
     // possibly still-merged-or-dirty state while every caller proceeded as
@@ -513,10 +520,19 @@ export function createConductor(deps: ConductorDeps): Conductor {
     // where a post-CAS rollback in lanes.publish() also failed — a ref that
     // genuinely moved. Callers must check for this throw and must not
     // journal 'aborted' when it fires.
-    const reset = await runGit(['reset', '--hard', sha], { cwd: settings.integrationWorktree })
+    // Wave 4, B-1: `reset --hard <sha>` moves whatever ref HEAD points at.
+    // The integration worktree is permanently detached BY DESIGN, but
+    // nothing enforces that: the user can check a branch out in it and git
+    // will not stop them. A repair that then rewinds their branch to this
+    // operation's base destroys their commits — and, when the operation had
+    // already published, the merge commit itself, which this transaction
+    // may never destroy. `checkout --force --detach` leaves the working
+    // tree and index exactly where a hard reset would (MERGE_HEAD and
+    // unmerged entries included) and moves no ref at all.
+    const reset = await runGit(['checkout', '--force', '--detach', sha], { cwd: settings.integrationWorktree })
     if (reset.code !== 0) {
       throw new Error(
-        `git reset --hard ${sha} failed in ${settings.integrationWorktree}: ${reset.stderr.trim() || reset.stdout.trim() || `exit code ${reset.code}`}`
+        `git checkout --force --detach ${sha} failed in ${settings.integrationWorktree}: ${reset.stderr.trim() || reset.stdout.trim() || `exit code ${reset.code}`}`
       )
     }
     const clean = await runGit(['clean', '-fd'], { cwd: settings.integrationWorktree })
@@ -738,6 +754,17 @@ export function createConductor(deps: ConductorDeps): Conductor {
   const repairIntegrationWorktree = async (
     group: readonly { baseSha: string }[]
   ): Promise<string | undefined> => {
+    // Wave 4, B-2: git searches UPWARDS from the working directory for a
+    // repository, so if this folder has lost its `.git` file and happens to
+    // sit inside another repository, `merge --abort` runs in THAT
+    // repository and throws away whatever the user was half-way through
+    // resolving there. Proving the folder is its own worktree — after
+    // resolving symlinks, because `--show-toplevel` always reports a fully
+    // resolved path — is the only thing that makes the commands below safe
+    // to run, so it happens before any of them, and fails closed.
+    if (!(await isOwnWorktree(settings.integrationWorktree))) {
+      return notOwnWorktreeMessage(settings.integrationWorktree)
+    }
     const mergeHead = await runGit(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'], {
       cwd: settings.integrationWorktree
     })
