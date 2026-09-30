@@ -48,7 +48,9 @@ import { CHARACTERS } from './characters'
 import { listCopilotModels } from './copilot-models'
 import { BoundedErrorReporter, createShellActions, installPreviewBoundary } from './main-boundaries'
 import { registerCustomViewIpc } from './custom-view-ipc'
-import { registerConductorIpc, createShippedConductorBackend } from './conductor-ipc'
+import { registerConductorIpc } from './conductor-ipc'
+import { createConductorController, type ConductorController } from './conductor-bootstrap'
+import { createLaneSessionBridge } from './conductor-sessions'
 import { handleNeedsYouTransition } from './notification-integration'
 import { AppActivityCoordinator } from './app-activity'
 
@@ -58,6 +60,7 @@ let store: Store
 let agentRunner: AgentRunner
 let recorder: TranscriptRecorder
 let assets: AssetWatchers
+let conductorController: ConductorController | null = null
 let isQuitting = false
 let sessionsRestored = false
 const errorReporter = new BoundedErrorReporter(
@@ -401,6 +404,11 @@ function openNewSession(): void {
  *  menu checkmark. `name` is a workspace name or null for "All Sessions". */
 function setActiveWorkspace(name: string | null): void {
   activeWorkspace = name
+  // Conductor's bound runtime must follow the active workspace (Task 6): the
+  // controller is created once, in app.whenReady(), so it doesn't exist yet
+  // for a call this function makes before that (it never does — the menu
+  // that triggers it is built after ready — but the guard costs nothing).
+  conductorController?.setActiveWorkspace(name)
   focusedWindow()?.webContents.send(IPC.EVT_WORKSPACE, name)
   rebuildAppMenu()
 }
@@ -816,12 +824,22 @@ function registerIpc(): void {
   registerCustomViewIpc(ipcMain, store, broadcast)
 
   // ── Conductor (Phase 1) ──
-  // No project has wired real ConductorSettings yet — the composer that does
-  // (repo path, integration branch/worktree, lanes dir, test recipe) is a
-  // later task. Until then the backend reports itself disabled and every
-  // mutating call refuses cleanly, rather than this task inventing settings
-  // it was not asked to resolve.
-  registerConductorIpc(ipcMain, createShippedConductorBackend(null), broadcast)
+  // conductorController (Task 6) binds Conductor's runtime to whichever
+  // workspace is active, deriving and persisting a ConductorConfig on a
+  // workspace's first compose() if it doesn't have one yet, and rebinding
+  // whenever setActiveWorkspace() runs. The backend it hands back stays
+  // 'enabled: false' — a supported, non-error state — for a workspace with
+  // no ConductorConfig, exactly as before this task wired anything real in.
+  conductorController = createConductorController({
+    userDataDir: app.getPath('userData'),
+    getConductorConfigs: () => store.getConductorConfigs(),
+    saveConductorConfigs: (list) => store.saveConductorConfigs(list),
+    getConductorLanes: () => store.getConductorLanes(),
+    saveConductorLanes: (list) => store.saveConductorLanes(list),
+    ...createLaneSessionBridge({ manager, resolvePreset: getPreset })
+  })
+  conductorController.setActiveWorkspace(activeWorkspace)
+  registerConductorIpc(ipcMain, conductorController.backend, broadcast)
 
   // ── First-class workspaces (Workspace Manager) ──
   const pushWorkspaces = (): Workspace[] => {
@@ -985,6 +1003,14 @@ if (!app.requestSingleInstanceLock()) {
   registerIpc()
   rebuildAppMenu()
   createWindow()
+
+  // Run once, after the window exists so its result can reach the renderer
+  // via broadcast. A run never auto-resumes — this only surfaces an
+  // interrupted operation (needsAttention) to the human; it never touches
+  // the integration branch itself. Guarded internally (conductor-bootstrap.ts)
+  // against any throw, so a corrupt journal or a startup race can never
+  // block the app from launching — fire-and-forget is safe here.
+  void conductorController?.reconcileOnLaunch(broadcast)
 
   tray = new CrewTray({
     onShow: showWindow,
