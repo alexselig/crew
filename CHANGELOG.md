@@ -7,6 +7,12 @@ running and supervising multiple AI CLI agent sessions at a glance.
 
 ### Fixed
 
+- A supervised command could hang forever instead of timing out, whenever
+  something it had started outlived it and kept the output pipes open. The
+  supervisor waited for those pipes to close, so the timeout it was supposed to
+  enforce never arrived. It now stops waiting a short interval after the command
+  itself has exited, while still following live output for as long as it keeps
+  coming.
 - The working signal disappearing under macOS Reduce Motion. The mascot is the
   only at-a-glance status indicator in the collapsed nav rail, and the blanket
   reduced-motion rule suppressed its animation outright — so a working session

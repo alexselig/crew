@@ -140,6 +140,56 @@ function hasParentSegment(path: string): boolean {
   return path.split(/[\\/]+/).some((segment) => segment === '..')
 }
 
+/** The literal prefix standing immediately before each `..` segment of
+ *  `path`, in order, with its trailing separators trimmed. Built by slicing
+ *  the original string rather than by re-joining split segments, so a root
+ *  (`/`, `C:\`) or a UNC prefix survives intact. A `..` with no prefix at
+ *  all (`../x`, `/..`) yields nothing: there is no ancestor to interrogate,
+ *  and inventing one would change behaviour for a case the guard below has
+ *  never claimed to cover. */
+function parentSegmentPrefixes(path: string): string[] {
+  const prefixes: string[] = []
+  const segment = /[^\\/]+/g
+  let match: RegExpExecArray | null
+  while ((match = segment.exec(path)) !== null) {
+    if (match[0] !== '..') continue
+    const prefix = path.slice(0, match.index).replace(/[\\/]+$/, '')
+    if (prefix.length > 0) prefixes.push(prefix)
+  }
+  return prefixes
+}
+
+/** Windows fix: POSIX resolves a path component at a time, so realpath on
+ *  `<root>/missing/..` fails ENOENT and canonicalize() below already
+ *  distrusts it. The Win32 API does not — it collapses `..` LEXICALLY
+ *  before the syscall ever runs, so realpath SUCCEEDS there and hands back
+ *  `<root>`, and samePath then answered `true` for a path that plainly does
+ *  not exist. That is the exact false accept the `..` guard exists to
+ *  prevent, arriving by a door POSIX never opens.
+ *
+ *  So the ancestor a `..` claims to step out of is interrogated directly,
+ *  on every platform, whether or not realpath resolved the whole path:
+ *  true when one of them is PROVEN not to exist (ENOENT/ENOTDIR), meaning
+ *  the collapse was a lexical fiction. Anything else rethrows, exactly as
+ *  canonicalize() does — realpath failing to disprove existence is not
+ *  licence to guess. This can only turn a `true` answer into `false` or a
+ *  refusal; it can never make samePath more permissive. */
+function hasUnresolvableParentSegment(
+  path: string,
+  realpath: (path: string) => string
+): boolean {
+  for (const prefix of parentSegmentPrefixes(path)) {
+    try {
+      realpath(prefix)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code
+      if (code !== undefined && PROVEN_NOT_FOUND_CODES.has(code)) return true
+      throw error
+    }
+  }
+  return false
+}
+
 function canonicalize(
   path: string,
   realpath: (path: string) => string
@@ -201,6 +251,16 @@ export function samePath(a: string, b: string, deps: SamePathDeps = {}): boolean
   // plainly does not exist, so it plainly isn't the same directory as
   // anything that does.
   if (canonA.unresolvableParent || canonB.unresolvableParent) {
+    return false
+  }
+
+  // ...and the same rejection for the platform that collapses `..` lexically
+  // inside realpath itself, so canonicalize() never saw a failure to report.
+  // See hasUnresolvableParentSegment.
+  if (
+    hasUnresolvableParentSegment(a, realpath) ||
+    hasUnresolvableParentSegment(b, realpath)
+  ) {
     return false
   }
 

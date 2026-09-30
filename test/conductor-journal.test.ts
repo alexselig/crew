@@ -1,9 +1,42 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createJournal, JOURNAL_MAX_ENTRIES, JournalCorruptError, JournalInvalidEntryError } from '../src/main/conductor-journal'
 import { AtomicWriteError } from '../src/main/atomic-file'
+
+/** The seam the two write-failure tests below inject through.
+ *
+ *  They used to revoke the write bit on the journal's DIRECTORY with
+ *  `chmodSync(root, 0o500)`. That is a no-op on Windows — Node maps only
+ *  FILE_ATTRIBUTE_READONLY, and the filesystem ignores it for directories —
+ *  so the write succeeded there and `expect(...).toThrow()` failed. Failing
+ *  atomicWriteFile itself is the portable equivalent: it is the exact call
+ *  conductor-journal.ts makes, and what these tests assert is that append()
+ *  lets that failure propagate as an AtomicWriteError rather than swallowing
+ *  it or dressing it up as a JournalCorruptError. That a REAL filesystem
+ *  write failure produces an AtomicWriteError in the first place is
+ *  atomic-file.ts's own contract, covered by test/atomic-file-sync.test.ts.
+ *
+ *  Off by default, so every other test in this file writes for real. */
+const writeGate = vi.hoisted(() => ({ fail: false }))
+
+vi.mock('../src/main/atomic-file', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/main/atomic-file')>()
+  return {
+    ...actual,
+    atomicWriteFile: (path: string, contents: string | Buffer, options?: { fsync?: boolean }) => {
+      if (writeGate.fail) {
+        throw new actual.AtomicWriteError(
+          path,
+          false,
+          Object.assign(new Error(`EACCES: permission denied, open '${path}'`), { code: 'EACCES' })
+        )
+      }
+      actual.atomicWriteFile(path, contents, options)
+    }
+  }
+})
 
 let root: string
 let path: string
@@ -11,9 +44,13 @@ let path: string
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'crew-journal-'))
   path = join(root, 'conductor-journal.json')
+  writeGate.fail = false
 })
 
-afterEach(() => rmSync(root, { recursive: true, force: true }))
+afterEach(() => {
+  writeGate.fail = false
+  rmSync(root, { recursive: true, force: true })
+})
 
 const intent = (opId: string) => ({
   opId, laneId: 'lane-1', phase: 'intent' as const,
@@ -126,18 +163,20 @@ describe('journal', () => {
   it('throws when the write fails, so the caller aborts the effect', () => {
     const journal = createJournal(path)
     journal.append(intent('op-1'))
-    chmodSync(root, 0o500)
+    writeGate.fail = true
     try {
       expect(() => journal.append(intent('op-2'))).toThrow()
     } finally {
-      chmodSync(root, 0o700)
+      writeGate.fail = false
     }
+    // Load-bearing: the failed append left the file exactly as it was.
+    expect(journal.read().map((e) => e.opId)).toEqual(['op-1'])
   })
 
   it('throws an AtomicWriteError (not a JournalCorruptError) on a write failure', () => {
     const journal = createJournal(path)
     journal.append(intent('op-1'))
-    chmodSync(root, 0o500)
+    writeGate.fail = true
     try {
       expect(() => journal.append(intent('op-2'))).toThrow(AtomicWriteError)
       try {
@@ -147,7 +186,7 @@ describe('journal', () => {
         expect(error).not.toBeInstanceOf(JournalCorruptError)
       }
     } finally {
-      chmodSync(root, 0o700)
+      writeGate.fail = false
     }
   })
 
