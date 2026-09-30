@@ -29,6 +29,12 @@ import {
   findJsxTags,
   findTryStatement,
   hasDirectAssignment,
+  firstStatementAssigns,
+  findIdentifiers,
+  findUseStateDeclaration,
+  findDeclarationsOf,
+  findAssignmentsTo,
+  isWithin,
   enclosingIfStatement,
   hasStrictEqualityOperand,
   logicalAndOperands,
@@ -168,6 +174,17 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
       updating,
       'no [workspaceId] effect assigns shownWorkspace.current = workspaceId, so the ref never follows the panel'
     ).toHaveLength(1)
+
+    // Wave 4 finding F-3: "assigns it somewhere" is not enough. An early
+    // return ahead of the assignment — `if (workspaceId === null) return` is
+    // an ordinary refactor, not a contrived trick — leaves the ref pointing
+    // at the previous workspace while every other assertion here still
+    // passes. The ref exists to record which workspace is on screen, so it
+    // must be recorded before any code can decide not to.
+    expect(
+      firstStatementAssigns(updating[0].arguments[0]!, 'shownWorkspace.current', 'workspaceId'),
+      'the [workspaceId] effect does something before re-pointing shownWorkspace.current, so an early return can skip it'
+    ).toBe(true)
   })
 
   // Wave 3 finding 2: the same drop rule, applied to the MESSAGE. A publish
@@ -207,6 +224,24 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
         `${name} never reports its result`
       ).not.toHaveLength(0)
     }
+
+    // Wave 4 finding F-3: "no handler CALLS setMessage" is routed around by
+    // `promise.then(setMessage)` (a reference, not a call) or by an alias
+    // (`const say = setMessage`) — both put an unguarded message on screen
+    // for a workspace the panel may no longer show. The setter is therefore
+    // confined to the two places entitled to it: its own useState binding
+    // and the guarded reporter. The effect may reach it too, since the
+    // effect is what clears the message on a workspace change.
+    const declaration = findUseStateDeclaration(source, 'setMessage')
+    expect(declaration, 'setMessage is not bound by a real useState() call').toBeDefined()
+    const allowed: ts.Node[] = [declaration!.name, report!, ...findEffectCalls(source).map((call) => call.arguments[0]!)]
+    const stray = findIdentifiers(source, 'setMessage').filter(
+      (id) => !allowed.some((node) => isWithin(id, node))
+    )
+    expect(
+      stray.map((id) => id.parent.getText()),
+      'setMessage is mentioned outside report() and the workspace effect — an alias or a .then(setMessage) bypasses the workspace guard'
+    ).toHaveLength(0)
   })
 
   // Wave 3 finding 4 (second half): every assertion in this file that names
@@ -223,6 +258,33 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
     const shadowVars = findAll(source, ts.isVariableDeclaration).filter(
       (d) => ts.isIdentifier(d.name) && d.name.text === 'workspaceId')
     expect(shadowVars, 'workspaceId is shadowed by a local declaration').toHaveLength(0)
+  })
+
+  // Wave 4 finding F-3: the same reasoning, applied to `outcome`. The
+  // acknowledge assertion below follows the dataflow from
+  // describeAcknowledgeOutcome back to the real IPC call through a variable
+  // named `outcome`; a second `outcome` declared in an inner block, or a
+  // `let outcome` reassigned after the await, makes that trace describe a
+  // different value than the one the call returned — the panel would then
+  // report an acknowledgement or a sync that never happened.
+  it('never shadows or reassigns the outcome a handler awaited', () => {
+    for (const name of ['sync', 'acknowledge']) {
+      const handler = findCallbackVariable(source, name)
+      expect(handler, `no ${name} handler found`).toBeDefined()
+      const declared = findDeclarationsOf(handler!, 'outcome')
+      expect(
+        declared.map((d) => d.declaration.getText()),
+        `${name} declares outcome more than once, so an inner shadow can stand in for the awaited result`
+      ).toHaveLength(1)
+      expect(declared[0].isConst, `${name} declares outcome with let/var, so it can be reassigned after the await`).toBe(true)
+      expect(
+        findAssignmentsTo(handler!, 'outcome').map((a) => a.getText()),
+        `${name} reassigns outcome after awaiting it`
+      ).toHaveLength(0)
+      const shadowParams = findAll(handler!, ts.isParameter).filter(
+        (p) => ts.isIdentifier(p.name) && p.name.text === 'outcome')
+      expect(shadowParams, `${name} shadows outcome with a parameter`).toHaveLength(0)
+    }
   })
 
   // Re-review finding I-3: with `[workspaceId]` emptied in every hook, all

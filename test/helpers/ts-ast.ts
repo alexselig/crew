@@ -324,6 +324,87 @@ export function hasDirectAssignment(root: ts.Node, left: string, right: string):
   return found
 }
 
+/** True iff the FIRST statement a function body runs is the assignment
+ *  `left = right`. Wave 4 finding F-3: "the effect assigns the ref somewhere"
+ *  still passes when an early return, an await, or a guard runs first and the
+ *  assignment never happens for the workspace the user just switched to. The
+ *  ref's whole job is to record which workspace the panel is showing, so it
+ *  has to be recorded before anything can decide not to. */
+export function firstStatementAssigns(fn: ts.Node, left: string, right: string): boolean {
+  if (!isFunctionLike(fn)) return false
+  const body = (fn as ts.ArrowFunction).body as ts.Node | undefined
+  if (body === undefined || !ts.isBlock(body)) return false
+  const first = body.statements[0]
+  if (first === undefined || !ts.isExpressionStatement(first)) return false
+  const expr = first.expression
+  return (
+    ts.isBinaryExpression(expr) &&
+    expr.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    expr.left.getText() === left &&
+    expr.right.getText() === right
+  )
+}
+
+/** Every real identifier named `name` under `root` — declarations, reads and
+ *  property names alike are Identifier nodes, so a caller that wants only
+ *  some of them filters by position. Text inside a comment or a string is not
+ *  an Identifier and never appears here. */
+export function findIdentifiers(root: ts.Node, name: string): ts.Identifier[] {
+  return findAll(root, ts.isIdentifier).filter((id) => id.text === name)
+}
+
+/** True iff `node` is `ancestor` or sits inside it. Used to confine a
+ *  sensitive identifier to the places allowed to mention it. */
+export function isWithin(node: ts.Node, ancestor: ts.Node): boolean {
+  let current: ts.Node | undefined = node
+  while (current !== undefined) {
+    if (current === ancestor) return true
+    current = current.parent
+  }
+  return false
+}
+
+/** The `const [a, setA] = useState(...)` declaration that binds `name`, or
+ *  undefined when `name` is not a useState binding. */
+export function findUseStateDeclaration(source: ts.SourceFile, name: string): ts.VariableDeclaration | undefined {
+  return findAll(source, ts.isVariableDeclaration).find((decl) => {
+    const init = decl.initializer
+    if (init === undefined || !ts.isCallExpression(init)) return false
+    if (!ts.isIdentifier(init.expression) || init.expression.text !== 'useState') return false
+    return findIdentifiers(decl.name, name).length > 0
+  })
+}
+
+/** Every `const`/`let`/`var` declaration of `name` that `root` itself
+ *  introduces, INCLUDING ones in nested blocks and nested functions — the
+ *  point is to catch a shadow, so nested scopes are exactly what we want.
+ *  Each result is paired with whether its declaration list is `const`. */
+export function findDeclarationsOf(root: ts.Node, name: string): { declaration: ts.VariableDeclaration; isConst: boolean }[] {
+  return findAll(root, ts.isVariableDeclaration)
+    .filter((decl) => ts.isIdentifier(decl.name) && decl.name.text === name)
+    .map((declaration) => {
+      const list = declaration.parent
+      const isConst = ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0
+      return { declaration, isConst }
+    })
+}
+
+/** Every real assignment whose left-hand side is exactly `left`, anywhere
+ *  under `root` (compound assignments like `x += 1` included). */
+export function findAssignmentsTo(root: ts.Node, left: string): ts.BinaryExpression[] {
+  const assignmentKinds = new Set<ts.SyntaxKind>([
+    ts.SyntaxKind.EqualsToken,
+    ts.SyntaxKind.PlusEqualsToken,
+    ts.SyntaxKind.MinusEqualsToken,
+    ts.SyntaxKind.QuestionQuestionEqualsToken,
+    ts.SyntaxKind.BarBarEqualsToken,
+    ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+  ])
+  return findAll(root, ts.isBinaryExpression).filter(
+    (expr) => assignmentKinds.has(expr.operatorToken.kind) && expr.left.getText() === left,
+  )
+}
+
 /** Resolves an argument to the awaited call whose RESULT it carries: either
  *  `f(await call())` given directly, or `const x = await call(); f(x)` where
  *  `x` is declared inside `root`. Returns undefined for a literal, a
