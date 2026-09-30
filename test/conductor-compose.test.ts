@@ -361,3 +361,48 @@ describe('composeRun', () => {
     })
   })
 }, { timeout: 30_000 })
+
+// Review finding 6: composeRun reaches main over IPC, and a throw there
+// becomes a rejected invoke() the renderer had no catch for — the composer
+// spinner simply stopped and the user was told nothing. The things that
+// throw here are entirely ordinary (a repo that is not a git repository, an
+// integration branch that does not exist, a path realpath cannot resolve),
+// so they are refusals and must be returned as such.
+describe('composeRun: a failure the user can act on, never a rejected promise', () => {
+  it('returns a structured repo error instead of throwing when the integration worktree cannot be prepared', async () => {
+    const lanes = createLaneManager({ ...settings, integrationBranch: 'crew/does-not-exist' })
+    const createSession = vi.fn()
+    const result = await composeRun(
+      { lanes, settings, createSession, closeSession: vi.fn(), setTestRecipe: vi.fn() },
+      { ...draft(), integrationBranch: settings.integrationBranch }
+    )
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect('errors' in result && result.errors[0]?.field).toBe('repo')
+    expect('errors' in result && result.errors[0]?.message).toContain('integration worktree')
+    // Nothing was created: the failure happened before the first row.
+    expect(createSession).not.toHaveBeenCalled()
+  })
+
+  it('returns a structured repo error instead of throwing when the draft repo path cannot be resolved at all', async () => {
+    const unreadable = join(root, 'unreadable')
+    execFileSync('mkdir', [unreadable])
+    chmodSync(unreadable, 0o000)
+    try {
+      const lanes = createLaneManager(settings)
+      const result = await composeRun(
+        { lanes, settings, createSession: vi.fn(), closeSession: vi.fn(), setTestRecipe: vi.fn() },
+        { ...draft(), repo: join(unreadable, 'inner', 'repo') }
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      // Either arm is a refusal the composer can render: samePath may fail
+      // closed (its own error) or simply prove the paths differ. What must
+      // never happen is a throw.
+      expect('errors' in result && result.errors.some((e) => e.field === 'repo')).toBe(true)
+    } finally {
+      chmodSync(unreadable, 0o700)
+    }
+  })
+})

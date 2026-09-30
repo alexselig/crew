@@ -1,7 +1,15 @@
 import * as ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { UNSUPPORTED_CUSTOM_PRESET, validateRoster, type RosterDraft } from '../src/shared/conductor-composer'
-import { parseSource, hasNamedImport, findFunctionVariable, findCallsTo, findAll, flattenPropertyAccess } from './helpers/ts-ast'
+import {
+  parseSource,
+  hasNamedImport,
+  findFunctionVariable,
+  findCallsTo,
+  findAll,
+  findTryStatement,
+  flattenPropertyAccess
+} from './helpers/ts-ast'
 
 function draft(overrides: Partial<RosterDraft> = {}): RosterDraft {
   return {
@@ -134,5 +142,30 @@ describe('ConductorComposer.tsx — never claims a failed compose left nothing b
       (b) => b.operatorToken.kind === ts.SyntaxKind.InKeyword
     )
     expect(inExpressions).toHaveLength(0)
+  })
+
+  // Review finding 6: compose goes over IPC, and an IPC call can REJECT
+  // rather than return — main throwing, a dead channel. Without a catch the
+  // rejection was unhandled: the spinner stopped and the form sat there
+  // looking idle, telling the user nothing at all.
+  it('catches a rejected compose and reports it, rather than leaving an unhandled rejection', () => {
+    const submit = findFunctionVariable(source, 'submit')
+    expect(submit).toBeDefined()
+    const tryStatement = findTryStatement(submit!.body)
+    expect(tryStatement).toBeDefined()
+    expect(tryStatement!.catchClause).toBeDefined()
+    expect(tryStatement!.catchClause!.variableDeclaration?.name.getText()).toBe('error')
+
+    const reported = findCallsTo(tryStatement!.catchClause!.block, 'setSubmitError')
+    expect(reported.some((call) => {
+      const arg = call.arguments[0]
+      return arg !== undefined && ts.isCallExpression(arg) &&
+        flattenPropertyAccess(arg.expression) === 'describeUnexpectedFailure' &&
+        arg.arguments[1]?.getText() === 'error'
+    })).toBe(true)
+
+    // And the real IPC call is inside that try, not hoisted out of it.
+    const composeCalls = findCallsTo(tryStatement!.tryBlock, 'onCompose')
+    expect(composeCalls.some((c) => c.arguments[0]?.getText() === 'draft')).toBe(true)
   })
 })

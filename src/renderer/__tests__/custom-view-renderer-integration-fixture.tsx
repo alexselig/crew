@@ -189,7 +189,9 @@ const crew: CrewAPI = {
     publishing: null,
     lanes: [],
     facts: {},
-    needsAttention: false
+    needsAttention: false,
+    operations: [],
+    reconciled: true
   }),
   createLane: async () => {
     throw new Error('not implemented in custom-view renderer integration fixture')

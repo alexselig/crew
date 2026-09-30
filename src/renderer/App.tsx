@@ -400,7 +400,10 @@ export function App(): JSX.Element {
   // dialog open so the user sees describeComposeFailure's message and, per
   // Task 5 finding 3, is never told a failed compose left nothing behind.
   const composeConductedWorkspace = async (draft: RosterDraft): Promise<ComposeResult> => {
-    const result = await window.crew.composeConductedWorkspace(draft)
+    // The workspace is named per call (review finding 1): composing while
+    // "All Sessions" is selected has no workspace to compose for, and main
+    // must not guess one from a stale active-workspace of its own.
+    const result = await window.crew.composeConductedWorkspace(c.activeWorkspace, draft)
     if (result.ok) {
       setShowConductorComposer(false)
       setConductorPlan(null)
@@ -686,6 +689,7 @@ export function App(): JSX.Element {
       )}
 
       <ConductorPanel
+        workspaceId={c.activeWorkspace}
         onNewWorkspace={() => setShowConductorComposer(true)}
         onLoadPlan={(file) => void loadConductorPlanFile(file)}
       />

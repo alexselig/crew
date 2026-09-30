@@ -2,7 +2,7 @@
 // so the rules that decide what the user may press are tested in milliseconds
 // under node rather than through a browser.
 
-import type { ConductorSnapshot, LaneStatus, PublishOutcome } from '../shared/conductor'
+import type { ConductorSnapshot, LaneStatus, PublishOutcome, ReconcileReport } from '../shared/conductor'
 import type { ProposalNote } from '../shared/conductor-proposal'
 import type { ComposeResult } from '../shared/conductor-composer'
 
@@ -149,9 +149,63 @@ export function describeOutcome(outcome: PublishOutcome): string {
  * is an unhandled promise rejection the user never sees. This is the text
  * for that path, distinct from describeOutcome's structured-refusal text.
  */
-export function describeUnexpectedFailure(action: 'publish' | 'sync', error: unknown): string {
+export function describeUnexpectedFailure(action: ConductorAction, error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error)
-  return `${action === 'publish' ? 'Publish' : 'Sync'} failed unexpectedly: ${detail}`
+  return `${ACTION_LABELS[action]} failed unexpectedly: ${detail}`
+}
+
+/** The lane actions the panel can take that may reject at the transport
+ *  level rather than returning a structured refusal. 'recheck' is the
+ *  reconcile the panel runs to get OUT of the needs-attention gate (review
+ *  finding 7) — without it, one interrupted publish blocks publish and sync
+ *  for that workspace with no way back. */
+export type ConductorAction = 'publish' | 'sync' | 'recheck' | 'compose'
+
+const ACTION_LABELS: Record<ConductorAction, string> = {
+  publish: 'Publish',
+  sync: 'Sync',
+  recheck: 'Re-check',
+  compose: 'Creating the run'
+}
+
+/**
+ * What a reconcile the user asked for actually found. Three distinct
+ * answers, because the user's next move differs in each: 'busy' means try
+ * again (the report is a stand-in — reconcile never read the journal);
+ * needsAttention means the gate stays closed and names why; anything else
+ * means the gate just opened.
+ */
+export function describeReconcileReport(report: ReconcileReport): string {
+  if (report.busy) {
+    return 'Conductor is busy with another operation — re-check once it finishes.'
+  }
+  if (!report.needsAttention) {
+    return 'Checked: no interrupted operation. Publish and sync are available again.'
+  }
+  const blocking = report.operations.filter((op) => op.requiresHuman)
+  const named = (blocking.length > 0 ? blocking : report.operations).map((op) => op.summary).join('; ')
+  return named.length > 0
+    ? `Still needs a human: ${named}`
+    : 'Still needs a human: an interrupted operation could not be resolved automatically.'
+}
+
+/**
+ * The panel's standing banner. Distinct from describeReconcileReport, which
+ * reports one Re-check the user just ran: this describes the snapshot the
+ * panel is rendering right now, and is what tells the user WHY Publish and
+ * Sync are refusing. Null when nothing is holding them.
+ */
+export function describeAttention(snapshot: ConductorSnapshot): string | null {
+  if (!snapshot.enabled) return null
+  if (!snapshot.reconciled) {
+    return 'Checking for interrupted operations…'
+  }
+  if (!snapshot.needsAttention) return null
+  const summaries = snapshot.operations.filter((op) => op.requiresHuman).map((op) => op.summary)
+  const detail = (summaries.length > 0 ? summaries : snapshot.operations.map((op) => op.summary)).join('; ')
+  return detail.length > 0
+    ? `An interrupted operation needs review: ${detail}`
+    : 'An interrupted operation needs review'
 }
 
 /**
@@ -163,9 +217,21 @@ export function describeUnexpectedFailure(action: 'publish' | 'sync', error: unk
  * shape must never be reported as if it left nothing behind: a lane rollback
  * failed to clean up is still sitting on disk, and the user has to know.
  */
+/** The fields the composer form actually renders an inline error next to
+ *  (see ConductorComposer.tsx's errorFor calls). An error on any other
+ *  field would otherwise be invisible. */
+const FORM_FIELDS = new Set(['repo', 'integrationBranch', 'rows'])
+
 export function describeComposeFailure(result: ComposeResult): string | null {
   if (result.ok) return null
   if (!('message' in result)) {
+    // A refusal that no form field can show (review findings 6 and 9: a
+    // repository git could not prepare, a workspace whose sessions already
+    // answer to another conducted workspace) carries its explanation in the
+    // error itself. Reporting "check the highlighted fields" for those would
+    // point the user at fields that look perfectly fine.
+    const unfielded = result.errors.filter((e) => !FORM_FIELDS.has(e.field) && !e.field.startsWith('rows['))
+    if (unfielded.length > 0) return unfielded.map((e) => e.message).join(' ')
     return 'Could not create the run — check the highlighted fields.'
   }
   if (result.survivingLanes.length === 0) return result.message

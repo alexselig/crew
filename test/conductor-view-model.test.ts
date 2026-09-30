@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRoster,
   conductorPanelMode,
+  describeAttention,
   describeComposeFailure,
   describeOutcome,
+  describeReconcileReport,
   describeUnexpectedFailure,
   invalidateProposalNotes
 } from '../src/renderer/conductor-view-model'
@@ -30,6 +32,9 @@ function snapshot(overrides: Partial<ConductorSnapshot> = {}): ConductorSnapshot
         dirtyTracked: false, untracked: false
       }
     },
+    operations: [],
+    // Reconciled by default: the interesting cases set it explicitly.
+    reconciled: true,
     ...overrides
   }
 }
@@ -255,5 +260,90 @@ describe('invalidateProposalNotes', () => {
   it('leaves every note untouched when a row is merely added', () => {
     const notes = [blocking(-1, 'global'), blocking(0), blocking(1)]
     expect(invalidateProposalNotes(notes, { type: 'add' })).toEqual(notes)
+  })
+})
+
+// Review findings 6 and 9: a refusal that no form field can show — a
+// repository git could not prepare, a workspace whose sessions already
+// answer to another conducted workspace — used to render as "check the
+// highlighted fields", pointing the user at fields that looked fine.
+describe('describeComposeFailure: refusals no form field can show', () => {
+  it('surfaces a workspace-level refusal verbatim', () => {
+    const result: ComposeResult = {
+      ok: false,
+      errors: [{ field: 'workspace', message: 'this workspace cannot be conducted: Session One already belongs to Alpha' }]
+    }
+    expect(describeComposeFailure(result)).toContain('Session One already belongs to Alpha')
+  })
+
+  it('still falls back to the generic message for errors the form does highlight', () => {
+    const result: ComposeResult = { ok: false, errors: [{ field: 'repo', message: 'choose a repository' }] }
+    expect(describeComposeFailure(result)).toBe('Could not create the run — check the highlighted fields.')
+  })
+
+  it('reports only the unfielded errors when a refusal carries both kinds', () => {
+    const result: ComposeResult = {
+      ok: false,
+      errors: [
+        { field: 'rows[0].roleName', message: 'name this lane' },
+        { field: 'workspace', message: 'pick a workspace first' }
+      ]
+    }
+    expect(describeComposeFailure(result)).toBe('pick a workspace first')
+  })
+})
+
+// Review finding 7: the panel has to say WHY publish and sync are refusing,
+// and offer the one action that clears it.
+describe('describeAttention', () => {
+  it('says nothing when the workspace is disabled', () => {
+    expect(describeAttention(snapshot({ enabled: false }))).toBeNull()
+  })
+
+  it('says nothing when reconcile has run and found nothing', () => {
+    expect(describeAttention(snapshot())).toBeNull()
+  })
+
+  it('explains the pre-reconcile gate, which is not an error state', () => {
+    expect(describeAttention(snapshot({ reconciled: false }))).toBe('Checking for interrupted operations…')
+  })
+
+  it('names the operation that needs a human, rather than merely counting it', () => {
+    const message = describeAttention(snapshot({
+      needsAttention: true,
+      operations: [
+        { opId: 'op-1', laneId: 'lane-1', classification: 'interrupted-merge', summary: 'publish of builder may be half-applied', safeToRedo: false, requiresHuman: true },
+        { opId: 'op-2', laneId: 'lane-2', classification: 'complete', summary: 'publish of scout completed', safeToRedo: false, requiresHuman: false }
+      ]
+    }))
+    expect(message).toContain('publish of builder may be half-applied')
+    expect(message).not.toContain('publish of scout completed')
+  })
+
+  it('still says something useful when needsAttention is set with no operations to name', () => {
+    expect(describeAttention(snapshot({ needsAttention: true, operations: [] })))
+      .toBe('An interrupted operation needs review')
+  })
+})
+
+describe('describeReconcileReport', () => {
+  it('tells the user to try again when reconcile could not run at all', () => {
+    expect(describeReconcileReport({ needsAttention: false, operations: [], busy: true }))
+      .toContain('busy')
+  })
+
+  it('reports the gate reopening when nothing was interrupted', () => {
+    expect(describeReconcileReport({ needsAttention: false, operations: [] }))
+      .toContain('no interrupted operation')
+  })
+
+  it('names what still needs a human', () => {
+    const message = describeReconcileReport({
+      needsAttention: true,
+      operations: [
+        { opId: 'op-1', laneId: 'lane-1', classification: 'interrupted-merge', summary: 'publish of builder may be half-applied', safeToRedo: false, requiresHuman: true }
+      ]
+    })
+    expect(message).toContain('publish of builder may be half-applied')
   })
 })

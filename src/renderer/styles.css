@@ -6816,6 +6816,26 @@ button.grid-topbar__wordmark:hover {
   font-size: 11px;
   color: var(--danger);
 }
+.conductor-recheck {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.conductor-operations {
+  flex: 0 0 auto;
+  list-style: none;
+  margin: 0;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.conductor-operation {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.conductor-operation--human {
+  color: var(--danger);
+}
 .conductor-roster {
   list-style: none;
   margin: 0;

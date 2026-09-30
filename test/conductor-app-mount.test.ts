@@ -46,7 +46,19 @@ describe('App.tsx — mounting the composer and plan dialog', () => {
     expect(fn).toBeDefined()
     const calls = findCallsTo(fn!.body!, 'window.crew.composeConductedWorkspace')
     expect(calls).toHaveLength(1)
-    expect(calls[0].arguments[0]?.getText()).toBe('draft')
+    // Review finding 1: the workspace is named by the call, and it is the
+    // renderer's own active workspace — main has no active workspace of its
+    // own for conductor to guess from.
+    expect(calls[0].arguments[0]?.getText()).toBe('c.activeWorkspace')
+    expect(calls[0].arguments[1]?.getText()).toBe('draft')
+  })
+
+  it('tells the conductor panel which workspace it is showing', () => {
+    const tags = findJsxTags(source, 'ConductorPanel')
+    expect(tags).toHaveLength(1)
+    const value = jsxAttributeValue(tags[0], 'workspaceId')
+    expect(value).toBeDefined()
+    expect(value!.getText()).toBe('c.activeWorkspace')
   })
 
   it('passes the real composeConductedWorkspace function (not an inline stub) as onCompose to both mount points', () => {

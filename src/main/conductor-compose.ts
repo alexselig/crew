@@ -33,8 +33,9 @@ export interface ComposeDeps {
    *  none). This is the seam that lets the recipe reach the ConductorConfig
    *  the runtime actually uses, without composeRun reaching into settings
    *  (a shared object other in-flight code also reads) itself. The caller
-   *  decides what "now in force" means — Task 4 wires it to the live
-   *  runtime's settings; persisting it to the store is a later task's job. */
+   *  decides what "now in force" means: the shipped backend writes it to
+   *  the live runtime's settings AND through to the persisted
+   *  ConductorConfig, so it survives a restart (review finding 3). */
   setTestRecipe(recipe: TestRecipe | null): void
 }
 
@@ -55,7 +56,23 @@ export async function composeRun(
   // raw strings, so a trailing slash or a "./" segment is never a spurious
   // mismatch, while a genuinely different repo always is.
   const mismatches: RosterError[] = []
-  if (!samePath(draft.repo, deps.settings.repo)) {
+  let sameRepo: boolean
+  try {
+    sameRepo = samePath(draft.repo, deps.settings.repo)
+  } catch (error) {
+    // samePath fails closed rather than guessing when realpath can neither
+    // resolve a path nor prove it absent (EACCES, ELOOP…). Review finding 6:
+    // that used to throw across IPC and become an unhandled rejection in the
+    // renderer. It is a refusal, not a crash — report it as one.
+    return {
+      ok: false,
+      errors: [{
+        field: 'repo',
+        message: `could not check the repository path: ${error instanceof Error ? error.message : String(error)}`
+      }]
+    }
+  }
+  if (!sameRepo) {
     mismatches.push({ field: 'repo', message: 'this run was composed for a different repository' })
   }
   if (draft.integrationBranch.trim() !== deps.settings.integrationBranch.trim()) {
@@ -66,7 +83,23 @@ export async function composeRun(
   }
   if (mismatches.length > 0) return { ok: false, errors: mismatches }
 
-  await deps.lanes.ensureIntegrationWorktree()
+  // Review finding 6: this is the first thing that touches git, and it
+  // fails for entirely ordinary reasons — a path that is not a repository,
+  // an integration branch that does not exist yet (lanes.ts rev-parses it),
+  // no permission to write the worktree. Thrown across IPC it became an
+  // unhandled rejection the user never saw; returned, it is just another
+  // reason the run could not start, rendered by the composer like any other.
+  try {
+    await deps.lanes.ensureIntegrationWorktree()
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [{
+        field: 'repo',
+        message: `could not prepare the integration worktree: ${error instanceof Error ? error.message : String(error)}`
+      }]
+    }
+  }
 
   const created: ConductorLane[] = []
   for (const [index, row] of draft.rows.entries()) {

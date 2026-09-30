@@ -2,34 +2,51 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   buildRoster,
   conductorPanelMode,
+  describeAttention,
   describeOutcome,
+  describeReconcileReport,
   describeUnexpectedFailure,
   type LaneRow
 } from '../conductor-view-model'
 import type { ConductorSnapshot } from '../../shared/conductor'
 
 interface Props {
+  /** The workspace this panel is showing. Every conductor IPC call names it
+   *  explicitly (review finding 1): main keeps no active workspace of its
+   *  own for conductor, so two windows showing two workspaces each get
+   *  their own truth, and a workspace switch that never reached main
+   *  cannot make this panel report another workspace's lanes. */
+  workspaceId: string | null
   /** Opens the composer for a brand-new conducted workspace (blank roster). */
   onNewWorkspace: () => void
   /** Opens the plan document view for an agent-written proposal file. */
   onLoadPlan: (file: File) => void
 }
 
-export function ConductorPanel({ onNewWorkspace, onLoadPlan }: Props): JSX.Element | null {
+export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Props): JSX.Element | null {
   const [snapshot, setSnapshot] = useState<ConductorSnapshot | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    void window.crew.getConductorState().then((state) => {
+    // Dropped, not kept: the previous workspace's snapshot must not be on
+    // screen while this one loads, or the user acts on another workspace's
+    // lanes. 'loading' renders nothing, which is the honest state.
+    setSnapshot(null)
+    setMessage(null)
+    void window.crew.getConductorState(workspaceId).then((state) => {
       if (!cancelled) setSnapshot(state)
     })
-    const off = window.crew.onConductorState(setSnapshot)
+    // Broadcasts are not addressed to a window, so each carries the
+    // workspace it describes and every other window's event is ignored.
+    const off = window.crew.onConductorState((event) => {
+      if (!cancelled && event.workspaceId === workspaceId) setSnapshot(event.state)
+    })
     return () => {
       cancelled = true
       off()
     }
-  }, [])
+  }, [workspaceId])
 
   // Both handlers refresh the snapshot straight from getConductorState() in
   // a `finally`, not only on the happy path — a rejected IPC call (transport
@@ -39,24 +56,39 @@ export function ConductorPanel({ onNewWorkspace, onLoadPlan }: Props): JSX.Eleme
   // after a rejection that no later broadcast ever corrected.
   const publish = useCallback(async (laneId: string) => {
     try {
-      setMessage(describeOutcome(await window.crew.publishLane(laneId)))
+      setMessage(describeOutcome(await window.crew.publishLane(workspaceId, laneId)))
     } catch (error) {
       setMessage(describeUnexpectedFailure('publish', error))
     } finally {
-      void window.crew.getConductorState().then(setSnapshot)
+      void window.crew.getConductorState(workspaceId).then(setSnapshot)
     }
-  }, [])
+  }, [workspaceId])
 
   const sync = useCallback(async (laneId: string) => {
     try {
-      const outcome = await window.crew.syncLane(laneId)
+      const outcome = await window.crew.syncLane(workspaceId, laneId)
       setMessage(outcome.ok ? 'Lane synced' : outcome.message)
     } catch (error) {
       setMessage(describeUnexpectedFailure('sync', error))
     } finally {
-      void window.crew.getConductorState().then(setSnapshot)
+      void window.crew.getConductorState(workspaceId).then(setSnapshot)
     }
-  }, [])
+  }, [workspaceId])
+
+  // The way out of the needs-attention gate (review finding 7). Publish and
+  // sync refuse while an interrupted operation is outstanding, and a
+  // reconcile is the only thing that clears it — without a control that runs
+  // one, a single crashed publish left the workspace permanently read-only
+  // until the app was restarted.
+  const recheck = useCallback(async () => {
+    try {
+      setMessage(describeReconcileReport(await window.crew.reconcileConductor(workspaceId)))
+    } catch (error) {
+      setMessage(describeUnexpectedFailure('recheck', error))
+    } finally {
+      void window.crew.getConductorState(workspaceId).then(setSnapshot)
+    }
+  }, [workspaceId])
 
   const mode = conductorPanelMode(snapshot)
   if (mode === 'loading') return null
@@ -87,17 +119,29 @@ export function ConductorPanel({ onNewWorkspace, onLoadPlan }: Props): JSX.Eleme
   // mode === 'active'
   const active = snapshot as ConductorSnapshot
   const rows = buildRoster(active)
+  const attention = describeAttention(active)
 
   return (
     <section className="conductor">
       <header className="conductor-head">
         <h2>Conductor</h2>
-        {active.needsAttention && (
-          <span className="conductor-attention">
-            An interrupted operation needs review
-          </span>
-        )}
+        {attention && <span className="conductor-attention">{attention}</span>}
+        <button type="button" className="conductor-recheck" onClick={() => void recheck()}>
+          Re-check
+        </button>
       </header>
+      {active.operations.length > 0 && (
+        <ul className="conductor-operations">
+          {active.operations.map((op) => (
+            <li
+              key={op.opId}
+              className={op.requiresHuman ? 'conductor-operation conductor-operation--human' : 'conductor-operation'}
+            >
+              {op.summary}
+            </li>
+          ))}
+        </ul>
+      )}
       <ul className="conductor-roster">
         {rows.map((row) => (
           <LaneRowView key={row.id} row={row} onPublish={publish} onSync={sync} />

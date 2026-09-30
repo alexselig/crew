@@ -13,7 +13,11 @@ import {
   type ProposalNote,
   type ReconciledRoster
 } from '../../shared/conductor-proposal'
-import { invalidateProposalNotes, describeComposeFailure } from '../conductor-view-model'
+import {
+  invalidateProposalNotes,
+  describeComposeFailure,
+  describeUnexpectedFailure
+} from '../conductor-view-model'
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
 import { defaultLaneAgent, getCopilotModelSelection } from '../new-session-model'
 import {
@@ -181,6 +185,13 @@ export function ConductorComposer({ presets, maxLanes, initial, onCancel, onComp
     try {
       const result = await onCompose(draft)
       setSubmitError(describeComposeFailure(result))
+    } catch (error) {
+      // compose reaches main over IPC, and an IPC call can reject rather
+      // than return — a main-side throw, a dead channel. Without this the
+      // rejection became an unhandled promise the user never saw: the
+      // spinner simply stopped and the form sat there looking idle (review
+      // finding 6). A transport failure is reported like any other refusal.
+      setSubmitError(describeUnexpectedFailure('compose', error))
     } finally {
       setSubmitting(false)
     }
