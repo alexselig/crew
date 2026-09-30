@@ -5,8 +5,7 @@ import {
   describeComposeFailure,
   describeOutcome,
   describeUnexpectedFailure,
-  invalidateProposalNotes,
-  shouldShowConductor
+  invalidateProposalNotes
 } from '../src/renderer/conductor-view-model'
 import type { ConductorLane, ConductorSnapshot } from '../src/shared/conductor'
 import type { ComposeResult } from '../src/shared/conductor-composer'
@@ -110,20 +109,6 @@ describe('buildRoster', () => {
     const state = snapshot()
     state.lanes[0].agent = { presetId: 'shell', model: null }
     expect(buildRoster(state)[0].agentLabel).toBe('shell')
-  })
-})
-
-describe('shouldShowConductor', () => {
-  it('hides the panel when there is no snapshot yet', () => {
-    expect(shouldShowConductor(null)).toBe(false)
-  })
-
-  it('hides the panel when the shipped conductor backend is disabled', () => {
-    expect(shouldShowConductor(snapshot({ enabled: false }))).toBe(false)
-  })
-
-  it('shows the panel once an enabled snapshot arrives', () => {
-    expect(shouldShowConductor(snapshot())).toBe(true)
   })
 })
 

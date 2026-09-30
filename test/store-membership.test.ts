@@ -97,16 +97,33 @@ describe('Store — membership exclusivity on save', () => {
     expect(store.getSessions().map((s) => s.workspaceIds)).toEqual([['a'], ['b']])
   })
 
-  it('never crashes and drops a workspace id that no longer exists rather than throwing', () => {
+  it('never crashes on a workspace id that no longer exists, and round-trips it unchanged rather than dropping it', () => {
     const path = tmpStorePath()
     const store = new Store(path)
     store.saveWorkspaces([workspace('a', 0)])
 
     // 'ghost' names no real workspace (e.g. deleted concurrently) — the
     // enforcement pass must survive that instead of blowing up the whole
-    // save, per Store's own fail-closed-but-never-crash posture.
+    // save, per Store's own fail-closed-but-never-crash posture. But
+    // saveSessions is a hot path used by the whole app, not only conductor:
+    // an id it doesn't recognise is not necessarily wrong, just unknown to
+    // THIS enforcement pass, so it must be preserved exactly as given, not
+    // silently discarded as if it were the thing being enforced against.
     store.saveSessions([session('s1', ['a', 'ghost'])])
-    expect(store.getSessions()[0].workspaceIds).toEqual(['a'])
+    expect(store.getSessions()[0].workspaceIds).toEqual(['a', 'ghost'])
+  })
+
+  it('preserves an unknown workspace id even on a session that also has a real two-conducted-workspace conflict', () => {
+    const path = tmpStorePath()
+    const store = new Store(path)
+    store.saveWorkspaces([workspace('a', 0), workspace('b', 1)])
+    store.saveConductorConfigs([config('a'), config('b')])
+
+    // 'ghost' must survive untouched while the genuine conflict between the
+    // two conducted workspaces is still clamped — the two failure modes
+    // (unknown id vs. real exclusivity violation) must not be conflated.
+    store.saveSessions([session('s1', ['a', 'b', 'ghost'])])
+    expect(store.getSessions()[0].workspaceIds).toEqual(['a', 'ghost'])
   })
 
   it('persists the clamped membership, not the originally-requested one', () => {

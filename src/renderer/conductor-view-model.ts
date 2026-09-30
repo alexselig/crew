@@ -56,10 +56,6 @@ export interface LaneRow {
   warnings: string[]
 }
 
-export function shouldShowConductor(snapshot: ConductorSnapshot | null): snapshot is ConductorSnapshot {
-  return snapshot != null && snapshot.enabled
-}
-
 /**
  * What the panel should render before it knows anything about a roster.
  * `null` (no snapshot has arrived from getConductorState()/onConductorState()
@@ -67,8 +63,8 @@ export function shouldShowConductor(snapshot: ConductorSnapshot | null): snapsho
  * `enabled: false` — an ordinary, non-error state per Task 5/6): rendering
  * the "New conducted workspace" affordance during the brief unknown window
  * would flash it even for a workspace that turns out to already be
- * conducted, which `shouldShowConductor` alone cannot distinguish since both
- * cases fail its `snapshot != null && snapshot.enabled` check the same way.
+ * conducted, which a bare `snapshot != null && snapshot.enabled` check
+ * cannot distinguish since both cases fail it the same way.
  */
 export function conductorPanelMode(snapshot: ConductorSnapshot | null): 'loading' | 'empty' | 'active' {
   if (snapshot == null) return 'loading'

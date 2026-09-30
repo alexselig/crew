@@ -6890,3 +6890,19 @@ button.grid-topbar__wordmark:hover {
   font-size: 11px;
   color: var(--text-dim);
 }
+/* Rendered as a loose sibling of the fixed .conductor panel (App.tsx), not
+ * nested inside it, so it needs its own fixed placement -- a small card
+ * floating just above the panel, matching .conductor's own right/bottom
+ * anchor and .update-toast's card treatment. */
+.conductor-plan-load-error {
+  position: fixed;
+  right: 16px;
+  bottom: calc(60vh + 24px);
+  z-index: 20;
+  max-width: 320px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}

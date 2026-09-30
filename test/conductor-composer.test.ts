@@ -1,6 +1,7 @@
+import * as ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
 import { UNSUPPORTED_CUSTOM_PRESET, validateRoster, type RosterDraft } from '../src/shared/conductor-composer'
+import { parseSource, hasNamedImport, findFunctionVariable, findCallsTo, findAll, flattenPropertyAccess } from './helpers/ts-ast'
 
 function draft(overrides: Partial<RosterDraft> = {}): RosterDraft {
   return {
@@ -101,19 +102,37 @@ describe('ConductorComposer.tsx — never claims a failed compose left nothing b
   // covered directly in conductor-view-model.test.ts) — that submit routes
   // through it rather than a shortcut like `'message' in result` that drops
   // survivingLanes on the floor (Task 5 finding 3, re-broken once already).
-  const source = readFileSync('src/renderer/components/ConductorComposer.tsx', 'utf8')
+  //
+  // Task 7 fix round 1, Finding 2: previously a plain source-text scan
+  // (indexOf/regex), which still passes if the real wiring is deleted and
+  // replaced by a comment or string literal containing the same text. This
+  // walks the real TypeScript AST instead, so the assertion requires an
+  // actual CallExpression (and the absence of an actual `in` BinaryExpression).
+  const source = parseSource('src/renderer/components/ConductorComposer.tsx')
 
-  it('imports describeComposeFailure from the pure view-model', () => {
-    expect(source).toMatch(/import\s*\{[^}]*describeComposeFailure[^}]*\}\s*from\s*'\.\.\/conductor-view-model'/)
+  it('imports describeComposeFailure via a real import declaration from the pure view-model', () => {
+    expect(hasNamedImport(source, '../conductor-view-model', 'describeComposeFailure')).toBe(true)
   })
 
-  it('routes the submit failure through describeComposeFailure, not a string-matched shortcut', () => {
-    const submitIndex = source.indexOf('const submit =')
-    expect(submitIndex).toBeGreaterThan(-1)
-    const submitBody = source.slice(submitIndex, source.indexOf('const submit =', submitIndex + 1) === -1
-      ? source.indexOf('\n\n  return (', submitIndex)
-      : source.length)
-    expect(submitBody).toContain('setSubmitError(describeComposeFailure(result))')
-    expect(submitBody).not.toMatch(/'message' in result/)
+  it('routes the submit failure through a real describeComposeFailure(result) call, not a string-matched shortcut', () => {
+    const submit = findFunctionVariable(source, 'submit')
+    expect(submit).toBeDefined()
+    const body = submit!.body
+
+    const setSubmitErrorCalls = findCallsTo(body, 'setSubmitError')
+    expect(setSubmitErrorCalls.some((call) => {
+      const arg = call.arguments[0]
+      return arg !== undefined && ts.isCallExpression(arg) &&
+        flattenPropertyAccess(arg.expression) === 'describeComposeFailure' &&
+        arg.arguments[0]?.getText() === 'result'
+    })).toBe(true)
+
+    // The regression this guards against used `'message' in result` as a
+    // shortcut instead — assert no real `in` expression exists in the body
+    // at all, not just that the particular substring is absent.
+    const inExpressions = findAll(body, ts.isBinaryExpression).filter(
+      (b) => b.operatorToken.kind === ts.SyntaxKind.InKeyword
+    )
+    expect(inExpressions).toHaveLength(0)
   })
 })

@@ -449,31 +449,35 @@ export function enforceMembershipExclusivity(
     name: w.name,
     conducted: conductedIds.has(w.id)
   }))
-  const proposedWorkspaceIds: string[][] = sessions.map((s) =>
-    // A workspace id the graph does not recognise would make
-    // validateMembershipChange's own graph check throw; dropping it here,
-    // before that check ever runs, is what keeps a stale/dangling id from
-    // taking down an otherwise-valid save.
-    (s.workspaceIds ?? []).filter((id) => knownWorkspaceIds.has(id))
+  const originalWorkspaceIds: string[][] = sessions.map((s) => s.workspaceIds ?? [])
+  // A workspace id the graph does not recognise would make
+  // validateMembershipChange's own graph check throw, so it is filtered out
+  // of the copy fed to validation ONLY. saveSessions is a hot, shared path
+  // used by the whole app, not just conductor — an unknown id (stale,
+  // deleted concurrently, whatever) must round-trip untouched, not get
+  // silently dropped by this enforcement pass. The clamp below is applied
+  // to the ORIGINAL ids, so a genuine conflict is still removed and
+  // anything else — known non-conducted, or unknown entirely — survives.
+  const validationWorkspaceIds: string[][] = originalWorkspaceIds.map((ids) =>
+    ids.filter((id) => knownWorkspaceIds.has(id))
   )
   const membershipSessions: MembershipSession[] = sessions.map((s, index) => ({
     id: s.id,
     label: s.label,
-    workspaceIds: proposedWorkspaceIds[index]
+    workspaceIds: validationWorkspaceIds[index]
   }))
 
   return sessions.map((session, index) => {
-    const proposed = proposedWorkspaceIds[index]
+    const original = originalWorkspaceIds[index]
     const verdict = validateMembershipChange(membershipWorkspaces, membershipSessions, {
       sessionId: session.id,
-      nextWorkspaceIds: proposed
+      nextWorkspaceIds: validationWorkspaceIds[index]
     })
     const kept = verdict.ok
-      ? proposed
-      : proposed.filter((id) => !verdict.conflicts.some((c) => c.otherWorkspaceId === id))
+      ? original
+      : original.filter((id) => !verdict.conflicts.some((c) => c.otherWorkspaceId === id))
 
-    const unchanged = (session.workspaceIds ?? []).length === kept.length &&
-      (session.workspaceIds ?? []).every((id, i) => id === kept[i])
+    const unchanged = original.length === kept.length && original.every((id, i) => id === kept[i])
     return unchanged ? session : { ...session, workspaceIds: kept }
   })
 }
