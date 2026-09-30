@@ -798,10 +798,15 @@ button {
   }
 }
 
+/* Reduced motion should remove the travel, not the signal. `char-work` bobs and
+   scales, so it goes — but the mascot is the only at-a-glance "this session is
+   working" indicator, so it falls back to the opacity breathe rather than to
+   nothing. `char-run` and `char-blink` are opacity-only and are left alone.
+   This rule sits after the base ones, so it wins on order without !important. */
 @media (prefers-reduced-motion: reduce) {
-  .character__glyph,
-  .character__art {
-    animation: none !important;
+  .character--run .character__art {
+    animation: char-run 2.4s ease-in-out infinite;
+    transform: none;
   }
 }
 
