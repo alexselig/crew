@@ -10,7 +10,10 @@ function fakeManager(overrides: Partial<Pick<SessionManager, 'create' | 'close'>
       presetId: req.presetId,
       command: req.command,
       args: req.args,
-      cwd: req.cwd
+      cwd: req.cwd,
+      state: 'STARTING',
+      status: 'active',
+      pid: 4242
     })),
     close: vi.fn(),
     ...overrides
@@ -96,5 +99,39 @@ describe('createLaneSessionBridge', () => {
     })
 
     expect(manager.create).toHaveBeenCalledWith(expect.objectContaining({ args: ['--foo'] }))
+  })
+
+  it('rejects a resolved preset with an empty command and creates nothing', async () => {
+    const manager = fakeManager()
+    const resolveEmpty = (presetId: string) =>
+      presetId === 'broken' ? { command: '', args: [] } : null
+    const bridge = createLaneSessionBridge({ manager, resolvePreset: resolveEmpty })
+
+    await expect(
+      bridge.createSession({ cwd: '/lane', presetId: 'broken', model: null, label: 'builder' })
+    ).rejects.toThrow(/empty command/)
+    expect(manager.create).not.toHaveBeenCalled()
+  })
+
+  it('throws and closes the dead session when manager.create returns a failed SessionInfo', async () => {
+    const manager = fakeManager({
+      create: vi.fn(() => ({
+        id: 'sess-dead',
+        presetId: 'shell',
+        command: '/bin/sh',
+        args: [],
+        cwd: '/lanes/builder',
+        state: 'ERROR',
+        status: 'error',
+        pid: null,
+        errorMessage: 'Failed to launch /bin/sh in /lanes/builder: spawn ENOENT'
+      })) as unknown as SessionManager['create']
+    })
+    const bridge = createLaneSessionBridge({ manager, resolvePreset: resolveShell })
+
+    await expect(
+      bridge.createSession({ cwd: '/lanes/builder', presetId: 'shell', model: null, label: 'builder' })
+    ).rejects.toThrow(/failed to launch/)
+    expect(manager.close).toHaveBeenCalledWith('sess-dead')
   })
 })

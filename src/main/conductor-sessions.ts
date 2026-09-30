@@ -28,7 +28,20 @@ export function createLaneSessionBridge(
         `conductor: unknown presetId "${request.presetId}" — refusing to create a lane session`
       )
     }
-
+    // A resolved-but-malformed preset (empty command, non-array args) must not
+    // reach SessionManager.create: it falls back through
+    // `req.command || ... || defaultShell()` and would silently launch a bare
+    // shell in the lane worktree instead of the intended agent.
+    if (typeof preset.command !== 'string' || preset.command.trim().length === 0) {
+      throw new Error(
+        `conductor: preset "${request.presetId}" resolved to an empty command — refusing to create a lane session`
+      )
+    }
+    if (!Array.isArray(preset.args)) {
+      throw new Error(
+        `conductor: preset "${request.presetId}" resolved to non-array args — refusing to create a lane session`
+      )
+    }
     // ComposeDeps carries `model`, but CreateSessionRequest (SessionManager's
     // own contract) has no field for it. The existing New Session flow
     // (src/renderer/new-session-model.ts: getCopilotLaunchArgs) threads a
@@ -49,6 +62,24 @@ export function createLaneSessionBridge(
       cwd: request.cwd,
       label: request.label
     })
+
+    // SessionManager.create() can catch a synchronous spawn failure
+    // internally, mark the SessionInfo it returns as ERROR/'error', and still
+    // return normally (see session-manager.ts's `start()` catch block: state
+    // = 'ERROR', status = 'error', pid never set — no pty, no live process).
+    // Compose is fail-closed: it takes a resolved createSession() as proof of
+    // a live lane session and skips rollback accordingly. Reporting success
+    // here for a dead session would leave an orphaned lane whose agent never
+    // started, so a launch failure must close the dead session and throw
+    // instead of returning normally.
+    if (info.status !== 'active' || info.state === 'ERROR' || typeof info.pid !== 'number') {
+      deps.manager.close(info.id)
+      throw new Error(
+        `conductor: session for presetId "${request.presetId}" failed to launch` +
+          (info.errorMessage ? `: ${info.errorMessage}` : '')
+      )
+    }
+
     return { id: info.id }
   }
 
