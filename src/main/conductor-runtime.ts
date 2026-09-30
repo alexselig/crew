@@ -129,15 +129,32 @@ export interface SamePathDeps {
 // to "doesn't exist".
 const PROVEN_NOT_FOUND_CODES = new Set(['ENOENT', 'ENOTDIR'])
 
-function canonicalize(path: string, realpath: (path: string) => string): { value: string; resolved: boolean } {
+// True when `path`, taken literally (not resolved), contains a `..`
+// (parent) segment. resolve() collapses `..` lexically — including through
+// segments that don't exist on disk — so a fallback path (one realpath has
+// already proven doesn't exist) containing `..` cannot be trusted: resolve()
+// may have collapsed it back to something that looks identical to an
+// unrelated, real path. A lone `.` segment carries no such risk and is
+// still safely collapsed by resolve().
+function hasParentSegment(path: string): boolean {
+  return path.split(/[\\/]+/).some((segment) => segment === '..')
+}
+
+function canonicalize(
+  path: string,
+  realpath: (path: string) => string
+): { value: string; resolved: boolean; unresolvableParent: boolean } {
   try {
-    return { value: realpath(path), resolved: true }
+    return { value: realpath(path), resolved: true, unresolvableParent: false }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code
     if (code !== undefined && PROVEN_NOT_FOUND_CODES.has(code)) {
       // Doesn't exist (yet): not an error condition for an identity check —
-      // fall back to the plain resolve()-based path.
-      return { value: resolve(path), resolved: false }
+      // fall back to the plain resolve()-based path. But if the unresolved
+      // path contains a `..` segment, resolve() collapsed it lexically
+      // through a segment realpath just proved doesn't exist on disk, so
+      // the result cannot be trusted for an identity comparison.
+      return { value: resolve(path), resolved: false, unresolvableParent: hasParentSegment(path) }
     }
     // EACCES, ELOOP, or anything unrecognised: realpath could not prove the
     // path doesn't exist, so samePath cannot safely claim to know its
@@ -176,6 +193,16 @@ export function samePath(a: string, b: string, deps: SamePathDeps = {}): boolean
   const realpath = deps.realpath ?? ((path: string) => realpathSync.native(path))
   const canonA = canonicalize(a, realpath)
   const canonB = canonicalize(b, realpath)
+
+  // A `..` segment in a path realpath already proved doesn't exist cannot be
+  // resolved safely by resolve()'s lexical collapse (see canonicalize) — so
+  // samePath has no business asserting equality for it. This is a legitimate
+  // "different repository" rejection, not an unknowable error: the path
+  // plainly does not exist, so it plainly isn't the same directory as
+  // anything that does.
+  if (canonA.unresolvableParent || canonB.unresolvableParent) {
+    return false
+  }
 
   const normalizedA = canonA.value.normalize('NFC')
   const normalizedB = canonB.value.normalize('NFC')

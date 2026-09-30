@@ -367,4 +367,38 @@ describe('samePath', () => {
     expect(samePath('/some/repo/', '/some/repo', { realpath: notADirectory })).toBe(true)
     expect(samePath('/some/repo', '/some/other', { realpath: notADirectory })).toBe(false)
   })
+
+  // Fix round 3, Important finding: resolve() collapses `..` lexically, even
+  // through a segment that does not exist on disk. `<root>/missing/..`
+  // resolves right back to `<root>` even though `missing` was never real —
+  // so without the hasParentSegment() guard, a path that plainly doesn't
+  // exist would compare equal to a real, unrelated repo once it fell back
+  // to resolve() on ENOENT. That's exactly the false accept samePath must
+  // never produce.
+  it('rejects a `..` segment through a path segment that does not exist on disk', () => {
+    // Deliberately NOT built with join()/resolve(): both normalize away the
+    // `..` before samePath ever sees it, which would defeat the point of
+    // this test (it must reach realpath as a literal, unresolved string).
+    const missingParent = `${root}/missing/..`
+    expect(samePath(root, missingParent)).toBe(false)
+  })
+
+  // Companion to the case above: proves the guard is narrow, not a blanket
+  // rejection of every `..` segment. When `sub` genuinely exists, realpath
+  // resolves `<root>/sub/..` correctly (it never falls back to resolve() at
+  // all), so this must still compare equal to `<root>` in both the fixed
+  // and the reverted state — only the *unresolvable* case should differ.
+  it('still treats `..` through a real, existing segment as equal', () => {
+    const sub = join(root, 'sub')
+    mkdirSync(sub)
+    // Same reasoning as above: build the literal string by hand so the `..`
+    // reaches realpath un-collapsed, and let realpath (not resolve()) do
+    // the resolving — which it can do correctly here because `sub` is real.
+    const realParent = `${sub}/..`
+    expect(samePath(root, realParent)).toBe(true)
+  })
+
+  it('treats a trailing `.` segment as equal to the directory itself', () => {
+    expect(samePath(root, join(root, '.'))).toBe(true)
+  })
 })
