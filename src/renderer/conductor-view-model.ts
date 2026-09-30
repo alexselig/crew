@@ -4,6 +4,7 @@
 
 import type { ConductorSnapshot, LaneStatus, PublishOutcome } from '../shared/conductor'
 import type { ProposalNote } from '../shared/conductor-proposal'
+import type { ComposeResult } from '../shared/conductor-composer'
 
 /** A manual edit to the composer's roster, as seen by the notes it can
  *  invalidate. Nothing here needs to know how the row itself changed —
@@ -57,6 +58,21 @@ export interface LaneRow {
 
 export function shouldShowConductor(snapshot: ConductorSnapshot | null): snapshot is ConductorSnapshot {
   return snapshot != null && snapshot.enabled
+}
+
+/**
+ * What the panel should render before it knows anything about a roster.
+ * `null` (no snapshot has arrived from getConductorState()/onConductorState()
+ * yet) is deliberately distinct from `'empty'` (a snapshot arrived and says
+ * `enabled: false` — an ordinary, non-error state per Task 5/6): rendering
+ * the "New conducted workspace" affordance during the brief unknown window
+ * would flash it even for a workspace that turns out to already be
+ * conducted, which `shouldShowConductor` alone cannot distinguish since both
+ * cases fail its `snapshot != null && snapshot.enabled` check the same way.
+ */
+export function conductorPanelMode(snapshot: ConductorSnapshot | null): 'loading' | 'empty' | 'active' {
+  if (snapshot == null) return 'loading'
+  return snapshot.enabled ? 'active' : 'empty'
 }
 
 export function buildRoster(snapshot: ConductorSnapshot): LaneRow[] {
@@ -114,7 +130,13 @@ export function describeOutcome(outcome: PublishOutcome): string {
     case 'tests-failed':
       return 'Tests failed on the merge result — nothing was published'
     case 'journal-failed':
-      return `Could not record the operation, so nothing was run: ${outcome.message}`
+      // NOT "nothing was run": conductor.ts writes this journal entry AFTER
+      // the merge (sometimes after tests too) already happened — only the
+      // durable RECORD of that step failed, not the step itself. The
+      // integration worktree may hold a real, unrecorded merge commit, which
+      // is exactly why this is a needs-attention condition, not a no-op.
+      return `Could not durably record what happened — the integration worktree may be in an ` +
+        `interim state and needs manual attention: ${outcome.message}`
     case 'ref-moved':
       return 'Someone else moved the integration branch — sync and publish again'
     case 'branch-checked-out':
@@ -122,4 +144,37 @@ export function describeOutcome(outcome: PublishOutcome): string {
     default:
       return outcome.message
   }
+}
+
+/**
+ * The publish/sync IPC calls reject on a transport-level failure (a thrown
+ * preload/main error is never converted to a structured outcome — only a
+ * BACKEND refusal is, per PublishOutcome/SyncOutcome). Left uncaught, that
+ * is an unhandled promise rejection the user never sees. This is the text
+ * for that path, distinct from describeOutcome's structured-refusal text.
+ */
+export function describeUnexpectedFailure(action: 'publish' | 'sync', error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error)
+  return `${action === 'publish' ? 'Publish' : 'Sync'} failed unexpectedly: ${detail}`
+}
+
+/**
+ * The composer's submit failure text. A `ComposeResult` failure comes in two
+ * shapes (src/shared/conductor-composer.ts): a pure client-side validation
+ * miss (no partial run, `errors` only — the per-field messages already cover
+ * it) or a run that started and failed partway (`message`, plus, since Task
+ * 5's fix, `survivingLanes` — lanes rollback could NOT remove). The second
+ * shape must never be reported as if it left nothing behind: a lane rollback
+ * failed to clean up is still sitting on disk, and the user has to know.
+ */
+export function describeComposeFailure(result: ComposeResult): string | null {
+  if (result.ok) return null
+  if (!('message' in result)) {
+    return 'Could not create the run — check the highlighted fields.'
+  }
+  if (result.survivingLanes.length === 0) return result.message
+  const ids = result.survivingLanes.map((lane) => lane.roleId).join(', ')
+  const plural = result.survivingLanes.length === 1 ? 'lane' : 'lanes'
+  return `${result.message} ${result.survivingLanes.length} ${plural} could not be cleaned up and ` +
+    `still exist on disk (${ids}) — remove ${result.survivingLanes.length === 1 ? 'it' : 'them'} manually before retrying.`
 }

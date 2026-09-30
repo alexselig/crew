@@ -6785,6 +6785,19 @@ button.grid-topbar__wordmark:hover {
   box-shadow: var(--shadow);
   z-index: 20;
 }
+.conductor--empty {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+}
+.conductor-plan-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
 .conductor-head {
   flex: 0 0 auto;
   display: flex;

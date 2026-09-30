@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { buildRoster, describeOutcome, invalidateProposalNotes, shouldShowConductor } from '../src/renderer/conductor-view-model'
-import type { ConductorSnapshot } from '../src/shared/conductor'
+import {
+  buildRoster,
+  conductorPanelMode,
+  describeComposeFailure,
+  describeOutcome,
+  describeUnexpectedFailure,
+  invalidateProposalNotes,
+  shouldShowConductor
+} from '../src/renderer/conductor-view-model'
+import type { ConductorLane, ConductorSnapshot } from '../src/shared/conductor'
+import type { ComposeResult } from '../src/shared/conductor-composer'
 import type { ProposalNote } from '../src/shared/conductor-proposal'
 
 function snapshot(overrides: Partial<ConductorSnapshot> = {}): ConductorSnapshot {
@@ -137,6 +146,97 @@ describe('describeOutcome', () => {
   it('does not dress a failed test run up as an error', () => {
     expect(describeOutcome({ ok: false, reason: 'tests-failed', output: 'FAIL' }))
       .toBe('Tests failed on the merge result — nothing was published')
+  })
+
+  it('never claims nothing ran on a journal-failed outcome — a merge may already exist', () => {
+    const message = describeOutcome({ ok: false, reason: 'journal-failed', message: 'disk full' })
+    expect(message).not.toMatch(/nothing was run/i)
+    expect(message).toContain('disk full')
+    expect(message).toContain('manual attention')
+  })
+})
+
+describe('describeUnexpectedFailure', () => {
+  it('labels a publish rejection', () => {
+    expect(describeUnexpectedFailure('publish', new Error('ipc channel closed')))
+      .toBe('Publish failed unexpectedly: ipc channel closed')
+  })
+
+  it('labels a sync rejection', () => {
+    expect(describeUnexpectedFailure('sync', new Error('boom')))
+      .toBe('Sync failed unexpectedly: boom')
+  })
+
+  it('stringifies a non-Error rejection rather than crashing', () => {
+    expect(describeUnexpectedFailure('publish', 'raw string')).toBe('Publish failed unexpectedly: raw string')
+  })
+})
+
+describe('conductorPanelMode', () => {
+  it('is loading before any snapshot has arrived', () => {
+    expect(conductorPanelMode(null)).toBe('loading')
+  })
+
+  it('is empty once a disabled snapshot arrives — a normal, non-error state', () => {
+    expect(conductorPanelMode(snapshot({ enabled: false }))).toBe('empty')
+  })
+
+  it('is active once an enabled snapshot arrives', () => {
+    expect(conductorPanelMode(snapshot())).toBe('active')
+  })
+})
+
+describe('describeComposeFailure', () => {
+  const lane = (roleId: string): ConductorLane => ({
+    id: `lane-${roleId}`, roleId, kind: 'author', branch: `crew/lane/${roleId}`,
+    worktree: `/tmp/lanes/${roleId}`, sessionId: null,
+    agent: { presetId: 'copilot-cli', model: null },
+    status: 'working', dispatches: 0
+  })
+
+  it('reports nothing for a successful compose', () => {
+    expect(describeComposeFailure({ ok: true, lanes: [] })).toBeNull()
+  })
+
+  it('falls back to a generic message for a pure validation rejection', () => {
+    const result: ComposeResult = { ok: false, errors: [{ field: 'repo', message: 'choose a repository' }] }
+    expect(describeComposeFailure(result)).toBe('Could not create the run — check the highlighted fields.')
+  })
+
+  it('reports the failure message alone when rollback fully cleaned up', () => {
+    const result: ComposeResult = {
+      ok: false, failedRow: 1, message: 'agent failed to launch',
+      errors: [], cleanupFailures: [], survivingLanes: []
+    }
+    expect(describeComposeFailure(result)).toBe('agent failed to launch')
+  })
+
+  it('never pretends a failed compose left nothing behind — names every surviving lane', () => {
+    const result: ComposeResult = {
+      ok: false, failedRow: 1, message: 'agent failed to launch',
+      errors: [],
+      cleanupFailures: [{ resource: 'lane', id: 'lane-builder', message: 'worktree busy' }],
+      survivingLanes: [lane('builder')]
+    }
+    const described = describeComposeFailure(result)
+    expect(described).toContain('agent failed to launch')
+    expect(described).toContain('builder')
+    expect(described).toMatch(/still exist on disk/)
+  })
+
+  it('pluralises correctly for more than one surviving lane', () => {
+    const result: ComposeResult = {
+      ok: false, failedRow: 2, message: 'agent failed to launch',
+      errors: [],
+      cleanupFailures: [
+        { resource: 'lane', id: 'lane-builder', message: 'x' },
+        { resource: 'lane', id: 'lane-reviewer', message: 'x' }
+      ],
+      survivingLanes: [lane('builder'), lane('reviewer')]
+    }
+    const described = describeComposeFailure(result)
+    expect(described).toContain('2 lanes')
+    expect(described).toContain('builder, reviewer')
   })
 })
 

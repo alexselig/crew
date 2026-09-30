@@ -68,13 +68,11 @@ describe('buildPlanDocument', () => {
     expect(doc.rows[0].modelLabel).toBe('default model')
   })
 
-  it('attaches a blocking note to its own row and refuses Create', () => {
+  it('attaches a blocking note to its own row', () => {
     const doc = buildPlanDocument(
       roster({ notes: [{ row: 0, severity: 'blocking', message: 'opus is not an available model — choose one' }] })
     )
     expect(doc.rows[0].problems).toEqual(['opus is not an available model — choose one'])
-    expect(doc.blockingCount).toBe(1)
-    expect(doc.canCreate).toBe(false)
   })
 
   it('lets warnings through — they inform, they do not block', () => {
@@ -82,7 +80,6 @@ describe('buildPlanDocument', () => {
       roster({ notes: [{ row: 0, severity: 'warning', message: 'no reviewer proposed' }] })
     )
     expect(doc.rows[0].warnings).toEqual(['no reviewer proposed'])
-    expect(doc.canCreate).toBe(true)
   })
 
   it('collects roster-wide notes separately from row notes', () => {
@@ -98,7 +95,6 @@ describe('buildPlanDocument', () => {
       roster({ notes: [{ row: 7, severity: 'blocking', message: 'stale' }] })
     )
     expect(doc.rows[0].problems).toEqual([])
-    expect(doc.canCreate).toBe(true)
   })
 
   // Both files touched by this feature carry the same untrusted-text
@@ -154,9 +150,9 @@ describe('buildPlanDocument', () => {
     const blocked = buildPlanDocument(
       roster({ notes: [{ row: 0, severity: 'blocking', message: 'stale preset' }] })
     )
-    expect(blocked.canCreate).toBe(false)
+    expect(blocked.rows[0].problems).toEqual(['stale preset'])
     // The pure action carries no disabled-ness at all — opening the composer
-    // is never gated on canCreate/blockingCount. Creation itself is still
+    // is never gated on a blocking-note count. Creation itself is still
     // gated, but by validateRoster inside the composer's own submit, not here.
     expect(planDialogAction()).toEqual({ label: 'Continue' })
     const source = readFileSync('src/renderer/components/ConductorPlanDialog.tsx', 'utf8')

@@ -12,6 +12,11 @@ import type { Agent, CustomView, CustomViewGroupBy, CustomViewItem, CustomViewMo
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
 import type { ConductorConfig, ConductorLane, LaneAgent, TestRecipe } from '../shared/conductor'
+import {
+  validateMembershipChange,
+  type MembershipSession,
+  type MembershipWorkspace
+} from '../shared/conductor-membership'
 import { AtomicWriteError, atomicWriteFile, syncParentDirectory } from './atomic-file'
 
 interface PersistInternalOptions {
@@ -407,6 +412,70 @@ function isValidConductorLane(value: unknown): value is ConductorLane {
     optionalFields(value, ['blockedReason'], isString) &&
     isNumber(value.dispatches) &&
     isString(value.workspaceId) && value.workspaceId.length > 0
+}
+
+/**
+ * The single enforcement point for src/shared/conductor-membership.ts's
+ * exclusivity rule: no session may end up a member of more than one
+ * conducted workspace. Every session-membership mutation in
+ * session-manager.ts (setWorkspaceIds/addToWorkspace/removeFromWorkspace/
+ * moveToWorkspace/archiveSession/…) bottoms out in Store.saveSessions with
+ * the FULL proposed session list, so enforcing it exactly once here — rather
+ * than at each of those call sites — is what makes it impossible to bypass.
+ *
+ * A workspace is "conducted" iff it has a persisted ConductorConfig; there
+ * is no separate `conducted` flag on Workspace itself.
+ *
+ * Fail-closed, but never by throwing: this runs on ordinary session saves,
+ * not on a boundary that is allowed to reject a whole write. A session whose
+ * proposed workspaceIds would violate exclusivity has every conducted
+ * workspace AFTER THE FIRST clamped off (the same choice validateRoster's
+ * caller effectively already made by proposing the earlier one first);
+ * every non-conducted membership, and a workspace id that no longer exists
+ * at all (defensive — normal operation keeps membership referring only to
+ * real, current workspaces), passes through unexamined.
+ */
+export function enforceMembershipExclusivity(
+  sessions: readonly PersistedSession[],
+  workspaces: readonly Workspace[],
+  conductorConfigs: readonly ConductorConfig[]
+): PersistedSession[] {
+  if (!sessions.some((s) => s.workspaceIds && s.workspaceIds.length > 1)) return [...sessions]
+
+  const knownWorkspaceIds = new Set(workspaces.map((w) => w.id))
+  const conductedIds = new Set(conductorConfigs.map((c) => c.workspaceId))
+  const membershipWorkspaces: MembershipWorkspace[] = workspaces.map((w) => ({
+    id: w.id,
+    name: w.name,
+    conducted: conductedIds.has(w.id)
+  }))
+  const proposedWorkspaceIds: string[][] = sessions.map((s) =>
+    // A workspace id the graph does not recognise would make
+    // validateMembershipChange's own graph check throw; dropping it here,
+    // before that check ever runs, is what keeps a stale/dangling id from
+    // taking down an otherwise-valid save.
+    (s.workspaceIds ?? []).filter((id) => knownWorkspaceIds.has(id))
+  )
+  const membershipSessions: MembershipSession[] = sessions.map((s, index) => ({
+    id: s.id,
+    label: s.label,
+    workspaceIds: proposedWorkspaceIds[index]
+  }))
+
+  return sessions.map((session, index) => {
+    const proposed = proposedWorkspaceIds[index]
+    const verdict = validateMembershipChange(membershipWorkspaces, membershipSessions, {
+      sessionId: session.id,
+      nextWorkspaceIds: proposed
+    })
+    const kept = verdict.ok
+      ? proposed
+      : proposed.filter((id) => !verdict.conflicts.some((c) => c.otherWorkspaceId === id))
+
+    const unchanged = (session.workspaceIds ?? []).length === kept.length &&
+      (session.workspaceIds ?? []).every((id, i) => id === kept[i])
+    return unchanged ? session : { ...session, workspaceIds: kept }
+  })
 }
 
 function validSession(value: unknown, savedSet = false): boolean {
@@ -981,7 +1050,7 @@ export class Store {
   }
 
   saveSessions(list: PersistedSession[]): void {
-    this.data.sessions = list
+    this.data.sessions = enforceMembershipExclusivity(list, this.data.workspaces, this.data.conductorConfigs)
     this.persist()
   }
 

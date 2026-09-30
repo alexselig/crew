@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { UNSUPPORTED_CUSTOM_PRESET, validateRoster, type RosterDraft } from '../src/shared/conductor-composer'
 
 function draft(overrides: Partial<RosterDraft> = {}): RosterDraft {
@@ -91,5 +92,28 @@ describe('validateRoster', () => {
     const result = validateRoster(draft({ rows }), { maxLanes: 2 })
     expect(result.ok).toBe(false)
     expect(result.errors).toContainEqual({ field: 'rows[0].agent.presetId', message: 'choose an agent' })
+  })
+})
+
+describe('ConductorComposer.tsx — never claims a failed compose left nothing behind', () => {
+  // The component itself renders nothing under vitest's node-only config;
+  // this pins the WIRING (the pure text of describeComposeFailure is
+  // covered directly in conductor-view-model.test.ts) — that submit routes
+  // through it rather than a shortcut like `'message' in result` that drops
+  // survivingLanes on the floor (Task 5 finding 3, re-broken once already).
+  const source = readFileSync('src/renderer/components/ConductorComposer.tsx', 'utf8')
+
+  it('imports describeComposeFailure from the pure view-model', () => {
+    expect(source).toMatch(/import\s*\{[^}]*describeComposeFailure[^}]*\}\s*from\s*'\.\.\/conductor-view-model'/)
+  })
+
+  it('routes the submit failure through describeComposeFailure, not a string-matched shortcut', () => {
+    const submitIndex = source.indexOf('const submit =')
+    expect(submitIndex).toBeGreaterThan(-1)
+    const submitBody = source.slice(submitIndex, source.indexOf('const submit =', submitIndex + 1) === -1
+      ? source.indexOf('\n\n  return (', submitIndex)
+      : source.length)
+    expect(submitBody).toContain('setSubmitError(describeComposeFailure(result))')
+    expect(submitBody).not.toMatch(/'message' in result/)
   })
 })

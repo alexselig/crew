@@ -13,7 +13,7 @@ import {
   type ProposalNote,
   type ReconciledRoster
 } from '../../shared/conductor-proposal'
-import { invalidateProposalNotes } from '../conductor-view-model'
+import { invalidateProposalNotes, describeComposeFailure } from '../conductor-view-model'
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
 import { defaultLaneAgent, getCopilotModelSelection } from '../new-session-model'
 import {
@@ -180,9 +180,7 @@ export function ConductorComposer({ presets, maxLanes, initial, onCancel, onComp
     setSubmitError(null)
     try {
       const result = await onCompose(draft)
-      if (!result.ok) {
-        setSubmitError('message' in result ? result.message : 'could not create the run')
-      }
+      setSubmitError(describeComposeFailure(result))
     } finally {
       setSubmitting(false)
     }
