@@ -11,6 +11,7 @@ import { dirname, join, basename } from 'node:path'
 import type { Agent, CustomView, CustomViewGroupBy, CustomViewItem, CustomViewMode, Settings, SessionSet } from '../shared/types'
 import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
+import type { ConductorConfig, ConductorLane, LaneAgent, TestRecipe } from '../shared/conductor'
 import { AtomicWriteError, atomicWriteFile, syncParentDirectory } from './atomic-file'
 
 interface PersistInternalOptions {
@@ -103,6 +104,13 @@ interface StoreData {
   workspaces: Workspace[]
   customViews: CustomView[]
   agents: Agent[]
+  /** Per-workspace Conductor settings, one record per workspaceId. Validated
+   * per-record on load: a malformed record is dropped, never coerced (see
+   * isValidConductorConfig). */
+  conductorConfigs: ConductorConfig[]
+  /** The lane roster. Persisted so an app restart never orphans a lane's
+   * worktree or its running session (see isValidConductorLane). */
+  conductorLanes: ConductorLane[]
   windowBounds?: WindowBounds
   /** Ids of the one-time data migrations already applied to this store (see
    * MIGRATIONS), so each runs at most once. */
@@ -117,7 +125,9 @@ const EMPTY: StoreData = {
   sets: [],
   workspaces: [],
   customViews: [],
-  agents: []
+  agents: [],
+  conductorConfigs: [],
+  conductorLanes: []
 }
 
 /** One-time, ordered data migrations. Each is recorded by id in
@@ -326,6 +336,63 @@ function hasUniqueCustomViewIds(views: readonly CustomView[]): boolean {
 
 function optionalFields(record: Record<string, unknown>, keys: string[], valid: (value: unknown) => boolean): boolean {
   return keys.every((key) => record[key] === undefined || valid(record[key]))
+}
+
+/** Keeps individual malformed entries out of a collection without failing the
+ * whole store over them (unlike validateStore's whole-array validators). A
+ * corrupt conductor record must not be able to take the session roster down
+ * with it — see conductor-journal.ts's header comment for the same principle
+ * applied to the journal. Non-array input is treated as absent, not fatal. */
+function filterValid<T>(value: unknown, valid: (v: unknown) => v is T): T[] {
+  return Array.isArray(value) ? value.filter(valid) : []
+}
+
+function isValidTestRecipeStep(value: unknown): value is { command: string; args: string[]; timeoutMs: number } {
+  return isRecord(value) && isString(value.command) && isStrings(value.args) && isNumber(value.timeoutMs)
+}
+
+function isValidTestRecipe(value: unknown): value is TestRecipe {
+  return isRecord(value) &&
+    isString(value.command) && isStrings(value.args) && isString(value.cwd) && isNumber(value.timeoutMs) &&
+    (value.setup === undefined || isValidTestRecipeStep(value.setup))
+}
+
+/** A malformed record is dropped, never coerced: workspaceId, repo,
+ * integrationBranch, integrationWorktree and lanesDir are the identity and
+ * the filesystem paths this config points at, so an empty one is unusable,
+ * not merely incomplete. */
+function isValidConductorConfig(value: unknown): value is ConductorConfig {
+  return isRecord(value) &&
+    isString(value.workspaceId) && value.workspaceId.length > 0 &&
+    isString(value.repo) && value.repo.length > 0 &&
+    isString(value.integrationBranch) && value.integrationBranch.length > 0 &&
+    isString(value.integrationWorktree) && value.integrationWorktree.length > 0 &&
+    isString(value.lanesDir) && value.lanesDir.length > 0 &&
+    isNumber(value.maxLanes) &&
+    (value.test === null || isValidTestRecipe(value.test))
+}
+
+function isValidLaneAgent(value: unknown): value is LaneAgent {
+  return isRecord(value) && isString(value.presetId) && (value.model === null || isString(value.model))
+}
+
+const LANE_STATUSES = ['working', 'publishing', 'blocked', 'done']
+
+/** A lane whose id, worktree or branch is empty is malformed and dropped —
+ * it points at a worktree that may not exist. branch is null for a reviewer
+ * lane (detached, owns no branch): null is a valid state, only '' is not. */
+function isValidConductorLane(value: unknown): value is ConductorLane {
+  return isRecord(value) &&
+    isString(value.id) && value.id.length > 0 &&
+    isString(value.roleId) &&
+    (value.kind === 'author' || value.kind === 'reviewer') &&
+    isValidLaneAgent(value.agent) &&
+    isString(value.worktree) && value.worktree.length > 0 &&
+    (value.branch === null || (isString(value.branch) && value.branch.length > 0)) &&
+    (value.sessionId === null || isString(value.sessionId)) &&
+    isString(value.status) && LANE_STATUSES.includes(value.status) &&
+    optionalFields(value, ['blockedReason'], isString) &&
+    isNumber(value.dispatches)
 }
 
 function validSession(value: unknown, savedSet = false): boolean {
@@ -549,6 +616,8 @@ export class Store {
       workspaces: raw.workspaces ?? [],
       customViews: raw.customViews ?? [],
       agents: raw.agents ?? [],
+      conductorConfigs: filterValid(raw.conductorConfigs, isValidConductorConfig),
+      conductorLanes: filterValid(raw.conductorLanes, isValidConductorLane),
       windowBounds: raw.windowBounds,
       migrations: [...(raw.migrations ?? [])]
     }
@@ -913,6 +982,34 @@ export class Store {
     this.data.workspaces = list
     this.persist()
     return this.data.workspaces
+  }
+
+  /** Per-workspace Conductor settings. Modelled on getWorkspaces/saveWorkspaces:
+   * same shallow storage, same persist-then-return shape. Malformed records
+   * are dropped on load (see isValidConductorConfig), never coerced. */
+  getConductorConfigs(): ConductorConfig[] {
+    return this.data.conductorConfigs
+  }
+
+  saveConductorConfigs(list: ConductorConfig[]): ConductorConfig[] {
+    this.data.conductorConfigs = list
+    this.persist()
+    return this.data.conductorConfigs
+  }
+
+  /** The lane roster. Persisting it here — rather than leaving it as the
+   * in-memory Map conductor-ipc.ts used to keep — is what stops an app
+   * restart from orphaning every lane worktree and every lane session.
+   * Malformed records are dropped on load (see isValidConductorLane), never
+   * coerced. */
+  getConductorLanes(): ConductorLane[] {
+    return this.data.conductorLanes
+  }
+
+  saveConductorLanes(list: ConductorLane[]): ConductorLane[] {
+    this.data.conductorLanes = list
+    this.persist()
+    return this.data.conductorLanes
   }
 
   getCustomViews(): CustomView[] {

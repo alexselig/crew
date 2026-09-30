@@ -109,6 +109,13 @@ describe('custom view store persistence', () => {
       sets: [set()],
       workspaces: [workspace()],
       agents: [agent()],
+      // Every persisted StoreData field must be seeded so `baseline` (read
+      // before any mutation) matches the shape `persist()` writes after one —
+      // otherwise a newly-added defaulted field (e.g. conductorConfigs/
+      // conductorLanes) makes an unrelated-fields diff fail merely because it
+      // now appears on disk where the raw seed didn't have it.
+      conductorConfigs: [],
+      conductorLanes: [],
       windowBounds: windowBounds(),
       migrations: [
         '2026-07-stale-hide-72h',

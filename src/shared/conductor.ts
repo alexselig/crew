@@ -65,6 +65,20 @@ export interface ConductorSettings {
   test: TestRecipe | null
 }
 
+/** ConductorSettings, persisted per workspace. One record per workspaceId. */
+export interface ConductorConfig {
+  workspaceId: string
+  /** Absolute path to the user's repository. Never a merge target. */
+  repo: string
+  integrationBranch: string
+  /** Crew-owned worktree, permanently DETACHED. */
+  integrationWorktree: string
+  /** Where lane worktrees are created. Git-ignored. */
+  lanesDir: string
+  maxLanes: number
+  test: TestRecipe | null
+}
+
 export interface LaneFacts {
   /** Commits on the lane branch not on the pinned base. */
   ahead: number
