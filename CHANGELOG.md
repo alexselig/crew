@@ -16,10 +16,9 @@ running and supervising multiple AI CLI agent sessions at a glance.
   click away. Crew now drops to the DOM renderer the instant the context goes,
   rather than waiting to find out whether it comes back: correct text beats a
   GPU round-trip.
-- A pane left blank after that fallback. Swapping renderers leaves xterm with no
-  rows marked dirty — the content never changed, only the thing painting it — so
-  a terminal the user was looking at stayed empty until its agent happened to
-  emit another byte. The viewport is now repainted as part of the swap.
+  Acceleration is not given up for good: a demoted terminal takes its context
+  back the next time the window comes to the front, so a click away no longer
+  costs GPU rendering for the rest of the run.
 
 ### Added
 

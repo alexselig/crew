@@ -111,9 +111,41 @@ export function _webglContextCount(): number {
   return accelerated.size
 }
 
+/**
+ * Terminals that were on screen when the GPU took their context away.
+ *
+ * Losing a context is not a permanent verdict on the machine's graphics — on
+ * macOS it mostly means the window was occluded — so a terminal demoted to the
+ * DOM renderer has to have a way back. Without one, the first time the user
+ * clicks away every visible pane drops acceleration for the rest of the run,
+ * and the context budget above manages a resource nothing ever asks for again.
+ */
+const demoted = new Set<XtermEngine>()
+
+/**
+ * Offer their contexts back to terminals the GPU demoted. Called when the
+ * window comes to the front, which is both when acceleration is worth having
+ * again and when asking for a context is likely to succeed.
+ */
+export function _restoreDemotedWebgl(): void {
+  for (const e of [...demoted]) {
+    demoted.delete(e)
+    e.reacquireWebgl()
+  }
+}
+
+// Guarded because the engine is unit-tested under Node, where neither exists;
+// those tests drive _restoreDemotedWebgl() directly.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  window.addEventListener('focus', _restoreDemotedWebgl)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _restoreDemotedWebgl()
+  })
+}
 /** Test seam: release every live WebGL context. */
 export function _resetWebglBudget(): void {
   for (const e of [...accelerated]) e.releaseWebgl()
+  demoted.clear()
 }
 
 /** Test seam: the ceiling enforced on live WebGL contexts. */
@@ -153,7 +185,11 @@ export class XtermEngine implements TerminalEngine {
    * field rather than an inline arrow for that reason alone.
    */
   private readonly onCanvasContextLost = (): void => {
+    const wasVisible = this.mounted
     this.releaseWebgl()
+    // Only terminals the user was actually looking at are worth re-accelerating
+    // later; an off-screen one will take a context on its next mount anyway.
+    if (wasVisible) demoted.add(this)
   }
   private linkActivator: (uri: string) => void = () => {}
   readonly capabilities: EngineCapabilities = { webgl: false, images: false }
@@ -230,7 +266,7 @@ export class XtermEngine implements TerminalEngine {
       // The GPU can still drop a context on its own (OOM / system suspend);
       // release ours so the terminal falls back to the DOM renderer and the
       // slot returns to the budget rather than leaking.
-      webgl.onContextLoss(() => this.releaseWebgl())
+      webgl.onContextLoss(() => this.onCanvasContextLost())
       const before = new Set(this.canvases())
       this.term.loadAddon(webgl)
       // Remember the canvas the addon just created so releaseWebgl can hand the
@@ -251,6 +287,16 @@ export class XtermEngine implements TerminalEngine {
     } catch {
       this.capabilities.webgl = false
     }
+  }
+
+  /**
+   * Take acceleration back after the GPU dropped this terminal's context.
+   * A no-op unless the terminal is still on screen and still unaccelerated, so
+   * it is safe to call on every window focus.
+   */
+  reacquireWebgl(): void {
+    if (!this.mounted || this.webgl) return
+    this.acquireWebgl()
   }
 
   /** Canvases currently inside this terminal's element (the WebGL renderer adds
@@ -275,18 +321,9 @@ export class XtermEngine implements TerminalEngine {
     } catch {
       /* already disposed (e.g. by context loss) */
     }
-    // Disposing the addon swaps in the DOM renderer, but only the rows xterm
-    // thinks are dirty get drawn — and after a context loss nothing is marked
-    // dirty, because the pane's content never changed, only the thing painting
-    // it. A terminal the user is looking at would sit blank until its agent
-    // happened to emit a byte. Repaint the viewport so the swap is invisible.
-    if (this.mounted) {
-      try {
-        this.term.refresh(0, this.term.rows - 1)
-      } catch {
-        /* terminal disposed mid-release */
-      }
-    }
+    // Disposing the addon swaps in the DOM renderer, and xterm's setRenderer
+    // full-refreshes the viewport for us, so the swap needs no repaint here.
+    //
     // Disposing the addon drops the canvas, but the GL context itself is only
     // reclaimed when the browser gets round to collecting it. Chromium counts
     // those not-yet-collected contexts against its 16-context cap, so a burst of
@@ -314,6 +351,7 @@ export class XtermEngine implements TerminalEngine {
   }
 
   dispose(): void {
+    demoted.delete(this)
     this.releaseWebgl()
     try {
       this.term.dispose()

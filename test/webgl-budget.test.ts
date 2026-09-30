@@ -36,7 +36,6 @@ const { FakeWebglAddon, FakeTerminal } = vi.hoisted(() => {
   }
 
   class FakeTerminal {
-    refreshed: Array<[number, number]> = []
     element: {
       parentElement: unknown
       isConnected: boolean
@@ -55,9 +54,6 @@ const { FakeWebglAddon, FakeTerminal } = vi.hoisted(() => {
       getContext(): null
       emit(type: string): void
     }> = []
-    refresh(start: number, end: number): void {
-      this.refreshed.push([start, end])
-    }
     loadAddon(): void {
       const listeners: Record<string, Array<() => void>> = {}
       this.canvases.push({
@@ -146,6 +142,7 @@ import {
   createXtermEngine,
   _webglContextCount,
   _resetWebglBudget,
+  _restoreDemotedWebgl,
   _MAX_WEBGL_CONTEXTS
 } from '../src/renderer/terminal/xterm-engine'
 
@@ -297,31 +294,47 @@ describe('WebGL context budget', () => {
     expect(FakeWebglAddon.live).toBe(0)
   })
 
-  it('repaints the whole viewport when a visible terminal drops to the DOM renderer', () => {
+  it('takes acceleration back when the window comes to the front again', () => {
     const s = makeSession()
     s.engine.mount(s.host as unknown as HTMLElement)
-    const term = (s.engine as unknown as { term: InstanceType<typeof FakeTerminal> }).term
-    term.refreshed.length = 0
-
     webglCanvasOf(s.engine).emit('webglcontextlost')
+    expect(s.engine.capabilities.webgl).toBe(false)
 
-    // Without this the pane stays blank until its agent happens to emit a byte.
-    expect(term.refreshed).toContainEqual([0, term.rows - 1])
+    // Losing a context to an occluded window is not a permanent verdict on the
+    // machine's graphics. Without this the FIRST click away would demote every
+    // visible pane to the DOM renderer for the rest of the run.
+    _restoreDemotedWebgl()
+
+    expect(s.engine.capabilities.webgl).toBe(true)
+    expect(_webglContextCount()).toBe(1)
   })
 
-  it('does not repaint an off-screen terminal whose context was reclaimed', () => {
+  it('does not take a context back for a terminal that is no longer on screen', () => {
     const s = makeSession()
     s.engine.mount(s.host as unknown as HTMLElement)
+    webglCanvasOf(s.engine).emit('webglcontextlost')
     s.engine.unmount(s.host as unknown as HTMLElement)
-    const term = (s.engine as unknown as { term: InstanceType<typeof FakeTerminal> }).term
-    term.refreshed.length = 0
 
-    s.engine.releaseWebgl()
+    _restoreDemotedWebgl()
 
-    expect(term.refreshed).toEqual([])
+    expect(s.engine.capabilities.webgl).toBe(false)
+    expect(_webglContextCount()).toBe(0)
   })
 
-  it('frees the context when a session is closed', () => {    const sessions = Array.from({ length: 4 }, makeSession)
+  it('does not restore a disposed terminal', () => {
+    const s = makeSession()
+    s.engine.mount(s.host as unknown as HTMLElement)
+    webglCanvasOf(s.engine).emit('webglcontextlost')
+    s.engine.dispose()
+
+    _restoreDemotedWebgl()
+
+    expect(_webglContextCount()).toBe(0)
+    expect(FakeWebglAddon.live).toBe(0)
+  })
+
+  it('frees the context when a session is closed', () => {
+    const sessions = Array.from({ length: 4 }, makeSession)
     for (const s of sessions) s.engine.mount(s.host as unknown as HTMLElement)
     expect(_webglContextCount()).toBe(4)
 
