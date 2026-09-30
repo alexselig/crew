@@ -275,6 +275,63 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     expect(args).not.toContain('--keychain-profile')
   })
 
+  it('prefers an App Store Connect API key over APPLE_* credentials', () => {
+    // On an MDM-managed Mac the data-protection keychain refuses the write
+    // permanently, so the API key — a file plus two non-secret ids — is the
+    // only route that survives. It must win over a password if both are set.
+    const { dir } = fixture()
+    const keyPath = join(dir, 'AuthKey_ABCDE12345.p8')
+    writeFileSync(keyPath, '-- not a real key --')
+    spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
+      cwd: dir, encoding: 'utf8', timeout: 5000,
+      env: {
+        ...process.env,
+        PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
+        CREW_APP: join(dir, 'dist', 'mac-arm64', 'Crew.app'),
+        CREW_ARCH: 'arm64',
+        CREW_REAL_CODESIGN: join(dir, 'bin', 'codesign'),
+        CREW_CODESIGN_RETRY_DELAY: '0',
+        CREW_NOTARY_PROFILE: 'definitely-not-a-stored-profile',
+        APPLE_API_KEY: keyPath,
+        APPLE_API_KEY_ID: 'ABCDE12345',
+        APPLE_API_ISSUER: '11111111-2222-3333-4444-555555555555',
+        APPLE_ID: 'someone@example.com',
+        APPLE_APP_SPECIFIC_PASSWORD: 'abcd-efgh-ijkl-mnop',
+        APPLE_TEAM_ID: 'TEAMID1234'
+      }
+    })
+    const args = readFileSync(join(dir, 'notary.args'), 'utf8')
+    expect(args).toContain(`--key ${keyPath}`)
+    expect(args).toContain('--key-id ABCDE12345')
+    expect(args).toContain('--issuer 11111111-2222-3333-4444-555555555555')
+    expect(args).not.toContain('--keychain-profile')
+    expect(args).not.toContain('--password')
+  })
+
+  it('stops before signing when the API key file is missing', () => {
+    // A stale exported path would otherwise sign for minutes, then fail at
+    // notarization with the app already built.
+    const { dir } = fixture()
+    const result = spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
+      cwd: dir, encoding: 'utf8', timeout: 5000,
+      env: {
+        ...process.env,
+        PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
+        CREW_APP: join(dir, 'dist', 'mac-arm64', 'Crew.app'),
+        CREW_ARCH: 'arm64',
+        CREW_REAL_CODESIGN: join(dir, 'bin', 'codesign'),
+        CREW_CODESIGN_RETRY_DELAY: '0',
+        CREW_NOTARY_PROFILE: 'definitely-not-a-stored-profile',
+        APPLE_API_KEY: join(dir, 'gone.p8'),
+        APPLE_API_KEY_ID: 'ABCDE12345',
+        APPLE_API_ISSUER: '11111111-2222-3333-4444-555555555555'
+      }
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('is not a file')
+    expect(existsSync(join(dir, 'signed.marker'))).toBe(false)
+  })
+
   it('uses Apple timestamp service explicitly for app and DMG signatures', () => {
     const source = readFileSync(resolve('scripts/sign-notarize.sh'), 'utf8')
     expect(source).toContain('TIMESTAMP_URL="${CREW_TIMESTAMP_URL:-$(bash "$REPO_DIR/scripts/resolve-timestamp-url.sh" http://timestamp.apple.com/ts01)}"')

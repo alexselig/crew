@@ -14,6 +14,14 @@ show SmartScreen warnings. Publishing does not install or restart Crew.
     --apple-id "you@example.com" --team-id "42KAR3VVM7"
   ```
   Supply the app-specific password through the prompt, not a committed file.
+  If the keychain refuses the write — which it does permanently on an
+  MDM-managed Mac — use an App Store Connect API key instead:
+  ```bash
+  export APPLE_API_KEY="$HOME/private_keys/AuthKey_XXXXXXXXXX.p8"
+  export APPLE_API_KEY_ID="XXXXXXXXXX"
+  export APPLE_API_ISSUER="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  ```
+  See [MACOS-SIGNING.md](./MACOS-SIGNING.md) for all three credential routes.
 - Personal GitHub account `alexselig` available through `gh auth`.
 - Rosetta for testing the Intel app on Apple Silicon.
 
