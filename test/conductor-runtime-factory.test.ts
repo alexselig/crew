@@ -299,4 +299,72 @@ describe('samePath', () => {
     expect(samePath('/some/repo/', '/some/repo', { realpath: unresolvable })).toBe(true)
     expect(samePath('/some/repo', '/some/other', { realpath: unresolvable })).toBe(false)
   })
+
+  // Fix round 2, Important finding: when a side cannot be canonicalized, the
+  // resolve()-based fallback must compare exactly, with no case folding.
+  // Case-insensitivity is a property of the volume a path lives on, not of
+  // the host OS, so folding case for an unproven path can make two
+  // genuinely different repositories compare equal. Losing that fold only
+  // costs a false reject for a path that doesn't exist on disk (which
+  // cannot be conducted anyway), never a false accept of a real one.
+  it('does not treat two paths differing only by case as equal when one side is unresolvable, even on darwin/win32', () => {
+    // The real path resolves and settles its true on-disk case; the
+    // "REPO" side is a different, non-existent path (a typo, or a repo
+    // that hasn't been cloned there yet) that merely happens to share the
+    // same letters in a different case. The old case-folding fallback
+    // would have compared these equal on darwin/win32 once the ENOENT side
+    // fell back to resolve() — exactly the false accept this guards
+    // against.
+    const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    const oneSideUnresolvable = (path: string): string => {
+      if (path === '/some/repo') return '/some/repo'
+      throw enoent
+    }
+    expect(samePath('/some/repo', '/some/REPO', { realpath: oneSideUnresolvable })).toBe(false)
+  })
+
+  // Fix round 2, Important finding: a realpath failure that does NOT prove
+  // the path is missing (EACCES: exists but unreadable; ELOOP: a symlink
+  // cycle) must never be silently treated as "doesn't exist, fall back" —
+  // that would let two genuinely different, merely-unreadable paths
+  // compare equal by accident of both falling back to the same kind of
+  // resolve()-based comparison as the ENOENT case, or worse, could mask a
+  // real difference behind a guess. samePath fails closed here by
+  // rethrowing: composeRun's one call site (conductor-compose.ts:58) is a
+  // plain `if (!samePath(...))` inside an already-async, unwrapped IPC
+  // handler (conductor-ipc.ts's CONDUCTOR_COMPOSE), and this codebase's
+  // documented convention (see the comment above conductor-ipc.ts's
+  // ipc.handle calls) is that a thrown error there is deliberately left
+  // to propagate: ipcMain.handle marshals it into a rejected invoke()
+  // promise for the renderer, so it becomes a genuine, honest error rather
+  // than an unhandled crash or the misleading "this run was composed for a
+  // different repository" message a swallowed-to-false EACCES would
+  // otherwise produce.
+  it('rethrows a non-ENOENT/ENOTDIR realpath failure (EACCES) rather than guessing', () => {
+    const eacces = Object.assign(new Error('EACCES'), { code: 'EACCES' })
+    const denied = (): string => {
+      throw eacces
+    }
+    expect(() => samePath('/some/repo', '/some/other', { realpath: denied })).toThrow(eacces)
+  })
+
+  it('rethrows a non-ENOENT/ENOTDIR realpath failure (ELOOP) rather than guessing', () => {
+    const eloop = Object.assign(new Error('ELOOP'), { code: 'ELOOP' })
+    const looping = (): string => {
+      throw eloop
+    }
+    expect(() => samePath('/some/repo', '/some/other', { realpath: looping })).toThrow(eloop)
+  })
+
+  // ENOTDIR ("a non-final path segment exists but is not a directory")
+  // proves the full path cannot exist on disk, exactly like ENOENT — so it
+  // must fall back the same way, not be treated as an unproven failure.
+  it('falls back to resolve()-based comparison on ENOTDIR, same as ENOENT', () => {
+    const enotdir = Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' })
+    const notADirectory = (): string => {
+      throw enotdir
+    }
+    expect(samePath('/some/repo/', '/some/repo', { realpath: notADirectory })).toBe(true)
+    expect(samePath('/some/repo', '/some/other', { realpath: notADirectory })).toBe(false)
+  })
 })

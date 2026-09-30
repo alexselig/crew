@@ -117,33 +117,61 @@ export interface SamePathDeps {
   realpath?(path: string): string
 }
 
+// The only realpath failures that *prove* a path cannot exist on disk.
+// ENOENT: no such file or directory. ENOTDIR: a non-final segment of the
+// path exists but is not a directory, which likewise means the full path
+// cannot exist. Both are safe to treat as "unresolvable, fall back to
+// resolve()" because there is nothing on disk left to have been mistaken
+// for something else. Anything else (EACCES: exists but unreadable; ELOOP:
+// a symlink cycle; or any error this code doesn't recognise) means realpath
+// could not *disprove* existence either — the path might well resolve to
+// something samePath cannot see — so those must not be silently downgraded
+// to "doesn't exist".
+const PROVEN_NOT_FOUND_CODES = new Set(['ENOENT', 'ENOTDIR'])
+
 function canonicalize(path: string, realpath: (path: string) => string): { value: string; resolved: boolean } {
   try {
     return { value: realpath(path), resolved: true }
-  } catch {
-    // Doesn't exist (yet), or otherwise unresolvable: not an error condition
-    // for an identity check — fall back to the plain resolve()-based path.
-    return { value: resolve(path), resolved: false }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code !== undefined && PROVEN_NOT_FOUND_CODES.has(code)) {
+      // Doesn't exist (yet): not an error condition for an identity check —
+      // fall back to the plain resolve()-based path.
+      return { value: resolve(path), resolved: false }
+    }
+    // EACCES, ELOOP, or anything unrecognised: realpath could not prove the
+    // path doesn't exist, so samePath cannot safely claim to know its
+    // identity either. Rethrow rather than guessing — see samePath's doc
+    // comment for why this is the fail-closed choice, and
+    // conductor-compose.ts:58 for how the one caller surfaces it.
+    throw error
   }
 }
 
 /** Pure (aside from the filesystem read realpath() itself performs).
  *  Compares two filesystem paths the way a repository identity check needs
  *  to: the same directory should compare equal regardless of a trailing
- *  slash, a `.`/`..` segment, a case-variant alias on a case-insensitive
- *  filesystem, an NFC/NFD Unicode alias, or a symlink — while a genuinely
- *  different directory must never compare equal. Shared by
+ *  slash, a `.`/`..` segment, a symlink, or an NFC/NFD Unicode alias —
+ *  while a genuinely different directory, or a case-variant of one on a
+ *  case-sensitive volume, must never compare equal. Shared by
  *  conductor-compose.ts so that discipline lives in one place rather than
  *  being re-derived at each comparison site.
  *
  *  Strategy: canonicalize each side with realpath() first, since on macOS
  *  that resolves case, symlinks and Unicode aliasing all at once for
- *  anything that actually exists on disk. Only when a side cannot be
- *  resolved (most commonly: it doesn't exist yet) does this fall back to
- *  resolve() plus, on case-insensitive platforms only (darwin, win32), a
- *  case-insensitive comparison — realpath already settled the case question
- *  correctly for anything it *could* resolve, so that fallback must never
- *  apply when both sides resolved. */
+ *  anything that actually exists on disk. Only when a side is *proven* not
+ *  to exist (ENOENT/ENOTDIR — see PROVEN_NOT_FOUND_CODES) does this fall
+ *  back to an exact resolve()+NFC comparison, with NO case folding: whether
+ *  two differently-cased paths name the same directory is a property of the
+ *  volume they live on, not of the host OS (macOS ships both case-sensitive
+ *  and case-insensitive volumes), and a path that doesn't exist on disk
+ *  cannot be conducted anyway — so the only cost of comparing case-exactly
+ *  here is a false reject for a path that isn't real, never a false accept
+ *  of two paths that are. Any other realpath failure (EACCES, ELOOP, or
+ *  unrecognised) is not caught here at all: canonicalize() rethrows it,
+ *  because realpath failing to *disprove* existence is not license to
+ *  guess — samePath must fail closed by refusing to answer rather than by
+ *  risking a false accept. */
 export function samePath(a: string, b: string, deps: SamePathDeps = {}): boolean {
   const realpath = deps.realpath ?? ((path: string) => realpathSync.native(path))
   const canonA = canonicalize(a, realpath)
@@ -151,12 +179,7 @@ export function samePath(a: string, b: string, deps: SamePathDeps = {}): boolean
 
   const normalizedA = canonA.value.normalize('NFC')
   const normalizedB = canonB.value.normalize('NFC')
-  if (normalizedA === normalizedB) return true
-  if (canonA.resolved && canonB.resolved) return false
-
-  const isCaseInsensitivePlatform = process.platform === 'darwin' || process.platform === 'win32'
-  if (!isCaseInsensitivePlatform) return false
-  return normalizedA.toLowerCase() === normalizedB.toLowerCase()
+  return normalizedA === normalizedB
 }
 
 export interface CreateConductorRuntimeDeps {
