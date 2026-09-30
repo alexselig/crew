@@ -217,7 +217,7 @@ export interface CreateConductorRuntimeDeps {
 }
 
 /** Assembles the live ConductorRuntime for one workspace from its persisted
- *  ConductorConfig. Does not itself call conductorPaths(): the caller (Task 6)
+ *  ConductorConfig. Does not itself call conductorPaths(): the caller
  *  derives journalPath (and the config's own integrationWorktree/lanesDir)
  *  once, up front, so this factory has a single, already-validated source of
  *  truth for where things live. */

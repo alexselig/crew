@@ -113,6 +113,24 @@ describe('createLaneSessionBridge', () => {
     expect(manager.create).not.toHaveBeenCalled()
   })
 
+  // Cheap coverage for the sibling guard (review: deferred minor). A preset
+  // whose args are not an array would reach SessionManager.create and fall
+  // through `req.command || ... || defaultShell()`, silently launching a
+  // bare shell in the lane worktree instead of the intended agent.
+  it('rejects a resolved preset whose args are not an array, and creates nothing', async () => {
+    const manager = fakeManager()
+    const resolveBadArgs = (presetId: string) =>
+      presetId === 'broken'
+        ? ({ command: '/bin/sh', args: 'not-an-array' } as unknown as { command: string; args: string[] })
+        : null
+    const bridge = createLaneSessionBridge({ manager, resolvePreset: resolveBadArgs })
+
+    await expect(
+      bridge.createSession({ cwd: '/lane', presetId: 'broken', model: null, label: 'builder' })
+    ).rejects.toThrow(/non-array args/)
+    expect(manager.create).not.toHaveBeenCalled()
+  })
+
   it('throws and closes the dead session when manager.create returns a failed SessionInfo', async () => {
     const manager = fakeManager({
       create: vi.fn(() => ({

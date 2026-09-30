@@ -66,7 +66,7 @@ describe('publishLane', () => {
     if (outcome.ok) {
       expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(outcome.commit)
     }
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
   })
 
   it('writes intent, merged, published and notified to the journal in order', async () => {
@@ -111,7 +111,7 @@ describe('publishLane', () => {
     const outcomes = [first, second]
     expect(outcomes.filter((o) => o.ok)).toHaveLength(1)
     expect(outcomes.filter((o) => !o.ok && o.reason === 'busy')).toHaveLength(1)
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
   })
 
   it('releases the lock after a conflict so the next lane is not starved', async () => {
@@ -128,7 +128,7 @@ describe('publishLane', () => {
     if (!conflicted.ok && conflicted.reason === 'conflict') {
       expect(conflicted.conflictPaths).toContain('shared.txt')
     }
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
     expect(b.status).toBe('blocked')
     expect(b.blockedReason).toBeTruthy()
   })
@@ -176,7 +176,7 @@ describe('publishLane', () => {
     expect(outcome).toMatchObject({ ok: false, reason: 'tests-failed' })
     expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
     expect(lane.status).toBe('blocked')
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
   })
 
   // Finding 7: resetIntegrationTo previously ignored the exit codes of
@@ -228,7 +228,7 @@ describe('publishLane', () => {
     // and their exit codes discarded, so the failure vanished entirely.
     expect(lane.blockedReason).toMatch(/could not be reset/i)
     expect(lane.blockedReason).toMatch(/manual attention/i)
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
 
     // Permissions restored: the worktree can now actually be untangled by
     // hand, proving the failure was real and not a mock.
@@ -369,7 +369,7 @@ describe('publishLane', () => {
       chmodSync(root, 0o700)
     }
     expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
   })
 
   // Finding 6: when the 'merged' journal write cannot be made durable, the
@@ -408,7 +408,7 @@ describe('publishLane', () => {
     const outcome = await conductor.publishLane(lane)
 
     expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
     expect(lane.status).toBe('blocked')
     expect(lane.blockedReason).toBeTruthy()
     const phases = realJournal.read().map((e) => e.phase)
@@ -421,7 +421,7 @@ describe('publishLane', () => {
   // forever, refusing every later publishLane/syncLane/reconcile. Forcing
   // the throw in exactly that gap and then proving the lock is free
   // afterwards is the only way to catch a regression back to that ordering
-  // — this fails against the pre-fix code, where isPublishing() stays true
+  // — this fails against the pre-fix code, where the lock stays held
   // and the second publishLane call below returns { reason: 'busy' } forever
   // instead of succeeding.
   it('releases the lock (never acquires it) when newOpId throws before the try/finally', async () => {
@@ -447,11 +447,11 @@ describe('publishLane', () => {
     expect(journal.read()).toHaveLength(0)
     // Load-bearing: on the pre-fix ordering this is `true` (stuck) and the
     // retry below returns `{ reason: 'busy' }` instead of succeeding.
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
 
     const retried = await conductor.publishLane(lane)
     expect(retried.ok).toBe(true)
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
   })
 
   // Finding 3: the 'tests' journal write used to be best-effort — if it
@@ -517,7 +517,7 @@ describe('publishLane', () => {
     expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
     expect(testsRan).toBe(false)
     expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
     // Finding 6: previously nothing after the failed 'tests' write ever ran
     // to move the lane out of 'publishing' (set before the merge step), so
     // it was stuck showing "in progress" forever for an operation that had
@@ -569,7 +569,7 @@ describe('publishLane', () => {
     } finally {
       chmodSync(root, 0o700)
     }
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
   })
 }, { timeout: 30_000 })
 
@@ -618,7 +618,7 @@ describe('syncLane', () => {
 
     const syncOutcome = await syncPromise
     expect(syncOutcome.ok).toBe(true)
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
 
     // The lock was released cleanly, so a real publish can still land after.
     const published = await conductor.publishLane(a)
@@ -664,7 +664,7 @@ describe('syncLane', () => {
   // Task 5, finding 1: lockHolder() is the single source of truth the
   // backend now reads instead of maintaining its own shadow copy. Load-
   // bearing on lockHolder() actually reflecting the SAME lock
-  // publishLane/isPublishing reserve, not a second independent variable.
+  // publishLane reserves, not a second independent variable.
   it('lockHolder() reports the lane id holding the lock while a publish is in flight, then null once released', async () => {
     const { lanes, conductor } = build()
     await lanes.ensureIntegrationWorktree()
@@ -696,10 +696,10 @@ describe('syncLane', () => {
 
     expect(conductor.reserveLock('destroy:other')).toBe(true)
     expect(conductor.lockHolder()).toBe('destroy:other')
-    expect(conductor.isPublishing()).toBe(true)
+    expect(conductor.lockHolder()).not.toBeNull()
     conductor.releaseLock('destroy:other')
     expect(conductor.lockHolder()).toBeNull()
-    expect(conductor.isPublishing()).toBe(false)
+    expect(conductor.lockHolder()).toBeNull()
   })
 
   // Task 5, finding 1 (fix round 1): releaseLock() used to take no owner at
@@ -720,7 +720,7 @@ describe('syncLane', () => {
     // the true holder.
     conductor.releaseLock('impostor')
     expect(conductor.lockHolder()).toBe(lane.id)
-    expect(conductor.isPublishing()).toBe(true)
+    expect(conductor.lockHolder()).not.toBeNull()
 
     await publishPromise
     expect(conductor.lockHolder()).toBeNull()

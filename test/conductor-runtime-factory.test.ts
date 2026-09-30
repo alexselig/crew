@@ -399,6 +399,9 @@ describe('samePath', () => {
   })
 
   it('treats a trailing `.` segment as equal to the directory itself', () => {
-    expect(samePath(root, join(root, '.'))).toBe(true)
+    // A literal, not join(root, '.'): join() collapses the '.' away before
+    // samePath ever sees it, so the old form asserted samePath(root, root)
+    // — tautologically true whatever samePath did with a real trailing '.'.
+    expect(samePath(root, `${root}/.`)).toBe(true)
   })
 })

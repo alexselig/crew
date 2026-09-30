@@ -37,7 +37,6 @@ export interface ConductorDeps {
 export interface Conductor {
   publishLane(lane: ConductorLane): Promise<PublishOutcome>
   syncLane(lane: ConductorLane): Promise<SyncOutcome>
-  isPublishing(): boolean
   /** The lane id (or the 'reconcile' sentinel) currently holding the
    *  single-flight lock, or null when nothing does. Task 5, finding 1: the
    *  IPC backend used to track its own `publishingLaneId`, fed only by its
@@ -130,8 +129,6 @@ export function createConductor(deps: ConductorDeps): Conductor {
   // main-thread JavaScript does not serialise across await: two callers could
   // otherwise both observe null and both proceed.
   let publishing: string | null = null
-
-  const isPublishing = (): boolean => publishing !== null
 
   const lockHolder = (): string | null => publishing
 
@@ -683,5 +680,5 @@ export function createConductor(deps: ConductorDeps): Conductor {
     return { needsAttention: operations.length > 0, operations }
   }
 
-  return { publishLane, syncLane, isPublishing, lockHolder, reserveLock, releaseLock, reconcile }
+  return { publishLane, syncLane, lockHolder, reserveLock, releaseLock, reconcile }
 }
