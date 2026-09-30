@@ -28,6 +28,22 @@ function handlerParts(name: string): { body: ts.ConciseBody; tryStatement: ts.Tr
 }
 
 describe('ConductorPanel — publish/sync never leave an unhandled rejection', () => {
+  it('calls the real window.crew.publishLane(laneId) inside the try block, not outside the guard', () => {
+    // Load-bearing against the exact regression Task 7 fixed: a dummy
+    // try/catch/finally with the real IPC call moved outside it would
+    // satisfy every other assertion here while resurrecting the unhandled
+    // rejection this task exists to prevent.
+    const { tryStatement } = handlerParts('publish')
+    const calls = findCallsTo(tryStatement.tryBlock, 'window.crew.publishLane')
+    expect(calls.some((c) => c.arguments[0]?.getText() === 'laneId')).toBe(true)
+  })
+
+  it('calls the real window.crew.syncLane(laneId) inside the try block, not outside the guard', () => {
+    const { tryStatement } = handlerParts('sync')
+    const calls = findCallsTo(tryStatement.tryBlock, 'window.crew.syncLane')
+    expect(calls.some((c) => c.arguments[0]?.getText() === 'laneId')).toBe(true)
+  })
+
   it('wraps publish in a real try/catch, calling describeUnexpectedFailure in the catch block', () => {
     const { tryStatement } = handlerParts('publish')
     expect(tryStatement.catchClause).toBeDefined()

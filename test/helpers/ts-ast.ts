@@ -11,8 +11,32 @@
 import * as ts from 'typescript'
 import { readFileSync } from 'node:fs'
 
+/** Task 7 fix round 2, hardening: `ts.createSourceFile` alone never reports
+ *  parse errors — a file that fails to parse can still hand back an
+ *  empty/partial tree, and every `findAll`-based assertion over it then
+ *  passes vacuously (nothing found == "no violation"). Running a real
+ *  single-file `ts.Program` and checking its syntactic diagnostics turns an
+ *  unparseable file into a loud test failure instead of a silent pass. */
+/** Task 7 fix round 2, hardening: `ts.createSourceFile` alone never surfaces
+ *  parse errors to the caller — a file that fails to parse can still hand
+ *  back an empty/partial tree, and every `findAll`-based assertion over it
+ *  then passes vacuously (nothing found == "no violation"). The parser
+ *  attaches its syntactic diagnostics to the returned SourceFile as
+ *  `parseDiagnostics` (the same internal field the compiler's own
+ *  `getSyntacticDiagnostics` reads); surfacing it here turns an unparseable
+ *  file into a loud test failure instead of a silent pass, while keeping
+ *  `setParentNodes: true` so every node's `.getText()` still works.
+ *  `parseDiagnostics` isn't in the public `.d.ts`, hence the cast. */
 export function parseSource(path: string): ts.SourceFile {
-  return ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const diagnostics = (source as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? []
+  if (diagnostics.length > 0) {
+    const messages = diagnostics
+      .map((d) => `${path}: ${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`)
+      .join('\n')
+    throw new Error(`parseSource: syntactic errors in ${path}:\n${messages}`)
+  }
+  return source
 }
 
 function walk(root: ts.Node, visit: (n: ts.Node) => void): void {
