@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync, existsSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, isAbsolute, resolve } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
@@ -1931,5 +1931,112 @@ describe('a publish that fails after the merge', () => {
     expect(journal.read().map((e) => e.phase)).toEqual(['intent'])
     expect((await backend.state()).reconciled).toBe(false)
     expect(await backend.publishLane(lane.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+  })
+}, { timeout: 30_000 })
+
+// Wave 5, F-10/F-11. resetIntegrationTo carries an ownership guard of its
+// own, but every earlier guard fired first in the existing scenarios, so
+// deleting it changed nothing that was tested. These reach it directly, and
+// with real repositories: GIT_CEILING_DIRECTORIES is pinned to the scenario
+// root so a guard that fails cannot let git walk out of the temp tree.
+describe('the integration-worktree reset', () => {
+  let previousCeiling: string | undefined
+
+  beforeEach(() => {
+    previousCeiling = process.env.GIT_CEILING_DIRECTORIES
+    process.env.GIT_CEILING_DIRECTORIES = realpathSync.native(root)
+  })
+
+  afterEach(() => {
+    if (previousCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES
+    else process.env.GIT_CEILING_DIRECTORIES = previousCeiling
+  })
+
+  // F-10: the merge itself runs in Crew's own worktree, and only afterwards
+  // — while the tests are running, which takes minutes — does the folder's
+  // `.git` come to point at the user's repository. Nothing between that
+  // moment and the post-test reset re-checks ownership except the guard
+  // inside resetIntegrationTo, so this is the scenario that proves it
+  // carries its own weight: without it the forced checkout detaches the
+  // user's HEAD and discards the work they had staged.
+  it('refuses to reset a folder that has come to point at the user’s repository', async () => {
+    const outer = join(root, 'outer')
+    execFileSync('git', ['init', '-b', 'main', outer])
+    commit(outer, 'shared.txt', 'base\n', 'outer base')
+    writeFileSync(join(outer, 'staged.txt'), 'work the user staged\n')
+    git(['add', 'staged.txt'], outer)
+    const outerHead = git(['rev-parse', 'HEAD'], outer)
+
+    const lanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    settings.test = { command: 'sh', args: ['-c', 'exit 1'], cwd: '.', timeoutMs: 10_000 }
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+
+    const conductor = createConductor({
+      lanes, journal, settings,
+      runTests: async () => {
+        // The base commit really does exist in the user's repository now, so
+        // a `checkout --force --detach` of it there would succeed — this is
+        // a scenario that destroys, not one that merely errors.
+        git(['fetch', settings.repo, 'crew/integration'], outer)
+        writeFileSync(join(settings.integrationWorktree, '.git'), `gitdir: ${join(outer, '.git')}\n`)
+        return { ok: false, output: 'fails' }
+      }
+    })
+
+    const outcome = await conductor.publishLane(lane)
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'tests-failed' })
+    expect(lane.blockedReason).toMatch(/not a git worktree of its own/i)
+    // Load-bearing: the user's branch, HEAD and staged work are untouched.
+    // With the guard removed this same scenario leaves HEAD detached.
+    expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], outer)).toBe('main')
+    expect(git(['rev-parse', 'HEAD'], outer)).toBe(outerHead)
+    expect(git(['diff', '--cached', '--name-only'], outer)).toContain('staged.txt')
+    expect(conductor.lockHolder()).toBeNull()
+  })
+
+  // F-11: the base the repair checks out comes from the journal, which lives
+  // in userData — only as trustworthy as that directory. A tampered entry
+  // naming a branch (or a `--flag`) is not a commit id, and the repair must
+  // say so rather than handing it to `checkout`.
+  it('refuses a recorded base that is not a commit id', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const one = await lanes.create('one', { presetId: 'shell', model: null })
+    const two = await lanes.create('two', { presetId: 'shell', model: null })
+    commit(one.worktree, 'README.md', 'one\n', 'one edits the readme')
+    commit(two.worktree, 'README.md', 'two\n', 'two edits the readme')
+    const facts = await lanes.facts(one)
+    const twoTip = git(['rev-parse', two.branch as string], settings.repo)
+    // A crash between a conflicting merge and its abort: MERGE_HEAD and an
+    // unmerged index are still sitting in the integration worktree, so the
+    // acknowledge has a repair to attempt.
+    git(['checkout', '--detach', facts.laneTip], settings.integrationWorktree)
+    try {
+      execFileSync('git', ['merge', '--no-edit', twoTip], {
+        cwd: settings.integrationWorktree, encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...ENV }
+      })
+    } catch {
+      /* the conflict is the point */
+    }
+    expect(git(['status', '--porcelain'], settings.integrationWorktree)).toMatch(/^UU /m)
+
+    journal.append({
+      opId: 'op-tampered', laneId: one.id, phase: 'intent',
+      baseSha: 'main', laneTip: facts.laneTip, at: 1
+    })
+
+    await conductor.reconcile()
+    const outcome = await conductor.acknowledgeOperation('op-tampered', 'reviewed')
+
+    expect(outcome).toMatchObject({ ok: false, reason: 'worktree-wedged' })
+    if (!outcome.ok) expect(outcome.message).toMatch(/not a commit id/i)
+    // Fail closed: nothing acknowledged, the gate still shut.
+    expect(journal.read().map((e) => e.phase)).toEqual(['intent'])
+    expect((await conductor.reconcile()).needsAttention).toBe(true)
   })
 }, { timeout: 30_000 })

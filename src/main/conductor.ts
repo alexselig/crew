@@ -518,6 +518,20 @@ export function createConductor(deps: ConductorDeps): Conductor {
   }
 
   const resetIntegrationTo = async (sha: string): Promise<void> => {
+    // Wave 5, F-11: `sha` reaches here from the journal, which lives in
+    // userData and is therefore only as trustworthy as that directory. A
+    // tampered entry could name a branch, a `--flag`, or anything else
+    // `checkout` accepts, so the one thing this routine is allowed to do —
+    // put the worktree back at a recorded COMMIT — is checked before git
+    // sees it. Cheap, and the alternative is a checkout of somebody else's
+    // choosing.
+    if (!/^[0-9a-f]{7,64}$/.test(sha)) {
+      throw new Error(
+        `refusing to reset the integration worktree at ${settings.integrationWorktree} to "${sha}": ` +
+          'the recorded base is not a commit id'
+      )
+    }
+
     // Wave 4, B-2: same reason repairIntegrationWorktree checks it — a
     // forced checkout in a repository Conductor does not own is every bit
     // as destructive as a `merge --abort` there, and this routine is

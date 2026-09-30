@@ -224,6 +224,15 @@ export function createConductorController(deps: ConductorBootstrapDeps): Conduct
       )
       config.integrationWorktree = paths.integrationWorktree
       config.lanesDir = paths.lanesDir
+      // Wave 5, F-11: the correction was applied in memory but never written
+      // back, so the store kept the wrong paths and every later bind warned
+      // about them again. Persisted only when this workspace already has a
+      // stored record — a first compose writes its own config once it has
+      // succeeded, and binding must not create a record for a workspace that
+      // has none.
+      if (deps.getConductorConfigs().some((c) => c.workspaceId === config.workspaceId)) {
+        storeConfig(config)
+      }
     }
     const runtime: ConductorRuntime = createConductorRuntimeFn({
       config,

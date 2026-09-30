@@ -412,6 +412,36 @@ describe('createConductorController: per-call workspace resolution', () => {
     expect(bound.integrationWorktree).toBe(join(USER_DATA_DIR, 'conductor', 'ws-1', 'integration'))
     expect(bound.lanesDir).toBe(join(USER_DATA_DIR, 'conductor', 'ws-1', 'lanes'))
   })
+
+  // Wave 5, F-11: the correction above was applied in memory only, so the
+  // store kept the wrong paths and every later bind re-derived them and
+  // warned again. Writing it back makes the correction stick.
+  it('writes the re-derived paths back to the store', async () => {
+    // A real store hands back a value read from disk, not the live object
+    // the controller is holding — so copies in, copies out. Without that,
+    // mutating the bound config in memory would look like a persisted fix
+    // when nothing had been written at all.
+    const disk: ConductorConfig[] = [existingConfig('ws-1', {
+      integrationWorktree: '/Users/test/code/some-project',
+      lanesDir: '/Users/test/code/some-project/.crew-lanes'
+    })]
+    const controller = createConductorController({
+      ...fakeDeps({
+        getConductorConfigs: vi.fn(() => disk.map((c) => ({ ...c }))),
+        saveConductorConfigs: vi.fn((list: ConductorConfig[]) => {
+          disk.splice(0, disk.length, ...list.map((c) => ({ ...c })))
+          return disk
+        })
+      }),
+      createConductorRuntime: () => fakeRuntime()
+    })
+
+    await controller.backendFor('ws-1').state()
+
+    const stored = disk.find((c) => c.workspaceId === 'ws-1')
+    expect(stored?.integrationWorktree).toBe(join(USER_DATA_DIR, 'conductor', 'ws-1', 'integration'))
+    expect(stored?.lanesDir).toBe(join(USER_DATA_DIR, 'conductor', 'ws-1', 'lanes'))
+  })
 })
 
 // Review finding 3: the test recipe a successful compose put in force has to
