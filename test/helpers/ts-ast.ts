@@ -378,10 +378,23 @@ export function findUseStateDeclaration(source: ts.SourceFile, name: string): ts
 /** Every `const`/`let`/`var` declaration of `name` that `root` itself
  *  introduces, INCLUDING ones in nested blocks and nested functions — the
  *  point is to catch a shadow, so nested scopes are exactly what we want.
- *  Each result is paired with whether its declaration list is `const`. */
+ *  Each result is paired with whether its declaration list is `const`.
+ *
+ *  Wave 5, N5c: a destructuring pattern declares names too. `const { outcome }
+ *  = something` shadowed the awaited result while an identifier-only filter
+ *  saw no second declaration at all, so the trace back to the IPC call
+ *  described a value the call never returned. A binding pattern counts when
+ *  one of its binding elements BINDS `name` — `const { a: outcome }` does,
+ *  `const { outcome: a }` does not, since the latter introduces `a`. */
 export function findDeclarationsOf(root: ts.Node, name: string): { declaration: ts.VariableDeclaration; isConst: boolean }[] {
+  const binds = (target: ts.BindingName): boolean => {
+    if (ts.isIdentifier(target)) return target.text === name
+    return findAll(target, ts.isBindingElement).some(
+      (element) => ts.isIdentifier(element.name) && element.name.text === name
+    )
+  }
   return findAll(root, ts.isVariableDeclaration)
-    .filter((decl) => ts.isIdentifier(decl.name) && decl.name.text === name)
+    .filter((decl) => binds(decl.name))
     .map((declaration) => {
       const list = declaration.parent
       const isConst = ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0

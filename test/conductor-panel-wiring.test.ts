@@ -185,6 +185,17 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
       firstStatementAssigns(updating[0].arguments[0]!, 'shownWorkspace.current', 'workspaceId'),
       'the [workspaceId] effect does something before re-pointing shownWorkspace.current, so an early return can skip it'
     ).toBe(true)
+
+    // Wave 5, N1: the effect's assignment being right is not enough while
+    // anything ELSE may assign the ref too. A `shownWorkspace.current =
+    // workspaceId` in publish's `finally` re-points it at the workspace the
+    // handler was started for, so a result belonging to the workspace the
+    // user has already left passes both guards and is drawn anyway. The ref
+    // is written in exactly one place: the effect pinned above.
+    expect(
+      findAssignmentsTo(source, 'shownWorkspace.current').map((a) => a.getText()),
+      'shownWorkspace.current is assigned somewhere other than the [workspaceId] effect, which defeats both drop guards'
+    ).toHaveLength(1)
   })
 
   // Wave 3 finding 2: the same drop rule, applied to the MESSAGE. A publish
@@ -229,18 +240,38 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
     // `promise.then(setMessage)` (a reference, not a call) or by an alias
     // (`const say = setMessage`) — both put an unguarded message on screen
     // for a workspace the panel may no longer show. The setter is therefore
-    // confined to the two places entitled to it: its own useState binding
-    // and the guarded reporter. The effect may reach it too, since the
-    // effect is what clears the message on a workspace change.
+    // confined to the places entitled to it: its own useState binding and
+    // the guarded reporter.
+    //
+    // Wave 5, N4: "anywhere inside a useEffect callback" was too generous.
+    // `say.current = setMessage` inside the effect, called as
+    // `say.current(...)` from sync, is an alias the old allow-list waved
+    // through. The effect's entitlement is exactly one thing — clearing the
+    // message on a workspace switch — so only `setMessage(null)` called by
+    // the [workspaceId] effect itself is allowed, and every other mention
+    // anywhere is a stray.
     const declaration = findUseStateDeclaration(source, 'setMessage')
     expect(declaration, 'setMessage is not bound by a real useState() call').toBeDefined()
-    const allowed: ts.Node[] = [declaration!.name, report!, ...findEffectCalls(source).map((call) => call.arguments[0]!)]
+    const workspaceEffects = findEffectCalls(source).filter((call) => {
+      const deps = call.arguments[1]
+      return deps !== undefined && ts.isArrayLiteralExpression(deps) &&
+        deps.elements.some((el) => el.getText() === 'workspaceId')
+    })
+    const clearing = workspaceEffects
+      .flatMap((call) => findDirectCallsTo(call.arguments[0]!, 'setMessage'))
+      .filter((call) => call.arguments.length === 1 && call.arguments[0].getText() === 'null')
+    expect(
+      clearing,
+      'the [workspaceId] effect does not clear the message with setMessage(null)'
+    ).toHaveLength(1)
+    const allowed: ts.Node[] = [declaration!.name, report!]
     const stray = findIdentifiers(source, 'setMessage').filter(
-      (id) => !allowed.some((node) => isWithin(id, node))
+      (id) => !allowed.some((node) => isWithin(id, node)) &&
+        !clearing.some((call) => call.expression === id)
     )
     expect(
       stray.map((id) => id.parent.getText()),
-      'setMessage is mentioned outside report() and the workspace effect — an alias or a .then(setMessage) bypasses the workspace guard'
+      'setMessage is mentioned outside report() and the workspace effect’s setMessage(null) — an alias or a .then(setMessage) bypasses the workspace guard'
     ).toHaveLength(0)
   })
 
