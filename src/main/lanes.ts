@@ -3,7 +3,7 @@
 
 import { mkdir } from 'node:fs/promises'
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { runGit } from './supervise'
 import type { ConductorLane, ConductorSettings, LaneFacts, LaneAgent, MergeResult, PublishResult } from '../shared/conductor'
@@ -288,6 +288,49 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
     return lane.branch
   }
 
+  /** Wave 6, F-12 (A8b): `lane.worktree` is read back from the saved store,
+   *  which is an ordinary JSON file on disk. A tampered (or merely stale)
+   *  entry naming one of the user's own worktrees made `syncLane`
+   *  fast-forward the user's branch and `destroy({ force: true })` delete
+   *  their worktree, uncommitted file and all. Two things are proved before
+   *  either runs:
+   *
+   *  1. the path really is inside `settings.lanesDir` — with
+   *     `path.relative`, never `startsWith`, because `/lanes-evil` starts
+   *     with `/lanes`;
+   *  2. it belongs to the repository Conductor is conducting, by comparing
+   *     git's own `--git-common-dir` for it with the repo's. Containment
+   *     alone is not enough: `git worktree add` from ANY repository can
+   *     plant a worktree inside Crew's folder.
+   *
+   *  `isOwnWorktree` on top of that is what proves the folder is a worktree
+   *  root at all (and, since wave 6 B-5, that it is not a symlink). */
+  const requireOwnLaneWorktree = async (lane: ConductorLane): Promise<void> => {
+    const worktree = lane.worktree
+    // Ownership first: it is the check that refuses a symlink, and it must
+    // reach that verdict before `realOrSelf` below resolves the deception
+    // into a plain "outside the lanes folder" — a refusal either way, but
+    // one that names the wrong problem.
+    await requireOwnWorktree(worktree, 'lane worktree')
+    const rel = relative(realOrSelf(settings.lanesDir), realOrSelf(worktree))
+    if (rel.length === 0 || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      throw new Error(
+        `lane ${lane.roleId} names a worktree at ${worktree}, which is not inside Conductor's lanes folder ` +
+          `(${settings.lanesDir}); refusing to touch it`
+      )
+    }
+    const [laneCommon, ourCommon] = await Promise.all([
+      inDir(worktree, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+      inRepo(['rev-parse', '--path-format=absolute', '--git-common-dir'])
+    ])
+    if (realOrSelf(laneCommon) !== realOrSelf(ourCommon)) {
+      throw new Error(
+        `lane ${lane.roleId} names a worktree at ${worktree} that belongs to another repository ` +
+          `(${laneCommon}, not ${ourCommon}); refusing to touch it`
+      )
+    }
+  }
+
   const facts = async (lane: ConductorLane): Promise<LaneFacts> => {
     const laneBranch = requireBranch(lane, 'compute facts')
     const [counts, tracked, all, laneTip, baseSha] = await Promise.all([
@@ -419,7 +462,22 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
   const syncLane = async (lane: ConductorLane, base: string): Promise<MergeResult> => {
     // A reviewer lane is detached at a candidate SHA and owns no branch;
     // merging into it there would strand commits nothing ever tracks.
-    requireBranch(lane, 'sync')
+    const branch = requireBranch(lane, 'sync')
+    await requireOwnLaneWorktree(lane)
+    // Wave 6, F-12 (A9): `merge` writes wherever HEAD points, and nothing
+    // stops the agent living in this worktree from checking one of the
+    // user's own branches out in it. Conductor would then fast-forward that
+    // branch into the integration base — a write to a ref the user owns,
+    // which this feature never does. The lane's own branch is the only ref
+    // sync may move.
+    const head = await runGit(['symbolic-ref', '--quiet', 'HEAD'], { cwd: lane.worktree })
+    const at = head.code === 0 ? head.stdout.trim() : '(detached HEAD)'
+    if (at !== `refs/heads/${branch}`) {
+      throw new Error(
+        `lane ${lane.roleId} is on ${at}, not ${branch}; syncing there would move a ref Conductor does not ` +
+          'own, so refusing to touch it'
+      )
+    }
     return mergeAt(lane.worktree, base, 'lane worktree')
   }
 
@@ -477,6 +535,10 @@ export function createLaneManager(settings: ConductorSettings): LaneManager {
   }
 
   const destroy = async (lane: ConductorLane, opts: { force: boolean }): Promise<void> => {
+    // Before the status read as well as the removal: `worktree remove
+    // --force` deletes the folder outright, so a store entry naming the
+    // user's own worktree must never reach it.
+    await requireOwnLaneWorktree(lane)
     if (!opts.force) {
       const dirty = await inDir(lane.worktree, ['status', '--porcelain', '--untracked-files=no'])
       if (dirty.length > 0) {

@@ -750,4 +750,136 @@ describe('the ownership guard', () => {
     expect(message).toMatch(/does not exist/i)
     expect(message).not.toMatch(/enclosing repository/i)
   })
+
+  // Wave 6, F-12 (A8b): `lane.worktree` arrives from the saved store, which
+  // is an ordinary JSON file. Pointed at one of the user's worktrees it made
+  // syncLane fast-forward the user's branch; the path must be proved to sit
+  // inside Conductor's own lanes folder first.
+  it('refuses to sync a lane whose recorded worktree is outside the lanes folder', async () => {
+    const user = userWorktreeWithWork('userwt')
+
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    const tampered = { ...lane, worktree: user.dir }
+    await expect(lanes.syncLane(tampered, base)).rejects.toThrow(/lanes folder/i)
+    expectUserWorkIntact(user)
+  })
+
+  // A sibling of the lanes folder is not inside it, however similar the
+  // spelling — which is exactly why containment is proved with
+  // `path.relative` and never with `startsWith`.
+  it('refuses a recorded worktree in a sibling folder whose name merely starts with the lanes folder’s', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    const sibling = `${settings.lanesDir}-evil`
+    git(['worktree', 'add', '-b', 'somewhere-else', sibling], settings.repo)
+    const tampered = { ...lane, worktree: join(sibling) }
+
+    await expect(lanes.syncLane(tampered, base)).rejects.toThrow(/lanes folder/i)
+    expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], sibling)).toBe('somewhere-else')
+  })
+
+  // Containment alone is not enough: `git worktree add` run from ANY
+  // repository can plant a worktree inside Crew's own folder, and
+  // `destroy({ force: true })` deletes whatever folder it is handed.
+  it('refuses to destroy a lane folder that belongs to another repository', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+
+    const other = join(root, 'other-repo')
+    execFileSync('git', ['init', '-b', 'main', other])
+    commit(other, 'theirs.txt', 'theirs\n', 'their base')
+    const planted = join(settings.lanesDir, 'planted')
+    git(['worktree', 'add', '-b', 'theirs', planted], other)
+    writeFileSync(join(planted, 'precious.txt'), 'never committed anywhere\n')
+
+    const tampered = { ...lane, worktree: planted }
+    await expect(lanes.destroy(tampered, { force: true })).rejects.toThrow(/another repository/i)
+    expect(existsSync(join(planted, 'precious.txt'))).toBe(true)
+    expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], planted)).toBe('theirs')
+  })
+
+  // Wave 6, F-13: `destroy` on a genuine lane still works — the guard above
+  // must not have turned the ordinary path into a refusal.
+  it('still destroys a genuine lane, folder and branch', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+
+    await lanes.destroy(lane, { force: false })
+
+    expect(existsSync(lane.worktree)).toBe(false)
+    expect(() => gitExpectFailure(['rev-parse', '--verify', lane.branch as string], settings.repo)).toThrow()
+  })
+
+  // Wave 6, F-12 (A9): `merge` writes wherever HEAD points. An agent that
+  // checks one of the user's branches out in its own lane worktree would
+  // otherwise have Conductor fast-forward that branch into the integration
+  // base — a write to a ref the user owns.
+  it('refuses to sync a lane whose HEAD has been moved onto one of the user’s branches', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(settings.repo, 'theirs.txt', 'theirs\n', 'user work')
+    git(['branch', 'users-feature'], settings.repo)
+    const before = git(['rev-parse', 'users-feature'], settings.repo)
+    commit(join(root, 'integration'), 'b.txt', 'two\n', 'integration work')
+    git(['update-ref', 'refs/heads/crew/integration', 'HEAD'], join(root, 'integration'))
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    git(['checkout', 'users-feature'], lane.worktree)
+
+    await expect(lanes.syncLane(lane, base)).rejects.toThrow(/users-feature/)
+    expect(git(['rev-parse', 'users-feature'], settings.repo)).toBe(before)
+  })
+
+  // …and a lane detached at a SHA is refused for the same reason: a merge
+  // there lands on no branch at all.
+  it('refuses to sync a lane whose HEAD is detached', async () => {
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+    git(['checkout', '--detach'], lane.worktree)
+
+    await expect(lanes.syncLane(lane, base)).rejects.toThrow(/detached HEAD/i)
+  })
+
+  // Wave 6, F-12 (A11): git takes its repository location from the
+  // environment, and those variables OVERRIDE the cwd Conductor chose. A
+  // GIT_INDEX_FILE inherited from whatever launched Crew pointed the
+  // conductor's own merge at the user's index — and the merge still
+  // reported success, because git did exactly what it was told.
+  it('ignores an inherited GIT_INDEX_FILE aimed at the user’s index', async () => {
+    const user = userWorktreeWithWork('userwt')
+    const userIndex = git(['rev-parse', '--path-format=absolute', '--git-path', 'index'], user.dir)
+    expect(existsSync(userIndex)).toBe(true)
+
+    const lanes = createLaneManager(settings)
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const tip = git(['rev-parse', lane.branch as string], settings.repo)
+    const base = git(['rev-parse', 'crew/integration'], settings.repo)
+
+    const previous = process.env.GIT_INDEX_FILE
+    process.env.GIT_INDEX_FILE = userIndex
+    let result: Awaited<ReturnType<typeof lanes.mergeInIntegration>>
+    try {
+      result = await lanes.mergeInIntegration(tip, base)
+    } finally {
+      if (previous === undefined) delete process.env.GIT_INDEX_FILE
+      else process.env.GIT_INDEX_FILE = previous
+    }
+
+    expect(result).toMatchObject({ ok: true })
+    expectUserWorkIntact(user)
+  })
 }, { timeout: 30_000 })

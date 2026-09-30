@@ -22,12 +22,44 @@ export const NON_INTERACTIVE_GIT_ENV = {
   GIT_CONFIG_NOSYSTEM: '1'
 } as const
 
+/** Wave 6, F-12 (A11): git reads its repository location from the
+ *  environment, and every one of these variables OVERRIDES the `cwd` a
+ *  caller chose. A stray `GIT_INDEX_FILE` inherited from whatever launched
+ *  Crew made a merge in the conductor's own worktree write the user's index
+ *  instead — and the merge still reported success, because git did exactly
+ *  what it was told. The ownership guard proves a *directory* is ours; it
+ *  cannot prove the environment is. So the conductor's git runs with these
+ *  removed, always.
+ *
+ *  Deliberately absent: `GIT_CEILING_DIRECTORIES` (it only narrows git's
+ *  upward search, which is the safe direction, and the guard's own tests
+ *  rely on it) and the author/committer identity variables (they decide
+ *  nothing about which repository is written). */
+export const REPO_LOCAL_GIT_ENV = [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_COMMON_DIR',
+  'GIT_INDEX_FILE',
+  'GIT_INDEX_VERSION',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_GRAFT_FILE',
+  'GIT_NAMESPACE',
+  'GIT_PREFIX',
+  'GIT_SUPER_PREFIX'
+] as const
+
 export interface SuperviseOptions {
   cwd: string
   timeoutMs?: number
   /** Grace between SIGTERM and SIGKILL. */
   graceMs?: number
   env?: Record<string, string>
+  /** Names removed from the child's environment AFTER `env` is merged in.
+   *  Spawning with `env` set to a value the child treats as "unset" is not
+   *  possible — an empty string is still a set variable to git — so the key
+   *  has to be deleted outright. */
+  unsetEnv?: readonly string[]
 }
 
 export interface SupervisedResult {
@@ -50,6 +82,10 @@ export function runSupervised(
 ): Promise<SupervisedResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const graceMs = options.graceMs ?? DEFAULT_GRACE_MS
+  const env: Record<string, string | undefined> = { ...process.env, ...(options.env ?? {}) }
+  // After the merge, so an explicit `env` entry can never re-introduce a
+  // name the caller also asked to remove.
+  for (const name of options.unsetEnv ?? []) delete env[name]
 
   return new Promise<SupervisedResult>((resolve) => {
     // detached: true gives the child its own process group whose pgid is its
@@ -57,7 +93,7 @@ export function runSupervised(
     const child = spawn(command, args, {
       cwd: options.cwd,
       detached: true,
-      env: { ...process.env, ...(options.env ?? {}) },
+      env,
       stdio: ['ignore', 'pipe', 'pipe']
     })
 
@@ -121,6 +157,7 @@ export function runGit(args: string[], options: SuperviseOptions): Promise<Super
   return runSupervised('git', args, {
     ...options,
     timeoutMs: options.timeoutMs ?? 30_000,
-    env: { ...NON_INTERACTIVE_GIT_ENV, ...(options.env ?? {}) }
+    env: { ...NON_INTERACTIVE_GIT_ENV, ...(options.env ?? {}) },
+    unsetEnv: [...REPO_LOCAL_GIT_ENV, ...(options.unsetEnv ?? [])]
   })
 }
