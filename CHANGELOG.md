@@ -3,6 +3,28 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.5 — 2026-09-30
+
+### Fixed
+
+- The working signal disappearing under macOS Reduce Motion. The mascot is the
+  only at-a-glance status indicator in the collapsed nav rail, and the blanket
+  reduced-motion rule suppressed its animation outright — so a working session
+  became indistinguishable from an idle one. That rule caught two opacity-only
+  animations reduced motion has no quarrel with. Only the working animation
+  actually moves; it is now the only one suppressed, falling back to the slow
+  opacity breathe rather than to nothing.
+
+### Internal
+
+- **Conductor** — infrastructure for running several agent lanes against one
+  repository and integrating their work through a shared `crew/integration`
+  branch, published as a fail-closed transaction: merge, run tests, journal,
+  then compare-and-swap the integration ref. Lanes live in worktrees Crew
+  derives under its own application-support directory; nothing is written to
+  your repository. **Off by default** and reachable only through an explicit
+  per-workspace opt-in, so this release changes no existing behaviour.
+
 ## 0.7.4 — 2026-09-25
 
 ### Fixed
