@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join, isAbsolute, resolve } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
 import { createJournal } from '../src/main/conductor-journal'
+import type { Journal, JournalEntry } from '../src/main/conductor-journal'
+import { AtomicWriteError } from '../src/main/atomic-file'
 import { createConductor, ConductorBusyError } from '../src/main/conductor'
 import { createShippedConductorBackend } from '../src/main/conductor-ipc'
 import { classifyOperation } from '../src/shared/conductor-recovery'
@@ -37,11 +39,61 @@ function build() {
   return { lanes, journal, conductor: createConductor({ lanes, journal, settings }) }
 }
 
+/** A Journal that behaves exactly like `inner` until `shouldFail` says
+ *  otherwise, at which point `append` throws the very AtomicWriteError a
+ *  genuinely failed atomic write produces (conductor-journal.ts lets
+ *  atomicWriteFile's error propagate unchanged).
+ *
+ *  This replaces `chmodSync(root, 0o500)`. Revoking a DIRECTORY's write bit
+ *  is a no-op on Windows — Node maps only FILE_ATTRIBUTE_READONLY, which
+ *  the filesystem ignores for directories — so the journal write simply
+ *  succeeded there and every "fails closed when the journal cannot be
+ *  written" assertion saw a successful publish instead. Injecting through
+ *  the Journal seam createConductor already takes keeps the coverage
+ *  identical on both platforms, and what these tests are actually about is
+ *  what the CONDUCTOR does when an append throws, not how the write came to
+ *  fail. That a real write failure surfaces as AtomicWriteError is
+ *  atomic-file.ts's own contract, tested in test/atomic-file-sync.test.ts
+ *  and test/conductor-journal.test.ts. */
+function failableJournal(inner: Journal, shouldFail: (entry: JournalEntry) => boolean): Journal {
+  return {
+    read: () => inner.read(),
+    entriesFor: (opId: string) => inner.entriesFor(opId),
+    append: (entry: JournalEntry) => {
+      if (!shouldFail(entry)) {
+        inner.append(entry)
+        return
+      }
+      throw new AtomicWriteError(
+        journalPath,
+        false,
+        Object.assign(new Error(`EACCES: permission denied, open '${journalPath}'`), { code: 'EACCES' })
+      )
+    }
+  }
+}
+
+/** Overwrites a worktree's `.git` FILE. Git for Windows creates it hidden
+ *  (`core.hideDotFiles=dotGitOnly`) and writeFileSync over a hidden file
+ *  fails EPERM there, so it has to be removed first. Identical content. */
+function writeGitFile(worktree: string, contents: string): void {
+  rmSync(join(worktree, '.git'), { force: true })
+  writeFileSync(join(worktree, '.git'), contents)
+}
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'crew-conductor-'))
   journalPath = join(root, 'journal.json')
   const repo = join(root, 'repo')
   execFileSync('git', ['init', '-b', 'main', repo])
+  // Recorded IN the repository, not just in this file's ENV: the merges are
+  // run by the product (supervise.ts) with the ambient environment, and a
+  // Windows CI runner has no global identity, so any merge that produces a
+  // commit failed with "Committer identity unknown". Linked worktrees share
+  // their repository's config, so this covers the lane and integration
+  // worktrees too.
+  execFileSync('git', ['config', 'user.name', ENV.GIT_COMMITTER_NAME], { cwd: repo })
+  execFileSync('git', ['config', 'user.email', ENV.GIT_COMMITTER_EMAIL], { cwd: repo })
   commit(repo, 'README.md', 'base\n', 'base')
   git(['branch', 'crew/integration'], repo)
   settings = {
@@ -191,7 +243,16 @@ describe('publishLane', () => {
   // `<repo>/.git/worktrees/<name>`, not a directory of its own) read-only —
   // the established technique in this suite (see test/lanes-merge.test.ts)
   // for forcing a genuine git failure without mocking anything.
-  it('surfaces a failed integration-worktree reset instead of silently swallowing it', async () => {
+  //
+  // Windows-only skip: the SIMULATION is what fails to port, not the code.
+  // It revokes the write bit on a DIRECTORY, and Node's chmod on Windows
+  // maps only FILE_ATTRIBUTE_READONLY, which the filesystem ignores for
+  // directories — so the chmod is a no-op and the reset simply succeeds.
+  // conductor.ts's resetIntegrationTo runs its git commands through runGit
+  // directly, with no injectable seam, and the only Windows equivalent is a
+  // DACL change via icacls that an elevated CI account bypasses. Fully
+  // covered on macOS/Linux.
+  it.skipIf(process.platform === 'win32')('surfaces a failed integration-worktree reset instead of silently swallowing it', async () => {
     const lanes = createLaneManager(settings)
     const journal = createJournal(journalPath)
     settings.test = { command: 'sh', args: ['-c', 'exit 1'], cwd: '.', timeoutMs: 10_000 }
@@ -248,7 +309,13 @@ describe('publishLane', () => {
   // from lanes.publish() (distinct from its normal `{ ok: false }` return)
   // while the integration worktree's git dir is read-only, so the
   // catch-all's own reset attempt is forced to fail too.
-  it('does not record a clean abort when an unexpected error after the merge leaves the reset unable to run', async () => {
+  // catch-all's own reset attempt is forced to fail too.
+  //
+  // Windows-only skip, for exactly the reason given on the test above: the
+  // chmod that revokes write access to the worktree's administrative
+  // DIRECTORY is a no-op on Windows, so neither the reset failure nor the
+  // publish() call that depends on it can be staged there.
+  it.skipIf(process.platform === 'win32')('does not record a clean abort when an unexpected error after the merge leaves the reset unable to run', async () => {
     const realLanes = createLaneManager(settings)
     const journal = createJournal(journalPath)
     await realLanes.ensureIntegrationWorktree()
@@ -357,19 +424,20 @@ describe('publishLane', () => {
 
   // Persistence failure must fail closed and prevent the effect.
   it('aborts before touching git when the journal cannot be written', async () => {
-    const { lanes, conductor } = build()
+    const lanes = createLaneManager(settings)
+    const realJournal = createJournal(journalPath)
+    // Every append fails, so the very first one ('intent') does.
+    const journal = failableJournal(realJournal, () => true)
+    const conductor = createConductor({ lanes, journal, settings })
     await lanes.ensureIntegrationWorktree()
     const lane = await lanes.create('builder', { presetId: 'shell', model: null })
     commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
     const before = git(['rev-parse', 'crew/integration'], settings.repo)
 
-    chmodSync(root, 0o500)
-    try {
-      const outcome = await conductor.publishLane(lane)
-      expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
-    } finally {
-      chmodSync(root, 0o700)
-    }
+    const outcome = await conductor.publishLane(lane)
+    expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
+    // Nothing was recorded, and nothing in git moved.
+    expect(realJournal.read()).toEqual([])
     expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(before)
     expect(conductor.lockHolder()).toBeNull()
   })
@@ -380,28 +448,12 @@ describe('publishLane', () => {
   // step). Before the fix, this left the lane permanently showing
   // "publication in progress" for an operation that had already stopped.
   // Same technique as the 'tests'-write-failure test above: let 'intent'
-  // land normally, then revoke write permission on the journal directory
-  // only for the append with phase: 'merged', so this is a genuine
-  // filesystem failure at exactly the write under test.
+  // land normally, then fail only the append with phase: 'merged', at
+  // exactly the write under test.
   it('blocks the lane, rather than leaving it stuck publishing, when the merged-phase journal write cannot be made durable', async () => {
     const lanes = createLaneManager(settings)
     const realJournal = createJournal(journalPath)
-    const journal = {
-      read: () => realJournal.read(),
-      entriesFor: (opId: string) => realJournal.entriesFor(opId),
-      append: (entry: Parameters<typeof realJournal.append>[0]) => {
-        if (entry.phase !== 'merged') {
-          realJournal.append(entry)
-          return
-        }
-        chmodSync(root, 0o500)
-        try {
-          realJournal.append(entry)
-        } finally {
-          chmodSync(root, 0o700)
-        }
-      }
-    }
+    const journal = failableJournal(realJournal, (entry) => entry.phase === 'merged')
     const conductor = createConductor({ lanes, journal, settings })
     await lanes.ensureIntegrationWorktree()
     const lane = await lanes.create('builder', { presetId: 'shell', model: null })
@@ -469,13 +521,9 @@ describe('publishLane', () => {
   // caught by it).
   //
   // This version lets 'intent' and 'merged' land normally by wrapping the
-  // real journal and only revoking write permission on the journal
-  // directory immediately before passing an append with phase: 'tests'
-  // through to the real journal — a genuine filesystem failure at exactly
-  // the phase under test, not a mock that merely throws. Permissions are
-  // restored in a finally so the temp dir is never left unwritable for
-  // cleanup, and so 'aborted'/other later writes the test doesn't expect
-  // are not silently swallowed either.
+  // real journal and failing only an append with phase: 'tests' — exactly
+  // the phase under test, and only that one, so 'aborted'/other later
+  // writes the test doesn't expect are not silently swallowed either.
   //
   // Load-bearing: on the pre-fix best-effort write, `testsRan` below
   // becomes `true` and the outcome is `{ reason: 'tests-failed' }` (the
@@ -484,22 +532,7 @@ describe('publishLane', () => {
   it('fails closed and never runs tests when the tests-phase journal write cannot be made durable', async () => {
     const lanes = createLaneManager(settings)
     const realJournal = createJournal(journalPath)
-    const journal = {
-      read: () => realJournal.read(),
-      entriesFor: (opId: string) => realJournal.entriesFor(opId),
-      append: (entry: Parameters<typeof realJournal.append>[0]) => {
-        if (entry.phase !== 'tests') {
-          realJournal.append(entry)
-          return
-        }
-        chmodSync(root, 0o500)
-        try {
-          realJournal.append(entry)
-        } finally {
-          chmodSync(root, 0o700)
-        }
-      }
-    }
+    const journal = failableJournal(realJournal, (entry) => entry.phase === 'tests')
     let testsRan = false
     settings.test = { command: 'sh', args: ['-c', 'exit 1'], cwd: '.', timeoutMs: 10_000 }
     const conductor = createConductor({
@@ -540,37 +573,35 @@ describe('publishLane', () => {
   // with a cleanup error).
   it('fails closed on the aborted-write for a genuine test failure and reports both failures', async () => {
     const lanes = createLaneManager(settings)
-    const journal = createJournal(journalPath)
+    const realJournal = createJournal(journalPath)
+    // Let 'intent', 'merged' and 'tests' land normally (they must, or tests
+    // would never run at all — see the previous test); only the 'aborted'
+    // write that follows the failing tests is made to fail.
+    const journal = failableJournal(realJournal, (entry) => entry.phase === 'aborted')
     settings.test = { command: 'sh', args: ['-c', 'exit 1'], cwd: '.', timeoutMs: 10_000 }
     await lanes.ensureIntegrationWorktree()
     const lane = await lanes.create('builder', { presetId: 'shell', model: null })
     commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
 
-    // Let 'intent', 'merged' and 'tests' land normally (they must, or tests
-    // would never run at all — see the previous test), then make only the
-    // 'aborted' append fail by revoking write access right as tests run.
     let testsStarted = false
     const conductor = createConductor({
       lanes, journal, settings,
       runTests: async () => {
         testsStarted = true
-        chmodSync(root, 0o500)
         return { ok: false, output: 'deliberate test failure' }
       }
     })
 
-    try {
-      const outcome = await conductor.publishLane(lane)
-      expect(testsStarted).toBe(true)
-      expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
-      if (!outcome.ok && outcome.reason === 'journal-failed') {
-        // Both halves, per the atomicity convention.
-        expect(outcome.message).toMatch(/tests failed/i)
-        expect(outcome.message).toMatch(/abort/i)
-      }
-    } finally {
-      chmodSync(root, 0o700)
+    const outcome = await conductor.publishLane(lane)
+    expect(testsStarted).toBe(true)
+    expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
+    if (!outcome.ok && outcome.reason === 'journal-failed') {
+      // Both halves, per the atomicity convention.
+      expect(outcome.message).toMatch(/tests failed/i)
+      expect(outcome.message).toMatch(/abort/i)
     }
+    // The abort really was not recorded.
+    expect(realJournal.read().map((e) => e.phase)).not.toContain('aborted')
     expect(conductor.lockHolder()).toBeNull()
   })
 }, { timeout: 30_000 })
@@ -1130,17 +1161,24 @@ describe('reconcile', () => {
 describe('acknowledgeOperation (the needs-attention gate\'s only exit)', () => {
   // The state a crash leaves behind: an operation that recorded its intent
   // and then never came back.
-  async function interruptedOperation() {
-    const { lanes, journal, conductor } = build()
+  async function interruptedOperation(
+    failWrite: (entry: JournalEntry) => boolean = () => false
+  ) {
+    const lanes = createLaneManager(settings)
+    const realJournal = createJournal(journalPath)
+    // The gate defaults to never failing, so every other test here behaves
+    // exactly as it did against build()'s plain journal.
+    const journal = failableJournal(realJournal, failWrite)
+    const conductor = createConductor({ lanes, journal, settings })
     await lanes.ensureIntegrationWorktree()
     const lane = await lanes.create('builder', { presetId: 'shell', model: null })
     commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
     const facts = await lanes.facts(lane)
-    journal.append({
+    realJournal.append({
       opId: 'op-crash', laneId: lane.id, phase: 'intent',
       baseSha: facts.baseSha, laneTip: facts.laneTip, at: 1
     })
-    return { lanes, journal, conductor, lane }
+    return { lanes, journal: realJournal, conductor, lane }
   }
 
   it('reopens a gate that a crashed operation had closed', async () => {
@@ -1621,16 +1659,12 @@ describe('acknowledgeOperation (the needs-attention gate\'s only exit)', () => {
   })
 
   it('leaves nothing acknowledged when the journal write fails', async () => {
-    const { lanes, conductor } = await interruptedOperation()
+    // Only the terminal entry acknowledge tries to append is made to fail;
+    // the 'intent' the crash left behind is already on disk.
+    const { lanes, conductor } = await interruptedOperation(() => true)
     expect(lanes).toBeDefined()
     await conductor.reconcile()
-    chmodSync(root, 0o500)
-    let outcome: Awaited<ReturnType<typeof conductor.acknowledgeOperation>>
-    try {
-      outcome = await conductor.acknowledgeOperation('op-crash', 'reviewed')
-    } finally {
-      chmodSync(root, 0o700)
-    }
+    const outcome = await conductor.acknowledgeOperation('op-crash', 'reviewed')
     expect(outcome).toMatchObject({ ok: false, reason: 'journal-failed' })
     expect(createJournal(journalPath).read().map((e) => e.phase)).toEqual(['intent'])
     expect((await conductor.reconcile()).needsAttention).toBe(true)
@@ -1981,7 +2015,7 @@ describe('the integration-worktree reset', () => {
         // a `checkout --force --detach` of it there would succeed — this is
         // a scenario that destroys, not one that merely errors.
         git(['fetch', settings.repo, 'crew/integration'], outer)
-        writeFileSync(join(settings.integrationWorktree, '.git'), `gitdir: ${join(outer, '.git')}\n`)
+        writeGitFile(settings.integrationWorktree, `gitdir: ${join(outer, '.git')}\n`)
         return { ok: false, output: 'fails' }
       }
     })

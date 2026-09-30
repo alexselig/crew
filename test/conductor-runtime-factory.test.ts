@@ -383,6 +383,30 @@ describe('samePath', () => {
     expect(samePath(root, missingParent)).toBe(false)
   })
 
+  // The same false accept, arriving by the door only Windows opens. The
+  // Win32 API collapses `..` LEXICALLY before the syscall runs, so realpath
+  // there SUCCEEDS on `<root>/missing/..` and hands back `<root>` — the
+  // ENOENT the test above relies on never happens, canonicalize() has
+  // nothing to distrust, and samePath answered `true` for a path that does
+  // not exist. Simulated here with a realpath stub that behaves exactly as
+  // Win32 does, so the guard is exercised on every platform rather than
+  // only on the one that is red.
+  it('rejects a `..` through a missing segment even when realpath collapses it lexically (Win32)', () => {
+    const missingParent = `${root}/missing/..`
+    const lexicallyCollapsing = (path: string): string => {
+      // Resolves the literal path only if it exists; otherwise collapses
+      // `..` the way Win32 does and resolves the result.
+      const collapsed = resolve(path)
+      return realpathSync.native(collapsed)
+    }
+    expect(samePath(root, missingParent, { realpath: lexicallyCollapsing })).toBe(false)
+    // …and the narrow-ness holds under the same stub: a real intermediate
+    // segment must still compare equal.
+    const sub = join(root, 'sub-win32')
+    mkdirSync(sub)
+    expect(samePath(root, `${sub}/..`, { realpath: lexicallyCollapsing })).toBe(true)
+  })
+
   // Companion to the case above: proves the guard is narrow, not a blanket
   // rejection of every `..` segment. When `sub` genuinely exists, realpath
   // resolves `<root>/sub/..` correctly (it never falls back to resolve() at

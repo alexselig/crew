@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { createLaneManager } from '../src/main/lanes'
 import type { LaneManager } from '../src/main/lanes'
 import { composeRun } from '../src/main/conductor-compose'
@@ -52,7 +52,12 @@ function draft(): RosterDraft {
 describe('composeRun', () => {
   it('creates a lane and a session per row, and reports them in order', async () => {
     const lanes = createLaneManager(settings)
-    const createSession = vi.fn(async (req: { cwd: string }) => ({ id: `sess-${req.cwd.split('/').pop()}` }))
+    // basename(), not split('/'): on Windows the worktree path composeRun
+    // hands the stub is separator-backslashed, so split('/').pop() returned
+    // the whole path and the stub minted `sess-C:\…\lanes\builder`. The
+    // assertion below is unchanged — it is the stub's lane-name derivation
+    // that had to stop assuming POSIX separators.
+    const createSession = vi.fn(async (req: { cwd: string }) => ({ id: `sess-${basename(req.cwd)}` }))
     const result = await composeRun({ lanes, settings, createSession, closeSession: vi.fn(), setTestRecipe: vi.fn() }, draft())
 
     expect(result.ok).toBe(true)

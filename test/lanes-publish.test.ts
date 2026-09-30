@@ -35,6 +35,12 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'crew-publish-'))
   const repo = join(root, 'repo')
   execFileSync('git', ['init', '-b', 'main', repo])
+  // Recorded IN the repository, not just in this file's ENV: the merges
+  // under test are run by the product (supervise.ts) with the ambient
+  // environment, and a Windows CI runner has no global identity, so git
+  // refused them with "Committer identity unknown".
+  execFileSync('git', ['config', 'user.name', ENV.GIT_COMMITTER_NAME], { cwd: repo })
+  execFileSync('git', ['config', 'user.email', ENV.GIT_COMMITTER_EMAIL], { cwd: repo })
   commit(repo, 'README.md', 'base\n', 'base')
   git(['branch', 'crew/integration'], repo)
   settings = {

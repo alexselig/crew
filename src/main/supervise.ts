@@ -67,13 +67,45 @@ export interface SupervisedResult {
   stdout: string
   stderr: string
   timedOut: boolean
-  /** The child's pid, which is also its process-group id (detached: true). */
+  /** The child's pid. On POSIX it is also its process-group id (detached:
+   *  true); on Windows it is the root of the tree taskkill /T walks. */
   pid: number
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000
 const DEFAULT_GRACE_MS = 3_000
 const MAX_CAPTURE_BYTES = 8 * 1024 * 1024
+
+const IS_WINDOWS = process.platform === 'win32'
+
+/** Windows has no process groups and no signals: `process.kill(-pid, …)`
+ *  fails outright, and `child.kill()` reaches the DIRECT child only. A
+ *  timed-out `sh -c 'git … &'` therefore left its descendants running AND
+ *  held the inherited stdout/stderr pipes open, so `close` never fired and
+ *  this promise never settled — the publication lock stayed held for as long
+ *  as the orphan lived. `taskkill /T /F` is the platform's own answer: it
+ *  walks the child's process tree by parent-pid and terminates all of it,
+ *  which both matches the POSIX group kill's intent and closes the pipes.
+ *
+ *  Fire-and-forget by design. Every failure mode is one the POSIX path also
+ *  tolerates silently (the tree is already gone; taskkill is missing from a
+ *  stripped PATH), and the timeout escalation must not itself be able to
+ *  throw. The `error` listener is not optional: an unhandled `error` event
+ *  on a ChildProcess is an uncaught exception, not a rejected promise. */
+const killProcessTreeOnWindows = (pid: number): void => {
+  try {
+    const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true
+    })
+    killer.on('error', () => {
+      /* taskkill unavailable; nothing better to try */
+    })
+    killer.unref()
+  } catch {
+    /* spawn itself refused; nothing better to try */
+  }
+}
 
 export function runSupervised(
   command: string,
@@ -116,6 +148,14 @@ export function runSupervised(
 
     const signalGroup = (signal: NodeJS.Signals): void => {
       if (pid <= 0) return
+      if (IS_WINDOWS) {
+        // No signals, no groups — see killProcessTreeOnWindows. SIGTERM and
+        // SIGKILL collapse into the same forced tree kill, because Windows
+        // offers no graceful equivalent to ask for; the grace timer below
+        // simply retries, which is harmless once the tree is already gone.
+        killProcessTreeOnWindows(pid)
+        return
+      }
       try {
         process.kill(-pid, signal)
       } catch {

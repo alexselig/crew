@@ -42,10 +42,35 @@ function commit(cwd: string, file: string, body: string, message: string): void 
   git(['commit', '-m', message], cwd)
 }
 
+/** `git init` plus a committer identity recorded IN the repository.
+ *
+ *  The ENV above only reaches the commands this file runs itself. Every
+ *  merge that produces a commit (a true merge, or the `--no-edit` attempt
+ *  that ends in a conflict) is run by the PRODUCT, through supervise.ts,
+ *  with the ambient environment — and a Windows CI runner has no global
+ *  `user.email`, so git refused with "Committer identity unknown" long
+ *  before any of these assertions could be reached. Linked worktrees share
+ *  their repository's config, so recording it once here covers the lane and
+ *  integration worktrees too. */
+function initRepo(dir: string): void {
+  execFileSync('git', ['init', '-b', 'main', dir])
+  execFileSync('git', ['config', 'user.name', ENV.GIT_COMMITTER_NAME], { cwd: dir })
+  execFileSync('git', ['config', 'user.email', ENV.GIT_COMMITTER_EMAIL], { cwd: dir })
+}
+
+/** Overwrites a worktree's `.git` FILE. Git for Windows creates it with the
+ *  hidden attribute (`core.hideDotFiles=dotGitOnly`), and `writeFileSync`
+ *  over a hidden file fails EPERM there, so the file has to be removed
+ *  first. A no-op difference on macOS; the content written is identical. */
+function writeGitFile(worktree: string, contents: string): void {
+  rmSync(join(worktree, '.git'), { force: true })
+  writeFileSync(join(worktree, '.git'), contents)
+}
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'crew-merge-'))
   const repo = join(root, 'repo')
-  execFileSync('git', ['init', '-b', 'main', repo])
+  initRepo(repo)
   commit(repo, 'README.md', 'base\n', 'base')
   git(['branch', 'crew/integration'], repo)
   settings = {
@@ -358,7 +383,17 @@ describe('syncLane', () => {
   // read-only forces the abort itself to fail, deterministically, without
   // mocking anything: it's the same technique test/installer.test.ts uses to
   // force a real write failure via chmodSync.
-  it('reports both the original conflict and a failed abort, and leaves the worktree usable once permissions are restored', async () => {
+  //
+  // Windows-only skip: the simulation, not the code, is what fails to port.
+  // It revokes the write bit on a DIRECTORY, and Node's chmod on Windows
+  // maps only FILE_ATTRIBUTE_READONLY, which the filesystem ignores for
+  // directories entirely — so the chmod is a no-op, `merge --abort`
+  // succeeds, and the "failed abort" this test exists to describe never
+  // occurs. lanes.ts exposes no seam to inject the failure through (the
+  // abort is a runGit call inside mergeAt), and the only Windows mechanism
+  // that would work is a DACL change via icacls, which an elevated CI
+  // account bypasses. The behaviour stays fully covered on macOS/Linux.
+  it.skipIf(process.platform === 'win32')('reports both the original conflict and a failed abort, and leaves the worktree usable once permissions are restored', async () => {
     const lanes = createLaneManager(settings)
     await lanes.ensureIntegrationWorktree()
     const lane = await lanes.create('builder', { presetId: 'shell', model: null })
@@ -448,7 +483,7 @@ describe('the ownership guard', () => {
    *  not staged. Everything Conductor must not destroy, in one place. */
   function userRepoMidMerge(name: string): { dir: string; mergeHead: string; head: string } {
     const dir = join(root, name)
-    execFileSync('git', ['init', '-b', 'main', dir])
+    initRepo(dir)
     commit(dir, 'shared.txt', 'base\n', 'outer base')
     git(['checkout', '-b', 'side'], dir)
     commit(dir, 'shared.txt', 'side\n', 'outer side')
@@ -509,7 +544,7 @@ describe('the ownership guard', () => {
     const tip = git(['rev-parse', lane.branch as string], settings.repo)
     const base = git(['rev-parse', 'crew/integration'], settings.repo)
 
-    writeFileSync(join(settings.integrationWorktree, '.git'), `gitdir: ${join(outer.dir, '.git')}\n`)
+    writeGitFile(settings.integrationWorktree, `gitdir: ${join(outer.dir, '.git')}\n`)
 
     expect(await isOwnWorktree(settings.integrationWorktree)).toBe(false)
     await expect(lanes.mergeInIntegration(tip, base)).rejects.toThrow(/integration worktree/i)
@@ -544,7 +579,7 @@ describe('the ownership guard', () => {
     const administrative = readFileSync(join(userWorktree, '.git'), 'utf8')
       .trim()
       .replace(/^gitdir:\s*/, '')
-    writeFileSync(join(settings.integrationWorktree, '.git'), `gitdir: ${administrative}\n`)
+    writeGitFile(settings.integrationWorktree, `gitdir: ${administrative}\n`)
 
     expect(await isOwnWorktree(settings.integrationWorktree)).toBe(false)
     await expect(lanes.mergeInIntegration(tip, base)).rejects.toThrow(/integration worktree/i)
