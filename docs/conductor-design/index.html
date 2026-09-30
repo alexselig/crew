@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conductor — proposed design for Crew</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="sheet">
+
+  <header class="masthead">
+    <div>
+      <p class="brandline">Crew · design proposal</p>
+      <h1 class="wordmark">Conductor</h1>
+    </div>
+    <p class="dek">Letting several coding agents work a repository at the same
+      time without them overwriting each other. This page explains the proposed
+      design and the reasoning behind it.</p>
+  </header>
+
+  <div class="layout">
+
+    <nav class="toc" aria-label="Contents">
+      <p class="toc-label">Contents</p>
+      <ol>
+        <li><a href="#idea">The idea you drew</a></li>
+        <li><a href="#problem">What actually goes wrong</a></li>
+        <li><a href="#lanes">Lanes and the integration owner</a></li>
+        <li><a href="#publish">The publication transaction</a></li>
+        <li><a href="#bug">The bug four reviews took to find</a></li>
+        <li><a href="#sync">Merge, and the Sync you now need</a></li>
+        <li><a href="#models">Thirty models, one transport</a></li>
+        <li><a href="#talk">How agents talk</a></li>
+        <li><a href="#guarantees">What this does and does not promise</a></li>
+        <li><a href="#phases">What gets built, in what order</a></li>
+        <li><a href="#open">Three decisions you made</a></li>
+      </ol>
+    </nav>
+
+    <main class="doc">
+
+      <!-- ============================================ -->
+      <section id="idea">
+        <p class="eyebrow">Start here</p>
+        <h2>The idea you drew</h2>
+        <p class="dek">Your sketch had one conductor fanning out to three agents,
+          their work converging back through git into tests and a merge.</p>
+
+        <figure>
+          <svg viewBox="0 0 880 300" role="img" aria-labelledby="fig1t">
+            <title id="fig1t">The original sketch: a conductor dispatching to three
+              agents whose work converges through git into tests and a merge.</title>
+
+            <rect x="360" y="8" width="160" height="34" fill="#fff" stroke="#111"/>
+            <text x="440" y="30" text-anchor="middle" class="d-label">Conductor</text>
+
+            <path d="M440 42 V66 M170 66 H710 M170 66 V90 M440 66 V90 M710 66 V90"
+                  stroke="#2c3e6b" fill="none"/>
+            <path d="M170 90 l-4 -8 h8 Z M440 90 l-4 -8 h8 Z M710 90 l-4 -8 h8 Z"
+                  fill="#2c3e6b" transform="translate(0,8)"/>
+
+            <rect x="90" y="98" width="160" height="34" fill="#fff" stroke="#111"/>
+            <text x="170" y="120" text-anchor="middle" class="d-text">Claude Code</text>
+            <rect x="360" y="98" width="160" height="34" fill="#fff" stroke="#111"/>
+            <text x="440" y="120" text-anchor="middle" class="d-text">Codex CLI</text>
+            <rect x="630" y="98" width="160" height="34" fill="#fff" stroke="#111"/>
+            <text x="710" y="120" text-anchor="middle" class="d-text">OpenCode</text>
+
+            <text x="170" y="156" text-anchor="middle" class="d-meta">Feature A</text>
+            <text x="440" y="156" text-anchor="middle" class="d-meta">Review A</text>
+            <text x="710" y="156" text-anchor="middle" class="d-meta">Feature B</text>
+
+            <path d="M170 132 V146 M440 132 V146 M710 132 V146
+                     M170 166 V190 M440 166 V190 M710 166 V190
+                     M170 190 H710 M440 190 V214"
+                  stroke="#2c3e6b" fill="none"/>
+            <path d="M440 222 l-4 -8 h8 Z" fill="#2c3e6b"/>
+
+            <rect x="380" y="222" width="120" height="30" fill="#fff" stroke="#111"/>
+            <text x="440" y="242" text-anchor="middle" class="d-label">Git</text>
+
+            <path d="M440 252 V268" stroke="#2c3e6b" fill="none"/>
+            <path d="M440 276 l-4 -8 h8 Z" fill="#2c3e6b"/>
+            <text x="440" y="292" text-anchor="middle" class="d-text">tests / PR / merge</text>
+          </svg>
+          <figcaption>
+            <b>The shape is right and the design keeps it.</b> Two details changed
+            on contact with the codebase. Codex CLI and OpenCode are not Crew
+            presets — only Copilot CLI, Claude Code and Shell exist — and the
+            single <code>Git</code> box at the bottom turns out to be where all
+            the difficulty lives. <a href="#models">Section 7</a> shows why losing
+            the three vendors costs you nothing.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="problem">
+        <p class="eyebrow">The real problem</p>
+        <h2>What actually goes wrong</h2>
+        <p class="dek">Two agents in one working copy is not a coordination
+          problem. It is a data-loss problem.</p>
+
+        <p>Today every Crew session runs in the directory it was spawned in, and
+          that directory is fixed for the session's whole life — <code>cwd</code>
+          is set at spawn and is part of the session's identity key. Point two
+          agents at one repository and they share a working tree, an index, and
+          a <code>HEAD</code>. They will:</p>
+
+        <ul>
+          <li>stage each other's half-finished files into their own commits,</li>
+          <li>trip over each other's <code>.git/index.lock</code>,</li>
+          <li>and check out branches from under one another mid-edit.</li>
+        </ul>
+
+        <p>So the first job is not orchestration. It is <strong>giving each agent
+          somewhere private to stand</strong>, and then letting exactly one thing
+          at a time move the shared branch.</p>
+
+        <figure>
+          <svg viewBox="0 0 880 230" role="img" aria-labelledby="fig2t">
+            <title id="fig2t">Left: two agents sharing one working tree, colliding.
+              Right: each agent in its own worktree.</title>
+
+            <text x="16" y="18" class="d-label" fill="#b5502e">Today</text>
+            <text x="470" y="18" class="d-label" fill="#5b8a82">Proposed</text>
+            <line x1="440" y1="0" x2="440" y2="230" stroke="#dddddd"/>
+
+            <!-- today -->
+            <rect x="16" y="34" width="120" height="30" fill="#fff" stroke="#111"/>
+            <text x="76" y="54" text-anchor="middle" class="d-text">Agent A</text>
+            <rect x="286" y="34" width="120" height="30" fill="#fff" stroke="#111"/>
+            <text x="346" y="54" text-anchor="middle" class="d-text">Agent B</text>
+
+            <path d="M76 64 V96 M346 64 V96" stroke="#b5502e" fill="none"/>
+            <path d="M76 104 l-4 -8 h8 Z M346 104 l-4 -8 h8 Z" fill="#b5502e"/>
+
+            <rect x="16" y="104" width="390" height="76" fill="#f7ece8" stroke="#b5502e"/>
+            <text x="211" y="130" text-anchor="middle" class="d-label" fill="#b5502e">One working tree</text>
+            <text x="211" y="150" text-anchor="middle" class="d-mono">index · HEAD · index.lock</text>
+            <text x="211" y="170" text-anchor="middle" class="d-meta">shared, unsynchronised</text>
+
+            <text x="211" y="204" text-anchor="middle" class="d-text" fill="#b5502e">
+              cross-staged commits, lock contention</text>
+
+            <!-- proposed -->
+            <rect x="470" y="34" width="180" height="30" fill="#fff" stroke="#111"/>
+            <text x="560" y="54" text-anchor="middle" class="d-text">Agent A</text>
+            <rect x="682" y="34" width="180" height="30" fill="#fff" stroke="#111"/>
+            <text x="772" y="54" text-anchor="middle" class="d-text">Agent B</text>
+
+            <path d="M560 64 V96 M772 64 V96" stroke="#5b8a82" fill="none"/>
+            <path d="M560 104 l-4 -8 h8 Z M772 104 l-4 -8 h8 Z" fill="#5b8a82"/>
+
+            <rect x="470" y="104" width="180" height="58" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="560" y="127" text-anchor="middle" class="d-label" fill="#3f6b5f">Lane A</text>
+            <text x="560" y="147" text-anchor="middle" class="d-mono">own worktree + branch</text>
+
+            <rect x="682" y="104" width="180" height="58" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="772" y="127" text-anchor="middle" class="d-label" fill="#3f6b5f">Lane B</text>
+            <text x="772" y="147" text-anchor="middle" class="d-mono">own worktree + branch</text>
+
+            <text x="666" y="204" text-anchor="middle" class="d-text" fill="#3f6b5f">
+              no shared index, no shared HEAD</text>
+          </svg>
+          <figcaption>
+            A git <b>worktree</b> is a second checkout of the same repository with
+            its own files, index and <code>HEAD</code>, sharing one object store.
+            It is the standard mechanism for exactly this, and it costs a
+            directory.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="lanes">
+        <p class="eyebrow">Architecture</p>
+        <h2>Lanes and the integration owner</h2>
+        <p class="dek">Agents work in parallel. Landing work is single-file. Those
+          are two different rules and conflating them was the first draft's mistake.</p>
+
+        <p>An earlier version passed a <em>baton</em>: only the agent holding it
+          could work. That serialises the thing you wanted parallel and leaves
+          agents idle. The design now separates them:</p>
+
+        <ul>
+          <li><strong>Lanes run concurrently.</strong> Nothing stops two agents
+            editing at once — that is the point of the feature.</li>
+          <li><strong>Publication is single-flight.</strong> One lock. One lane at
+            a time moves the integration branch.</li>
+        </ul>
+
+        <ul class="legend">
+          <li><span class="dot" style="background:#2c3e6b"></span>Process / steps</li>
+          <li><span class="dot" style="background:#5b8a82"></span>Verified / owned by Crew</li>
+          <li><span class="dot" style="background:#b5502e"></span>Failure path</li>
+          <li><span class="dot" style="background:#c9a084"></span>Provisional / open</li>
+        </ul>
+
+        <figure>
+          <svg viewBox="0 0 880 450" role="img" aria-labelledby="fig3t">
+            <title id="fig3t">Conductor dispatching to two lanes that work in
+              parallel, publishing one at a time through a lock into a detached
+              integration worktree, then to the integration branch.</title>
+
+            <rect x="350" y="8" width="180" height="34" fill="#fff" stroke="#111"/>
+            <text x="440" y="30" text-anchor="middle" class="d-label">Conductor</text>
+            <text x="546" y="30" class="d-meta">routes work, owns the lock</text>
+
+            <path d="M440 42 V62 M230 62 H650 M230 62 V84 M650 62 V84" stroke="#2c3e6b" fill="none"/>
+            <path d="M230 92 l-4 -8 h8 Z M650 92 l-4 -8 h8 Z" fill="#2c3e6b"/>
+
+            <!-- lanes -->
+            <rect x="110" y="92" width="240" height="104" fill="#fff" stroke="#111"/>
+            <text x="126" y="114" class="d-label">Lane A</text>
+            <text x="126" y="136" class="d-text">Agent session</text>
+            <text x="126" y="156" class="d-mono">.crew/lanes/a/</text>
+            <text x="126" y="176" class="d-mono">branch crew/lane-a</text>
+
+            <rect x="530" y="92" width="240" height="104" fill="#fff" stroke="#111"/>
+            <text x="546" y="114" class="d-label">Lane B</text>
+            <text x="546" y="136" class="d-text">Agent session</text>
+            <text x="546" y="156" class="d-mono">.crew/lanes/b/</text>
+            <text x="546" y="176" class="d-mono">branch crew/lane-b</text>
+
+            <text x="440" y="150" text-anchor="middle" class="d-label" fill="#5b8a82">concurrent</text>
+
+            <path d="M230 196 V226 M650 196 V226 M230 226 H650 M440 226 V248"
+                  stroke="#2c3e6b" fill="none"/>
+            <path d="M440 256 l-4 -8 h8 Z" fill="#2c3e6b"/>
+
+            <!-- lock -->
+            <rect x="290" y="256" width="300" height="40" fill="#eef0f6" stroke="#2c3e6b"/>
+            <text x="440" y="281" text-anchor="middle" class="d-label" fill="#2c3e6b">
+              Publication lock — one at a time</text>
+
+            <path d="M440 296 V318" stroke="#2c3e6b" fill="none"/>
+            <path d="M440 326 l-4 -8 h8 Z" fill="#2c3e6b"/>
+
+            <!-- integration -->
+            <rect x="230" y="326" width="420" height="52" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="440" y="348" text-anchor="middle" class="d-label" fill="#3f6b5f">
+              Integration worktree — detached HEAD</text>
+            <text x="440" y="368" text-anchor="middle" class="d-meta">
+              merge · run tests · advance the ref. Crew owns this; no agent enters.</text>
+
+            <path d="M440 378 V398" stroke="#5b8a82" fill="none"/>
+            <path d="M440 406 l-4 -8 h8 Z" fill="#5b8a82"/>
+            <rect x="330" y="406" width="220" height="30" fill="#fff" stroke="#5b8a82"/>
+            <text x="440" y="426" text-anchor="middle" class="d-mono" fill="#3f6b5f">crew/integration</text>
+            <text x="566" y="426" class="d-meta">advanced by CAS only</text>
+
+            <!-- user checkout -->
+            <rect x="16" y="326" width="180" height="52" fill="#fff" stroke="#cccccc"/>
+            <text x="106" y="348" text-anchor="middle" class="d-text">Your checkout</text>
+            <text x="106" y="367" text-anchor="middle" class="d-meta">never a merge target</text>
+          </svg>
+          <figcaption>
+            <b>The integration worktree is where the risky work happens, and no
+            agent can reach it.</b> Your own checkout is never written to — you
+            merge <code>crew/integration</code> yourself when you are ready.
+          </figcaption>
+        </figure>
+
+        <div class="note process">
+          <p class="note-label">Why the integration worktree is detached</p>
+          <p>Its <code>HEAD</code> deliberately points at a commit, not at the
+            branch. If a worktree has <code>crew/integration</code> checked out,
+            advancing the ref underneath it leaves that worktree's files and index
+            describing the old commit — the same desync that makes writing to your
+            checkout unsafe. Crew checks <code>git worktree list</code> immediately
+            before advancing, and refuses if anyone has the branch out.</p>
+        </div>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="publish">
+        <p class="eyebrow">The core mechanism</p>
+        <h2>The publication transaction</h2>
+        <p class="dek">Everything that can corrupt a repository happens here, so
+          this is the part that is specified to the step.</p>
+
+        <p>When a lane has commits and wants to land them, it asks to publish.
+          The lock admits one. Everything below happens inside it.</p>
+
+        <figure>
+          <svg viewBox="0 0 880 512" role="img" aria-labelledby="fig4t">
+            <title id="fig4t">The eleven-step publication transaction, with the
+              journal written twice and a compare-and-swap on the ref.</title>
+
+            <!-- steps -->
+            <g>
+              <rect x="16" y="10" width="560" height="30" fill="#fff" stroke="#cccccc"/>
+              <text x="30" y="30" class="d-mono">01</text>
+              <text x="70" y="30" class="d-text">Acquire the lock — or join the queue</text>
+
+              <rect x="16" y="46" width="560" height="30" fill="#fff" stroke="#cccccc"/>
+              <text x="30" y="66" class="d-mono">02</text>
+              <text x="70" y="66" class="d-text">Freeze the candidate: resolve the lane tip to a SHA</text>
+
+              <rect x="16" y="82" width="560" height="30" fill="#fff" stroke="#cccccc"/>
+              <text x="30" y="102" class="d-mono">03</text>
+              <text x="70" y="102" class="d-text">Read the integration ref — this is the CAS witness</text>
+
+              <rect x="16" y="118" width="560" height="30" fill="#eef0f6" stroke="#2c3e6b"/>
+              <text x="30" y="138" class="d-mono">04</text>
+              <text x="70" y="138" class="d-text" fill="#2c3e6b">Journal: intent (lane, candidate SHA, witness)</text>
+
+              <rect x="16" y="154" width="560" height="30" fill="#fff" stroke="#cccccc"/>
+              <text x="30" y="174" class="d-mono">05</text>
+              <text x="70" y="174" class="d-text">Merge the candidate in the integration worktree</text>
+
+              <rect x="16" y="190" width="560" height="30" fill="#fff" stroke="#cccccc"/>
+              <text x="30" y="210" class="d-mono">06</text>
+              <text x="70" y="210" class="d-text">Conflict? Abort, release, hand paths back to the agent</text>
+
+              <rect x="16" y="226" width="560" height="30" fill="#fff" stroke="#cccccc"/>
+              <text x="30" y="246" class="d-mono">07</text>
+              <text x="70" y="246" class="d-text">Setup step, then run the test recipe</text>
+
+              <rect x="16" y="262" width="560" height="30" fill="#eef0f6" stroke="#2c3e6b"/>
+              <text x="30" y="282" class="d-mono">08</text>
+              <text x="70" y="282" class="d-text" fill="#2c3e6b">Journal: the resulting merge SHA</text>
+
+              <rect x="16" y="298" width="560" height="30" fill="#fff" stroke="#cccccc"/>
+              <text x="30" y="318" class="d-mono">09</text>
+              <text x="70" y="318" class="d-text">Check no worktree has the branch checked out</text>
+
+              <rect x="16" y="334" width="560" height="30" fill="#eef4f2" stroke="#5b8a82"/>
+              <text x="30" y="354" class="d-mono">10</text>
+              <text x="70" y="354" class="d-text" fill="#3f6b5f">update-ref old→new — fails if anything moved</text>
+
+              <rect x="16" y="370" width="560" height="30" fill="#fff" stroke="#cccccc"/>
+              <text x="30" y="390" class="d-mono">11</text>
+              <text x="70" y="390" class="d-text">Reap processes, release the lock, post the bulletin</text>
+            </g>
+
+            <!-- annotations -->
+            <path d="M576 133 H628" stroke="#2c3e6b" fill="none"/>
+            <path d="M636 133 l-8 -4 v8 Z" fill="#2c3e6b"/>
+            <rect x="636" y="104" width="228" height="58" fill="#fff" stroke="#2c3e6b"/>
+            <text x="650" y="124" class="d-label" fill="#2c3e6b">Written twice</text>
+            <text x="650" y="142" class="d-meta">The result SHA does not exist</text>
+            <text x="650" y="156" class="d-meta">until step 05 has run.</text>
+
+            <path d="M576 277 H628" stroke="#2c3e6b" fill="none"/>
+            <path d="M636 277 l-8 -4 v8 Z" fill="#2c3e6b"/>
+            <rect x="636" y="248" width="228" height="58" fill="#fff" stroke="#2c3e6b"/>
+            <text x="650" y="268" class="d-label" fill="#2c3e6b">So recovery works</text>
+            <text x="650" y="286" class="d-meta">One write leaves "merged but</text>
+            <text x="650" y="300" class="d-meta">unpublished" unclassifiable.</text>
+
+            <path d="M576 349 H628" stroke="#5b8a82" fill="none"/>
+            <path d="M636 349 l-8 -4 v8 Z" fill="#5b8a82"/>
+            <rect x="636" y="320" width="228" height="72" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="650" y="340" class="d-label" fill="#3f6b5f">Compare-and-swap</text>
+            <text x="650" y="358" class="d-meta">If an agent ran git behind</text>
+            <text x="650" y="372" class="d-meta">Crew's back, this refuses.</text>
+            <text x="650" y="386" class="d-meta">Never blind-retried.</text>
+
+            <rect x="16" y="424" width="848" height="74" fill="#f7ece8" stroke="#b5502e"/>
+            <text x="32" y="446" class="d-label" fill="#b5502e">If Crew is killed mid-transaction</text>
+            <text x="32" y="466" class="d-text" fill="#b5502e">The run enters needs-recovery. Crew reconciles the journal against the real refs</text>
+            <text x="32" y="484" class="d-text" fill="#b5502e">before it will take another step. A stopped app is not evidence its last operation failed.</text>
+          </svg>
+          <figcaption>
+            <b>Step 10 is the whole safety story.</b> <code>update-ref</code> with
+            an expected old value is git's atomic compare-and-swap: it advances the
+            branch only if the branch is still exactly where step 03 saw it.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="bug">
+        <p class="eyebrow">What review caught</p>
+        <h2>The bug four reviews took to find</h2>
+        <p class="dek">The spec was reviewed by Grok 4.7, GPT-6 Sol, GPT-6 Astra
+          and Claude Opus 5.5. The first three converged on the same ten issues.
+          The fourth found this, which none of them saw, and it would have broken
+          the feature on day two.</p>
+
+        <p>The draft published by <strong>rebasing</strong> the lane's commits onto
+          the integration branch. Rebase rewrites commits — same changes, new
+          SHAs. The rewritten commits land on the integration branch, but
+          <strong>the lane's own branch still points at the originals</strong>.</p>
+
+        <figure>
+          <svg viewBox="0 0 880 300" role="img" aria-labelledby="fig5t">
+            <title id="fig5t">After a rebase publish, the integration branch holds
+              rewritten commits while the lane branch still points at the originals,
+              so the lane still counts as ahead.</title>
+
+            <text x="16" y="20" class="d-label" fill="#b5502e">Publishing by rebase</text>
+
+            <!-- integration line -->
+            <text x="16" y="72" class="d-mono">crew/integration</text>
+            <line x1="150" y1="66" x2="470" y2="66" stroke="#111"/>
+            <circle cx="170" cy="66" r="7" fill="#fff" stroke="#111"/>
+            <text x="170" y="48" text-anchor="middle" class="d-mono">B</text>
+            <circle cx="330" cy="66" r="7" fill="#f7ece8" stroke="#b5502e"/>
+            <text x="330" y="48" text-anchor="middle" class="d-mono">X′</text>
+            <circle cx="450" cy="66" r="7" fill="#f7ece8" stroke="#b5502e"/>
+            <text x="450" y="48" text-anchor="middle" class="d-mono">Y′</text>
+            <text x="490" y="70" class="d-meta">rewritten copies</text>
+
+            <!-- lane line -->
+            <text x="16" y="176" class="d-mono">crew/lane-a</text>
+            <line x1="150" y1="170" x2="470" y2="170" stroke="#111"/>
+            <circle cx="170" cy="170" r="7" fill="#fff" stroke="#111"/>
+            <text x="170" y="196" text-anchor="middle" class="d-mono">B</text>
+            <circle cx="330" cy="170" r="7" fill="#fff" stroke="#111"/>
+            <text x="330" y="196" text-anchor="middle" class="d-mono">X</text>
+            <circle cx="450" cy="170" r="7" fill="#fff" stroke="#111"/>
+            <text x="450" y="196" text-anchor="middle" class="d-mono">Y</text>
+            <text x="490" y="174" class="d-meta">originals — still the branch tip</text>
+
+            <path d="M330 155 V82 M450 155 V82" stroke="#b5502e" stroke-dasharray="3 3" fill="none"/>
+
+            <rect x="16" y="222" width="848" height="62" fill="#f7ece8" stroke="#b5502e"/>
+            <text x="32" y="244" class="d-label" fill="#b5502e">Consequences</text>
+            <text x="32" y="264" class="d-text" fill="#b5502e">X and Y are not ancestors of Y′, so the lane is still "2 ahead" with no new work —
+              it stays eligible to publish forever.</text>
+            <text x="32" y="280" class="d-text" fill="#b5502e">The agent's worktree also never receives its teammates' work.</text>
+          </svg>
+          <figcaption>
+            Dashed lines mark the same change existing twice under two identities.
+            That duplication is the whole bug.
+          </figcaption>
+        </figure>
+
+        <div class="note bug">
+          <p class="note-label">The part that actually bites</p>
+          <p>Git can usually cope with this: a second rebase drops commits whose
+            <em>patch-id</em> already exists upstream. But a patch-id is computed
+            over the diff <strong>including its context lines</strong>. The moment
+            a teammate edits anywhere near your code, the context changes, the
+            patch-ids stop matching, and git faithfully replays your
+            already-landed commits on top of themselves — conflicting your work
+            against itself, on <strong>every subsequent publication</strong>.</p>
+          <p>So the failure does not appear in the first demo. It appears once two
+            lanes have both landed something, which is the exact scenario the
+            feature exists for.</p>
+        </div>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="sync">
+        <p class="eyebrow">The fix</p>
+        <h2>Merge, and the Sync you now need</h2>
+
+        <p>Publish by <strong>merge</strong> instead. Nothing is rewritten, so the
+          lane's commits become genuine ancestors of the integration branch and
+          <code>ahead</code> falls back to zero by itself. No bookkeeping, no
+          reset, no special case.</p>
+
+        <figure>
+          <svg viewBox="0 0 880 300" role="img" aria-labelledby="fig6t">
+            <title id="fig6t">Publishing by merge makes the lane's commits
+              ancestors of the integration branch, and an explicit Sync brings
+              teammates' work back into the lane.</title>
+
+            <text x="16" y="20" class="d-label" fill="#5b8a82">Publishing by merge</text>
+
+            <text x="16" y="72" class="d-mono">crew/integration</text>
+            <line x1="150" y1="66" x2="600" y2="66" stroke="#111"/>
+            <circle cx="170" cy="66" r="7" fill="#fff" stroke="#111"/>
+            <text x="170" y="48" text-anchor="middle" class="d-mono">B</text>
+            <circle cx="590" cy="66" r="7" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="590" y="48" text-anchor="middle" class="d-mono">M</text>
+            <text x="614" y="70" class="d-meta">merge commit</text>
+
+            <text x="16" y="176" class="d-mono">crew/lane-a</text>
+            <line x1="150" y1="170" x2="470" y2="170" stroke="#111"/>
+            <circle cx="170" cy="170" r="7" fill="#fff" stroke="#111"/>
+            <circle cx="330" cy="170" r="7" fill="#fff" stroke="#111"/>
+            <text x="330" y="196" text-anchor="middle" class="d-mono">X</text>
+            <circle cx="450" cy="170" r="7" fill="#fff" stroke="#111"/>
+            <text x="450" y="196" text-anchor="middle" class="d-mono">Y</text>
+
+            <!-- merge edge -->
+            <path d="M457 165 Q540 140 584 73" stroke="#5b8a82" fill="none"/>
+            <path d="M590 66 l-2 9 l7 -4 Z" fill="#5b8a82"/>
+            <text x="500" y="126" class="d-label" fill="#3f6b5f">publish</text>
+
+            <!-- sync edge -->
+            <path d="M600 80 Q664 190 492 174" stroke="#2c3e6b" stroke-dasharray="4 3" fill="none"/>
+            <path d="M484 173 l9 -4 v8 Z" fill="#2c3e6b"/>
+            <text x="622" y="150" class="d-label" fill="#2c3e6b">sync</text>
+
+            <rect x="16" y="238" width="848" height="46" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="32" y="260" class="d-label" fill="#3f6b5f">Result</text>
+            <text x="32" y="278" class="d-text" fill="#3f6b5f">X and Y are ancestors of M. The lane is 0 ahead. A second publication has
+              nothing to replay. One commit exists once.</text>
+          </svg>
+          <figcaption>
+            <b>Merging exposed a gap the rebase design had hidden.</b> Merging
+            <em>into</em> integration never moves anything back <em>into</em> a
+            lane — so without the dashed arrow, every lane would edit
+            increasingly stale code forever. Hence an explicit
+            <b>Sync lane</b> action.
+          </figcaption>
+        </figure>
+
+        <div class="note fix">
+          <p class="note-label">One promise had to be downgraded — honestly</p>
+          <p>The draft promised "agents never touch git." Sync means a lane
+            receives merges, so that promise is no longer literally true and
+            pretending otherwise would hide a real risk. The replacement is
+            narrower and actually enforceable: <strong>only Crew moves the
+            integration ref</strong>. If an agent runs git anyway, the
+            compare-and-swap at step 10 catches it and stops.</p>
+        </div>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="models">
+        <p class="eyebrow">Your steer, now in the spec</p>
+        <h2>Thirty models, one transport</h2>
+        <div class="chip-row">
+          <span class="chip verified">In the spec</span>
+          <span class="chip verified">Lane.agent = (preset, model)</span>
+        </div>
+        <p class="dek">Your sketch used three different CLIs to get three
+          different minds. Copilot CLI already offers thirty models across six
+          vendors, and Crew already knows how to pick one.</p>
+
+        <p>Crew reads the installed CLI's own completion script for the model
+          list, caches it for five minutes, and injects <code>--model</code> at
+          launch. That machinery exists and ships today:</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Already in Crew</th><th>What it does</th><th>Where</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Model catalogue</td><td>Parses the CLI's completion script; validates every id; caches 5 min</td><td><code>src/main/copilot-models.ts</code></td></tr>
+              <tr><td>Launch injection</td><td><code>withCopilotModel()</code> rewrites the arg list</td><td><code>src/shared/copilot-models.ts</code></td></tr>
+              <tr><td>Per-session choice</td><td>Model picker on the new-session form</td><td><code>src/renderer/new-session-model.ts</code></td></tr>
+              <tr><td>Stable session ids</td><td><code>--session-id=</code> sets <em>and</em> resumes</td><td><code>src/main/presets.ts</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <figure>
+          <svg viewBox="0 0 880 310" role="img" aria-labelledby="fig7t">
+            <title id="fig7t">One Copilot CLI preset reaching thirty models across
+              six vendors, compared with three separate CLI integrations.</title>
+
+            <text x="16" y="20" class="d-label" fill="#b5502e">Sketch: 3 CLIs</text>
+            <text x="330" y="20" class="d-label" fill="#5b8a82">Available today: 1 CLI</text>
+            <line x1="300" y1="0" x2="300" y2="290" stroke="#dddddd"/>
+
+            <rect x="16" y="36" width="250" height="30" fill="#fff" stroke="#cccccc"/>
+            <text x="30" y="56" class="d-text">Claude Code</text>
+            <text x="256" y="56" text-anchor="end" class="d-meta">preset exists</text>
+            <rect x="16" y="72" width="250" height="30" fill="#f7ece8" stroke="#b5502e"/>
+            <text x="30" y="92" class="d-text" fill="#b5502e">Codex CLI</text>
+            <text x="256" y="92" text-anchor="end" class="d-meta">no preset</text>
+            <rect x="16" y="108" width="250" height="30" fill="#f7ece8" stroke="#b5502e"/>
+            <text x="30" y="128" class="d-text" fill="#b5502e">OpenCode</text>
+            <text x="256" y="128" text-anchor="end" class="d-meta">no preset</text>
+
+            <text x="30" y="178" class="d-text" fill="#b5502e">Three transports to build,</text>
+            <text x="30" y="196" class="d-text" fill="#b5502e">three completion signals</text>
+            <text x="30" y="214" class="d-text" fill="#b5502e">to reverse-engineer.</text>
+
+            <!-- right -->
+            <rect x="330" y="36" width="190" height="34" fill="#fff" stroke="#111"/>
+            <text x="425" y="58" text-anchor="middle" class="d-label">Copilot CLI</text>
+            <text x="425" y="88" text-anchor="middle" class="d-mono">--model</text>
+
+            <path d="M425 96 V112 M370 112 H840 M370 112 V128 M490 112 V128 M610 112 V128 M730 112 V128 M840 112 V128"
+                  stroke="#5b8a82" fill="none"/>
+
+            <g class="d-meta" text-anchor="middle">
+              <rect x="330" y="128" width="80" height="26" fill="#eef4f2" stroke="#5b8a82"/>
+              <text x="370" y="145">Claude ×9</text>
+              <rect x="450" y="128" width="80" height="26" fill="#eef4f2" stroke="#5b8a82"/>
+              <text x="490" y="145">GPT ×11</text>
+              <rect x="570" y="128" width="80" height="26" fill="#eef4f2" stroke="#5b8a82"/>
+              <text x="610" y="145">Gemini ×4</text>
+              <rect x="690" y="128" width="80" height="26" fill="#eef4f2" stroke="#5b8a82"/>
+              <text x="730" y="145">Grok ×1</text>
+              <rect x="800" y="128" width="64" height="26" fill="#eef4f2" stroke="#5b8a82"/>
+              <text x="832" y="145">+ Kimi</text>
+            </g>
+
+            <text x="344" y="186" class="d-text" fill="#3f6b5f">One transport. One completion signal.</text>
+            <text x="344" y="204" class="d-text" fill="#3f6b5f">One auth path. Thirty minds.</text>
+            <text x="344" y="222" class="d-meta">Read from the installed CLI at runtime — the list is not hardcoded,</text>
+            <text x="344" y="238" class="d-meta">so new models appear on their own.</text>
+
+            <rect x="16" y="252" width="848" height="48" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="32" y="272" class="d-text" fill="#3f6b5f">A lane's identity is <tspan class="d-mono">Lane.agent = (presetId, model)</tspan> — so "builder on Opus 5.5,</text>
+            <text x="32" y="291" class="d-text" fill="#3f6b5f">reviewer on GPT-6 Astra" is a lane setting rather than a new integration.</text>
+          </svg>
+          <figcaption>
+            Counts read live from the installed CLI on
+            <time datetime="2026-09-28">28 Sep 2026</time> via
+            <code>copilot completion bash</code>.
+            <b>This also shrinks the riskiest unknown in the whole plan</b> — see
+            Phase 1b in <a href="#phases">section 10</a>, where Copilot CLI is now
+            the priority target rather than the afterthought. Cross-vendor review
+            stops being a three-integration project and becomes a dropdown.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="talk">
+        <p class="eyebrow">Coordination</p>
+        <h2>How agents talk</h2>
+        <p class="dek">You asked for agents that coordinate so check-ins don't
+          conflict. They do — but through Crew, never directly.</p>
+
+        <p>Every message is a <strong>fact Crew verified</strong>, not an agent's
+          claim. When a lane lands work, Crew posts a bulletin to the others
+          naming the real commit and the real paths, because Crew performed the
+          merge and read the result.</p>
+
+        <figure>
+          <svg viewBox="0 0 880 250" role="img" aria-labelledby="fig8t">
+            <title id="fig8t">Lane A publishes; Crew verifies and posts a bulletin
+              to Lane B when Lane B is ready to receive it.</title>
+
+            <rect x="16" y="30" width="170" height="34" fill="#fff" stroke="#111"/>
+            <text x="101" y="52" text-anchor="middle" class="d-label">Lane A</text>
+            <rect x="355" y="30" width="170" height="34" fill="#eef0f6" stroke="#2c3e6b"/>
+            <text x="440" y="52" text-anchor="middle" class="d-label" fill="#2c3e6b">Crew</text>
+            <rect x="694" y="30" width="170" height="34" fill="#fff" stroke="#111"/>
+            <text x="779" y="52" text-anchor="middle" class="d-label">Lane B</text>
+
+            <line x1="101" y1="64" x2="101" y2="230" stroke="#dddddd"/>
+            <line x1="440" y1="64" x2="440" y2="230" stroke="#dddddd"/>
+            <line x1="779" y1="64" x2="779" y2="230" stroke="#dddddd"/>
+
+            <path d="M101 92 H432" stroke="#2c3e6b" fill="none"/>
+            <path d="M440 92 l-8 -4 v8 Z" fill="#2c3e6b"/>
+            <text x="270" y="86" text-anchor="middle" class="d-meta">"I have commits"</text>
+
+            <rect x="350" y="110" width="180" height="30" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="440" y="130" text-anchor="middle" class="d-meta" fill="#3f6b5f">merge · test · advance ref</text>
+
+            <path d="M440 168 H771" stroke="#5b8a82" fill="none"/>
+            <path d="M779 168 l-8 -4 v8 Z" fill="#5b8a82"/>
+            <text x="610" y="162" text-anchor="middle" class="d-meta">verified bulletin</text>
+            <text x="610" y="190" text-anchor="middle" class="d-mono">"a1b2c3 touched src/auth.ts — sync to pick it up"</text>
+
+            <text x="440" y="224" text-anchor="middle" class="d-meta">
+              held until Lane B is idle — never typed into a running turn</text>
+          </svg>
+          <figcaption>
+            <b>Delivery is gated on readiness.</b> Injecting text into a session
+            that is mid-turn corrupts its input; injecting a newline while it is
+            showing an approval prompt would silently <em>approve</em> whatever it
+            asked. So Crew never writes to a session showing
+            <code>WAITING_APPROVAL</code>.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="guarantees">
+        <p class="eyebrow">Honesty</p>
+        <h2>What this does and does not promise</h2>
+        <p class="dek">The first draft claimed conflicts were impossible. They are
+          not. This table replaced that claim.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th style="width:46%">Claim</th><th style="width:18%">Status</th><th>Why</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Agents cannot corrupt each other's working tree</td>
+                <td><span class="chip verified">Guaranteed</span></td>
+                <td>Separate worktrees, separate indexes. Structural.</td>
+              </tr>
+              <tr>
+                <td>Only one thing advances the integration branch</td>
+                <td><span class="chip verified">Guaranteed</span></td>
+                <td>Single-flight lock plus a ref compare-and-swap.</td>
+              </tr>
+              <tr>
+                <td>Your own checkout is never written to</td>
+                <td><span class="chip verified">Guaranteed</span></td>
+                <td>It is never a merge target. You merge when you choose.</td>
+              </tr>
+              <tr>
+                <td>Textual conflicts are caught before landing</td>
+                <td><span class="chip verified">Guaranteed</span></td>
+                <td>The merge happens in Crew's worktree, or it fails.</td>
+              </tr>
+              <tr>
+                <td>Two agents writing incompatible <em>designs</em> are stopped</td>
+                <td><span class="chip pain">No</span></td>
+                <td>Git merges text. Only your test command can catch semantics — and only if it covers it.</td>
+              </tr>
+              <tr>
+                <td>An agent running git itself is prevented</td>
+                <td><span class="chip pain">No — detected</span></td>
+                <td>Nothing can stop a shell. The CAS refuses and surfaces it rather than silently proceeding.</td>
+              </tr>
+              <tr>
+                <td>Bulletins arrive promptly</td>
+                <td><span class="chip provisional">Eventual</span></td>
+                <td>Held until the target session is idle. A busy agent hears late.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="phases">
+        <p class="eyebrow">Sequencing</p>
+        <h2>What gets built, in what order</h2>
+        <p class="dek">All four reviewers independently said the original Phase 1
+          was the entire product, resting on git machinery that does not exist yet.</p>
+
+        <dl class="stats">
+          <div><dt>Reviews</dt><dd>4<span>independent models</span></dd></div>
+          <div><dt>Blocking issues</dt><dd>11<span>10 + 1 second round</span></dd></div>
+          <div><dt>Spec</dt><dd>996<span>lines, committed</span></dd></div>
+          <div><dt>Code written</dt><dd>0<span>gated on your approval</span></dd></div>
+        </dl>
+
+        <figure>
+          <svg viewBox="0 0 880 250" role="img" aria-labelledby="fig9t">
+            <title id="fig9t">Four phases, with the transport spike running in
+              parallel with phase one.</title>
+
+            <rect x="16" y="24" width="250" height="74" fill="#eef4f2" stroke="#5b8a82"/>
+            <text x="32" y="46" class="d-label" fill="#3f6b5f">Phase 1 — git safety</text>
+            <text x="32" y="66" class="d-meta">Lanes, lock, merge, sync, CAS,</text>
+            <text x="32" y="82" class="d-meta">journal, recovery. Manual button.</text>
+
+            <rect x="16" y="106" width="250" height="74" fill="#fbfaf7" stroke="#c9a084" stroke-dasharray="4 3"/>
+            <text x="32" y="128" class="d-label" fill="#8a6a52">Phase 1b — transport spike</text>
+            <text x="32" y="148" class="d-meta">Measure completion signals only.</text>
+            <text x="32" y="164" class="d-meta">Time-boxed. Runs alongside.</text>
+
+            <path d="M266 62 H310" stroke="#2c3e6b" fill="none"/>
+            <path d="M318 62 l-8 -4 v8 Z" fill="#2c3e6b"/>
+            <path d="M266 143 H292 V62" stroke="#c9a084" stroke-dasharray="4 3" fill="none"/>
+
+            <rect x="318" y="24" width="250" height="74" fill="#fff" stroke="#cccccc"/>
+            <text x="334" y="46" class="d-label">Phase 2 — automation</text>
+            <text x="334" y="66" class="d-meta">Transport, readiness-gated</text>
+            <text x="334" y="82" class="d-meta">delivery, dispatcher, bounds.</text>
+
+            <path d="M568 62 H612" stroke="#2c3e6b" fill="none"/>
+            <path d="M620 62 l-8 -4 v8 Z" fill="#2c3e6b"/>
+
+            <rect x="620" y="24" width="244" height="74" fill="#fff" stroke="#cccccc"/>
+            <text x="636" y="46" class="d-label">Phase 3 — briefings</text>
+            <text x="636" y="66" class="d-meta">LLM handoff summaries,</text>
+            <text x="636" y="82" class="d-meta">then the question relay.</text>
+
+            <rect x="620" y="106" width="244" height="74" fill="#fff" stroke="#cccccc"/>
+            <text x="636" y="128" class="d-label">Phase 4 — auto-merge</text>
+            <text x="636" y="148" class="d-meta">Only once coordination has</text>
+            <text x="636" y="164" class="d-meta">been watched working.</text>
+            <path d="M742 98 V106" stroke="#2c3e6b" fill="none"/>
+
+            <rect x="16" y="196" width="848" height="58" fill="#eef0f6" stroke="#2c3e6b"/>
+            <text x="32" y="220" class="d-text" fill="#2c3e6b">Phase 1 has no agent automation in it at all. It is fully testable against a throwaway</text>
+            <text x="32" y="240" class="d-text" fill="#2c3e6b">git repo with no agent in the loop — which is exactly why it goes first.</text>
+          </svg>
+          <figcaption>
+            <b>Phase 1b exists to de-risk Phase 2 before you commit to it.</b> Phase 2
+            assumes a trustworthy "this agent finished its turn" signal exists.
+            Crew's detector does not provide one — it reports
+            <code>WAITING_INPUT</code> / <code>WAITING_APPROVAL</code> / <code>IDLE</code>,
+            and a slow tool call reads the same as a finished answer. The shell
+            preset, though, already emits OSC 133 shell-integration marks via
+            <code>crew-hook</code>, so there is a zero-risk baseline to measure against.
+          </figcaption>
+        </figure>
+
+        <div class="note process">
+          <p class="note-label">Phase 1 still does not implement the data model</p>
+          <p>Roles, pipeline edges and the gate set are now <em>specified</em> —
+            review gates publication, decided below — but Phase 1 builds none of
+            them. Its Publish button is manual, so you are the review gate. They
+            are written down so Phase 2 has a target, not so Phase 1 has more to
+            build.</p>
+        </div>
+      </section>
+
+      <!-- ============================================ -->
+      <section id="open">
+        <p class="eyebrow">Settled</p>
+        <h2>Three decisions you made</h2>
+
+        <div class="note verified">
+          <p class="note-label">1 — Review gates publication ✓</p>
+          <p>A candidate is frozen at an exact SHA, handed to a reviewer, and the
+            merge is gated on a verdict for <em>that</em> SHA. A "needs changes"
+            verdict that cannot stop anything is a comment, not a review.</p>
+          <p>The consequence worth knowing: <strong>review never holds the
+            publication lock.</strong> A review is an LLM turn, and the lock is
+            single-flight across the run — holding it across a review would
+            serialise every lane behind one reviewer's thinking time, which is
+            the opposite of why lanes exist. So the candidate is frozen, review
+            runs lock-free, and only an approved lane contends for the lock,
+            where the runtime rechecks that the tip is still the SHA that was
+            approved.</p>
+        </div>
+
+        <div class="note verified">
+          <p class="note-label">2 — Phase 1 first ✓</p>
+          <p>The git safety layer with a manual Publish button. Nothing
+            automated, but nothing can eat your repository either — and it is
+            fully testable against a temp repo with no agent in the loop. All
+            four reviewers recommended this, with the 1b transport spike running
+            alongside rather than after.</p>
+        </div>
+
+        <div class="note verified">
+          <p class="note-label">3 — Cross-model review is the default ✓</p>
+          <p><a href="#models">Section 7</a> is in the spec: a lane's identity is
+            <code>(presetId, model)</code>, and a reviewer runs on a different
+            vendor's model than the author. This document is the evidence — three
+            reviewers agreed with each other, and the fourth, from a different
+            vendor, found the bug that broke the publication lifecycle.</p>
+        </div>
+
+        <p>Next step: the implementation plan for Phase 1. No Conductor code has
+          been written yet, by design.</p>
+      </section>
+
+    </main>
+  </div>
+
+  <footer>
+    <p>Source spec: <code>docs/superpowers/specs/2026-09-28-conducted-workspaces-design.md</code>
+      · branch <code>design/conducted-workspaces</code> · PR #28</p>
+    <p>Alex Tools house style, Core Paper register. Model counts read from the
+      installed Copilot CLI, 28 Sep 2026.</p>
+  </footer>
+
+</div>
+
+<script>
+  // Mark the section currently under the masthead in the contents list.
+  const links = new Map(
+    [...document.querySelectorAll('.toc a')].map((a) => [a.hash.slice(1), a])
+  )
+  const seen = new Set()
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) seen.add(entry.target.id)
+        else seen.delete(entry.target.id)
+      }
+      let current = null
+      for (const section of document.querySelectorAll('section')) {
+        if (seen.has(section.id)) { current = section.id; break }
+      }
+      for (const [id, link] of links) {
+        if (id === current) link.setAttribute('aria-current', 'true')
+        else link.removeAttribute('aria-current')
+      }
+    },
+    { rootMargin: '-88px 0px -55% 0px' }
+  )
+  document.querySelectorAll('section').forEach((s) => observer.observe(s))
+</script>
+
+</body>
+</html>

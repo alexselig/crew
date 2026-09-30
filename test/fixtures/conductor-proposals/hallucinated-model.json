@@ -1,0 +1,7 @@
+{
+  "summary": "Split the importer work from its review.",
+  "rows": [
+    { "roleName": "importer", "kind": "author", "presetId": "copilot-cli", "model": "gpt-9-omega", "rationale": "Long refactor across many files; favours a large context model." },
+    { "roleName": "reviewer", "kind": "reviewer", "presetId": "copilot-cli", "model": "gpt-6-astra", "rationale": "A second, different reasoner so review is not self-review." }
+  ]
+}

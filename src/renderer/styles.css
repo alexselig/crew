@@ -872,6 +872,213 @@ button {
   font-size: 13.5px;
 }
 
+/* Conductor composer: "Load a plan file…" is a native file input dressed as
+ * a .btn label. The input itself stays functional (clicking the label still
+ * opens the file picker) but is visually hidden rather than left to render
+ * its raw OS-styled control inside the styled label. */
+.conductor-composer-plan-loader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.conductor-composer-plan-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.conductor-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 640px;
+}
+
+.conductor-composer-summary {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.conductor-composer-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.conductor-composer-note {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+}
+
+.conductor-composer-note--blocking {
+  background: rgba(229, 72, 77, 0.1);
+  color: var(--danger);
+}
+
+.conductor-composer-note--warning {
+  background: rgba(242, 241, 234, 0.06);
+  color: var(--text-dim);
+}
+
+.conductor-composer-roster {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.conductor-composer-roster th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 6px 8px;
+}
+
+.conductor-composer-row td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+
+.conductor-composer-row-details td {
+  padding: 0 8px 10px;
+  border-top: none;
+}
+
+.conductor-composer-rationale {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.conductor-composer-no-model {
+  color: var(--text-faint);
+}
+
+.conductor-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Plan view: the reconciled proposal rendered as a document you read before
+ * you edit or create anything. Every value it shows is agent-written text —
+ * see ConductorPlanDialog.tsx — so nothing here relies on markup rendering;
+ * these rules style plain paragraphs, a table and buttons only. */
+.plan-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  max-width: 640px;
+}
+
+.plan-doc__band {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan-doc__heading {
+  margin: 0;
+  font-family: 'Newsreader', Georgia, serif;
+  font-weight: 500;
+  font-size: 18px;
+  letter-spacing: 0.01em;
+  color: var(--ivory);
+}
+
+.plan-doc__band--summary .plan-doc__heading {
+  font-size: 22px;
+}
+
+.plan-doc__band--section {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+
+.plan-doc__p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.plan-doc__notes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.plan-doc__roster {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.plan-doc__roster th,
+.plan-doc__roster td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+
+.plan-doc__roster th {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.plan-doc__row--blocked td {
+  background: rgba(229, 72, 77, 0.06);
+}
+
+.plan-doc__problem {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--danger);
+}
+
+.plan-doc__warning {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #faa61a;
+}
+
+.plan-doc__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Wraps ConductorComposer when it is shown beneath the plan document
+ * (see ConductorPlanDialog.tsx): a top rule separates the read-only
+ * document above from the editable form below, rather than the composer
+ * replacing the document outright. */
+.plan-doc__composer {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 16px;
+}
+
 .mini-btn {
   padding: 2px 8px;
   border: 1px solid var(--border);
@@ -6533,4 +6740,112 @@ button.grid-topbar__wordmark:hover {
 }
 .agent-run__foot .btn {
   flex: 1;
+}
+
+/* ---------- Conductor panel ---------- */
+.conductor {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 320px;
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+.conductor-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.conductor-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.conductor-attention {
+  font-size: 11px;
+  color: var(--danger);
+}
+.conductor-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+.conductor-lane {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12px;
+}
+.conductor-lane-role {
+  font-weight: 600;
+}
+.conductor-lane-agent {
+  color: var(--text-dim);
+}
+.conductor-lane-counts {
+  color: var(--text-faint);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.conductor-lane-detail {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 11px;
+}
+.conductor-lane-warning {
+  flex-basis: 100%;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+/* Lane status: a left border strip keeps a blocked lane visually distinct
+ * from a working one at a glance, without relying on color alone. */
+.conductor-lane-working {
+  border-left: 2px solid var(--accent);
+}
+.conductor-lane-publishing {
+  border-left: 2px solid var(--accent-text);
+}
+.conductor-lane-blocked {
+  border-left: 2px solid var(--danger);
+  background: rgba(229, 72, 77, 0.06);
+}
+.conductor-lane-done {
+  border-left: 2px solid transparent;
+  color: var(--text-faint);
+}
+.conductor-lane button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.conductor-lane button:hover:not(:disabled) {
+  background: var(--bg-elev-2);
+}
+.conductor-lane button:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.conductor-message {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+  color: var(--text-dim);
 }

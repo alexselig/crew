@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  defaultLaneAgent,
   getCopilotLaunchArgs,
   getCopilotModelSelection
 } from '../src/renderer/new-session-model'
@@ -53,5 +54,20 @@ describe('optional Copilot model selection', () => {
       'auto'
     ])
     expect(presetArgs).toEqual(['--banner', '--model=old'])
+  })
+})
+
+describe('defaultLaneAgent', () => {
+  // A new roster row's picker shows DEFAULT_COPILOT_MODEL the instant
+  // copilot-cli is chosen, even before a catalog has loaded — so the stored
+  // agent must carry that same model, or the row looks valid while
+  // validateRoster still rejects it for a missing model.
+  it('defaults a Copilot preset row to DEFAULT_COPILOT_MODEL, matching what the picker displays', () => {
+    expect(defaultLaneAgent('copilot-cli')).toEqual({ presetId: 'copilot-cli', model: 'gpt-6-astra' })
+  })
+
+  it('leaves non-Copilot presets modelless, since their picker offers none', () => {
+    expect(defaultLaneAgent('shell')).toEqual({ presetId: 'shell', model: null })
+    expect(defaultLaneAgent('claude-code')).toEqual({ presetId: 'claude-code', model: null })
   })
 })

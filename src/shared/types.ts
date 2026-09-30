@@ -338,6 +338,13 @@ export const IPC = {
   CUSTOM_VIEW_CREATE: 'customViews:create',
   CUSTOM_VIEW_UPDATE: 'customViews:update',
   CUSTOM_VIEW_DELETE: 'customViews:delete',
+  CONDUCTOR_STATE: 'conductor:state',
+  CONDUCTOR_LANE_CREATE: 'conductor:laneCreate',
+  CONDUCTOR_LANE_DESTROY: 'conductor:laneDestroy',
+  CONDUCTOR_PUBLISH: 'conductor:publish',
+  CONDUCTOR_SYNC: 'conductor:sync',
+  CONDUCTOR_RECONCILE: 'conductor:reconcile',
+  CONDUCTOR_COMPOSE: 'conductor:compose',
   WORKSPACE_CREATE: 'workspace:create',
   WORKSPACE_RENAME: 'workspace:rename',
   WORKSPACE_DESCRIBE: 'workspace:describe',
@@ -371,5 +378,6 @@ export const IPC = {
   EVT_AGENTS: 'evt:agents',
   EVT_AGENT_RUN: 'evt:agentRun',
   EVT_ASSETS: 'evt:assets',
-  EVT_UPDATE: 'evt:update'
+  EVT_UPDATE: 'evt:update',
+  EVT_CONDUCTOR_STATE: 'evt:conductorState'
 } as const

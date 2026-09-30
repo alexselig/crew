@@ -48,6 +48,7 @@ import { CHARACTERS } from './characters'
 import { listCopilotModels } from './copilot-models'
 import { BoundedErrorReporter, createShellActions, installPreviewBoundary } from './main-boundaries'
 import { registerCustomViewIpc } from './custom-view-ipc'
+import { registerConductorIpc, createShippedConductorBackend } from './conductor-ipc'
 import { handleNeedsYouTransition } from './notification-integration'
 import { AppActivityCoordinator } from './app-activity'
 
@@ -813,6 +814,14 @@ function registerIpc(): void {
 
   // ── Custom views ──
   registerCustomViewIpc(ipcMain, store, broadcast)
+
+  // ── Conductor (Phase 1) ──
+  // No project has wired real ConductorSettings yet — the composer that does
+  // (repo path, integration branch/worktree, lanes dir, test recipe) is a
+  // later task. Until then the backend reports itself disabled and every
+  // mutating call refuses cleanly, rather than this task inventing settings
+  // it was not asked to resolve.
+  registerConductorIpc(ipcMain, createShippedConductorBackend(null), broadcast)
 
   // ── First-class workspaces (Workspace Manager) ──
   const pushWorkspaces = (): Workspace[] => {
