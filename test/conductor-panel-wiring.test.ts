@@ -33,7 +33,9 @@ import {
   findIdentifiers,
   findUseStateDeclaration,
   findDeclarationsOf,
-  findAssignmentsTo,
+  findRefUses,
+  findWritesTo,
+  isUnconditionalLeadingStatement,
   isWithin,
   enclosingIfStatement,
   hasStrictEqualityOperand,
@@ -78,8 +80,38 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
     )).toBe(true)
   })
 
-  it('wraps publish in a real try/catch, calling describeUnexpectedFailure in the catch block', () => {
-    const { tryStatement } = handlerParts('publish')
+  // Wave 6, F-9 (F5): sync calling the real IPC and sync REPORTING what it
+  // returned are two different claims, and only the first was pinned — a
+  // handler that awaited syncLane and then announced "Lane synced"
+  // regardless told the user a conflicted sync had succeeded while every
+  // other assertion in this file stayed green. The message it reports has
+  // to be computed from the value the call handed back.
+  it('reports the result sync actually received, not a fixed message', () => {
+    const { tryStatement } = handlerParts('sync')
+    const reports = findDirectCallsTo(tryStatement.tryBlock, 'report')
+    expect(reports, 'sync does not report from its try block').toHaveLength(1)
+    const argument = reports[0].arguments[0]
+    expect(argument, 'sync reports nothing').toBeDefined()
+    // A message computed into a local first is the same claim, so the
+    // dataflow is followed one hop through such a declaration.
+    let expression: ts.Expression = argument!
+    if (ts.isIdentifier(expression)) {
+      const local = findDeclarationsOf(tryStatement.tryBlock, expression.text)[0]
+      if (local?.declaration.initializer !== undefined) expression = local.declaration.initializer
+    }
+    const mentions = findIdentifiers(expression, 'outcome')
+    expect(
+      mentions,
+      'sync’s reported message does not mention the outcome it awaited, so it says the same thing whatever happened'
+    ).not.toHaveLength(0)
+    // …and `outcome` is the awaited result of the real syncLane call, not
+    // some other value that merely bears the name.
+    const awaited = resolveAwaitedCall(tryStatement.tryBlock, mentions[0])
+    expect(awaited, 'sync’s outcome is not the awaited result of a call').toBeDefined()
+    expect(flattenPropertyAccess(awaited!.expression)).toBe('window.crew.syncLane')
+  })
+
+  it('wraps publish in a real try/catch, calling describeUnexpectedFailure in the catch block', () => {    const { tryStatement } = handlerParts('publish')
     expect(tryStatement.catchClause).toBeDefined()
     expect(tryStatement.catchClause!.variableDeclaration?.name.getText()).toBe('error')
     const calls = findDirectCallsTo(tryStatement.catchClause!.block, 'describeUnexpectedFailure')
@@ -192,10 +224,29 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
     // handler was started for, so a result belonging to the workspace the
     // user has already left passes both guards and is drawn anyway. The ref
     // is written in exactly one place: the effect pinned above.
+    //
+    // Wave 6, F-9: and it is the BINDING that is inspected, not the text
+    // `shownWorkspace.current`. Six mutations wrote to the ref in spellings
+    // a text comparison never saw — `shownWorkspace['current'] = …`,
+    // `(shownWorkspace.current) = …`, `;[shownWorkspace.current] = […]`,
+    // `Object.assign(shownWorkspace, {current: …})`, a write through an
+    // alias, and the alias itself. Every mention of the binding is
+    // classified: it may be read as `shownWorkspace.current`, written once,
+    // and mentioned in no other way at all — because a ref that escapes can
+    // be written from anywhere, which would make the count below meaningless.
+    const uses = findRefUses(source, 'shownWorkspace')
     expect(
-      findAssignmentsTo(source, 'shownWorkspace.current').map((a) => a.getText()),
-      'shownWorkspace.current is assigned somewhere other than the [workspaceId] effect, which defeats both drop guards'
+      uses.escapes.map((id) => id.parent.getText()),
+      'shownWorkspace is mentioned other than as shownWorkspace.current — an alias or a computed write escapes both drop guards'
+    ).toHaveLength(0)
+    expect(
+      uses.writes.map((write) => write.parent.getText()),
+      'shownWorkspace.current is written somewhere other than the [workspaceId] effect, which defeats both drop guards'
     ).toHaveLength(1)
+    expect(
+      isWithin(uses.writes[0], updating[0]),
+      'the one write to shownWorkspace.current is not the one inside the [workspaceId] effect'
+    ).toBe(true)
   })
 
   // Wave 3 finding 2: the same drop rule, applied to the MESSAGE. A publish
@@ -257,21 +308,36 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
       return deps !== undefined && ts.isArrayLiteralExpression(deps) &&
         deps.elements.some((el) => el.getText() === 'workspaceId')
     })
+    // Wave 6, F-9 (F4, F11): "the effect clears the message somewhere" was
+    // satisfied by `if (cancelled) setMessage(null)` — a clear that does
+    // not happen on a workspace switch — and by an early `return` placed
+    // above the clear, which skips it entirely for the workspace the user
+    // just moved to. The clear must be a statement the effect runs
+    // outright, with nothing ahead of it that could decide otherwise.
     const clearing = workspaceEffects
-      .flatMap((call) => findDirectCallsTo(call.arguments[0]!, 'setMessage'))
+      .flatMap((call) => {
+        const effect = call.arguments[0]!
+        return findDirectCallsTo(effect, 'setMessage')
+          .filter((set) => isUnconditionalLeadingStatement(effect, set))
+      })
       .filter((call) => call.arguments.length === 1 && call.arguments[0].getText() === 'null')
     expect(
       clearing,
-      'the [workspaceId] effect does not clear the message with setMessage(null)'
+      'the [workspaceId] effect does not unconditionally clear the message with setMessage(null) before anything can return'
     ).toHaveLength(1)
-    const allowed: ts.Node[] = [declaration!.name, report!]
+    // Wave 6, F-9 (F3): `report` used to be allow-listed WHOLESALE, so
+    // stashing the setter inside it (`say.current = setMessage`) and
+    // calling it from sync put an unguarded message on screen while every
+    // assertion here stayed green. Inside report the setter may only be
+    // CALLED — the guarded calls pinned above — and nowhere else may it be
+    // named at all.
+    const entitled = new Set<ts.Node>([...sets, ...clearing].map((call) => call.expression))
     const stray = findIdentifiers(source, 'setMessage').filter(
-      (id) => !allowed.some((node) => isWithin(id, node)) &&
-        !clearing.some((call) => call.expression === id)
+      (id) => !isWithin(id, declaration!.name) && !entitled.has(id)
     )
     expect(
       stray.map((id) => id.parent.getText()),
-      'setMessage is mentioned outside report() and the workspace effect’s setMessage(null) — an alias or a .then(setMessage) bypasses the workspace guard'
+      'setMessage is named outside the guarded calls in report() and the workspace effect’s setMessage(null) — an alias, a stashed ref or a .then(setMessage) bypasses the workspace guard'
     ).toHaveLength(0)
   })
 
@@ -309,7 +375,7 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
       ).toHaveLength(1)
       expect(declared[0].isConst, `${name} declares outcome with let/var, so it can be reassigned after the await`).toBe(true)
       expect(
-        findAssignmentsTo(handler!, 'outcome').map((a) => a.getText()),
+        findWritesTo(handler!, 'outcome').map((write) => write.parent.getText()),
         `${name} reassigns outcome after awaiting it`
       ).toHaveLength(0)
       const shadowParams = findAll(handler!, ts.isParameter).filter(

@@ -403,19 +403,159 @@ export function findDeclarationsOf(root: ts.Node, name: string): { declaration: 
 }
 
 /** Every real assignment whose left-hand side is exactly `left`, anywhere
- *  under `root` (compound assignments like `x += 1` included). */
-export function findAssignmentsTo(root: ts.Node, left: string): ts.BinaryExpression[] {
-  const assignmentKinds = new Set<ts.SyntaxKind>([
-    ts.SyntaxKind.EqualsToken,
-    ts.SyntaxKind.PlusEqualsToken,
-    ts.SyntaxKind.MinusEqualsToken,
-    ts.SyntaxKind.QuestionQuestionEqualsToken,
-    ts.SyntaxKind.BarBarEqualsToken,
-    ts.SyntaxKind.AmpersandAmpersandEqualsToken,
-  ])
-  return findAll(root, ts.isBinaryExpression).filter(
-    (expr) => assignmentKinds.has(expr.operatorToken.kind) && expr.left.getText() === left,
-  )
+ *  under `root` (compound assignments like `x += 1` included).
+ *
+ *  Wave 6, F-9: this used to compare the left-hand side's TEXT, and ten
+ *  mutations walked straight past it — `shownWorkspace['current'] = …`,
+ *  `(shownWorkspace.current) = …`, `;[shownWorkspace.current] = […]`,
+ *  `Object.assign(shownWorkspace, …)`, an alias of the ref. Writes are
+ *  found by their POSITION now (see `findWritesTo`), and a ref is inspected
+ *  by every mention of its binding (see `findRefUses`), so the shape of the
+ *  write no longer decides whether it counts. */
+const ASSIGNMENT_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.EqualsToken,
+  ts.SyntaxKind.PlusEqualsToken,
+  ts.SyntaxKind.MinusEqualsToken,
+  ts.SyntaxKind.AsteriskEqualsToken,
+  ts.SyntaxKind.AsteriskAsteriskEqualsToken,
+  ts.SyntaxKind.SlashEqualsToken,
+  ts.SyntaxKind.PercentEqualsToken,
+  ts.SyntaxKind.LessThanLessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanGreaterThanEqualsToken,
+  ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken,
+  ts.SyntaxKind.AmpersandEqualsToken,
+  ts.SyntaxKind.BarEqualsToken,
+  ts.SyntaxKind.CaretEqualsToken,
+  ts.SyntaxKind.QuestionQuestionEqualsToken,
+  ts.SyntaxKind.BarBarEqualsToken,
+  ts.SyntaxKind.AmpersandAmpersandEqualsToken
+])
+
+/** Climbs out of the wrappers that change nothing about what a target IS:
+ *  parentheses, `!`, `as T`, `<T>`. `(x.y) = 1` writes to `x.y`. */
+function outOfWrappers(node: ts.Node): ts.Node {
+  let current = node
+  while (
+    current.parent !== undefined &&
+    (ts.isParenthesizedExpression(current.parent) ||
+      ts.isNonNullExpression(current.parent) ||
+      ts.isAsExpression(current.parent) ||
+      ts.isTypeAssertionExpression(current.parent))
+  ) {
+    current = current.parent
+  }
+  return current
+}
+
+/** True when `node` sits where a value is WRITTEN rather than read: the
+ *  left of any assignment operator, the operand of `++`/`--`, the target of
+ *  `delete`, a `for (… of/in …)` binding, or an element/property of a
+ *  destructuring pattern that is itself being assigned to.
+ *
+ *  Wave 6, F-9 (F8): `;[shownWorkspace.current] = [workspaceId]` is an
+ *  ordinary destructuring assignment whose left-hand-side text is
+ *  `[shownWorkspace.current]`, so no text comparison could ever see it. */
+export function isWriteTarget(node: ts.Node): boolean {
+  const target = outOfWrappers(node)
+  const parent = target.parent
+  if (parent === undefined) return false
+  if (ts.isBinaryExpression(parent)) {
+    return ASSIGNMENT_OPERATORS.has(parent.operatorToken.kind) && parent.left === target
+  }
+  if (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) {
+    return parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken
+  }
+  if (ts.isDeleteExpression(parent)) return true
+  if ((ts.isForOfStatement(parent) || ts.isForInStatement(parent)) && parent.initializer === target) return true
+  // Inside a destructuring pattern: the pattern as a whole decides.
+  if (
+    ts.isArrayLiteralExpression(parent) ||
+    ts.isObjectLiteralExpression(parent) ||
+    ts.isSpreadElement(parent) ||
+    ts.isPropertyAssignment(parent) ||
+    ts.isShorthandPropertyAssignment(parent)
+  ) {
+    return isWriteTarget(parent)
+  }
+  return false
+}
+
+/** Every node under `root` that is WRITTEN TO and whose own text (ignoring
+ *  wrappers) is `target`. Replaces the old left-hand-side text comparison:
+ *  the write's shape no longer decides whether it is seen. */
+export function findWritesTo(root: ts.Node, target: string): ts.Node[] {
+  return findAll(root, (n): n is ts.Expression => ts.isExpression(n))
+    .filter((node) => node.getText() === target && isWriteTarget(node))
+}
+
+/** How a React ref binding is used, by MENTION of the binding rather than
+ *  by the text of any expression containing it.
+ *
+ *  Wave 6, F-9: the assertion that `shownWorkspace.current` is written in
+ *  exactly one place is the hinge both workspace-drop guards hang from, and
+ *  six separate mutations routed around it — five by writing through a
+ *  spelling the text comparison did not recognise, one (`const alias =
+ *  shownWorkspace`) by never mentioning `.current` at all. Every identifier
+ *  with the ref's name is classified here instead:
+ *
+ *  - `writes`: a `ref.current` in a write position.
+ *  - `reads`: a `ref.current` being read.
+ *  - `escapes`: every other mention — a bracket access, the ref passed as a
+ *    value, aliased, spread, or named as somebody's property. A ref that
+ *    escapes can be written anywhere, so the count of `writes` would stop
+ *    meaning anything.
+ *
+ *  Identity is by NAME, deliberately: a shadow declaring a second
+ *  `shownWorkspace` is itself something this file must not contain, and
+ *  counting its mentions too is the stricter answer. Only the binding's own
+ *  declaration name is excluded. */
+export interface RefUses {
+  writes: ts.PropertyAccessExpression[]
+  reads: ts.PropertyAccessExpression[]
+  escapes: ts.Identifier[]
+}
+
+export function findRefUses(source: ts.SourceFile, refName: string, property = 'current'): RefUses {
+  const uses: RefUses = { writes: [], reads: [], escapes: [] }
+  for (const id of findIdentifiers(source, refName)) {
+    const parent = id.parent
+    // The `const shownWorkspace = useRef(...)` binding itself.
+    if (parent !== undefined && ts.isVariableDeclaration(parent) && parent.name === id) continue
+    if (
+      parent !== undefined &&
+      ts.isPropertyAccessExpression(parent) &&
+      parent.expression === id &&
+      parent.name.text === property
+    ) {
+      if (isWriteTarget(parent)) uses.writes.push(parent)
+      else uses.reads.push(parent)
+      continue
+    }
+    uses.escapes.push(id)
+  }
+  return uses
+}
+
+/** True iff `node` is the entire expression of a statement that `fn`'s body
+ *  runs directly, with nothing ahead of it that could decide not to run it.
+ *
+ *  Wave 6, F-9 (F4, F11): "the effect clears the message somewhere" was
+ *  satisfied by `if (cancelled) setMessage(null)` — a clear that does not
+ *  happen on a workspace switch — and by an early `return` placed above the
+ *  clear. Preceding statements may therefore only be plain expression or
+ *  variable statements: an `if`, a `return`, a loop or a `try` ahead of it
+ *  all mean the clear is conditional. */
+export function isUnconditionalLeadingStatement(fn: ts.Node, node: ts.Node): boolean {
+  if (!isFunctionLike(fn)) return false
+  const body = (fn as ts.ArrowFunction).body as ts.Node | undefined
+  if (body === undefined || !ts.isBlock(body)) return false
+  const index = body.statements.findIndex((statement) => isWithin(node, statement))
+  if (index < 0) return false
+  const statement = body.statements[index]
+  if (!ts.isExpressionStatement(statement) || statement.expression !== node) return false
+  return body.statements
+    .slice(0, index)
+    .every((earlier) => ts.isVariableStatement(earlier) || ts.isExpressionStatement(earlier))
 }
 
 /** Resolves an argument to the awaited call whose RESULT it carries: either
