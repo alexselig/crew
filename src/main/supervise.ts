@@ -76,6 +76,25 @@ const DEFAULT_TIMEOUT_MS = 120_000
 const DEFAULT_GRACE_MS = 3_000
 const MAX_CAPTURE_BYTES = 8 * 1024 * 1024
 
+/** How long to keep draining stdout/stderr after the direct child has been
+ *  reaped, before settling without waiting for the pipes to reach EOF.
+ *
+ *  Resolving on `close` rather than `exit` is deliberate (see below), but it
+ *  makes this promise's lifetime hostage to whoever else is holding the
+ *  inherited pipe write-ends. On POSIX the group kill reaps those descendants
+ *  too, so the two events are microseconds apart. On Windows they are not:
+ *  `taskkill /T` walks the tree by parent-pid, so a descendant whose own
+ *  parent has already exited has been re-parented out of that tree and
+ *  survives the kill — still holding stdout, so `close` never fires and this
+ *  promise NEVER SETTLES. A process supervisor that can hang is a worse
+ *  defect than one that truncates a laggard's trailing output, and the
+ *  callers of this module hold a publication lock while they await it.
+ *
+ *  The timer restarts on every chunk that arrives after the exit, so output
+ *  that is genuinely still flowing — a git hook or pager that outlived git
+ *  itself — is not cut off mid-stream; only silence for this long settles. */
+const PIPE_DRAIN_AFTER_EXIT_MS = 2_000
+
 const IS_WINDOWS = process.platform === 'win32'
 
 /** Windows has no process groups and no signals: `process.kill(-pid, …)`
@@ -133,17 +152,22 @@ export function runSupervised(
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let exitCode: number | null = null
     let settled = false
     let killTimer: NodeJS.Timeout | undefined
+    let drainTimer: NodeJS.Timeout | undefined
+    let exited = false
 
     const capture = (current: string, chunk: Buffer): string =>
       current.length >= MAX_CAPTURE_BYTES ? current : current + chunk.toString('utf8')
 
     child.stdout?.on('data', (chunk: Buffer) => {
       stdout = capture(stdout, chunk)
+      armDrain()
     })
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr = capture(stderr, chunk)
+      armDrain()
     })
 
     const signalGroup = (signal: NodeJS.Signals): void => {
@@ -179,7 +203,18 @@ export function runSupervised(
       settled = true
       clearTimeout(timer)
       if (killTimer) clearTimeout(killTimer)
+      if (drainTimer) clearTimeout(drainTimer)
       resolve({ code, stdout, stderr, timedOut, pid })
+    }
+
+    // Restarted by every post-exit chunk, so a descendant that is still
+    // genuinely producing output keeps the stream open; only silence settles.
+    // A no-op until the child is reaped, which is what keeps `close` the
+    // normal, unchanged path out of this promise.
+    function armDrain(): void {
+      if (!exited || settled) return
+      if (drainTimer) clearTimeout(drainTimer)
+      drainTimer = setTimeout(() => finish(exitCode), PIPE_DRAIN_AFTER_EXIT_MS)
     }
 
     child.on('error', (error: Error) => {
@@ -187,8 +222,19 @@ export function runSupervised(
       finish(null)
     })
 
+    // 'exit' fires when the direct child is reaped, which is NOT proof its
+    // descendants are gone — hence the drain rather than an outright finish
+    // here. See PIPE_DRAIN_AFTER_EXIT_MS.
+    child.on('exit', (code) => {
+      exited = true
+      exitCode = code
+      armDrain()
+    })
+
     // 'close' fires after the process has exited AND its stdio has closed.
-    // 'exit' would fire first and is not proof the descendants are reaped.
+    // Still the normal path, and still the one that proves the descendants
+    // holding those pipes are gone; the drain above is only the escape hatch
+    // for when they are not.
     child.on('close', (code) => finish(code))
   })
 }
