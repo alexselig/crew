@@ -1510,6 +1510,80 @@ describe('acknowledgeOperation (the needs-attention gate\'s only exit)', () => {
     expect(journal.read().at(-1)).toMatchObject({ opId: 'op-landed', phase: 'notified' })
   })
 
+  // Wave 4, F-4: the same publish, but the branch has since moved ON — a
+  // teammate committed on top of the merge, or a later publication landed.
+  // The ref no longer EQUALS the recorded result, so it classifies as
+  // externally-modified; reading that as "never published" and closing it
+  // 'aborted' records the opposite of what the branch's history says. The
+  // merge result being an ancestor of the ref is the proof that it landed.
+  it('closes a publish that landed as notified even after the branch moved on', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const facts = await lanes.facts(lane)
+    const merged = await lanes.mergeInIntegration(facts.laneTip, facts.baseSha)
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+    for (const [phase, at] of [['intent', 1], ['merged', 2]] as const) {
+      journal.append({
+        opId: 'op-moved-on', laneId: lane.id, phase,
+        baseSha: facts.baseSha, laneTip: facts.laneTip,
+        resultSha: phase === 'intent' ? undefined : merged.resultSha, at
+      })
+    }
+    // The CAS landed, nothing recorded it, and then somebody committed on
+    // top of the published result.
+    git(['update-ref', 'refs/heads/crew/integration', merged.resultSha, facts.baseSha], settings.repo)
+    git(['checkout', '--detach', merged.resultSha], settings.integrationWorktree)
+    commit(settings.integrationWorktree, 'later.txt', 'later\n', 'a commit made after the publication')
+    const moved = git(['rev-parse', 'HEAD'], settings.integrationWorktree)
+    git(['update-ref', 'refs/heads/crew/integration', moved, merged.resultSha], settings.repo)
+
+    const before = await conductor.reconcile()
+    expect(before.operations[0]).toMatchObject({ classification: 'externally-modified' })
+
+    const outcome = await conductor.acknowledgeOperation('op-moved-on', 'confirmed it landed')
+    // Load-bearing: 'aborted' here would be a record saying the merge never
+    // happened, for a merge sitting in the branch's own history.
+    expect(outcome).toMatchObject({ ok: true, phase: 'notified' })
+    expect(journal.read().at(-1)).toMatchObject({ opId: 'op-moved-on', phase: 'notified' })
+    expect(git(['rev-parse', 'crew/integration'], settings.repo)).toBe(moved)
+  })
+
+  // …and the other half of F-4: a ref that went somewhere this operation's
+  // merge is NOT an ancestor of really was never published, and must still
+  // close as 'aborted'.
+  it('closes an externally-moved branch that never carried the merge as aborted', async () => {
+    const { lanes, journal, conductor } = build()
+    await lanes.ensureIntegrationWorktree()
+    const lane = await lanes.create('builder', { presetId: 'shell', model: null })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    const facts = await lanes.facts(lane)
+    const merged = await lanes.mergeInIntegration(facts.laneTip, facts.baseSha)
+    expect(merged.ok).toBe(true)
+    if (!merged.ok) return
+    for (const [phase, at] of [['intent', 1], ['merged', 2]] as const) {
+      journal.append({
+        opId: 'op-elsewhere', laneId: lane.id, phase,
+        baseSha: facts.baseSha, laneTip: facts.laneTip,
+        resultSha: phase === 'intent' ? undefined : merged.resultSha, at
+      })
+    }
+    // Somebody moved the branch to an unrelated commit; the merge result is
+    // nowhere in its history.
+    git(['checkout', '--detach', facts.baseSha], settings.integrationWorktree)
+    commit(settings.integrationWorktree, 'unrelated.txt', 'x\n', 'an unrelated commit')
+    const elsewhere = git(['rev-parse', 'HEAD'], settings.integrationWorktree)
+    git(['update-ref', 'refs/heads/crew/integration', elsewhere, facts.baseSha], settings.repo)
+
+    const before = await conductor.reconcile()
+    expect(before.operations[0]).toMatchObject({ classification: 'externally-modified' })
+
+    const outcome = await conductor.acknowledgeOperation('op-elsewhere', 'reviewed')
+    expect(outcome).toMatchObject({ ok: true, phase: 'aborted' })
+  })
+
   it('refuses an operation that is not the one reconcile reported, rather than closing the wrong one', async () => {
     const { journal, conductor } = await interruptedOperation()
     await conductor.reconcile()
@@ -1746,6 +1820,115 @@ describe('a publish that fails after the merge', () => {
     await backend.reconcile()
     const failed = await backend.publishLane(lane.id)
     expect(failed).toMatchObject({ ok: false, reason: 'journal-failed' })
+    expect((await backend.state()).reconciled).toBe(false)
+    expect(await backend.publishLane(lane.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+  })
+
+  // ── Wave 4, F-1/F-2: the remaining post-merge exits. Each of these used
+  // to pass with `unreconciled` deleted, because nothing tested the gate
+  // for them — and a gate left open lets the NEXT publish start a newer
+  // operation, which is the only one reconcile ever classifies. ─────────
+  //
+  // A backend whose journal refuses exactly one phase, so a single
+  // fail-closed branch can be reached without touching any other.
+  function backendWithJournalRefusing(
+    failPhase: string,
+    laneOverrides: Partial<ReturnType<typeof createLaneManager>> = {}
+  ) {
+    const lanes = createLaneManager(settings)
+    const journal = createJournal(journalPath)
+    const flaky = {
+      read: () => journal.read(),
+      append: (entry: RecoveryJournalEntry) => {
+        if (entry.phase === failPhase) throw new Error(`journal disk full writing '${failPhase}'`)
+        journal.append(entry)
+      }
+    }
+    const wired = { ...lanes, ...laneOverrides }
+    const conductor = createConductor({ lanes: wired, journal: flaky as never, settings })
+    const backend = createShippedConductorBackend({
+      lanes: wired, conductor, settings,
+      createSession: async () => ({ id: 'sess' }),
+      closeSession: async () => undefined
+    } as never)
+    return { lanes, journal, conductor, backend }
+  }
+
+  async function laneReadyToPublish(
+    lanes: ReturnType<typeof createLaneManager>,
+    backend: ReturnType<typeof createShippedConductorBackend>
+  ) {
+    await lanes.ensureIntegrationWorktree()
+    const lane = await backend.createLane({ roleId: 'builder', agent: { presetId: 'shell', model: null } })
+    commit(lane.worktree, 'a.txt', 'one\n', 'lane work')
+    await backend.reconcile()
+    expect((await backend.state()).reconciled).toBe(true)
+    return lane
+  }
+
+  // Wave 4, F-1: a refused compare-and-swap whose 'aborted' record cannot
+  // be written closes nothing — the journal ends at intent,merged with a
+  // real merge commit behind it — and the gate used to stay wide open.
+  it('shuts the gate when a refused compare-and-swap could not be recorded either', async () => {
+    const { lanes, journal, backend } = backendWithJournalRefusing('aborted', {
+      publish: async () => ({ ok: false, reason: 'ref-moved', message: 'the ref moved under us' })
+    })
+    const lane = await laneReadyToPublish(lanes, backend)
+
+    const failed = await backend.publishLane(lane.id)
+    expect(failed).toMatchObject({ ok: false, reason: 'ref-moved' })
+    const phases = journal.read().map((e) => e.phase)
+    expect(phases).toContain('merged')
+    expect(phases).not.toContain('aborted')
+
+    expect((await backend.state()).reconciled).toBe(false)
+    expect(await backend.publishLane(lane.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+  })
+
+  // M11: the 'tests' write is fail-closed — tests must not start if the
+  // record of them cannot be made durable — and the merge commit it leaves
+  // behind is unrecorded work, so the gate shuts too.
+  it('shuts the gate when the tests phase could not be journalled', async () => {
+    settings.test = { command: 'sh', args: ['-c', 'exit 0'], cwd: '.', timeoutMs: 10_000 }
+    const { lanes, backend } = backendWithJournalRefusing('tests')
+    const lane = await laneReadyToPublish(lanes, backend)
+
+    const failed = await backend.publishLane(lane.id)
+    expect(failed).toMatchObject({ ok: false, reason: 'journal-failed' })
+    expect((await backend.state()).reconciled).toBe(false)
+    expect(await backend.publishLane(lane.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+  })
+
+  // M12: tests really did fail, but the abort that says so could not be
+  // written — so the operation is open on the record even though the
+  // publication is over.
+  it('shuts the gate when a tests failure could not be recorded', async () => {
+    settings.test = { command: 'sh', args: ['-c', 'exit 3'], cwd: '.', timeoutMs: 10_000 }
+    const { lanes, journal, backend } = backendWithJournalRefusing('aborted')
+    const lane = await laneReadyToPublish(lanes, backend)
+
+    const failed = await backend.publishLane(lane.id)
+    expect(failed).toMatchObject({ ok: false, reason: 'journal-failed' })
+    const phases = journal.read().map((e) => e.phase)
+    expect(phases).toContain('tests')
+    expect(phases).not.toContain('aborted')
+    expect((await backend.state()).reconciled).toBe(false)
+    expect(await backend.publishLane(lane.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
+  })
+
+  // M13: the catch-all's closing write is wrapped in a bare `catch {}` —
+  // the journal is already the thing that failed — so "a close was
+  // attempted" must never be mistaken for "the operation is closed".
+  it('shuts the gate when the catch-all closing entry was silently swallowed', async () => {
+    const { lanes, journal, backend } = backendWithJournalRefusing('aborted', {
+      mergeInIntegration: async () => { throw new Error('git exploded before any commit') }
+    })
+    const lane = await laneReadyToPublish(lanes, backend)
+
+    const failed = await backend.publishLane(lane.id)
+    expect(failed).toMatchObject({ ok: false, reason: 'error' })
+    // Nothing closed it: the journal still ends at the intent.
+    expect(journal.read().map((e) => e.phase)).toEqual(['intent'])
     expect((await backend.state()).reconciled).toBe(false)
     expect(await backend.publishLane(lane.id)).toMatchObject({ ok: false, reason: 'needs-attention' })
   })

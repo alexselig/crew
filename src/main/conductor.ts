@@ -397,8 +397,20 @@ export function createConductor(deps: ConductorDeps): Conductor {
       if (!published.ok) {
         lane.status = 'blocked'
         lane.blockedReason = published.message
-        safeWrite(write, 'aborted', merged.resultSha, published.message)
-        return { ok: false, reason: published.reason, message: published.message }
+        // Wave 4, F-1: whether this operation is CLOSED on the record is
+        // what the needs-attention gate depends on, and safeWrite swallows
+        // its failure by design (the publish has already failed; throwing
+        // here would replace a precise failure with a vague one). A
+        // swallowed failure still leaves the operation open, with a merge
+        // commit behind it — so the gate must shut, exactly as it does for
+        // every other post-merge exit that could not close itself.
+        const closed = safeWrite(write, 'aborted', merged.resultSha, published.message)
+        return {
+          ok: false,
+          reason: published.reason,
+          message: published.message,
+          ...(closed ? {} : { unreconciled: true as const })
+        }
       }
 
       // 9. Record completion before any dependent effect.
@@ -486,17 +498,22 @@ export function createConductor(deps: ConductorDeps): Conductor {
   }
 
   // An abort record is best-effort: the operation has already failed, and
-  // throwing here would replace a precise failure with a vague one.
+  // throwing here would replace a precise failure with a vague one. Wave 4,
+  // F-1: it returns whether the write actually landed, because "a close was
+  // attempted" and "the operation is closed on the record" are different
+  // facts and only the second one may reopen the needs-attention gate.
   function safeWrite(
     write: (phase: JournalPhase, resultSha?: string, detail?: string) => void,
     phase: JournalPhase,
     resultSha?: string,
     detail?: string
-  ): void {
+  ): boolean {
     try {
       write(phase, resultSha, detail)
+      return true
     } catch (error) {
       console.warn('[crew] conductor journal write failed:', error)
+      return false
     }
   }
 
@@ -681,7 +698,20 @@ export function createConductor(deps: ConductorDeps): Conductor {
       // classification is drawn from.
       const beforeReport = await reconcileLocked()
       const classification = beforeReport.operations.find((op) => op.opId === opId)?.classification
-      const landed = classification === 'published-unrecorded' || classification === 'published-unnotified'
+      // Wave 4, F-4: 'externally-modified' covers two different realities —
+      // a ref that went somewhere unrelated, and a ref that carried this
+      // operation's merge and then moved ON (someone committed on top, or
+      // a later publication landed). In the second one the operation DID
+      // publish, and closing it as 'aborted' records the opposite of what
+      // the branch's history says. Ancestry is the question that tells them
+      // apart, and it is a question about git, not about the journal.
+      const recordedResult = group.find((e) => e.resultSha !== undefined)?.resultSha
+      const landed =
+        classification === 'published-unrecorded' ||
+        classification === 'published-unnotified' ||
+        (classification === 'externally-modified' &&
+          recordedResult !== undefined &&
+          (await integrationBranchContains(recordedResult)))
 
       // Wave 3, finding 3: a crash between a conflicting `git merge` and its
       // `--abort` leaves MERGE_HEAD and an unmerged index in the integration
@@ -751,6 +781,19 @@ export function createConductor(deps: ConductorDeps): Conductor {
   // failure message when the worktree could not be put back, undefined when
   // there was nothing to repair or the repair worked. Never touches the
   // ref: only the Crew-owned worktree.
+  // Wave 4, F-4: is `sha` already in the integration branch's history?
+  // `merge-base --is-ancestor` answers with its exit code alone (0 = yes),
+  // and a failure to answer (a missing object, a broken repo) is read as
+  // "no", which fails closed: the operation is then closed as 'aborted',
+  // the classification the record already implied.
+  const integrationBranchContains = async (sha: string): Promise<boolean> => {
+    const result = await runGit(
+      ['merge-base', '--is-ancestor', sha, settings.integrationBranch],
+      { cwd: settings.repo }
+    )
+    return result.code === 0
+  }
+
   const repairIntegrationWorktree = async (
     group: readonly { baseSha: string }[]
   ): Promise<string | undefined> => {
