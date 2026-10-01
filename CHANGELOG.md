@@ -3,6 +3,19 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## Unreleased
+
+### Changed
+
+- **Calm working animation is now on by default.** Each working session's mascot
+  used to run a 1.5s bob-and-scale loop, independently phased, so a roster of
+  many working sessions read as constant jitter rather than as a signal. The calm
+  animation — a slow opacity pulse with no transform — is now the default, which
+  also drops a `will-change: transform` compositor layer per working session.
+  Existing installs are migrated once (`2026-10-calm-motion-default`); turning
+  the lively animation back on in Settings sticks, because a migration is
+  recorded and never re-runs.
+
 ## 0.7.6 — 2026-10-01
 
 ### Fixed

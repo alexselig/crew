@@ -105,7 +105,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enhancedTerminal: false,
   showGithubButton: true,
   githubButtonOpensRepo: true,
-  calmMotion: false
+  calmMotion: true
 }
 
 interface StoreData {
@@ -219,8 +219,28 @@ const MIGRATIONS: Array<{ id: string; apply: (d: StoreData) => void }> = [
       if ((d.agents?.length ?? 0) > 0) return
       d.agents = BUILTIN_AGENTS.map((a) => ({ ...a }))
     }
+  },
+  {
+    // Calm motion shipped in 0.7.6 as an opt-in, which meant the people it was
+    // written for never got it: the mascot bob (`char-work`, translateY +
+    // scale, 1.5s) runs once per WORKING session, independently phased, and a
+    // roster of a hundred sessions reads as the whole list jittering. The
+    // steady opacity breathe keeps the "this session is working" signal and
+    // drops the travel, so it is the better default at any roster size. This
+    // flips stores still sitting on the old default exactly once — the
+    // migration id is recorded, so anyone who later turns the bob back on
+    // keeps it.
+    id: '2026-10-calm-motion-default',
+    apply: (d) => {
+      if (d.settings.calmMotion === false) d.settings.calmMotion = true
+    }
   }
 ]
+
+/** Every migration id, in order. Exported so tests that need a fully-migrated
+ * store can seed one without hard-coding a list that breaks each time a
+ * migration is added. */
+export const MIGRATION_IDS: readonly string[] = MIGRATIONS.map((m) => m.id)
 
 /** Apply any not-yet-recorded MIGRATIONS to `data` in place, recording each by
  * id. Returns true when at least one migration ran, so the caller re-persists. */

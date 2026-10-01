@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect } from 'vitest'
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Store, DEFAULT_SETTINGS } from '../src/main/store'
+import { Store, DEFAULT_SETTINGS, MIGRATION_IDS } from '../src/main/store'
 
 const MIGRATION_ID = '2026-07-stale-hide-72h'
 
@@ -201,13 +201,7 @@ describe('store schema — custom views default', () => {
           order: 0
         }
       ],
-      migrations: [
-        '2026-07-stale-hide-72h',
-        '2026-08-workspaces-firstclass',
-        '2026-08-context-mode-auto',
-        '2026-08-agents-seed',
-        '2026-09-conducted-workspace-flag'
-      ]
+      migrations: [...MIGRATION_IDS]
     })
 
     const before = readFileSync(path, 'utf8')
@@ -303,5 +297,40 @@ describe('store schema — custom views default', () => {
 
     expect(store.getCustomViews()).toEqual(good.customViews)
     expect(JSON.parse(readFileSync(path, 'utf8')).customViews).toEqual(good.customViews)
+  })
+})
+
+const CALM_MIGRATION_ID = '2026-10-calm-motion-default'
+
+// The mascot bob runs once per WORKING session, independently phased, so a
+// large roster reads as the list jittering. Calm motion shipped opt-in, which
+// meant the people it was written for never got it; these pin the flip.
+describe('store migration — calm working animation on by default', () => {
+  it('ships calm motion on for a brand-new store', () => {
+    const store = new Store(tmpStorePath())
+    expect(store.settings.calmMotion).toBe(true)
+  })
+
+  it('flips a store still sitting on the shipped 0.7.6 default, and records it', () => {
+    const path = tmpStorePath()
+    seed(path, { settings: { ...DEFAULT_SETTINGS, calmMotion: false } })
+
+    const store = new Store(path)
+    expect(store.settings.calmMotion).toBe(true)
+
+    const persisted = JSON.parse(readFileSync(path, 'utf8'))
+    expect(persisted.settings.calmMotion).toBe(true)
+    expect(persisted.migrations).toContain(CALM_MIGRATION_ID)
+  })
+
+  it('does not re-run once recorded, so turning the bob back on sticks', () => {
+    const path = tmpStorePath()
+    seed(path, {
+      settings: { ...DEFAULT_SETTINGS, calmMotion: false },
+      migrations: [CALM_MIGRATION_ID]
+    })
+
+    const store = new Store(path)
+    expect(store.settings.calmMotion).toBe(false)
   })
 })
