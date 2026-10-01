@@ -155,3 +155,61 @@ export function stableCellHeightPx(dims: CellDimensions | null | undefined, dpr:
   }
   return cssPx
 }
+
+/** The size a fit settled on. */
+export interface FitSize {
+  cols: number
+  rows: number
+}
+
+/** The part of a terminal the fit loop drives. */
+export interface ResizableTerm {
+  readonly cols: number
+  readonly rows: number
+  resize(cols: number, rows: number): void
+}
+
+/** How many proposals we will take before accepting the last one. */
+export const FIT_MAX_PASSES = 3
+
+/**
+ * Drive a terminal to the size its mount implies, or return null and change
+ * nothing.
+ *
+ * `decide` is called fresh each pass and must re-read the proposal, because
+ * resizing the grid changes what FitAddon proposes next.
+ *
+ * Why iterate: one pass does not always land on a fixed point. After a width
+ * collapse and restore, a pane measured 129 columns on the first proposal
+ * while a fresh proposal on the same container said 125. (An earlier version
+ * of this comment blamed FitAddon re-measuring the viewport scrollbar. That
+ * is wrong: xterm assigns Viewport.scrollBarWidth once, in the constructor,
+ * and never re-measures it, so it cannot move within a synchronous call. The
+ * DOM renderer's rounding is the mechanism that actually moves a proposal
+ * here, and it moves it by at most a cell.) Two passes reach the fixed point;
+ * the third is a stop, not an expectation.
+ *
+ * Invariant: a null return means nothing was applied. Once a pass has resized
+ * the grid, the loop reports that size rather than null -- otherwise the
+ * caller would read "nothing changed" and leave the PTY on its old width
+ * while the grid had already moved, and the shell would wrap to a width the
+ * terminal no longer has. That cannot currently happen (`decide` returning a
+ * size and then null within one call has no reachable input), so this is a
+ * structural guarantee rather than a live bug fix -- which is exactly why it
+ * is expressed as a `break` and not as an extra branch to maintain.
+ */
+export function runFitLoop(
+  term: ResizableTerm,
+  decide: () => FitSize | null,
+  maxPasses: number = FIT_MAX_PASSES
+): FitSize | null {
+  let applied: FitSize | null = null
+  for (let pass = 0; pass < maxPasses; pass++) {
+    const next = decide()
+    if (!next) break
+    applied = next
+    if (term.cols === next.cols && term.rows === next.rows) break
+    term.resize(next.cols, next.rows)
+  }
+  return applied
+}

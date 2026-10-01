@@ -125,5 +125,61 @@
       "evidence": "Conductor spec, phase 1c"
     }
   ],
-  "state": {}
+  "state": {
+    "CB-2": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:27:10.750Z"
+    },
+    "CB-1": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:27:11.615Z"
+    },
+    "CB-3": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:27:18.361Z"
+    },
+    "CB-4": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:27:24.378Z"
+    },
+    "CB-5": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:27:27.361Z"
+    },
+    "CB-6": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:27:29.248Z"
+    },
+    "CB-7": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:27:30.898Z"
+    },
+    "CB-8": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:27:33.594Z"
+    },
+    "CB-9": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:27:35.265Z"
+    },
+    "CB-10": {
+      "status": "declined",
+      "note": "",
+      "at": "2026-10-01T21:28:05.183Z"
+    },
+    "CB-12": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-01T21:28:25.545Z"
+    }
+  }
 }

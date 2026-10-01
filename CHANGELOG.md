@@ -3,6 +3,31 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## Unreleased
+
+### Fixed
+
+- **Terminals opened before the web font loaded kept the fallback's metrics for
+  good.** xterm measures character size exactly once, in `Terminal.open()`, and
+  none of its three other re-measure paths fire on a font load — they all require
+  the cached size to be invalid (zero), or the device pixel ratio to change. A
+  pane created before JetBrains Mono arrived therefore measured the fallback, and
+  the existing `document.fonts.ready` re-fit recomputed rows and columns from
+  those stale metrics, so it could not fix the clipping it was added to fix. Both
+  terminal paths now force a character-size re-measure before re-fitting. The
+  re-measure is gated on the pane actually having opened on fallback metrics, so
+  once the font is cached — the common case after first run — it is a pure skip.
+
+### Changed
+
+- **The fit loop is now a single shared routine.** `TerminalView` and the xterm
+  engine carried near-identical copies of the measure-resize-remeasure loop;
+  both now call `runFitLoop`. Its structure makes "returns null when nothing was
+  applied" a property of the shape rather than of a branch, and its comment
+  corrects the old rationale: xterm sets the viewport scrollbar width once in its
+  constructor and never re-measures it, so the second pass exists for the DOM
+  renderer's rounding, not for the scrollbar.
+
 ## 0.7.7 — 2026-10-01
 
 ### Changed
