@@ -22,7 +22,8 @@ import type {
   RowMark,
   TerminalEngine
 } from './engine'
-import { decideFit, stableCellHeightPx, type CellDimensions } from './fit-guard'
+import { decideFit, runFitLoop, stableCellHeightPx, type CellDimensions } from './fit-guard'
+import { primaryFontAvailable, remeasureAfterFontLoad } from './font-remeasure'
 
 const THEME = {
   background: '#0A0A0B',
@@ -180,6 +181,8 @@ export class XtermEngine implements TerminalEngine {
   private readonly term: Terminal
   private readonly fitAddon = new FitAddon()
   private opened = false
+  /** Whether open() had to measure the cell against a fallback font. */
+  private openedWithFallback = false
   private webgl: WebglAddon | null = null
   private serializer: SerializeAddon | null = null
   private webglCanvas: HTMLCanvasElement | null = null
@@ -229,6 +232,10 @@ export class XtermEngine implements TerminalEngine {
     if (!this.opened) {
       this.term.open(host)
       this.opened = true
+      // xterm measures the cell exactly once, here. Record whether it had the
+      // webfont to measure, so fonts.ready can re-measure only the panes that
+      // were stuck with fallback metrics. See font-remeasure.ts.
+      this.openedWithFallback = !primaryFontAvailable(this.term, globalThis.document?.fonts)
       // Inline images (Sixel + iTerm2 OSC 1337): lets agents render plots, diffs,
       // and screenshots directly in the terminal. Pure-JS decode; gated so any
       // failure never blocks the terminal.
@@ -406,13 +413,8 @@ export class XtermEngine implements TerminalEngine {
    * Never calls FitAddon.fit(), because that applies its own proposal before
    * anyone can inspect it -- and a proposal taken from a collapsed mount is a
    * plausible-looking 2 columns or 1 row rather than an obvious error. See
-   * fit-guard.ts for what that did to live sessions.
-   *
-   * Iterates because one pass does not converge: FitAddon subtracts the
-   * viewport scrollbar width, whose existence depends on the size being
-   * proposed, so a pane that has just regained its size can settle wider than
-   * the box that shows it. Measured at 129 columns in a container that fits
-   * 125. Two passes is enough to reach a fixed point; the third is a stop.
+   * fit-guard.ts for what that did to live sessions, and runFitLoop for why
+   * the proposal is taken more than once.
    */
   fit(contentHeightPx: number): FitResult | null {
     const host = this.term.element?.parentElement ?? null
@@ -420,20 +422,32 @@ export class XtermEngine implements TerminalEngine {
       ? { connected: host.isConnected, clientWidth: host.clientWidth, clientHeight: host.clientHeight }
       : null
 
-    let applied: FitResult | null = null
-    for (let pass = 0; pass < 3; pass++) {
-      const next = decideFit({
+    return runFitLoop(this.term, () =>
+      decideFit({
         proposed: this.fitAddon.proposeDimensions(),
         host: box,
         contentHeightPx,
         cellHeightPx: cellHeightOf(this.term)
       })
-      if (!next) return null
-      applied = next
-      if (this.term.cols === next.cols && this.term.rows === next.rows) break
-      this.term.resize(next.cols, next.rows)
-    }
-    return applied
+    )
+  }
+
+  /**
+   * Re-measure the cell now that webfonts have loaded.
+   *
+   * Only does anything for a pane opened before the webfont arrived, and only
+   * once the font is genuinely available: xterm re-measures only when the grid
+   * size changes, so without this such a pane keeps the fallback's metrics
+   * until something resizes it. Call before re-fitting.
+   */
+  remeasureFont(): boolean {
+    const did = remeasureAfterFontLoad(
+      this.term,
+      this.openedWithFallback,
+      globalThis.document?.fonts
+    )
+    if (did) this.openedWithFallback = false
+    return did
   }
 
   focus(): void {

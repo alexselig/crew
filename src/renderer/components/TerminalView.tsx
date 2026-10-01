@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getPooled, touch, focusTerminal, markPrompt } from '../terminal-pool'
 import { quotePaths } from '../../shared/shell-quote'
 import { meterInput } from '../input-meter'
-import { decideFit, stableCellHeightPx, type CellDimensions } from '../terminal/fit-guard'
+import { decideFit, runFitLoop, stableCellHeightPx, type CellDimensions } from '../terminal/fit-guard'
+import { primaryFontAvailable, remeasureAfterFontLoad } from '../terminal/font-remeasure'
 import { startPaneSession } from '../terminal/start-pane'
 import { DropTracker, dragHasFiles } from '../terminal/drop-tracker'
 
@@ -89,6 +90,10 @@ export function TerminalView({
     if (!p.opened) {
       p.term.open(host)
       p.opened = true
+      // xterm measures the cell exactly once, here. Record whether it had the
+      // webfont to measure, so the fonts.ready handler below can re-measure
+      // only the panes stuck on fallback metrics (see terminal/font-remeasure).
+      p.openedWithFallback = !primaryFontAvailable(p.term, globalThis.document?.fonts)
     } else if (p.term.element) {
       host.appendChild(p.term.element)
     }
@@ -111,9 +116,9 @@ export function TerminalView({
       try {
         // Never call p.fit.fit() -- it applies its own proposal before anyone
         // can inspect it, and a proposal read from a collapsed mount is a
-        // plausible 2 columns / 1 row rather than an obvious error. Iterate to
-        // a fixed point because FitAddon's scrollbar-width term does not
-        // converge in one pass. See terminal/fit-guard.ts.
+        // plausible 2 columns / 1 row rather than an obvious error. See
+        // terminal/fit-guard.ts, and runFitLoop for why we take the proposal
+        // more than once.
         const cs = getComputedStyle(host)
         const contentH =
           host.clientHeight - parseFloat(cs.paddingTop || '0') - parseFloat(cs.paddingBottom || '0')
@@ -122,19 +127,14 @@ export function TerminalView({
           clientWidth: host.clientWidth,
           clientHeight: host.clientHeight
         }
-        let applied: { cols: number; rows: number } | null = null
-        for (let pass = 0; pass < 3; pass++) {
-          const next = decideFit({
+        const applied = runFitLoop(p.term, () =>
+          decideFit({
             proposed: p.fit.proposeDimensions(),
             host: box,
             contentHeightPx: contentH,
             cellHeightPx: cellHeightOf(p.term as unknown as { _core?: unknown })
           })
-          if (!next) return null
-          applied = next
-          if (p.term.cols === next.cols && p.term.rows === next.rows) break
-          p.term.resize(next.cols, next.rows)
-        }
+        )
         if (!applied) return null
         window.crew.resize(id, applied.cols, applied.rows)
         return applied
@@ -153,13 +153,19 @@ export function TerminalView({
 
     // Fit again after layout settles, in case the mount was not measurable yet.
     const raf = requestAnimationFrame(fit)
-    // The monospace web font (JetBrains Mono) loads asynchronously; xterm measures
-    // its cell height at open() time, so when the real font swaps in, the row
-    // count computed against the fallback metrics is stale and the tile clips the
-    // bottom row (the input prompt / footer gets bisected). The ResizeObserver
-    // below won't catch this — the container didn't resize — so re-fit once fonts
-    // are ready. Harmless no-op when the font is already loaded.
-    void document.fonts?.ready.then(fit)
+    // The monospace web font (JetBrains Mono) loads asynchronously, and xterm
+    // re-measures its cell only when the grid size actually changes. Re-fitting
+    // alone therefore cannot rescue a pane that opened on the fallback: it
+    // recomputes rows from the stale cell, and when that proposal matches the
+    // size the grid already has, resize() takes its no-op branch and nothing is
+    // re-measured. So force the re-measure first, then fit. The ResizeObserver
+    // below won't catch this either, because the container never resized.
+    void document.fonts?.ready.then(() => {
+      if (remeasureAfterFontLoad(p.term, p.openedWithFallback === true, document.fonts)) {
+        p.openedWithFallback = false
+      }
+      fit()
+    })
     // Focus on an explicit mount request, or when re-attaching the terminal that
     // was focused before a remount (e.g. a tile moving between group columns).
     if (focusOnMount || lastFocusedTerminal === id) p.term.focus()

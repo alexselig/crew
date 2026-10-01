@@ -26,6 +26,10 @@ export interface Pooled {
   term: Terminal
   fit: FitAddon
   opened: boolean
+  /** Whether open() had to measure the cell against a fallback font, because
+   *  the webfont had not loaded yet. Cleared once re-measured; xterm never
+   *  re-measures on its own (see terminal/font-remeasure.ts). */
+  openedWithFallback?: boolean
   /** When a human last had this terminal on screen — drives retirement. Set by
    *  touch() on mount, never by output (see terminal/lru.ts for why). */
   lastUsed: number

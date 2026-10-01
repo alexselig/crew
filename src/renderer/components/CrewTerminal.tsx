@@ -107,9 +107,14 @@ export function CrewTerminal({
 
     // Fit again after layout settles, in case the mount was not measurable yet.
     const raf = requestAnimationFrame(fit)
-    // JetBrains Mono loads asynchronously; the engine measures cell height at
-    // open() time, so re-fit once fonts are ready or the bottom row clips.
-    void document.fonts?.ready.then(fit)
+    // JetBrains Mono loads asynchronously, and xterm re-measures its cell only
+    // when the grid size actually changes — so a pane that opened on the
+    // fallback keeps those metrics even across a re-fit that proposes the size
+    // it already has. Force the re-measure before fitting.
+    void document.fonts?.ready.then(() => {
+      p.engine.remeasureFont()
+      fit()
+    })
     if (focusOnMount || focusRegistry.isLastFocused(id)) p.engine.focus()
 
     const ro = new ResizeObserver(() => fit())
