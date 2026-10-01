@@ -133,13 +133,13 @@
     },
     "CB-1": {
       "status": "approved",
-      "note": "",
-      "at": "2026-10-01T21:27:11.615Z"
+      "note": "BLOCKED ON YOU: your installed Crew is 0.7.6, which has neither candidate fix, so the experiment has never actually run. Install 0.7.8 (it carries all three) and report whether the jitter is gone.",
+      "at": "2026-10-01T22:11:27.572Z"
     },
     "CB-3": {
       "status": "approved",
-      "note": "",
-      "at": "2026-10-01T21:27:18.361Z"
+      "note": "BLOCKED, and the attempt is destructive. Needs a live pane, which needs a local Electron. Launching the npm-proxy Electron on this Mac does not fail, it gets Electron.app DELETED by Gatekeeper (verified 1 Oct: it took out the donor install). So this cannot be answered until CB-7 provides a runnable Electron.",
+      "at": "2026-10-01T22:11:27.592Z"
     },
     "CB-4": {
       "status": "done",
@@ -158,8 +158,8 @@
     },
     "CB-7": {
       "status": "approved",
-      "note": "",
-      "at": "2026-10-01T21:27:30.898Z"
+      "note": "Hard finding 1 Oct: the locally installed Electron cannot be the answer. Gatekeeper treats it as revoked and macOS deletes Electron.app on launch. Two paths remain: a macOS CI runner with its own Electron, or pointing Playwright executablePath at the signed packaged app. Needs your call, and the second path risks colliding with your running instance.",
+      "at": "2026-10-01T22:11:27.614Z"
     },
     "CB-8": {
       "status": "done",
@@ -178,8 +178,8 @@
     },
     "CB-12": {
       "status": "approved",
-      "note": "",
-      "at": "2026-10-01T21:28:25.545Z"
+      "note": "Unscoped. Needs you to say what phase 1c actually covers before it can be dispatched.",
+      "at": "2026-10-01T22:11:27.644Z"
     }
   }
 }
