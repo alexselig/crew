@@ -1,0 +1,129 @@
+{
+  "title": "Crew backlog",
+  "subtitle": "Shared, ordered, and reviewed in the repo. Drag to rank; approve what we should do next.",
+  "order": [
+    "CB-1",
+    "CB-2",
+    "CB-3",
+    "CB-4",
+    "CB-5",
+    "CB-6",
+    "CB-7",
+    "CB-8",
+    "CB-9",
+    "CB-10",
+    "CB-11",
+    "CB-12"
+  ],
+  "items": [
+    {
+      "id": "CB-1",
+      "group": "Finish the jitter hunt",
+      "title": "Confirm whether 0.7.7 actually stopped the jitter",
+      "detail": "0.7.7 makes the calm working animation the default, which is the leading explanation for sessions jittering up and down: the mascot ran an independently phased 1.5s bob-and-scale per working session. Installing 0.7.7 is the experiment. Everything else in this group is conditional on the answer, so it is ranked first.",
+      "why": "Two candidate fixes shipped and neither is confirmed against the real symptom. Until this is answered we are guessing.",
+      "size": "Minutes",
+      "evidence": "PR #38; migration 2026-10-calm-motion-default"
+    },
+    {
+      "id": "CB-2",
+      "group": "Finish the jitter hunt",
+      "title": "Check whether the font-load re-fit ever re-measures the cell",
+      "detail": "CrewTerminal runs document.fonts.ready.then(fit), but fit() only re-proposes dimensions; xterm recomputes character size on charSizeChanged, which a plain fit does not raise. If a pane opened before JetBrains Mono finished loading keeps the fallback metrics, it stays on Menlo's device.cell.height of 35 - odd, and therefore inside the oscillating regime that PR #39 addresses.",
+      "why": "This is the most plausible remaining mechanism for a pane to sit permanently in the unstable regime, and it is the likeliest third cause if CB-1 comes back negative.",
+      "size": "Half a day",
+      "evidence": "Measured: JetBrains Mono -> 40 (even, stable); Menlo/ui-monospace -> 35 (odd, unstable) at dpr 2"
+    },
+    {
+      "id": "CB-3",
+      "group": "Finish the jitter hunt",
+      "title": "Measure cell metrics in the running app, not a harness",
+      "detail": "The numbers behind PR #39 came from headless Chromium mirroring xterm's arithmetic. Log term._core._renderService.dimensions.device.cell.height and window.devicePixelRatio from a live pane instead, so the scope claim rests on the real app rather than a reconstruction.",
+      "why": "The harness and xterm's CharSizeService could diverge in font fallback or measurement API. One log line retires the doubt permanently.",
+      "size": "An hour",
+      "evidence": "test/e2e/flicker-probe.mjs already attaches over CDP"
+    },
+    {
+      "id": "CB-4",
+      "group": "Pay down the terminal code",
+      "title": "De-duplicate the two terminal fit loops",
+      "detail": "src/renderer/terminal/xterm-engine.ts and src/renderer/components/TerminalView.tsx carry byte-identical copies of the 3-pass fit loop and its 15-line comment. Extract one implementation both call.",
+      "why": "This already bit us: a fix written against the engine copy left TerminalView untouched, and TerminalView is the path users are on unless they opted into the enhanced terminal. Two copies means every terminal fix is half a fix.",
+      "size": "Half a day",
+      "evidence": "xterm-engine.ts:417-437 and TerminalView.tsx:120-140; flagged in code review of PR #39"
+    },
+    {
+      "id": "CB-5",
+      "group": "Pay down the terminal code",
+      "title": "Correct or remove the fit loop's scrollbar rationale",
+      "detail": "The comment says the loop iterates because FitAddon subtracts a viewport scrollbar whose existence depends on the proposed size. But xterm assigns Viewport.scrollBarWidth once, in the constructor, and never re-measures it - so that rationale cannot operate within a single synchronous call. Either the loop converges for a different reason (DOM-renderer rounding, worth +/-1 column) or it does not need three passes.",
+      "why": "A confidently wrong comment is worse than none: it is why the loop survived scrutiny this long, and it misled a fix earlier today.",
+      "size": "An hour",
+      "evidence": "node_modules/@xterm/xterm/src/browser/Viewport.ts:70, single assignment"
+    },
+    {
+      "id": "CB-6",
+      "group": "Pay down the terminal code",
+      "title": "Make the resize/report asymmetry structurally impossible",
+      "detail": "fit() can call term.resize() on an early pass and then return null on a later one, which would leave the grid resized while the PTY keeps its old width. It was proven unreachable today - the mount cannot collapse mid-loop, cell dimensions never fall to zero, and the proposal moves by at most one column - so this is hardening, not a bug fix.",
+      "why": "It is latent rather than live. Worth doing when CB-4 extracts the loop anyway, and not worth a standalone change: a fix was written for it today and correctly reverted as dead code.",
+      "size": "Folds into CB-4",
+      "evidence": "Reverted branch fix/fit-pty-sync; review concluded unreachable"
+    },
+    {
+      "id": "CB-7",
+      "group": "Make the release repeatable",
+      "title": "Get the e2e gate running again",
+      "detail": "RELEASING.md lists test/e2e as a release prerequisite, but it cannot run on this Mac: the Electron supplied by the corporate npm proxy is refused by Gatekeeper ('notarization indicates this code has been revoked') and MDM blocks re-signing it in place. Either run the suite on a macOS CI runner, or point the harness at the signed packaged app via Playwright's executablePath.",
+      "why": "0.7.6 and 0.7.7 both shipped without it. A gate nobody can run is not a gate, and right now only unit tests and a PTY smoke test stand between a regression and a release.",
+      "size": "One to two days",
+      "evidence": "spctl -a -vv on node_modules/electron/dist/Electron.app; codesign returns 'Operation not permitted'"
+    },
+    {
+      "id": "CB-8",
+      "group": "Make the release repeatable",
+      "title": "Stabilise the flaky release-script tests",
+      "detail": "test/release-scripts.test.ts shells out to bash and intermittently fails under full-suite parallelism - two failures in one run, then 34/34 green in isolation and on re-run. Give them deterministic timeouts or isolate them from the parallel pool.",
+      "why": "A suite that fails randomly at release time trains us to re-run until green, which is exactly how a real failure gets waved through.",
+      "size": "Half a day",
+      "evidence": "Observed during the 0.7.7 release run"
+    },
+    {
+      "id": "CB-9",
+      "group": "Make the release repeatable",
+      "title": "Script the worktree node_modules dance",
+      "detail": "Every worktree holds a git-tracked node_modules symlink pointing at an empty target, so tests and builds fail until it is repointed at a worktree that has a real install - and the Electron binary inside it gets removed periodically, which then fails with an opaque ENOENT. Wrap setup and restore in one script.",
+      "why": "It cost several detours in this session alone, and each one looks like a code failure before it turns out to be the environment.",
+      "size": "Half a day",
+      "evidence": "Hit three times today: empty target, missing Electron.app, dirty tree blocking publish.sh"
+    },
+    {
+      "id": "CB-10",
+      "group": "Product",
+      "title": "Decide whether the lively mascot animation stays at all",
+      "detail": "0.7.7 flips the default to calm and migrates existing installs once. If nobody turns the lively animation back on, the second code path, its CSS, and the per-session will-change compositor layer can go.",
+      "why": "Keeping both costs a settings row, a migration, a test fixture that must start from the lively state, and a compositor layer per working session.",
+      "size": "An hour, after a few weeks of use",
+      "evidence": "test/renderer-regressions.test.ts:639-660 depends on the lively default"
+    },
+    {
+      "id": "CB-11",
+      "group": "Product",
+      "title": "Sign the Windows build",
+      "detail": "Windows artifacts ship unsigned and raise a SmartScreen warning on first run, as RELEASING.md notes.",
+      "why": "It is the roughest edge a new Windows user meets, before they have any reason to trust the app.",
+      "size": "Depends on certificate procurement",
+      "evidence": "RELEASING.md, opening paragraph"
+    },
+    {
+      "id": "CB-12",
+      "group": "Product",
+      "title": "Implement Conductor phase 1c",
+      "detail": "Carried as known-and-accepted through several sessions. Worth either scheduling or explicitly closing, rather than continuing to carry it.",
+      "why": "Long-lived unscheduled work quietly becomes a commitment nobody revisits. Ranking it here forces the choice.",
+      "size": "Unscoped",
+      "evidence": "Conductor spec, phase 1c"
+    }
+  ],
+  "state": {}
+}
