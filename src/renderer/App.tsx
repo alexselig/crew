@@ -231,8 +231,10 @@ export function App(): JSX.Element {
   }, [anyOverlay, c.viewMode, c.selectedId])
 
   // Publish the calm-motion setting on <html> so the CSS swap reaches mascots
-  // rendered in portals too (see calm-motion.ts).
-  useCalmMotion(c.settings?.calmMotion ?? false)
+  // rendered in portals too (see calm-motion.ts). Defaults to on, matching
+  // DEFAULT_SETTINGS — a settings-less first paint must not start on the bob
+  // and then swap once settings arrive.
+  useCalmMotion(c.settings?.calmMotion ?? true)
 
   useEffect(() => {
     const next = nextSelection(activeRoster, c.selectedId, null)
