@@ -2,7 +2,7 @@
   "name": "crew",
   "version": "0.7.7",
   "private": true,
-  "description": "Crew — a menu-bar mission control for AI terminal sessions. Each session gets a character; red dot when it's waiting on you.",
+  "description": "Crew \u2014 a menu-bar mission control for AI terminal sessions. Each session gets a character; red dot when it's waiting on you.",
   "author": "Alex Selig",
   "main": "./out/main/index.js",
   "scripts": {
@@ -13,6 +13,8 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "handoff": "node scripts/handoff.mjs",
+    "deps": "bash scripts/worktree-deps.sh",
+    "deps:all": "bash scripts/worktree-deps.sh --all",
     "backlog": "node backlog/server.js",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",

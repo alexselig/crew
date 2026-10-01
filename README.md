@@ -199,6 +199,26 @@ npm run rebuild:native   # rebuild node-pty for Electron's ABI (once after insta
 npm run dev              # run in development
 ```
 
+### Working in a git worktree
+
+A full install is about a gigabyte and includes a downloaded Electron binary, so
+worktrees share one real `node_modules` through a symlink rather than each
+installing their own. `node_modules` is gitignored — including as a symlink —
+so repointing it never shows up as a change, and never blocks a release.
+
+```bash
+npm run deps             # link this worktree at a complete install
+npm run deps:all         # ...or do it for every worktree at once
+npm run deps -- --check  # report only, change nothing
+```
+
+Run it when a fresh worktree greets you with `vitest: command not found`, or
+when the app dies with an `ENOENT` naming a path inside `node_modules/electron`
+— the Electron binary gets removed periodically, and the script says so in
+those words instead of leaving you to decode the path. It refuses to link to an
+install that has packages but no Electron binary, because that is exactly the
+state in which `npm test` passes and `npm start` fails.
+
 ## Verify
 
 ```bash

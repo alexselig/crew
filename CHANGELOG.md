@@ -5,6 +5,19 @@ running and supervising multiple AI CLI agent sessions at a glance.
 
 ## Unreleased
 
+### Changed
+
+- **`node_modules` is no longer tracked by git, and worktrees have a script.**
+  A full install is about a gigabyte and carries a downloaded Electron binary,
+  so worktrees share one install through a symlink — but that symlink was
+  *committed*, pointing at a path that was never populated. Every fresh worktree
+  therefore failed with `vitest: command not found`, repointing it by hand left
+  the tree dirty (which `publish.sh` refuses to release from), and `.gitignore`
+  could not help because `node_modules/` with a trailing slash matches only a
+  real directory. `npm run deps` now links a worktree at a complete install,
+  and refuses to adopt one that has packages but no Electron binary — the state
+  in which `npm test` passes and `npm start` dies with an opaque `ENOENT`.
+
 ### Fixed
 
 - **Terminals opened before the web font loaded could keep the fallback's
