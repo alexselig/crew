@@ -19,10 +19,17 @@
 #   2. Repointing it by hand left the tree dirty, and `publish.sh` refuses to
 #      release from a dirty tree. (It is now gitignored, so this cannot recur on
 #      any branch that has this script.)
-#   3. The Electron binary inside the donor install gets removed periodically --
-#      by Gatekeeper quarantine cleanup, or by a partial reinstall -- and the
-#      resulting ENOENT names a path deep inside node_modules with no hint that
-#      `npx electron install` is the fix.
+#   3. The Electron binary inside the donor install gets removed periodically,
+#      and the resulting ENOENT names a path deep inside node_modules with no
+#      hint of what to do about it.
+#
+# On (3): the Electron that the corporate npm proxy supplies is refused by
+# Gatekeeper -- "notarization indicates this code has been revoked" -- and macOS
+# does not merely block it, it *deletes* Electron.app. So any attempt to launch
+# Electron directly on this machine silently destroys the install for every
+# worktree linked to it. Restore it with `node node_modules/electron/install.js`;
+# `npx electron install` cannot work, because npx tries to *run* the very binary
+# that is missing.
 #
 # So: find a donor install that is actually complete, link to it, and say so.
 
@@ -89,9 +96,11 @@ if [ -z "$DONOR" ]; then
     nm="$wt/node_modules"
     if [ -d "$nm" ] && [ ! -L "$nm" ] && [ -x "$nm/.bin/vitest" ]; then
       warn "$(basename "$wt") has packages but no Electron binary."
+      warn "Launching Electron on this Mac deletes it: Gatekeeper reports the"
+      warn "build the npm proxy supplies as revoked. Do not run it to check."
       echo
       echo "  Restore it with:"
-      echo "    cd $wt && npx electron install"
+      echo "    cd $wt && node node_modules/electron/install.js"
       exit 1
     fi
   done
