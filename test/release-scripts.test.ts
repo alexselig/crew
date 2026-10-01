@@ -1,8 +1,66 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process'
+
+/**
+ * These tests shell out to bash, and bash scripts that spawn a dozen stub
+ * commands are the slowest thing in the suite: the publication cases take ~2.8s
+ * each when they have a machine to themselves. Run under the full suite's
+ * ten-way file parallelism, they stretch several times over -- and both of the
+ * surrounding defaults are cliffs, not slopes:
+ *
+ *   - vitest's per-test timeout defaults to 5000 ms, which a 2.8s test crosses
+ *     the moment it is competing for a core;
+ *   - the `spawnSync` timeouts in this file were 5000-10000 ms, and a killed
+ *     process surfaces as `status: null`, which reads as an ordinary assertion
+ *     mismatch rather than as "this never finished".
+ *
+ * That combination is what made this file fail twice in a release run and then
+ * go 34/34 green in isolation -- which trains you to re-run until green, which
+ * is exactly how a real failure gets waved through.
+ *
+ * Both budgets are now generous and named. They are safety nets against a hang,
+ * not performance assertions: a correct run uses a small fraction of either, so
+ * raising them cannot hide a regression, while `runScript` below makes
+ * exhausting one say so in those words.
+ */
+const SCRIPT_TIMEOUT_MS = 60_000
+
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 })
+
+/**
+ * `spawnSync` a release script, failing loudly if it had to be killed.
+ *
+ * `spawnSync` reports a timeout as `error` plus `status: null` and
+ * `signal: 'SIGTERM'`. Left alone, the next `expect(result.status).toBe(0)`
+ * blames the script. Raise it here instead, naming the budget.
+ */
+function runScript(
+  args: string[],
+  options: SpawnSyncOptionsWithStringEncoding,
+  timeout = SCRIPT_TIMEOUT_MS
+) {
+  const result = spawnSync('/bin/bash', args, { ...options, timeout })
+  if (result.error || result.signal) {
+    throw new Error(
+      `${args[0]} did not finish within ${timeout}ms ` +
+      `(signal ${result.signal ?? 'none'}): ${result.error?.message ?? 'killed'}`
+    )
+  }
+  return result
+}
+
+describe('the harness itself', () => {
+  it('reports a killed script as a timeout rather than as a failed assertion', () => {
+    // Without this, `spawnSync` returns status: null on a timeout and the next
+    // `expect(result.status).toBe(0)` blames the script -- which is precisely
+    // the misdiagnosis that made this file look flaky instead of starved.
+    expect(() => runScript(['-c', 'sleep 5'], { encoding: 'utf8' }, 150))
+      .toThrow(/did not finish within 150ms/)
+  })
+})
 
 const directories: string[] = []
 afterEach(() => {
@@ -37,8 +95,8 @@ function fixture(version = '0.6.0', architecture = 'arm64', bundleId = 'com.alex
   executable(join(bin, 'lipo'), `printf '%s\\n' '${architecture}'`)
   executable(join(bin, 'xcrun'), 'printf "%s\\n" "$*" > notary.args; exit 1')
   executable(join(bin, 'ditto'), 'exit 0')
-  const run = (arch = 'arm64') => spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
-    cwd: dir, encoding: 'utf8', timeout: 5000,
+  const run = (arch = 'arm64') => runScript(['scripts/sign-notarize.sh'], {
+    cwd: dir, encoding: 'utf8',
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
@@ -147,8 +205,8 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     assets }))
   `)
     const run = (publish = false, tag = 'v0.6.0') =>
-      spawnSync('/bin/bash', ['scripts/publish.sh', tag], {
-        cwd: dir, encoding: 'utf8', timeout: 10000,
+      runScript(['scripts/publish.sh', tag], {
+        cwd: dir, encoding: 'utf8',
         env: {
           ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
           CREW_SKIP_SIGN: '1', CREW_PUBLISH: publish ? '1' : '0', CREW_TEST_MODE: mode,
@@ -254,8 +312,8 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     // store-credentials can validate against Apple and still fail to write the
     // keychain item, which left a signed build that could not be notarized.
     const { dir } = fixture()
-    spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
-      cwd: dir, encoding: 'utf8', timeout: 5000,
+    runScript(['scripts/sign-notarize.sh'], {
+      cwd: dir, encoding: 'utf8',
       env: {
         ...process.env,
         PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
@@ -282,8 +340,8 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     const { dir } = fixture()
     const keyPath = join(dir, 'AuthKey_ABCDE12345.p8')
     writeFileSync(keyPath, '-- not a real key --')
-    spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
-      cwd: dir, encoding: 'utf8', timeout: 5000,
+    runScript(['scripts/sign-notarize.sh'], {
+      cwd: dir, encoding: 'utf8',
       env: {
         ...process.env,
         PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
@@ -312,8 +370,8 @@ describe.skipIf(process.platform !== 'darwin')('release signing preflight', () =
     // A stale exported path would otherwise sign for minutes, then fail at
     // notarization with the app already built.
     const { dir } = fixture()
-    const result = spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
-      cwd: dir, encoding: 'utf8', timeout: 5000,
+    const result = runScript(['scripts/sign-notarize.sh'], {
+      cwd: dir, encoding: 'utf8',
       env: {
         ...process.env,
         PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
@@ -360,7 +418,7 @@ printf '%s\n' "$@" > "$CREW_TEST_ARGS"
 [ "$count" -ge 2 ]
 `, { mode: 0o700 })
 
-    const result = spawnSync('/bin/bash', [resolve('scripts/codesign-retry.sh'), '--force', '--timestamp', 'Crew.app'], {
+    const result = runScript([resolve('scripts/codesign-retry.sh'), '--force', '--timestamp', 'Crew.app'], {
       encoding: 'utf8',
       env: {
         ...process.env,
@@ -397,7 +455,7 @@ echo "$((count + 1))" > "$CREW_TEST_COUNT"
 exit 1
 `, { mode: 0o700 })
 
-    const result = spawnSync('/bin/bash', [resolve('scripts/codesign-retry.sh'), '--sign', 'fixture', '--timestamp', 'locale.pak'], {
+    const result = runScript([resolve('scripts/codesign-retry.sh'), '--sign', 'fixture', '--timestamp', 'locale.pak'], {
       encoding: 'utf8',
       env: {
         ...process.env,
@@ -431,7 +489,7 @@ touch "$CREW_TEST_SUBMITTED"
 exit 1
 `, { mode: 0o700 })
 
-    const result = spawnSync('/bin/bash', [resolve('scripts/codesign-retry.sh'), '--sign', 'fixture', '--timestamp', 'locale.pak'], {
+    const result = runScript([resolve('scripts/codesign-retry.sh'), '--sign', 'fixture', '--timestamp', 'locale.pak'], {
       encoding: 'utf8',
       env: {
         ...process.env,
@@ -461,7 +519,7 @@ fi
 exit 1
 `, { mode: 0o700 })
 
-    const result = spawnSync('/bin/bash', [resolve('scripts/codesign-retry.sh'), '--verify', '--deep', 'Crew.app'], {
+    const result = runScript([resolve('scripts/codesign-retry.sh'), '--verify', '--deep', 'Crew.app'], {
       encoding: 'utf8',
       env: {
         ...process.env,
@@ -484,7 +542,7 @@ exit 1
     const bin = join(dir, 'bin')
     mkdirSync(bin)
     writeFileSync(join(bin, 'dig'), `#!/bin/bash\n${stub}\n`, { mode: 0o700 })
-    return spawnSync('/bin/bash', [resolve('scripts/resolve-timestamp-url.sh'), 'http://timestamp.apple.com/ts01'], {
+    return runScript([resolve('scripts/resolve-timestamp-url.sh'), 'http://timestamp.apple.com/ts01'], {
       encoding: 'utf8',
       env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }
     })
@@ -511,7 +569,7 @@ exit 1
   it('leaves an address that is already a literal unchanged', () => {
     const dir = mkdtempSync(join(tmpdir(), 'crew-timestamp-literal-'))
     directories.push(dir)
-    const result = spawnSync('/bin/bash', [resolve('scripts/resolve-timestamp-url.sh'), 'http://17.179.249.1/ts01'], {
+    const result = runScript([resolve('scripts/resolve-timestamp-url.sh'), 'http://17.179.249.1/ts01'], {
       encoding: 'utf8'
     })
     expect(result.status, result.stderr).toBe(0)
@@ -526,8 +584,8 @@ exit 1
 
   it('does not re-resolve a timestamp url the caller pinned explicitly', () => {
     const { dir } = fixture()
-    const result = spawnSync('/bin/bash', ['scripts/sign-notarize.sh'], {
-      cwd: dir, encoding: 'utf8', timeout: 5000,
+    const result = runScript(['scripts/sign-notarize.sh'], {
+      cwd: dir, encoding: 'utf8',
       env: {
         ...process.env,
         PATH: `${join(dir, 'bin')}:${process.env.PATH}`,

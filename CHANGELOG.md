@@ -7,6 +7,18 @@ running and supervising multiple AI CLI agent sessions at a glance.
 
 ### Changed
 
+- **The release-script tests no longer fail at random.** They shell out to bash,
+  and the publication cases take ~2.8s each with a machine to themselves — but
+  under the full suite's ten-way file parallelism the slowest stretches to
+  **6.3s**, past vitest's 5000 ms default per-test timeout, with a second at
+  5.2s. That is the reported "two failures in one run, then 34/34 green in
+  isolation" exactly. Worse, `spawnSync` reports a killed process as
+  `status: null`, so a starved run surfaced as an ordinary assertion mismatch
+  and read as a script bug. Both budgets are now generous, named and explained,
+  and every script spawn goes through one helper that raises a *timeout* error
+  naming the budget. Six call sites that had no spawn timeout at all are covered
+  too. Three consecutive full-suite runs: 1531/1531.
+
 - **`node_modules` is no longer tracked by git, and worktrees have a script.**
   A full install is about a gigabyte and carries a downloaded Electron binary,
   so worktrees share one install through a symlink — but that symlink was
