@@ -5,6 +5,7 @@ import { quotePaths } from '../../shared/shell-quote'
 import { meterInput } from '../input-meter'
 import { TerminalFocusRegistry } from '../terminal-focus'
 import { startPaneSession } from '../terminal/start-pane'
+import { createFitReporter } from '../terminal/fit-reporter'
 import { DropTracker, dragHasFiles } from '../terminal/drop-tracker'
 
 /** True when the drag payload contains OS files (not an internal card drag). */
@@ -72,7 +73,7 @@ export function CrewTerminal({
     focusRegistry.bind(id, p.engine)
 
     let disposed = false
-    const fit = (): { cols: number; rows: number } | null => {
+    const measure = (): { cols: number; rows: number } | null => {
       if (disposed) return null
       const host = hostRef.current
       if (!host) return null
@@ -82,19 +83,20 @@ export function CrewTerminal({
           host.clientHeight -
           parseFloat(cs.paddingTop || '0') -
           parseFloat(cs.paddingBottom || '0')
-        const fitted = p.engine.fit(contentH)
         // null means the mount is not laid out (collapsed pane, mid-transition,
         // detached). Keep the PTY's last good size rather than resizing the
         // agent to a pane nobody can see -- the ResizeObserver fires again the
         // moment it regains a real size. See terminal/fit-guard.ts.
-        if (!fitted) return null
-        window.crew.resize(id, fitted.cols, fitted.rows)
-        return fitted
+        return p.engine.fit(contentH)
       } catch {
         /* container not measurable yet */
         return null
       }
     }
+    // Forwards a size to the PTY only when it changed; see terminal/fit-reporter.ts
+    // for why that matters once the window-focus re-fit below exists.
+    const reporter = createFitReporter(measure, (cols, rows) => window.crew.resize(id, cols, rows))
+    const fit = (): { cols: number; rows: number } | null => reporter.report()
 
     // Showing a real terminal is the moment a restored session needs its agent
     // running. Sessions come back asleep so a large roster costs nothing at
@@ -112,6 +114,17 @@ export function CrewTerminal({
 
     const ro = new ResizeObserver(() => fit())
     ro.observe(host)
+
+    // A wrong-but-plausible measurement commits silently and is then never
+    // revisited: the ResizeObserver only fires when the host's size CHANGES, so
+    // a pane fitted mid-transition keeps that width for the rest of the run and
+    // the agent keeps drawing its layout to it -- the narrow column of text in
+    // a wide pane, with the status line stranded where the old edge was. There
+    // is no event for "layout has settled", but the window coming to the front
+    // is a moment when it certainly has, and re-fitting is free when the answer
+    // is unchanged (see the guard in fit). So the pane heals itself on the next
+    // click back, instead of needing Repair session rendering.
+    window.addEventListener('focus', fit)
 
     // Forward keystrokes to the PTY. A carriage return means the user submitted
     // input, so drop a landmark on that row (see markPrompt) and flush the typed
@@ -160,6 +173,7 @@ export function CrewTerminal({
       disposed = true
       cancelAnimationFrame(raf)
       ro.disconnect()
+      window.removeEventListener('focus', fit)
       inputSub.dispose()
       // Detach (but do NOT dispose) so scrollback survives tab switches.
       p.engine.unmount(host)
