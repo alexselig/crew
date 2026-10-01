@@ -6950,3 +6950,68 @@ button.grid-topbar__wordmark:hover {
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
 }
+
+/* The new-workspace dialog: a name has been typed, and the question left is
+   which kind of workspace it is. The two kinds are presented as cards rather
+   than a select, because the difference between them is a paragraph, not a
+   word, and a select hides exactly the sentence that decides it. */
+.new-workspace {
+  width: 520px;
+}
+.new-workspace__title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.new-workspace__title em {
+  font-style: normal;
+  color: var(--accent);
+}
+.new-workspace__kinds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.new-workspace__kind {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: inherit;
+  cursor: pointer;
+}
+.new-workspace__kind:hover {
+  border-color: var(--accent);
+}
+/* The chosen card is marked with a border and a tinted field, never by colour
+   alone -- aria-pressed carries it for a screen reader, and the border carries
+   it for anyone who cannot separate the two accents. */
+.new-workspace__kind.is-chosen {
+  border-color: var(--accent);
+  background: var(--panel-alt, var(--panel));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.new-workspace__kind-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.new-workspace__kind-blurb {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.new-workspace__prompt {
+  resize: vertical;
+  min-height: 72px;
+  font-family: inherit;
+}
+.new-workspace__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}

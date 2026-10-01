@@ -101,6 +101,13 @@ export function App(): JSX.Element {
     () => c.workspaces.find((w) => w.id === c.activeWorkspace)?.name ?? null,
     [c.workspaces, c.activeWorkspace]
   )
+  // Whether the active workspace was created as a conducted one, which is the
+  // only thing that makes conductor UI appear. "All Sessions" (a null active
+  // workspace) is not a workspace and so is never conducted.
+  const activeWorkspaceConducted = useMemo(
+    () => c.workspaces.find((w) => w.id === c.activeWorkspace)?.conducted === true,
+    [c.workspaces, c.activeWorkspace]
+  )
   const presentedRoster = useMemo(() => {
     const presentation = c.presentation
     if (presentation.kind === 'builtin') return visibleRoster
@@ -627,6 +634,8 @@ export function App(): JSX.Element {
           roster={c.roster}
           characters={c.characters}
           workspaces={c.workspaces}
+          presets={c.presets}
+          homeDir={c.homeDir}
           onOpenSession={c.navigateToSession}
           onClose={() => c.setShowWorkspaces(false)}
         />
@@ -695,8 +704,9 @@ export function App(): JSX.Element {
 
       <ConductorPanel
         workspaceId={c.activeWorkspace}
-        onNewWorkspace={() => setShowConductorComposer(true)}
+        conducted={activeWorkspaceConducted}
         onLoadPlan={(file) => void loadConductorPlanFile(file)}
+        onComposeByHand={() => setShowConductorComposer(true)}
       />
 
       {conductorPlanError && (

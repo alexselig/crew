@@ -18,13 +18,23 @@ interface Props {
    *  their own truth, and a workspace switch that never reached main
    *  cannot make this panel report another workspace's lanes. */
   workspaceId: string | null
-  /** Opens the composer for a brand-new conducted workspace (blank roster). */
-  onNewWorkspace: () => void
+  /** Whether this workspace was created as a conducted one. False renders no
+   *  conductor UI whatsoever — see conductorPanelMode. */
+  conducted: boolean
   /** Opens the plan document view for an agent-written proposal file. */
   onLoadPlan: (file: File) => void
+  /** Opens the blank composer, for a user who would rather write the roster
+   *  than have the conductor propose one. Only reachable inside a conducted
+   *  workspace that has no roster yet. */
+  onComposeByHand: () => void
 }
 
-export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Props): JSX.Element | null {
+export function ConductorPanel({
+  workspaceId,
+  conducted,
+  onLoadPlan,
+  onComposeByHand
+}: Props): JSX.Element | null {
   const [snapshot, setSnapshot] = useState<ConductorSnapshot | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   // Re-review finding I-4: which workspace this panel is showing RIGHT NOW,
@@ -44,6 +54,12 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
     // lanes. 'loading' renders nothing, which is the honest state.
     setSnapshot(null)
     setMessage(null)
+    // A standard workspace asks main nothing. getConductorState builds that
+    // workspace's conductor backend on demand (see conductor-bootstrap's
+    // backendFor), so polling it for every ordinary workspace the user
+    // clicks through would construct a conductor for each one to be told,
+    // every time, that there isn't one.
+    if (!conducted) return () => {}
     void window.crew.getConductorState(workspaceId).then((state) => {
       if (!cancelled) setSnapshot(state)
     })
@@ -56,7 +72,7 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
       cancelled = true
       off()
     }
-  }, [workspaceId])
+  }, [workspaceId, conducted])
 
   // Every handler refreshes the snapshot straight from getConductorState()
   // in a `finally`, not only on the happy path — a rejected IPC call
@@ -143,15 +159,12 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
     }
   }, [workspaceId, refresh, report])
 
-  const mode = conductorPanelMode(snapshot)
-  if (mode === 'loading') return null
+  const mode = conductorPanelMode(snapshot, conducted)
+  if (mode === 'hidden' || mode === 'loading') return null
 
   if (mode === 'empty') {
     return (
       <section className="conductor conductor--empty">
-        <button type="button" className="btn" onClick={onNewWorkspace}>
-          New conducted workspace…
-        </button>
         <label className="btn">
           Load a plan…
           <input
@@ -165,6 +178,9 @@ export function ConductorPanel({ workspaceId, onNewWorkspace, onLoadPlan }: Prop
             }}
           />
         </label>
+        <button type="button" className="btn" onClick={onComposeByHand}>
+          Compose by hand…
+        </button>
       </section>
     )
   }

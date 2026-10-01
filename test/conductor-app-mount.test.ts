@@ -70,15 +70,25 @@ describe('App.tsx — mounting the composer and plan dialog', () => {
     expect(onComposeValues.every((v) => ts.isIdentifier(v) && v.text === 'composeConductedWorkspace')).toBe(true)
   })
 
-  it('gives ConductorPanel real callback expressions for onNewWorkspace/onLoadPlan, rather than mounting it bare', () => {
+  it('gives ConductorPanel real callback expressions for onComposeByHand/onLoadPlan, rather than mounting it bare', () => {
     const [tag] = findJsxTags(source, 'ConductorPanel')
     expect(tag).toBeDefined()
-    const onNewWorkspace = jsxAttributeValue(tag, 'onNewWorkspace')
+    const onComposeByHand = jsxAttributeValue(tag, 'onComposeByHand')
     const onLoadPlan = jsxAttributeValue(tag, 'onLoadPlan')
-    expect(onNewWorkspace).toBeDefined()
+    expect(onComposeByHand).toBeDefined()
     expect(onLoadPlan).toBeDefined()
-    expect(findCallsTo(onNewWorkspace!, 'setShowConductorComposer').length).toBeGreaterThan(0)
+    expect(findCallsTo(onComposeByHand!, 'setShowConductorComposer').length).toBeGreaterThan(0)
     expect(findCallsTo(onLoadPlan!, 'loadConductorPlanFile').length).toBeGreaterThan(0)
+  })
+
+  it('tells ConductorPanel whether the workspace is conducted, which is what hides it', () => {
+    // Without this prop the panel decides from the snapshot alone, and its
+    // empty state floats over every ordinary workspace -- conductor UI in a
+    // workspace that has no conductor.
+    const [tag] = findJsxTags(source, 'ConductorPanel')
+    const conducted = jsxAttributeValue(tag, 'conducted')
+    expect(conducted).toBeDefined()
+    expect(ts.isIdentifier(conducted!) && conducted.text).toBe('activeWorkspaceConducted')
   })
 
   it('closes the composer/plan dialog only inside the result.ok branch of composeConductedWorkspace', () => {

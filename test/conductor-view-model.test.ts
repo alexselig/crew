@@ -165,16 +165,26 @@ describe('describeUnexpectedFailure', () => {
 })
 
 describe('conductorPanelMode', () => {
+  it('is hidden in a standard workspace, whatever the snapshot says', () => {
+    // The symptom this exists to kill: the empty state's bar floated over
+    // every ordinary workspace, offering to start a conductor in a place
+    // that had none. A standard workspace shows no conductor UI at all --
+    // not even once a snapshot has arrived.
+    expect(conductorPanelMode(null, false)).toBe('hidden')
+    expect(conductorPanelMode(snapshot({ enabled: false }), false)).toBe('hidden')
+    expect(conductorPanelMode(snapshot(), false)).toBe('hidden')
+  })
+
   it('is loading before any snapshot has arrived', () => {
-    expect(conductorPanelMode(null)).toBe('loading')
+    expect(conductorPanelMode(null, true)).toBe('loading')
   })
 
   it('is empty once a disabled snapshot arrives — a normal, non-error state', () => {
-    expect(conductorPanelMode(snapshot({ enabled: false }))).toBe('empty')
+    expect(conductorPanelMode(snapshot({ enabled: false }), true)).toBe('empty')
   })
 
   it('is active once an enabled snapshot arrives', () => {
-    expect(conductorPanelMode(snapshot())).toBe('active')
+    expect(conductorPanelMode(snapshot(), true)).toBe('active')
   })
 })
 

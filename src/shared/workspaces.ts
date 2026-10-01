@@ -81,7 +81,8 @@ const norm = (s: string): string => s.trim().toLowerCase()
 export function createWorkspace(
   list: readonly Workspace[],
   name: string,
-  now: number
+  now: number,
+  options: { conducted?: boolean } = {}
 ): { list: Workspace[]; created: Workspace | null } {
   const trimmed = name.trim()
   if (!trimmed || list.some((w) => norm(w.name) === norm(trimmed))) {
@@ -89,6 +90,9 @@ export function createWorkspace(
   }
   const order = list.reduce((max, w) => Math.max(max, w.order), -1) + 1
   const created: Workspace = { id: makeWorkspaceId(), name: trimmed, order, createdAt: now }
+  // Written only when true, so a standard workspace serializes exactly as it
+  // did before this option existed and no stored file changes shape.
+  if (options.conducted) created.conducted = true
   return { list: [...list, created], created }
 }
 

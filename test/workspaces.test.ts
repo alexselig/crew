@@ -90,6 +90,18 @@ describe('createWorkspace', () => {
     expect(createWorkspace([ws('ws_a', 'Work', 0)], '  ', 0).created).toBeNull()
     expect(createWorkspace([ws('ws_a', 'Work', 0)], 'work', 0).created).toBeNull()
   })
+  it('marks a conducted workspace, which is what makes conductor UI appear', () => {
+    expect(createWorkspace([], 'Payments', 0, { conducted: true }).created?.conducted).toBe(true)
+  })
+  it('leaves the flag off a standard workspace entirely', () => {
+    // Absent rather than false, so a standard workspace serializes exactly as
+    // it did before the option existed and no stored file changes shape.
+    for (const options of [undefined, {}, { conducted: false }]) {
+      const created = createWorkspace([], 'Plain', 0, options).created
+      expect(created).not.toBeNull()
+      expect('conducted' in (created as object)).toBe(false)
+    }
+  })
 })
 
 describe('renameWorkspace', () => {

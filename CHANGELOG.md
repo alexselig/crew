@@ -38,6 +38,22 @@ running and supervising multiple AI CLI agent sessions at a glance.
   at once and a dozen bobs run out of phase. Turning this on keeps the working
   signal but carries it with the slow opacity breathe instead of movement.
 
+### Changed
+
+- **Conductor UI no longer appears in workspaces that have no conductor.** Its
+  empty state — a bar offering "New conducted workspace…" — used to float over
+  every ordinary workspace, which put conductor controls in front of people who
+  were not using one and made "which workspace would this even belong to" an
+  open question. Whether a workspace is conducted is now decided once, when it
+  is created, and a standard workspace shows none of it.
+- **Choosing a conducted workspace moved into the add-workspace flow**, which is
+  where choosing a kind of workspace belongs. Naming a workspace and pressing
+  Add now asks whether it is standard or conducted; conducted also asks where
+  the repository is and what the work actually is, then opens straight into a
+  session named "<Workspace> - Conductor" carrying that brief. Loading a plan
+  and composing a roster by hand are still there, now inside the conducted
+  workspace they apply to.
+
 ## 0.7.5 — 2026-09-30
 
 ### Fixed

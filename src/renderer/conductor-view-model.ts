@@ -64,15 +64,30 @@ export interface LaneRow {
 
 /**
  * What the panel should render before it knows anything about a roster.
+ *
+ * `'hidden'` comes first and answers a question that is not about rosters at
+ * all: is this workspace conducted? Conductor UI is meaningless in a
+ * workspace that has no conductor, and because this used to be decided from
+ * the snapshot alone, the empty state's "New conducted workspace…" bar
+ * floated over every ordinary workspace — conductor UI in a non-conductor
+ * place. The choice is now made once, when the workspace is created, and a
+ * standard workspace renders no conductor UI at all. Creating a conducted
+ * one lives in the add-workspace flow, which is where choosing a kind of
+ * workspace belongs.
+ *
  * `null` (no snapshot has arrived from getConductorState()/onConductorState()
  * yet) is deliberately distinct from `'empty'` (a snapshot arrived and says
  * `enabled: false` — an ordinary, non-error state per Task 5/6): rendering
- * the "New conducted workspace" affordance during the brief unknown window
- * would flash it even for a workspace that turns out to already be
- * conducted, which a bare `snapshot != null && snapshot.enabled` check
- * cannot distinguish since both cases fail it the same way.
+ * the plan affordance during the brief unknown window would flash it even
+ * for a workspace that turns out to already be conducted, which a bare
+ * `snapshot != null && snapshot.enabled` check cannot distinguish since both
+ * cases fail it the same way.
  */
-export function conductorPanelMode(snapshot: ConductorSnapshot | null): 'loading' | 'empty' | 'active' {
+export function conductorPanelMode(
+  snapshot: ConductorSnapshot | null,
+  conducted: boolean
+): 'hidden' | 'loading' | 'empty' | 'active' {
+  if (!conducted) return 'hidden'
   if (snapshot == null) return 'loading'
   return snapshot.enabled ? 'active' : 'empty'
 }

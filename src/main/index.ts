@@ -852,8 +852,10 @@ function registerIpc(): void {
     return list
   }
   ipcMain.handle(IPC.WORKSPACES_GET, () => store.getWorkspaces())
-  ipcMain.handle(IPC.WORKSPACE_CREATE, (_e, name: string) => {
-    const { list, created } = createWorkspace(store.getWorkspaces(), name, Date.now())
+  ipcMain.handle(IPC.WORKSPACE_CREATE, (_e, name: string, options?: { conducted?: boolean }) => {
+    const { list, created } = createWorkspace(store.getWorkspaces(), name, Date.now(), {
+      conducted: options?.conducted === true
+    })
     store.saveWorkspaces(list)
     pushWorkspaces()
     return created
