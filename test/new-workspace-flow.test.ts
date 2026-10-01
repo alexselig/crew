@@ -287,11 +287,13 @@ describe('App — conductor UI cannot outlive the workspace it was opened in', (
     for (const check of checks) {
       const second = check.arguments[1]
       expect(second, 'the check has no second argument to compare against').toBeDefined()
+      // Named exactly, not "some .current": conductorWorkspaceRef.current is
+      // assigned openedIn three lines above these checks, so comparing
+      // against it would be the same tautology wearing different text.
       expect(
-        ts.isPropertyAccessExpression(second!) && second.name.text === 'current',
-        `the workspace check compares against ${second!.getText()}, which the closure captured — it can never differ`
-      ).toBe(true)
-      expect(second!.getText()).not.toBe(check.arguments[0]?.getText())
+        second!.getText(),
+        `the workspace check compares against ${second!.getText()}, which cannot differ from the workspace it was started for`
+      ).toBe('activeWorkspaceRef.current')
     }
     // Captured once, up front, from the workspace that was active then.
     const captured = findAll(load!, ts.isVariableDeclaration).filter(
@@ -305,13 +307,31 @@ describe('App — conductor UI cannot outlive the workspace it was opened in', (
   })
 
   it('keeps the workspace it compares against live across a render', () => {
+    const component = findAll(app, ts.isFunctionDeclaration).find((fn) => fn.name?.text === 'App')
+    expect(component?.body).toBeDefined()
     const writes = findAll(app, ts.isBinaryExpression).filter(
       (b) =>
         b.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-        b.left.getText() === 'activeWorkspaceRef.current'
+        b.left.getText() === 'activeWorkspaceRef.current' &&
+        b.right.getText() === 'c.activeWorkspace'
     )
     expect(writes, 'nothing ever updates the workspace the async guards read').not.toHaveLength(0)
-    expect(writes.some((w) => w.right.getText() === 'c.activeWorkspace')).toBe(true)
+    // It has to run on EVERY render. Moving this write into an effect is the
+    // obvious tidy-up ("don't write refs during render") and a one-character
+    // slip in the deps array then freezes the ref at the first workspace
+    // forever — a ref that lags is the bug this guard exists to fix. So the
+    // write must be a statement of the component body itself, with no call
+    // or nested function between it and that body.
+    expect(
+      writes.some((write) => {
+        for (let node: ts.Node = write; node.parent; node = node.parent) {
+          if (node.parent === component!.body) return true
+          if (ts.isCallExpression(node.parent) || ts.isFunctionLike(node.parent)) return false
+        }
+        return false
+      }),
+      'the ref is updated somewhere other than the render body, so it can lag behind the active workspace'
+    ).toBe(true)
   })
 
   it('mounts neither modal outside a conducted workspace', () => {
