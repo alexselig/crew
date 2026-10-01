@@ -107,9 +107,10 @@ export function CrewTerminal({
 
     // Fit again after layout settles, in case the mount was not measurable yet.
     const raf = requestAnimationFrame(fit)
-    // JetBrains Mono loads asynchronously; the engine measures cell height at
-    // open() time and xterm never re-measures on its own, so force a re-measure
-    // before re-fitting or the pane keeps the fallback's metrics for good.
+    // JetBrains Mono loads asynchronously, and xterm re-measures its cell only
+    // when the grid size actually changes — so a pane that opened on the
+    // fallback keeps those metrics even across a re-fit that proposes the size
+    // it already has. Force the re-measure before fitting.
     void document.fonts?.ready.then(() => {
       p.engine.remeasureFont()
       fit()

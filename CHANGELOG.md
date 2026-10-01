@@ -7,16 +7,19 @@ running and supervising multiple AI CLI agent sessions at a glance.
 
 ### Fixed
 
-- **Terminals opened before the web font loaded kept the fallback's metrics for
-  good.** xterm measures character size exactly once, in `Terminal.open()`, and
-  none of its three other re-measure paths fire on a font load — they all require
-  the cached size to be invalid (zero), or the device pixel ratio to change. A
-  pane created before JetBrains Mono arrived therefore measured the fallback, and
-  the existing `document.fonts.ready` re-fit recomputed rows and columns from
-  those stale metrics, so it could not fix the clipping it was added to fix. Both
-  terminal paths now force a character-size re-measure before re-fitting. The
-  re-measure is gated on the pane actually having opened on fallback metrics, so
-  once the font is cached — the common case after first run — it is a pure skip.
+- **Terminals opened before the web font loaded could keep the fallback's
+  metrics.** xterm re-measures character size only when the grid actually
+  changes size — its other re-measure paths require the cached size to be
+  invalid (zero) or the device pixel ratio to change, and a pane that measured
+  the fallback successfully has a perfectly valid size. So when a pane created
+  before JetBrains Mono arrived re-fitted on `document.fonts.ready`, it computed
+  rows and columns from stale metrics; if that proposal matched the size the
+  grid already had — the steady state, once the initial fit converged — nothing
+  re-measured and the pane stayed on the fallback's cell height until something
+  else resized it. Both terminal paths now force a re-measure before re-fitting.
+  It is gated twice: on the pane actually having opened on fallback metrics, and
+  on the real font having since arrived, so once the font is cached — the common
+  case after first run — it is a pure skip.
 
 ### Changed
 

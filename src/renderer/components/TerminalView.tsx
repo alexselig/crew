@@ -153,14 +153,15 @@ export function TerminalView({
 
     // Fit again after layout settles, in case the mount was not measurable yet.
     const raf = requestAnimationFrame(fit)
-    // The monospace web font (JetBrains Mono) loads asynchronously; xterm measures
-    // its cell height at open() time and NEVER re-measures on its own, so a pane
-    // opened before the font arrives keeps the fallback's metrics for its whole
-    // life. Re-fitting alone cannot fix that — it recomputes rows from the stale
-    // cell — so force a re-measure first, then fit. The ResizeObserver below
-    // won't catch this either, because the container never resized.
+    // The monospace web font (JetBrains Mono) loads asynchronously, and xterm
+    // re-measures its cell only when the grid size actually changes. Re-fitting
+    // alone therefore cannot rescue a pane that opened on the fallback: it
+    // recomputes rows from the stale cell, and when that proposal matches the
+    // size the grid already has, resize() takes its no-op branch and nothing is
+    // re-measured. So force the re-measure first, then fit. The ResizeObserver
+    // below won't catch this either, because the container never resized.
     void document.fonts?.ready.then(() => {
-      if (remeasureAfterFontLoad(p.term, p.openedWithFallback === true)) {
+      if (remeasureAfterFontLoad(p.term, p.openedWithFallback === true, document.fonts)) {
         p.openedWithFallback = false
       }
       fit()

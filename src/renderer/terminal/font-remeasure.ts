@@ -1,24 +1,36 @@
 /**
  * Forcing xterm to re-measure the cell after a webfont arrives.
  *
- * xterm measures character size exactly once per terminal, in `open()`, and
- * caches it on CharSizeService. Nothing we do afterwards re-measures it:
+ * xterm measures character size in `open()` and caches it on CharSizeService.
+ * It re-measures on exactly one path that a font load can reach, and that path
+ * requires the grid to actually change size:
  *
- *   - `FitAddon.proposeDimensions()` only *reads* the cached dimensions.
- *   - `Terminal.resize(x, y)` re-measures only when the size is unchanged AND
+ *   - `Terminal._afterResize` re-measures unconditionally, but it only runs via
+ *     `BufferService.onResize`, so only when `resize(x, y)` changes cols/rows.
+ *   - `Terminal.resize(x, y)` with the *same* dimensions re-measures only when
  *     `hasValidSize` is false -- i.e. only when the first measurement failed.
  *   - `RenderService` re-measures on an intersection change (again only when
  *     `hasValidSize` is false) and on a device-pixel-ratio change.
+ *   - `FitAddon.proposeDimensions()` only *reads* the cached dimensions.
  *
- * So a terminal opened before JetBrains Mono finishes loading measures the
- * fallback (Menlo), records a perfectly valid size, and keeps those metrics
- * for the rest of the session. Re-fitting on `document.fonts.ready` -- which
- * is what Crew did -- recomputes rows and columns from the *stale* cell, so it
- * cannot fix the clipping it was added to fix, and it leaves the pane on the
- * fallback's cell height. That matters beyond clipping: at dpr 2, JetBrains
- * Mono measures an even device cell height (40) while Menlo measures an odd
- * one (35), and only an odd height can oscillate under the DOM renderer's
+ * `hasValidSize` is just `width > 0 && height > 0`, so a pane that measured the
+ * fallback (Menlo) successfully has a perfectly valid size and none of the
+ * conditional paths fire. What is left is: **no re-measure happens unless the
+ * grid size changes.**
+ *
+ * That is exactly the case Crew's `document.fonts.ready` re-fit cannot escape.
+ * It recomputes rows and columns from the *stale* cell; when the stale
+ * proposal matches the size the grid already has -- the steady state, once the
+ * initial fit converged -- `resize()` takes its no-op branch, nothing is
+ * re-measured, and the pane keeps the fallback's cell height until something
+ * else resizes it. That matters beyond clipping: at dpr 2, JetBrains Mono
+ * measures an even device cell height (40) while Menlo measures an odd one
+ * (35), and only an odd height can oscillate under the DOM renderer's
  * row-dependent rounding.
+ *
+ * The bug is therefore self-limiting -- the first window resize or density
+ * change heals the pane -- but "self-limiting" means "wrong until the user
+ * happens to resize something", which is not good enough for the first paint.
  *
  * The one public lever that reaches CharSizeService is the options setter:
  * it registers `onMultipleOptionChange(['fontFamily', 'fontSize'])`. xterm
@@ -81,28 +93,48 @@ export function primaryFontAvailable(
  * stack already ended in `monospace` -- so nothing renders differently while
  * it is set. Only the change *event* matters.
  *
- * Returns true when a re-measure was triggered.
+ * Returns true when the round trip completed and the original value is back.
+ *
+ * The assignment fires `_onOptionChange` *synchronously*, and its listeners run
+ * real work -- `CharSizeService.measure()`, and a RenderService handler that
+ * does `clear()`, `handleResize()` and `_fullRefresh()`, which with the WebGL
+ * addon loaded reaches into texture-atlas teardown. If any of that throws, the
+ * restore must still happen, or the terminal is stranded on the intermediate
+ * stack and every later attempt appends another `, monospace` to it.
  */
 export function forceCharSizeRemeasure(term: FontMeasurable): boolean {
   const original = term.options.fontFamily
   if (!original) return false
-  term.options.fontFamily = `${original}, monospace`
-  term.options.fontFamily = original
+  try {
+    term.options.fontFamily = `${original}, monospace`
+  } finally {
+    term.options.fontFamily = original
+  }
   return true
 }
 
 /**
- * Re-measure the cell if, and only if, the pane was opened on fallback metrics.
+ * Re-measure the cell if, and only if, the pane was opened on fallback metrics
+ * and the real font has since arrived.
  *
  * Call this once the webfont has loaded, before re-fitting. `openedWithFallback`
  * is the value `primaryFontAvailable` returned at `open()` time, negated: if
  * the font was already there (the common case, once it is in the font cache),
  * the cached measurement is correct and re-measuring is pure cost.
+ *
+ * The second check is not redundant. `document.fonts.ready` resolves when the
+ * *pending* loads settle, which says nothing about a `font-display: swap` face
+ * that has not been requested yet -- and a promise captured at mount may
+ * already be fulfilled. Re-measuring there would measure the fallback a second
+ * time and achieve nothing, so we report false and leave the caller's flag
+ * armed for the next opportunity rather than burning the pane's one chance.
  */
 export function remeasureAfterFontLoad(
   term: FontMeasurable,
-  openedWithFallback: boolean
+  openedWithFallback: boolean,
+  fonts: FontAvailability | undefined
 ): boolean {
   if (!openedWithFallback) return false
+  if (!primaryFontAvailable(term, fonts)) return false
   return forceCharSizeRemeasure(term)
 }

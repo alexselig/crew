@@ -18,14 +18,15 @@
  *    the agent keeps drawing to a geometry that no longer exists, which is how
  *    a status line ends up stranded in the middle of a pane.
  *
- * 2. A single fit pass does not converge. FitAddon subtracts the viewport
- *    scrollbar width, but the scrollbar's existence depends on the size being
- *    proposed, so the value read during a collapsed frame is stale. Measured:
- *    after a width collapse and restore, one pass settled the terminal at 129
- *    columns while a fresh proposal on the same container said 125. Nothing
- *    re-fits after that, so the terminal stays wider than the box that shows
- *    it -- right-aligned output is drawn past the visible edge and a
- *    horizontal scrollbar appears.
+ * 2. A single fit pass does not converge. Measured: after a width collapse and
+ *    restore, one pass settled the terminal at 129 columns while a fresh
+ *    proposal on the same container said 125. Nothing re-fits after that, so
+ *    the terminal stays wider than the box that shows it -- right-aligned
+ *    output is drawn past the visible edge and a horizontal scrollbar appears.
+ *    (This file used to blame FitAddon re-reading the viewport scrollbar width
+ *    mid-call. That was wrong: xterm assigns `Viewport.scrollBarWidth` once, in
+ *    its constructor, and never re-measures it. See `runFitLoop` below for the
+ *    mechanism that does explain it.)
  */
 
 /**

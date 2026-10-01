@@ -435,12 +435,17 @@ export class XtermEngine implements TerminalEngine {
   /**
    * Re-measure the cell now that webfonts have loaded.
    *
-   * Only does anything for a pane opened before the webfont arrived; xterm
-   * never re-measures on its own, so without this such a pane keeps the
-   * fallback's metrics for its whole life. Call before re-fitting.
+   * Only does anything for a pane opened before the webfont arrived, and only
+   * once the font is genuinely available: xterm re-measures only when the grid
+   * size changes, so without this such a pane keeps the fallback's metrics
+   * until something resizes it. Call before re-fitting.
    */
   remeasureFont(): boolean {
-    const did = remeasureAfterFontLoad(this.term, this.openedWithFallback)
+    const did = remeasureAfterFontLoad(
+      this.term,
+      this.openedWithFallback,
+      globalThis.document?.fonts
+    )
     if (did) this.openedWithFallback = false
     return did
   }
