@@ -116,7 +116,10 @@ describe('worktree-deps.sh', () => {
 
     expect(result.status).toBe(1)
     expect(result.stdout).toContain('no Electron binary')
-    expect(result.stdout).toContain('npx electron install')
+    // `npx electron install` cannot work: npx tries to run the very binary that
+    // is missing. The only command that restores it is the install script.
+    expect(result.stdout).toContain('node node_modules/electron/install.js')
+    expect(result.stdout).not.toContain('npx electron install')
     expect(f.linkTarget('empty')).toBeNull()
   })
 

@@ -219,6 +219,14 @@ those words instead of leaving you to decode the path. It refuses to link to an
 install that has packages but no Electron binary, because that is exactly the
 state in which `npm test` passes and `npm start` fails.
 
+> **Do not launch Electron directly on a managed Mac to see whether it works.**
+> The build the corporate npm proxy supplies is refused by Gatekeeper
+> ("notarization indicates this code has been revoked"), and macOS does not
+> merely block it — it **deletes `Electron.app`**, breaking every worktree
+> linked to that install. Restore it with
+> `node node_modules/electron/install.js`. (`npx electron install` cannot work:
+> npx tries to run the very binary that is missing.)
+
 ## Verify
 
 ```bash
