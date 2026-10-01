@@ -68,6 +68,14 @@ export function App(): JSX.Element {
   // inside a promise that was started for an older one — the same guard
   // ConductorPanel keeps with shownWorkspace, for the same reason.
   const conductorWorkspaceRef = useRef<string | null>(null)
+  // The workspace active RIGHT NOW. useCrew returns a fresh object every
+  // render, so an async function body closes over the c of the render that
+  // started it: comparing c.activeWorkspace after an await against the value
+  // read before it compares a value with itself and can never differ. Kept
+  // on a ref, which is the only thing in this component that an older
+  // closure and a newer render genuinely share.
+  const activeWorkspaceRef = useRef<string | null>(c.activeWorkspace)
+  activeWorkspaceRef.current = c.activeWorkspace
   // The Project Tracker is a single feature reached from two toolbar buttons that
   // deep-link to different sections (chart → Activity, clipboard → Planning).
   // null = closed; a section value = open on that section.
@@ -464,12 +472,13 @@ export function App(): JSX.Element {
     // Reading the file and fetching the model catalogue are both
     // out-of-process, so seconds can pass here and the user is free to
     // change workspace meanwhile. The plan is for the workspace it was
-    // dropped into; if that is no longer the active one it is dropped.
+    // dropped into; if that is no longer the live one it is dropped. The
+    // comparison has to be against the ref, not against this closure's c.
     const openedIn = c.activeWorkspace
     conductorWorkspaceRef.current = openedIn
     const text = await file.text()
     const parsed = parseProposal(text)
-    if (!conductorWorkStillApplies(openedIn, c.activeWorkspace)) return
+    if (!conductorWorkStillApplies(openedIn, activeWorkspaceRef.current)) return
     if (!parsed.ok) {
       setConductorPlanError('Could not read that plan file — it is not a well-formed proposal.')
       return
@@ -481,7 +490,7 @@ export function App(): JSX.Element {
       // An unavailable model catalogue only affects model-specific notes;
       // the roster still reconciles against whatever presets exist.
     }
-    if (!conductorWorkStillApplies(openedIn, c.activeWorkspace)) return
+    if (!conductorWorkStillApplies(openedIn, activeWorkspaceRef.current)) return
     setConductorPlan(
       reconcileProposal(
         parsed.proposal,

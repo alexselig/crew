@@ -98,7 +98,11 @@ running and supervising multiple AI CLI agent sessions at a glance.
   is fetched out of process, and the plan dialog could open after you had moved
   on. Conductor modals now belong to the workspace they were opened in — any
   change of workspace closes them, work that resolves afterwards is discarded,
-  and neither modal is mounted outside a conducted workspace.
+  and neither modal is mounted outside a conducted workspace. The check a
+  loaded plan makes when it resolves reads the workspace that is live at that
+  moment, not the one its own closure started with — comparing the latter with
+  itself always agreed, so a plan dropped in one conducted workspace could
+  still open over another.
 
 ## 0.7.5 — 2026-09-30
 

@@ -272,15 +272,28 @@ describe('App — conductor UI cannot outlive the workspace it was opened in', (
     // itself.
     const catalogue = findCallsTo(load!, 'window.crew.listCopilotModels')[0]
     expect(catalogue).toBeDefined()
+    const afterCatalogue = checks.filter(
+      (check) => check.getStart() > catalogue.getStart() && check.getStart() < opens[0].getStart()
+    )
     expect(
-      checks.some(
-        (check) => check.getStart() > catalogue.getStart() && check.getStart() < opens[0].getStart()
-      ),
+      afterCatalogue,
       'the plan dialog is opened without re-checking the workspace the catalogue call was made for'
-    ).toBe(true)
-    // Captured once, up front, from the workspace that was active then:
-    // reading c.activeWorkspace again afterwards compares the new workspace
-    // with itself and always agrees.
+    ).not.toHaveLength(0)
+    // Every one of these checks must read a live cell. useCrew returns a new
+    // object each render, so an async body closes over the c of the render
+    // that started it: comparing it with the value read from it before the
+    // await compares a value with itself, and the guard can never fire — the
+    // exact tautology this test replaces.
+    for (const check of checks) {
+      const second = check.arguments[1]
+      expect(second, 'the check has no second argument to compare against').toBeDefined()
+      expect(
+        ts.isPropertyAccessExpression(second!) && second.name.text === 'current',
+        `the workspace check compares against ${second!.getText()}, which the closure captured — it can never differ`
+      ).toBe(true)
+      expect(second!.getText()).not.toBe(check.arguments[0]?.getText())
+    }
+    // Captured once, up front, from the workspace that was active then.
     const captured = findAll(load!, ts.isVariableDeclaration).filter(
       (d) => d.name.getText() === 'openedIn'
     )
@@ -289,6 +302,16 @@ describe('App — conductor UI cannot outlive the workspace it was opened in', (
     const firstAwait = findAll(load!, ts.isAwaitExpression)[0]
     expect(firstAwait).toBeDefined()
     expect(captured[0].getStart()).toBeLessThan(firstAwait.getStart())
+  })
+
+  it('keeps the workspace it compares against live across a render', () => {
+    const writes = findAll(app, ts.isBinaryExpression).filter(
+      (b) =>
+        b.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        b.left.getText() === 'activeWorkspaceRef.current'
+    )
+    expect(writes, 'nothing ever updates the workspace the async guards read').not.toHaveLength(0)
+    expect(writes.some((w) => w.right.getText() === 'c.activeWorkspace')).toBe(true)
   })
 
   it('mounts neither modal outside a conducted workspace', () => {

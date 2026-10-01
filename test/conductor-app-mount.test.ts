@@ -23,6 +23,15 @@ import {
 
 const source = parseSource('src/renderer/App.tsx')
 
+/** The && operands guarding a mount, trimmed — so a guard may be a
+ *  conjunction without `includes` quietly accepting `conductorPlanError` for
+ *  `conductorPlan`, or `!showConductorComposer` for the thing itself. */
+function guardOperands(tag: Parameters<typeof enclosingLogicalAndGuard>[0]): string[] {
+  const guard = enclosingLogicalAndGuard(tag)
+  if (guard === undefined) return []
+  return guard.split('&&').map((operand) => operand.trim())
+}
+
 describe('App.tsx — mounting the composer and plan dialog', () => {
   it('imports both components via real import declarations (review finding 12: today nothing renders either)', () => {
     expect(hasNamedImport(source, './components/ConductorComposer', 'ConductorComposer')).toBe(true)
@@ -34,18 +43,15 @@ describe('App.tsx — mounting the composer and plan dialog', () => {
     expect(tags.length).toBeGreaterThan(0)
     // The guard may be a conjunction — the mount is also gated on the
     // workspace being a conducted one — but showConductorComposer must be
-    // part of it.
-    expect(
-      tags.some((tag) => (enclosingLogicalAndGuard(tag) ?? '').includes('showConductorComposer'))
-    ).toBe(true)
+    // one of its operands, exactly, so neither a negation nor a
+    // similarly-named piece of state can stand in for it.
+    expect(tags.some((tag) => guardOperands(tag).includes('showConductorComposer'))).toBe(true)
   })
 
   it('renders ConductorPlanDialog as a real JSX element behind the conductorPlan guard, not merely importing it', () => {
     const tags = findJsxTags(source, 'ConductorPlanDialog')
     expect(tags.length).toBeGreaterThan(0)
-    expect(
-      tags.some((tag) => (enclosingLogicalAndGuard(tag) ?? '').includes('conductorPlan'))
-    ).toBe(true)
+    expect(tags.some((tag) => guardOperands(tag).includes('conductorPlan'))).toBe(true)
   })
 
   it('wires composeConductedWorkspace to the real IPC call, not a stub', () => {
