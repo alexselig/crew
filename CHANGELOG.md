@@ -24,10 +24,12 @@ running and supervising multiple AI CLI agent sessions at a glance.
   measured while the layout was still settling committed that wrong-but-plausible
   width to the PTY, and nothing ever revisited it: panes re-fit when their size
   changes, and this one's size never changed again, so the agent drew to the
-  wrong width for the rest of the run. Crew now re-measures every pane when the
-  window comes to the front — a moment when layout has certainly settled — and
-  forwards the result only when it actually differs, so a click back into Crew
-  does not redraw every live agent.
+  wrong width for the rest of the run. Crew now re-measures a pane whenever its
+  own layout transition ends and whenever the window comes back to the front —
+  moments when layout has settled — and forwards the result only when it
+  actually differs. Output drawn before the correction keeps its old shape in
+  the scrollback; **Repair session rendering** in the command palette still
+  forces a full redraw.
 
 ### Added
 

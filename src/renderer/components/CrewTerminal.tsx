@@ -125,6 +125,24 @@ export function CrewTerminal({
     // is unchanged (see the guard in fit). So the pane heals itself on the next
     // click back, instead of needing Repair session rendering.
     window.addEventListener('focus', fit)
+    // Coming back from minimised or from another Space does not always arrive
+    // as a window focus, so take the other half of the pair too -- the same
+    // pair terminal/xterm-engine.ts watches to reclaim a lost GPU context.
+    const onVisible = (): void => {
+      if (!document.hidden) fit()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    // Focus only covers coming back to Crew from elsewhere, and most of the
+    // ways a pane gets measured mid-transition happen while Crew is already
+    // frontmost: switching between grid and focus view, changing grid density,
+    // a tile scrolling into view, an engine being revived from the pool. Those
+    // all end in a CSS transition on this host, which is as close to a "layout
+    // has settled" event as exists. Transitions on the contents are not news
+    // about the pane's size, so only the host's own count.
+    const onSettled = (e: TransitionEvent): void => {
+      if (e.target === host) fit()
+    }
+    host.addEventListener('transitionend', onSettled)
 
     // Forward keystrokes to the PTY. A carriage return means the user submitted
     // input, so drop a landmark on that row (see markPrompt) and flush the typed
@@ -174,6 +192,8 @@ export function CrewTerminal({
       cancelAnimationFrame(raf)
       ro.disconnect()
       window.removeEventListener('focus', fit)
+      document.removeEventListener('visibilitychange', onVisible)
+      host.removeEventListener('transitionend', onSettled)
       inputSub.dispose()
       // Detach (but do NOT dispose) so scrollback survives tab switches.
       p.engine.unmount(host)
