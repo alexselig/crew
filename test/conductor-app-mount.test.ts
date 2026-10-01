@@ -32,13 +32,20 @@ describe('App.tsx — mounting the composer and plan dialog', () => {
   it('renders ConductorComposer as a real JSX element behind the showConductorComposer guard, not merely importing it', () => {
     const tags = findJsxTags(source, 'ConductorComposer')
     expect(tags.length).toBeGreaterThan(0)
-    expect(tags.some((tag) => enclosingLogicalAndGuard(tag) === 'showConductorComposer')).toBe(true)
+    // The guard may be a conjunction — the mount is also gated on the
+    // workspace being a conducted one — but showConductorComposer must be
+    // part of it.
+    expect(
+      tags.some((tag) => (enclosingLogicalAndGuard(tag) ?? '').includes('showConductorComposer'))
+    ).toBe(true)
   })
 
   it('renders ConductorPlanDialog as a real JSX element behind the conductorPlan guard, not merely importing it', () => {
     const tags = findJsxTags(source, 'ConductorPlanDialog')
     expect(tags.length).toBeGreaterThan(0)
-    expect(tags.some((tag) => enclosingLogicalAndGuard(tag) === 'conductorPlan')).toBe(true)
+    expect(
+      tags.some((tag) => (enclosingLogicalAndGuard(tag) ?? '').includes('conductorPlan'))
+    ).toBe(true)
   })
 
   it('wires composeConductedWorkspace to the real IPC call, not a stub', () => {

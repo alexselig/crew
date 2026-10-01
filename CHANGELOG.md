@@ -89,6 +89,16 @@ running and supervising multiple AI CLI agent sessions at a glance.
   one is marked as such on first launch, before any window asks for the
   workspace list. A workspace with no conductor is left alone, and a launch
   with nothing to restore writes nothing.
+- A composer or a loaded plan could compose its work into the wrong workspace.
+  Change Workspace works while a modal is open, and the workspace was only
+  named when you pressed Compose — so a roster written for one conducted
+  workspace went to whichever conducted workspace was active by then, creating
+  real worktrees and real agent sessions somewhere you were not looking.
+  Dropping a plan file had the same back door: the model catalogue it waits for
+  is fetched out of process, and the plan dialog could open after you had moved
+  on. Conductor modals now belong to the workspace they were opened in — any
+  change of workspace closes them, work that resolves afterwards is discarded,
+  and neither modal is mounted outside a conducted workspace.
 
 ## 0.7.5 — 2026-09-30
 

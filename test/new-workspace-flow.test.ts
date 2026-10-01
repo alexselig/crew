@@ -192,17 +192,22 @@ describe('App — conductor UI cannot outlive the workspace it was opened in', (
     expect(select?.getText()).toBe('c.selectSession')
   })
 
-  it('closes the composer and drops a loaded plan when the workspace stops being conducted', () => {
-    // The entry points are gated, but the composer, a loaded plan and a
-    // plan-load error are not: the app menu's Change Workspace works while a
-    // modal is open, so composing after a switch would bind lanes to a
-    // workspace that renders no conductor at all.
+  it('closes the composer and drops a loaded plan on ANY change of workspace', () => {
+    // Conductedness is not enough: leaving conducted A for conducted B keeps
+    // the flag true, so an effect watching only that never fires — and the
+    // draft written for A is composed into B's live runtime. The app menu's
+    // Change Workspace works while a modal is open, which is the path.
     const effects = findEffectCalls(app).filter((call) => {
       const deps = call.arguments[1]
       return deps !== undefined && ts.isArrayLiteralExpression(deps) &&
         deps.elements.some((el) => el.getText() === 'activeWorkspaceConducted')
     })
     expect(effects, 'no effect reacts to the workspace ceasing to be conducted').toHaveLength(1)
+    const deps = effects[0].arguments[1] as ts.ArrayLiteralExpression
+    expect(
+      deps.elements.some((el) => el.getText() === 'c.activeWorkspace'),
+      'the effect ignores which workspace it is, so conducted A to conducted B never clears'
+    ).toBe(true)
     const body = effects[0].arguments[0]!
     for (const [setter, value] of [
       ['setShowConductorComposer', 'false'],
@@ -210,15 +215,97 @@ describe('App — conductor UI cannot outlive the workspace it was opened in', (
       ['setConductorPlanError', 'null']
     ]) {
       const calls = findDirectCallsTo(body, setter)
-      expect(calls, `${setter} is never called when the workspace stops being conducted`).toHaveLength(1)
+      expect(calls, `${setter} is never called when the workspace changes`).toHaveLength(1)
       expect(calls[0].arguments[0]?.getText()).toBe(value)
     }
-    // …and only then: a conducted workspace keeps its open composer.
-    const guard = findAll(body, ts.isIfStatement).find(
-      (statement) => statement.expression.getText() === 'activeWorkspaceConducted'
+    // Nothing may short-circuit the clear: an early-out on conductedness is
+    // exactly what let A's composer survive into B.
+    expect(
+      findAll(body, ts.isReturnStatement),
+      'the effect still returns early, so a conducted-to-conducted switch clears nothing'
+    ).toHaveLength(0)
+  })
+
+  it('refuses to compose a draft whose workspace moved out from under it', () => {
+    const compose = findFunctionVariable(app, 'composeConductedWorkspace')
+    expect(compose).toBeDefined()
+    const checks = findCallsTo(compose!, 'conductorWorkStillApplies')
+    expect(checks, 'compose never asks whether this draft still belongs here').toHaveLength(1)
+    // Decided before main is told anything: main's own check only asks
+    // whether the workspace is conducted, and the one switched to is.
+    const call = findCallsTo(compose!, 'window.crew.composeConductedWorkspace')[0]
+    expect(call).toBeDefined()
+    expect(checks[0].getStart()).toBeLessThan(call.getStart())
+    expect(checks[0].arguments.map((a) => a.getText())).toEqual([
+      'conductorWorkspaceRef.current',
+      'c.activeWorkspace'
+    ])
+  })
+
+  it('captures the workspace a composer or a plan was opened in', () => {
+    const writes = findAll(app, ts.isBinaryExpression).filter(
+      (b) =>
+        b.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        b.left.getText() === 'conductorWorkspaceRef.current'
     )
-    expect(guard, 'the effect does not leave a conducted workspace alone').toBeDefined()
-    expect(ts.isReturnStatement(guard!.thenStatement)).toBe(true)
+    expect(writes, 'the composer and the plan loader do not both record their workspace').toHaveLength(2)
+    // Opening by hand records the workspace the button was pressed in.
+    const panel = findJsxTags(app, 'ConductorPanel')[0]
+    const byHand = jsxAttributeValue(panel, 'onComposeByHand')
+    expect(byHand).toBeDefined()
+    expect(writes.some((w) => isWithin(w, byHand!))).toBe(true)
+  })
+
+  it('drops a plan whose model catalogue arrived after a workspace switch', () => {
+    // file.text() and listCopilotModels() are both out of process, so the
+    // window between dropping a plan file and showing the dialog is seconds
+    // wide — long enough to change workspace, and the clearing effect runs
+    // before there is anything to clear.
+    const load = findFunctionVariable(app, 'loadConductorPlanFile')
+    expect(load).toBeDefined()
+    const checks = findCallsTo(load!, 'conductorWorkStillApplies')
+    expect(checks, 'the plan loader never re-checks its workspace after awaiting').not.toHaveLength(0)
+    const opens = findDirectCallsTo(load!, 'setConductorPlan')
+    expect(opens).toHaveLength(1)
+    // The check that matters is the one AFTER the model catalogue comes
+    // back; a check before the awaits only ever compares a workspace with
+    // itself.
+    const catalogue = findCallsTo(load!, 'window.crew.listCopilotModels')[0]
+    expect(catalogue).toBeDefined()
+    expect(
+      checks.some(
+        (check) => check.getStart() > catalogue.getStart() && check.getStart() < opens[0].getStart()
+      ),
+      'the plan dialog is opened without re-checking the workspace the catalogue call was made for'
+    ).toBe(true)
+    // Captured once, up front, from the workspace that was active then:
+    // reading c.activeWorkspace again afterwards compares the new workspace
+    // with itself and always agrees.
+    const captured = findAll(load!, ts.isVariableDeclaration).filter(
+      (d) => d.name.getText() === 'openedIn'
+    )
+    expect(captured, 'the plan loader never captures the workspace it was dropped into').toHaveLength(1)
+    expect(captured[0].initializer?.getText()).toBe('c.activeWorkspace')
+    const firstAwait = findAll(load!, ts.isAwaitExpression)[0]
+    expect(firstAwait).toBeDefined()
+    expect(captured[0].getStart()).toBeLessThan(firstAwait.getStart())
+  })
+
+  it('mounts neither modal outside a conducted workspace', () => {
+    // Belt and braces with the effect: the effect clears after a render, the
+    // guard keeps both modals off screen in the frame in between.
+    for (const state of ['showConductorComposer', 'conductorPlan']) {
+      const mounts = findAll(app, ts.isJsxExpression).filter((node) =>
+        node.expression !== undefined &&
+        findIdentifierText(node.expression).includes(state) &&
+        findAll(node, ts.isJsxElement).length > 0
+      )
+      expect(mounts, `nothing renders ${state}`).not.toHaveLength(0)
+      expect(
+        mounts.every((node) => findIdentifierText(node.expression!).includes('activeWorkspaceConducted')),
+        `${state} is mounted without asking whether this workspace is conducted`
+      ).toBe(true)
+    }
   })
 
   it('never paints a plan-load error outside a conducted workspace', () => {

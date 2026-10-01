@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { conductorLabel, conductorSessionRequest, planNewWorkspace } from '../src/shared/conductor-entry'
+import {
+  conductorLabel,
+  conductorSessionRequest,
+  conductorWorkStillApplies,
+  planNewWorkspace
+} from '../src/shared/conductor-entry'
 import type { NewWorkspaceChoice } from '../src/shared/conductor-entry'
 import type { Preset, Workspace } from '../src/shared/types'
 
@@ -149,5 +154,32 @@ describe('planNewWorkspace', () => {
 
   it('refuses the whole plan when the conducted form has no repository', () => {
     expect(planNewWorkspace(workspace('Payments'), choice({ cwd: '  ' }), [preset()])).toBeNull()
+  })
+})
+
+describe('conductorWorkStillApplies', () => {
+  it('discards a draft when the workspace changed under an open composer', () => {
+    // The hazard is conducted A to conducted B: every conductedness check
+    // still passes, main's included, and A's lanes would be appended to B's
+    // live runtime as real worktrees and real sessions.
+    expect(conductorWorkStillApplies('ws_a', 'ws_b')).toBe(false)
+  })
+
+  it('lets a draft through when the workspace never moved', () => {
+    expect(conductorWorkStillApplies('ws_a', 'ws_a')).toBe(true)
+  })
+
+  it('drops a plan that resolves after a switch to a standard workspace', () => {
+    expect(conductorWorkStillApplies('ws_a', 'ws_standard')).toBe(false)
+  })
+
+  it('opens a plan that resolves with no switch at all', () => {
+    expect(conductorWorkStillApplies('ws_a', 'ws_a')).toBe(true)
+  })
+
+  it('applies to nothing when there is no workspace behind it (All Sessions)', () => {
+    expect(conductorWorkStillApplies(null, null)).toBe(false)
+    expect(conductorWorkStillApplies(null, 'ws_a')).toBe(false)
+    expect(conductorWorkStillApplies('ws_a', null)).toBe(false)
   })
 })

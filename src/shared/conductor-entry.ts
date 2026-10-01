@@ -110,3 +110,28 @@ export function planNewWorkspace(
   if (!session) return null
   return { activateWorkspaceId: created.id, session }
 }
+
+/** The message a submission discarded by conductorWorkStillApplies carries.
+ *  Phrased as the thing to do next, because the user cannot tell from the
+ *  dialog alone that the workspace moved out from under it. */
+export const CONDUCTOR_WORKSPACE_CHANGED =
+  'the workspace changed while this was open — reopen the conductor in the workspace you mean to compose for'
+
+/**
+ * Whether conductor work begun in one workspace may still act on it.
+ *
+ * A composer or a loaded plan is a draft for one particular workspace, but
+ * it outlives a workspace switch: the app menu's Change Workspace works
+ * while a modal is up, and compose names the workspace at submit time.
+ * Leaving conducted A for conducted B satisfies every conductedness check
+ * there is — main's included, because B really is conducted — and the draft
+ * written for A would then be appended to B's live runtime as real
+ * worktrees and real agent sessions, in a workspace the user was not even
+ * looking at. Identity decides, not conductedness.
+ *
+ * A draft with no workspace behind it (All Sessions) has nothing to compose
+ * into, so it never applies.
+ */
+export function conductorWorkStillApplies(openedIn: string | null, active: string | null): boolean {
+  return openedIn !== null && openedIn === active
+}
