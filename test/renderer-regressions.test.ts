@@ -632,6 +632,36 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
     }
   })
 
+  // The mascot bob is `char-work` — translateY + scale — running on every
+  // working session at once. That is a calm signal at three sessions and reads
+  // as flicker at thirty, so the setting swaps in the opacity-only `char-run`
+  // breathe: the travel goes, the "this session is working" signal stays.
+  it('swaps the working mascot bob for the calm breathe when the setting is on', async () => {
+    const page = await open('calm-motion')
+    try {
+      await page.waitForSelector('.character--run .character__art')
+      expect(await page.evaluate(() => globalThis.regression.animationOfWorkingMascot())).toBe(
+        'char-work'
+      )
+
+      await page.getByText('Calm working animation', { exact: true }).click()
+
+      expect(await page.evaluate(() => globalThis.regression.animationOfWorkingMascot())).toBe(
+        'char-run'
+      )
+      // The signal must survive the swap: an animation that stopped entirely
+      // would also differ from char-work and would pass a bare inequality check.
+      expect(
+        await page.locator('.character--run .character__art').evaluate((el) => {
+          const cs = getComputedStyle(el)
+          return { duration: cs.animationDuration, transform: cs.transform }
+        })
+      ).toEqual({ duration: '2.4s', transform: 'none' })
+    } finally {
+      await page.close()
+    }
+  })
+
   it('does not expose a foreground-notification toggle that can no longer change behavior', async () => {
     const page = await open('settings')
     try {

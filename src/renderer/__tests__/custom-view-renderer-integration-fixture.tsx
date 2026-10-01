@@ -31,7 +31,8 @@ const defaultSettings: Settings = {
   minimizedAsList: true,
   enhancedTerminal: false,
   showGithubButton: true,
-  githubButtonOpensRepo: true
+  githubButtonOpensRepo: true,
+  calmMotion: false
 }
 
 const presets: Preset[] = [

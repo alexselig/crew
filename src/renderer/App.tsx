@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCrew } from './hooks'
+import { useCalmMotion } from './calm-motion'
 import { Roster } from './components/Roster'
 import { SessionView } from './components/SessionView'
 import { GridView } from './components/GridView'
@@ -205,6 +206,10 @@ export function App(): JSX.Element {
     const raf = requestAnimationFrame(() => focusTerminal(id))
     return () => cancelAnimationFrame(raf)
   }, [anyOverlay, c.viewMode, c.selectedId])
+
+  // Publish the calm-motion setting on <html> so the CSS swap reaches mascots
+  // rendered in portals too (see calm-motion.ts).
+  useCalmMotion(c.settings?.calmMotion ?? false)
 
   useEffect(() => {
     const next = nextSelection(activeRoster, c.selectedId, null)

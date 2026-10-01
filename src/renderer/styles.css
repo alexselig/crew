@@ -810,6 +810,19 @@ button {
   }
 }
 
+/* The same swap, driven by Crew's own "Calm working animation" setting instead
+   of the OS one. It exists because the bob is per-session: quiet with three
+   working sessions, and a screenful of out-of-phase movement with thirty — and
+   wanting that calmer is not the same as wanting motion off system-wide. The
+   attribute lives on <html>, so it also covers mascots rendered in portals
+   (the palette, modals) that sit outside the app root. `will-change: transform`
+   is dropped with the transform it was reserving a compositor layer for. */
+[data-calm-motion='on'] .character--run .character__art {
+  animation: char-run 2.4s ease-in-out infinite;
+  transform: none;
+  will-change: auto;
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex;

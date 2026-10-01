@@ -39,6 +39,9 @@ export interface RendererRegressionControls {
   pending: () => number
   replay: { control: string; rebuilt: string } | null
   replayAlt: { control: string; rebuilt: string; controlAlt: boolean; rebuiltAlt: boolean } | null
+  /** Computed `animation-name` of a WORKING session's mascot, or null when none
+   * is rendered — the observable the calm-motion setting must change. */
+  animationOfWorkingMascot: () => string | null
 }
 
 declare global {

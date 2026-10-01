@@ -3,6 +3,41 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## Unreleased
+
+### Fixed
+
+- Every visible terminal going black when the Crew window lost focus, and coming
+  back mispainted. macOS drops GPU contexts for an occluded window — across the
+  whole renderer at once, which is why it was never one pane but all of them.
+  xterm's WebGL renderer answers that loss by asking the browser to restore the
+  context and waiting three seconds before giving up, and a lost context paints
+  nothing, so every accelerated pane went black for those three seconds on each
+  click away. Crew now drops to the DOM renderer the instant the context goes,
+  rather than waiting to find out whether it comes back: correct text beats a
+  GPU round-trip.
+  Acceleration is not given up for good: a demoted terminal takes its context
+  back the next time the window comes to the front, so a click away no longer
+  costs GPU rendering for the rest of the run.
+- Terminal text stranded in a narrow column of a much wider pane, with the
+  agent's status line and rules stopping well short of the right edge. A pane
+  measured while the layout was still settling committed that wrong-but-plausible
+  width to the PTY, and nothing ever revisited it: panes re-fit when their size
+  changes, and this one's size never changed again, so the agent drew to the
+  wrong width for the rest of the run. Crew now re-measures a pane whenever its
+  own layout transition ends and whenever the window comes back to the front —
+  moments when layout has settled — and forwards the result only when it
+  actually differs. Output drawn before the correction keeps its old shape in
+  the scrollback; **Repair session rendering** in the command palette still
+  forces a full redraw.
+
+### Added
+
+- **Calm working animation** (Settings). The working mascot bobs up and down to
+  mark a live session, which reads as flicker once a dozen sessions are working
+  at once and a dozen bobs run out of phase. Turning this on keeps the working
+  signal but carries it with the slow opacity breathe instead of movement.
+
 ## 0.7.5 — 2026-09-30
 
 ### Fixed
