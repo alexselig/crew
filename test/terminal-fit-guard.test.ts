@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideFit, isLaidOut, isUsableSize } from '../src/renderer/terminal/fit-guard'
+import { decideFit, isLaidOut, isUsableSize, stableCellHeightPx } from '../src/renderer/terminal/fit-guard'
 
 /**
  * Regression: a terminal's status line drawn in the wrong place, a horizontal
@@ -118,5 +118,93 @@ describe('fit guard', () => {
     expect(isLaidOut({ connected: true, clientWidth: 920, clientHeight: 0 })).toBe(false)
     expect(isLaidOut({ connected: false, clientWidth: 920, clientHeight: 420 })).toBe(false)
     expect(isLaidOut({ connected: true, clientWidth: 920, clientHeight: 420 })).toBe(true)
+  })
+})
+
+/**
+ * Regression: terminal text jumping one row up and then back down every time
+ * the user clicks away from Crew and returns, in every visible pane at once.
+ *
+ * macOS drops every WebGL context when the window is occluded, so clicking
+ * away swaps each visible pane to xterm's DOM renderer and clicking back swaps
+ * it to WebGL. The two renderers do not compute `css.cell.height` the same way
+ * (see stableCellHeightPx) -- the DOM one rounds at the canvas and divides by
+ * the row count -- so the clamp's divisor moved twice per focus cycle while
+ * the pane itself never changed size.
+ *
+ * domCss/webglCss below transcribe xterm's own formulas (verified against
+ * @xterm/xterm 5.5.0 and @xterm/addon-webgl 0.18.0), not fit-guard's code, so
+ * these assert an outcome rather than restate the implementation. If an xterm
+ * upgrade changes those formulas, re-derive them here -- these tests would
+ * otherwise stay green while the production bug returned.
+ *
+ * Note the mechanism needs an ODD device cell height at dpr 2: when
+ * device.cell.height * rows is divisible by dpr the rounding is the identity,
+ * the two renderers agree exactly, and none of this can happen.
+ */
+describe('fit guard — cell height is stable across renderer swaps', () => {
+  const DEVICE_CELL_H = 33
+  const DPR = 2
+  const webglCss = DEVICE_CELL_H / DPR
+  const domCss = (rows: number): number => Math.round((DEVICE_CELL_H * rows) / DPR) / rows
+
+  it('reports the same height whichever renderer is live', () => {
+    const webgl = stableCellHeightPx({ device: { cell: { height: DEVICE_CELL_H } }, css: { cell: { height: webglCss } } }, DPR)
+    const dom = stableCellHeightPx({ device: { cell: { height: DEVICE_CELL_H } }, css: { cell: { height: domCss(25) } } }, DPR)
+    expect(webgl).toBe(dom)
+  })
+
+  it('does not depend on the current row count, as the DOM css value does', () => {
+    const at24 = stableCellHeightPx({ device: { cell: { height: DEVICE_CELL_H } }, css: { cell: { height: domCss(24) } } }, DPR)
+    const at25 = stableCellHeightPx({ device: { cell: { height: DEVICE_CELL_H } }, css: { cell: { height: domCss(25) } } }, DPR)
+    expect(domCss(24)).not.toBe(domCss(25)) // the instability being removed
+    expect(at24).toBe(at25)
+  })
+
+  it('yields one row count for a pane that did not change size', () => {
+    // 347px: an INTEGER height, because contentHeightPx is derived from
+    // clientHeight minus whole-pixel padding and is integral in practice. The
+    // DOM renderer's reading at 20 rows floors to 21, and its reading at 21
+    // rows floors back to 20. So the raw css value does not merely disagree
+    // across a renderer swap -- it has no fixed point within the DOM renderer
+    // alone, and the clamp flips forever for a pane sitting perfectly still.
+    const contentHeightPx = 347
+    const rowsFrom = (cellHeightPx: number): number | null =>
+      decideFit({ proposed: { cols: 125, rows: 40 }, host: HOST, contentHeightPx, cellHeightPx })?.rows ?? null
+
+    expect(rowsFrom(webglCss)).toBe(21)
+    expect(rowsFrom(domCss(21))).toBe(20)
+    expect(rowsFrom(domCss(20))).toBe(21)
+
+    const stable = (rows: number): number | null =>
+      rowsFrom(stableCellHeightPx({ device: { cell: { height: DEVICE_CELL_H } }, css: { cell: { height: domCss(rows) } } }, DPR))
+    expect(stable(20)).toBe(21)
+    expect(stable(21)).toBe(21)
+  })
+
+  it('falls back to the css value when xterm exposes no device cell height', () => {
+    expect(stableCellHeightPx({ css: { cell: { height: 17 } } }, 2)).toBe(17)
+    expect(stableCellHeightPx({ device: { cell: { height: 34 } } }, 0)).toBe(0)
+    expect(stableCellHeightPx(null, 2)).toBe(0)
+  })
+
+  it('refuses a dpr that does not belong to the stored device cell height', () => {
+    // device.cell.height is only rewritten when xterm recomputes dimensions,
+    // but window.devicePixelRatio changes the moment the window moves to a
+    // display with a different backing scale. Dividing a dpr-2 cell height by
+    // a dpr-1 ratio would hand the PTY a row cap wrong by a factor of two.
+    const dims = { device: { cell: { height: DEVICE_CELL_H } }, css: { cell: { height: webglCss } } }
+    expect(stableCellHeightPx(dims, DPR)).toBe(webglCss)
+    expect(stableCellHeightPx(dims, 1)).toBe(webglCss) // not 33
+    expect(stableCellHeightPx(dims, 4)).toBe(webglCss) // not 8.25
+  })
+
+  it('still prefers the device reading over the DOM rounding it is meant to replace', () => {
+    // The honest disagreement is only the DOM's rounding, under half a pixel,
+    // so the consistency check above must not reject the very case this exists
+    // to fix.
+    const dims = { device: { cell: { height: DEVICE_CELL_H } }, css: { cell: { height: domCss(21) } } }
+    expect(domCss(21)).not.toBe(webglCss)
+    expect(stableCellHeightPx(dims, DPR)).toBe(webglCss)
   })
 })
