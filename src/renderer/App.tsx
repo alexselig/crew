@@ -223,6 +223,18 @@ export function App(): JSX.Element {
     if (next !== c.selectedId) c.setSelectedId(next)
   }, [activeRoster, c.selectedId, c.setSelectedId])
 
+  // Conductor UI belongs to a conducted workspace and nowhere else. The entry
+  // points are already gated, but a composer, a loaded plan or a plan-load
+  // error can outlive the workspace it was opened in: the app menu's Change
+  // Workspace works while a modal is open, and composing then would bind
+  // lanes to a workspace that renders no conductor at all.
+  useEffect(() => {
+    if (activeWorkspaceConducted) return
+    setShowConductorComposer(false)
+    setConductorPlan(null)
+    setConductorPlanError(null)
+  }, [activeWorkspaceConducted])
+
   function jumpNextWaiting(): void {
     const waiting = activeRoster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
     if (waiting.length === 0) return
@@ -637,6 +649,8 @@ export function App(): JSX.Element {
           presets={c.presets}
           homeDir={c.homeDir}
           onOpenSession={c.navigateToSession}
+          onActivateWorkspace={c.setActiveWorkspace}
+          onSelectSession={c.selectSession}
           onClose={() => c.setShowWorkspaces(false)}
         />
       )}
@@ -709,7 +723,7 @@ export function App(): JSX.Element {
         onComposeByHand={() => setShowConductorComposer(true)}
       />
 
-      {conductorPlanError && (
+      {activeWorkspaceConducted && conductorPlanError && (
         <p className="conductor-composer-error conductor-plan-load-error">{conductorPlanError}</p>
       )}
 

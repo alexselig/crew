@@ -54,6 +54,7 @@ describe('addToSets / removeFromSets', () => {
 import {
   makeWorkspaceId,
   createWorkspace,
+  workspaceNameAvailable,
   renameWorkspace,
   describeWorkspace,
   deleteWorkspace,
@@ -75,6 +76,24 @@ describe('makeWorkspaceId', () => {
     const b = makeWorkspaceId()
     expect(a).toMatch(/^ws_[a-z0-9]{6,}$/)
     expect(a).not.toBe(b)
+  })
+})
+
+describe('workspaceNameAvailable', () => {
+  // The rule createWorkspace rejects on, exposed so a form can refuse a
+  // doomed name while the user can still fix it — rather than accepting
+  // everything they typed and silently discarding all of it.
+  it('refuses blank and case-insensitive duplicates, exactly as createWorkspace does', () => {
+    const list = [ws('ws_a', 'Work', 0)]
+    for (const name of ['  ', 'work', ' WORK ']) {
+      expect(workspaceNameAvailable(list, name)).toBe(false)
+      expect(createWorkspace(list, name, 0).created).toBeNull()
+    }
+  })
+  it('allows a name nothing else answers to', () => {
+    const list = [ws('ws_a', 'Work', 0)]
+    expect(workspaceNameAvailable(list, '  Payments ')).toBe(true)
+    expect(createWorkspace(list, '  Payments ', 0).created).not.toBeNull()
   })
 })
 

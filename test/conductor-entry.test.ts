@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { conductorLabel, conductorSessionRequest } from '../src/shared/conductor-entry'
+import { conductorLabel, conductorSessionRequest, planNewWorkspace } from '../src/shared/conductor-entry'
+import type { NewWorkspaceChoice } from '../src/shared/conductor-entry'
 import type { Preset, Workspace } from '../src/shared/types'
 
 const workspace = (name: string): Workspace => ({
@@ -23,10 +24,11 @@ describe('conductorLabel', () => {
     expect(conductorLabel('Payments')).toBe('Payments - Conductor')
   })
 
-  it('keeps two conductors apart', () => {
-    // The roster is flat, so a bare "Conductor" would be ambiguous the moment
-    // a second conducted workspace exists.
-    expect(conductorLabel('Payments')).not.toBe(conductorLabel('Search'))
+  it('keeps the workspace name whole, punctuation and all', () => {
+    // The roster is flat, so the name in the label is the only thing telling
+    // two conductors apart: an implementation that trimmed, truncated or
+    // sanitised it would make names that differ late collide.
+    expect(conductorLabel('Search & Ranking - v2')).toBe('Search & Ranking - v2 - Conductor')
   })
 })
 
@@ -75,6 +77,18 @@ describe('conductorSessionRequest', () => {
     expect(conductorSessionRequest(workspace('Payments'), preset(), { cwd: '/repo', prompt: '   ' })).toBeNull()
   })
 
+  it('refuses a conductor with nowhere to run', () => {
+    // An empty cwd is not an empty field: session-manager resolves it to the
+    // home directory, so the conductor would start, read the wrong tree and
+    // plan work for a repository nobody asked about.
+    expect(conductorSessionRequest(workspace('Payments'), preset(), { cwd: '   ', prompt: 'Add OAuth' })).toBeNull()
+  })
+
+  it('trims the repository path it was given', () => {
+    const req = conductorSessionRequest(workspace('Payments'), preset(), { cwd: '  /repo  ', prompt: 'Add OAuth' })
+    expect(req?.cwd).toBe('/repo')
+  })
+
   it('tolerates a preset with no args', () => {
     const req = conductorSessionRequest(
       workspace('Payments'),
@@ -82,5 +96,58 @@ describe('conductorSessionRequest', () => {
       start
     )
     expect(req?.args).toEqual([])
+  })
+})
+
+const choice = (over: Partial<NewWorkspaceChoice> = {}): NewWorkspaceChoice => ({
+  name: 'Payments',
+  conducted: true,
+  presetId: 'copilot',
+  cwd: '/repo',
+  prompt: 'Add OAuth sign-in',
+  ...over
+})
+
+describe('planNewWorkspace', () => {
+  it('starts the conductor AND makes its workspace active', () => {
+    // Both halves or neither: a conductor created in a workspace that is not
+    // the active one renders no conductor panel at all, so the feature looks
+    // broken at the exact moment it is first used.
+    const plan = planNewWorkspace(workspace('Payments'), choice(), [preset()])
+    expect(plan?.activateWorkspaceId).toBe('ws-1')
+    expect(plan?.session).toEqual({
+      presetId: 'copilot',
+      command: 'copilot',
+      args: ['--banner'],
+      cwd: '/repo',
+      label: 'Payments - Conductor',
+      initialPrompt: 'Add OAuth sign-in',
+      workspaceIds: ['ws-1']
+    })
+  })
+
+  it('starts nothing and moves nothing for a standard workspace', () => {
+    // A standard workspace is just a name: the manager stays open on the
+    // view the user was already looking at.
+    expect(planNewWorkspace(workspace('Payments'), choice({ conducted: false }), [preset()])).toEqual({
+      activateWorkspaceId: null,
+      session: null
+    })
+  })
+
+  it('picks the conductor\'s agent by the id the dialog chose', () => {
+    const other = preset({ id: 'claude', name: 'Claude', command: 'claude', args: [] })
+    const plan = planNewWorkspace(workspace('Payments'), choice({ presetId: 'claude' }), [preset(), other])
+    expect(plan?.session?.command).toBe('claude')
+  })
+
+  it('refuses the whole plan when the chosen agent is not a known preset', () => {
+    // Fail-closed: no session, and nothing activated for a workspace whose
+    // conductor was never started.
+    expect(planNewWorkspace(workspace('Payments'), choice({ presetId: 'nope' }), [preset()])).toBeNull()
+  })
+
+  it('refuses the whole plan when the conducted form has no repository', () => {
+    expect(planNewWorkspace(workspace('Payments'), choice({ cwd: '  ' }), [preset()])).toBeNull()
   })
 })

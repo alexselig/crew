@@ -76,6 +76,15 @@ export function makeWorkspaceId(): string {
 
 const norm = (s: string): string => s.trim().toLowerCase()
 
+/** Whether `name` can become a workspace name: non-blank, and not a
+ *  case-insensitive duplicate of one already in use. The rule createWorkspace
+ *  rejects on, exposed so a form can refuse a doomed name while the user can
+ *  still fix it rather than discarding what they typed. */
+export function workspaceNameAvailable(list: readonly Workspace[], name: string): boolean {
+  const trimmed = name.trim()
+  return trimmed !== '' && !list.some((w) => norm(w.name) === norm(trimmed))
+}
+
 /** Add a workspace with the next order. Returns created:null on blank or a
  *  case-insensitive duplicate name. */
 export function createWorkspace(
@@ -85,7 +94,7 @@ export function createWorkspace(
   options: { conducted?: boolean } = {}
 ): { list: Workspace[]; created: Workspace | null } {
   const trimmed = name.trim()
-  if (!trimmed || list.some((w) => norm(w.name) === norm(trimmed))) {
+  if (!workspaceNameAvailable(list, trimmed)) {
     return { list: [...list], created: null }
   }
   const order = list.reduce((max, w) => Math.max(max, w.order), -1) + 1

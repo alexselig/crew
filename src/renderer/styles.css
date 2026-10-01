@@ -6198,6 +6198,12 @@ button.grid-topbar__wordmark:hover {
   opacity: 0.5;
   cursor: default;
 }
+/* Why a create attempt went nowhere, on its own line under the controls so a
+   duplicate name is read rather than guessed at from a field that emptied. */
+.workspace-manager__error {
+  margin: 6px 0 0;
+  text-align: right;
+}
 .workspace-manager__close {
   width: 30px;
   height: 30px;
@@ -7008,6 +7014,9 @@ button.grid-topbar__wordmark:hover {
   resize: vertical;
   min-height: 72px;
   font-family: inherit;
+}
+.new-workspace__error {
+  margin: -2px 0 0;
 }
 .new-workspace__actions {
   display: flex;

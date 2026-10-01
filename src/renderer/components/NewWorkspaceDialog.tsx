@@ -1,22 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Preset } from '../../shared/types'
+import type { Preset, Workspace } from '../../shared/types'
+import { workspaceNameAvailable } from '../../shared/workspaces'
+import type { NewWorkspaceChoice } from '../../shared/conductor-entry'
 
-/** What the dialog hands back. `conducted` false means every other field is
- *  irrelevant — a standard workspace is just a name. */
-export interface NewWorkspaceChoice {
-  name: string
-  conducted: boolean
-  presetId: string
-  cwd: string
-  prompt: string
-}
+export type { NewWorkspaceChoice }
 
 interface Props {
-  /** The name already typed in the manager's field; the dialog confirms it
-   *  rather than asking for it twice. */
+  /** The name already typed in the manager's field; the dialog opens on it
+   *  and lets it be corrected, because a name main refuses is the one case
+   *  where everything else typed here would otherwise be thrown away. */
   name: string
   presets: Preset[]
+  /** Existing workspaces, read only to tell the user a name is taken before
+   *  they have filled in the rest of the form. */
+  workspaces: Workspace[]
   homeDir: string
+  /** Why the last attempt failed, e.g. a name another window took first.
+   *  Shown here, with the form still filled in. */
+  error: string | null
   onCreate: (choice: NewWorkspaceChoice) => void
   onCancel: () => void
 }
@@ -38,7 +39,16 @@ interface Props {
  * no brief has nothing to plan, so the create button stays disabled until
  * there is one.
  */
-export function NewWorkspaceDialog({ name, presets, homeDir, onCreate, onCancel }: Props): JSX.Element {
+export function NewWorkspaceDialog({
+  name,
+  presets,
+  workspaces,
+  homeDir,
+  error,
+  onCreate,
+  onCancel
+}: Props): JSX.Element {
+  const [chosenName, setChosenName] = useState(name)
   const [conducted, setConducted] = useState(false)
   const [presetId, setPresetId] = useState(presets[0]?.id ?? '')
   const [cwd, setCwd] = useState(homeDir)
@@ -59,21 +69,44 @@ export function NewWorkspaceDialog({ name, presets, homeDir, onCreate, onCancel 
     if (conducted) requestAnimationFrame(() => promptRef.current?.focus())
   }, [conducted])
 
+  // The same rule main creates by, so a name it will refuse is refused here
+  // while the user can still change it instead of losing the form.
+  const nameOk = workspaceNameAvailable(workspaces, chosenName)
   // A conducted workspace needs somewhere to run and something to do. A
   // standard one needs neither, so it is never blocked by them.
-  const ready = !conducted || (cwd.trim().length > 0 && prompt.trim().length > 0 && presetId !== '')
+  const ready =
+    nameOk && (!conducted || (cwd.trim().length > 0 && prompt.trim().length > 0 && presetId !== ''))
 
   const submit = (): void => {
     if (!ready) return
-    onCreate({ name, conducted, presetId, cwd: cwd.trim() || homeDir, prompt: prompt.trim() })
+    onCreate({
+      name: chosenName.trim(),
+      conducted,
+      presetId,
+      cwd: cwd.trim() || homeDir,
+      prompt: prompt.trim()
+    })
   }
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="New workspace">
       <div className="modal new-workspace">
-        <h2 className="new-workspace__title">
-          New workspace: <em>{name}</em>
-        </h2>
+        <h2 className="new-workspace__title">New workspace</h2>
+
+        <label className="field">
+          <span className="field__label">Name</span>
+          <input
+            className="field__input"
+            aria-label="Workspace name"
+            value={chosenName}
+            onChange={(e) => setChosenName(e.target.value)}
+          />
+        </label>
+        {chosenName.trim() !== '' && !nameOk && (
+          <p className="conductor-composer-error new-workspace__error">
+            A workspace called “{chosenName.trim()}” already exists.
+          </p>
+        )}
 
         <div className="new-workspace__kinds">
           <button
@@ -141,6 +174,8 @@ export function NewWorkspaceDialog({ name, presets, homeDir, onCreate, onCancel 
             </label>
           </>
         )}
+
+        {error && <p className="conductor-composer-error new-workspace__error">{error}</p>}
 
         <div className="new-workspace__actions">
           <button type="button" className="btn" onClick={onCancel}>
