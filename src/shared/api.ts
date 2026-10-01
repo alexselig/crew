@@ -104,7 +104,9 @@ export interface CrewAPI {
   setWorkspaces(id: string, sets: string[]): Promise<void>
   // ── First-class workspaces (Workspace Manager) ──
   getWorkspaces(): Promise<Workspace[]>
-  createWorkspace(name: string): Promise<Workspace | null>
+  /** `conducted` is fixed at creation and is what makes conductor UI appear
+   *  in that workspace; omitted means a standard workspace. */
+  createWorkspace(name: string, options?: { conducted?: boolean }): Promise<Workspace | null>
   renameWorkspace(id: string, name: string): Promise<Workspace[]>
   describeWorkspace(id: string, description: string): Promise<Workspace[]>
   deleteWorkspace(id: string): Promise<Workspace[]>

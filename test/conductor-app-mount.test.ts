@@ -23,6 +23,15 @@ import {
 
 const source = parseSource('src/renderer/App.tsx')
 
+/** The && operands guarding a mount, trimmed — so a guard may be a
+ *  conjunction without `includes` quietly accepting `conductorPlanError` for
+ *  `conductorPlan`, or `!showConductorComposer` for the thing itself. */
+function guardOperands(tag: Parameters<typeof enclosingLogicalAndGuard>[0]): string[] {
+  const guard = enclosingLogicalAndGuard(tag)
+  if (guard === undefined) return []
+  return guard.split('&&').map((operand) => operand.trim())
+}
+
 describe('App.tsx — mounting the composer and plan dialog', () => {
   it('imports both components via real import declarations (review finding 12: today nothing renders either)', () => {
     expect(hasNamedImport(source, './components/ConductorComposer', 'ConductorComposer')).toBe(true)
@@ -32,13 +41,17 @@ describe('App.tsx — mounting the composer and plan dialog', () => {
   it('renders ConductorComposer as a real JSX element behind the showConductorComposer guard, not merely importing it', () => {
     const tags = findJsxTags(source, 'ConductorComposer')
     expect(tags.length).toBeGreaterThan(0)
-    expect(tags.some((tag) => enclosingLogicalAndGuard(tag) === 'showConductorComposer')).toBe(true)
+    // The guard may be a conjunction — the mount is also gated on the
+    // workspace being a conducted one — but showConductorComposer must be
+    // one of its operands, exactly, so neither a negation nor a
+    // similarly-named piece of state can stand in for it.
+    expect(tags.some((tag) => guardOperands(tag).includes('showConductorComposer'))).toBe(true)
   })
 
   it('renders ConductorPlanDialog as a real JSX element behind the conductorPlan guard, not merely importing it', () => {
     const tags = findJsxTags(source, 'ConductorPlanDialog')
     expect(tags.length).toBeGreaterThan(0)
-    expect(tags.some((tag) => enclosingLogicalAndGuard(tag) === 'conductorPlan')).toBe(true)
+    expect(tags.some((tag) => guardOperands(tag).includes('conductorPlan'))).toBe(true)
   })
 
   it('wires composeConductedWorkspace to the real IPC call, not a stub', () => {
@@ -70,15 +83,25 @@ describe('App.tsx — mounting the composer and plan dialog', () => {
     expect(onComposeValues.every((v) => ts.isIdentifier(v) && v.text === 'composeConductedWorkspace')).toBe(true)
   })
 
-  it('gives ConductorPanel real callback expressions for onNewWorkspace/onLoadPlan, rather than mounting it bare', () => {
+  it('gives ConductorPanel real callback expressions for onComposeByHand/onLoadPlan, rather than mounting it bare', () => {
     const [tag] = findJsxTags(source, 'ConductorPanel')
     expect(tag).toBeDefined()
-    const onNewWorkspace = jsxAttributeValue(tag, 'onNewWorkspace')
+    const onComposeByHand = jsxAttributeValue(tag, 'onComposeByHand')
     const onLoadPlan = jsxAttributeValue(tag, 'onLoadPlan')
-    expect(onNewWorkspace).toBeDefined()
+    expect(onComposeByHand).toBeDefined()
     expect(onLoadPlan).toBeDefined()
-    expect(findCallsTo(onNewWorkspace!, 'setShowConductorComposer').length).toBeGreaterThan(0)
+    expect(findCallsTo(onComposeByHand!, 'setShowConductorComposer').length).toBeGreaterThan(0)
     expect(findCallsTo(onLoadPlan!, 'loadConductorPlanFile').length).toBeGreaterThan(0)
+  })
+
+  it('tells ConductorPanel whether the workspace is conducted, which is what hides it', () => {
+    // Without this prop the panel decides from the snapshot alone, and its
+    // empty state floats over every ordinary workspace -- conductor UI in a
+    // workspace that has no conductor.
+    const [tag] = findJsxTags(source, 'ConductorPanel')
+    const conducted = jsxAttributeValue(tag, 'conducted')
+    expect(conducted).toBeDefined()
+    expect(ts.isIdentifier(conducted!) && conducted.text).toBe('activeWorkspaceConducted')
   })
 
   it('closes the composer/plan dialog only inside the result.ok branch of composeConductedWorkspace', () => {

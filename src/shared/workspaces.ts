@@ -76,20 +76,60 @@ export function makeWorkspaceId(): string {
 
 const norm = (s: string): string => s.trim().toLowerCase()
 
+/** Whether `name` can become a workspace name: non-blank, and not a
+ *  case-insensitive duplicate of one already in use. The rule createWorkspace
+ *  rejects on, exposed so a form can refuse a doomed name while the user can
+ *  still fix it rather than discarding what they typed. */
+export function workspaceNameAvailable(list: readonly Workspace[], name: string): boolean {
+  const trimmed = name.trim()
+  return trimmed !== '' && !list.some((w) => norm(w.name) === norm(trimmed))
+}
+
 /** Add a workspace with the next order. Returns created:null on blank or a
  *  case-insensitive duplicate name. */
 export function createWorkspace(
   list: readonly Workspace[],
   name: string,
-  now: number
+  now: number,
+  options: { conducted?: boolean } = {}
 ): { list: Workspace[]; created: Workspace | null } {
   const trimmed = name.trim()
-  if (!trimmed || list.some((w) => norm(w.name) === norm(trimmed))) {
+  if (!workspaceNameAvailable(list, trimmed)) {
     return { list: [...list], created: null }
   }
   const order = list.reduce((max, w) => Math.max(max, w.order), -1) + 1
   const created: Workspace = { id: makeWorkspaceId(), name: trimmed, order, createdAt: now }
+  // Written only when true, so a standard workspace serializes exactly as it
+  // did before this option existed and no stored file changes shape.
+  if (options.conducted) created.conducted = true
   return { list: [...list, created], created }
+}
+
+/** Mark every workspace that already has a conductor as a conducted one.
+ *
+ *  A workspace holding a persisted ConductorConfig IS conducted — that is
+ *  what the config means — but the flag only came into being with the
+ *  create-time choice, so workspaces conducted by the shipped entry point
+ *  that preceded it carry none. Without this they render no conductor panel
+ *  (conductorPanelMode returns 'hidden') and main refuses to compose for
+ *  them, while their lanes and worktrees stay on disk and are rebuilt every
+ *  launch: the invisible, unreachable conductor the flag exists to prevent.
+ *
+ *  One way only: a workspace is never UN-marked here. Reports whether
+ *  anything actually changed, so a store with nothing to migrate is not
+ *  rewritten. */
+export function markConductedWorkspaces(
+  list: readonly Workspace[],
+  conductedIds: Iterable<string>
+): { list: Workspace[]; changed: boolean } {
+  const ids = new Set(conductedIds)
+  let changed = false
+  const next = list.map((w) => {
+    if (!ids.has(w.id) || w.conducted === true) return w
+    changed = true
+    return { ...w, conducted: true }
+  })
+  return { list: changed ? next : [...list], changed }
 }
 
 /** Rename by id; no-op on blank or a duplicate of a *different* workspace. */

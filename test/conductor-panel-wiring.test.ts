@@ -580,4 +580,48 @@ describe('ConductorPanel — publish/sync never leave an unhandled rejection', (
   it('imports describeUnexpectedFailure via a real import declaration from the pure view-model, not a local copy', () => {
     expect(hasNamedImport(source, '../conductor-view-model', 'describeUnexpectedFailure')).toBe(true)
   })
+
+  // A standard workspace must ask main NOTHING. getConductorState resolves a
+  // backend, and conductor-bootstrap's backendFor builds one on demand, so a
+  // panel that polled every workspace the user clicked through would
+  // construct a conductor for each of them only to be told there isn't one.
+  // Rendering null later is not enough: by then the call has been made.
+  it('asks main for no conductor state at all in a workspace that is not conducted', () => {
+    const effects = findEffectCalls(source).filter((call) => {
+      const body = call.arguments[0]
+      return body !== undefined && findCallsTo(body, 'window.crew.getConductorState').length > 0
+    })
+    expect(effects, 'no effect fetches conductor state').toHaveLength(1)
+    const body = (effects[0].arguments[0] as ts.ArrowFunction).body
+    expect(ts.isBlock(body), 'the state effect has no block body').toBe(true)
+    const statements = (body as ts.Block).statements
+
+    const call = findCallsTo(body, 'window.crew.getConductorState')[0]
+    const callIndex = statements.findIndex((statement) => isWithin(call, statement))
+    expect(callIndex).toBeGreaterThan(-1)
+
+    // A real `if (!conducted) return …` statement, ahead of the fetch.
+    const guards = statements.slice(0, callIndex).filter((statement) => {
+      if (!ts.isIfStatement(statement) || statement.elseStatement !== undefined) return false
+      const condition = statement.expression
+      const negated =
+        ts.isPrefixUnaryExpression(condition) &&
+        condition.operator === ts.SyntaxKind.ExclamationToken &&
+        condition.operand.getText() === 'conducted'
+      if (!negated) return false
+      const then = statement.thenStatement
+      const returns = ts.isBlock(then) ? then.statements : [then]
+      return returns.length > 0 && returns.every((s) => ts.isReturnStatement(s))
+    })
+    expect(
+      guards,
+      'nothing returns on `!conducted` before window.crew.getConductorState, so an ordinary workspace still builds a conductor backend'
+    ).toHaveLength(1)
+
+    // And the effect re-runs when `conducted` changes, or a workspace that
+    // becomes conducted would never fetch anything.
+    const deps = effects[0].arguments[1]
+    expect(deps !== undefined && ts.isArrayLiteralExpression(deps)).toBe(true)
+    expect((deps as ts.ArrayLiteralExpression).elements.map((e) => e.getText())).toContain('conducted')
+  })
 })

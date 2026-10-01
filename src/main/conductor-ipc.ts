@@ -54,6 +54,13 @@ export interface ConductorBackend {
  *  resolves to the disabled backend. */
 export type ConductorBackendFor = (workspaceId: string | null) => ConductorBackend
 
+/** Whether a workspace was created as a conducted one. The renderer only
+ *  offers conductor UI inside such a workspace, but main must not be willing
+ *  to violate that invariant on its own: composing for an ordinary workspace
+ *  would persist lanes, worktrees and a ConductorConfig that every launch
+ *  rebuilds and no window will ever render. */
+export type IsConducted = (workspaceId: string | null) => boolean
+
 type Broadcast = (channel: string, payload: unknown) => void
 
 /** The wire shape of every mutating conductor channel: the workspace id
@@ -66,7 +73,8 @@ interface AcknowledgeMessage { workspaceId: string | null; opId: string; detail:
 export function registerConductorIpc(
   ipc: Pick<IpcMain, 'handle'>,
   backendFor: ConductorBackendFor,
-  broadcast: Broadcast
+  broadcast: Broadcast,
+  isConducted: IsConducted
 ): void {
   const publishState = async (workspaceId: string | null): Promise<void> => {
     // Finding 5: this runs after a mutation has already committed (lane
@@ -174,6 +182,22 @@ export function registerConductorIpc(
   // HAS changed — the premise "nothing to see" no longer holds — so that case
   // broadcasts too, same as every other mutating handler above.
   ipc.handle(IPC.CONDUCTOR_COMPOSE, async (_event, message: ComposeMessage) => {
+    // Refused before backendFor is even called, because resolving a backend
+    // builds one on demand (conductor-bootstrap's backendFor): a workspace
+    // that was never chosen as conducted must not acquire a conductor as a
+    // side effect of being asked about. The renderer gates its entry points
+    // on the same flag, but a workspace switch behind an open composer —
+    // the app menu's Change Workspace works while a modal is up — is
+    // exactly how a compose arrives here naming the wrong workspace.
+    if (!isConducted(message.workspaceId)) {
+      return {
+        ok: false,
+        errors: [{
+          field: 'workspace',
+          message: 'this workspace is not a conducted workspace — create a conducted workspace to compose a run'
+        }]
+      }
+    }
     const result = await backendFor(message.workspaceId).compose(message.draft)
     const cleanupFailed = !result.ok && 'cleanupFailures' in result && result.cleanupFailures.length > 0
     if (result.ok || cleanupFailed) await publishState(message.workspaceId)

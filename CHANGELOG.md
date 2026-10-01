@@ -38,6 +38,72 @@ running and supervising multiple AI CLI agent sessions at a glance.
   at once and a dozen bobs run out of phase. Turning this on keeps the working
   signal but carries it with the slow opacity breathe instead of movement.
 
+### Changed
+
+- **Conductor UI no longer appears in workspaces that have no conductor.** Its
+  empty state — a bar offering "New conducted workspace…" — used to float over
+  every ordinary workspace, which put conductor controls in front of people who
+  were not using one and made "which workspace would this even belong to" an
+  open question. Whether a workspace is conducted is now decided once, when it
+  is created, and a standard workspace shows none of it.
+- **Choosing a conducted workspace moved into the add-workspace flow**, which is
+  where choosing a kind of workspace belongs. Naming a workspace and pressing
+  Add now asks whether it is standard or conducted; conducted also asks where
+  the repository is and what the work actually is, then opens straight into a
+  session named "<Workspace> - Conductor" carrying that brief. Loading a plan
+  and composing a roster by hand are still there, now inside the conducted
+  workspace they apply to.
+
+### Fixed
+
+- A new conducted workspace dropped you into its conductor with no conductor
+  panel. Opening the new session only ever *cleared* the workspace filter, so
+  the workspace that had just been created was never the active one — and
+  conductor UI appears only inside an active conducted workspace. Creating one
+  now makes it active and selects its conductor directly, by the id the session
+  it created came back with rather than by hunting for it in a roster this
+  window has not been sent yet.
+- Typing a workspace name that already exists no longer throws away the whole
+  form. A duplicate (or blank) name is refused before the dialog opens, the
+  dialog's name can be corrected in place, and a name refused while the form was
+  being filled in leaves the repository path and the brief exactly where they
+  were.
+- A conductor that fails to start is now reported. The failure used to be an
+  unobserved promise rejection, leaving a conducted workspace with no conductor
+  and no explanation.
+- A composer, a loaded plan or a plan-load error could outlive the workspace it
+  was opened in: switching workspaces from the app menu works while a modal is
+  open. All three are now dropped the moment the active workspace stops being a
+  conducted one, and main refuses to compose a run for a workspace that was
+  never created as conducted — so lanes and worktrees can no longer be bound to
+  a workspace that renders no conductor at all.
+- A conductor with no repository path no longer starts in the home directory,
+  where it would read the wrong tree and plan work nobody asked for. Like an
+  unknown agent, it is now refused outright.
+- Workspaces you had already made conducted keep their conductor. They were
+  conducted through the entry point that shipped in 0.7.5, which set no flag on
+  the workspace — so once the flag became the only thing that shows conductor
+  UI, they would have gone quiet: no panel, no plan loader, no Compose, while
+  their lanes and worktrees stayed on disk and were rebuilt on every launch. A
+  saved conductor is what makes a workspace conducted, so any workspace holding
+  one is marked as such on first launch, before any window asks for the
+  workspace list. A workspace with no conductor is left alone, and a launch
+  with nothing to restore writes nothing.
+- A composer or a loaded plan could compose its work into the wrong workspace.
+  Change Workspace works while a modal is open, and the workspace was only
+  named when you pressed Compose — so a roster written for one conducted
+  workspace went to whichever conducted workspace was active by then, creating
+  real worktrees and real agent sessions somewhere you were not looking.
+  Dropping a plan file had the same back door: the model catalogue it waits for
+  is fetched out of process, and the plan dialog could open after you had moved
+  on. Conductor modals now belong to the workspace they were opened in — any
+  change of workspace closes them, work that resolves afterwards is discarded,
+  and neither modal is mounted outside a conducted workspace. The check a
+  loaded plan makes when it resolves reads the workspace that is live at that
+  moment, not the one its own closure started with — comparing the latter with
+  itself always agreed, so a plan dropped in one conducted workspace could
+  still open over another.
+
 ## 0.7.5 — 2026-09-30
 
 ### Fixed

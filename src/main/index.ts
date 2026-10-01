@@ -842,7 +842,12 @@ function registerIpc(): void {
     broadcast,
     ...createLaneSessionBridge({ manager, resolvePreset: getPreset })
   })
-  registerConductorIpc(ipcMain, (workspaceId) => conductorController!.backendFor(workspaceId), broadcast)
+  registerConductorIpc(
+    ipcMain,
+    (workspaceId) => conductorController!.backendFor(workspaceId),
+    broadcast,
+    (workspaceId) => store.getWorkspaces().some((w) => w.id === workspaceId && w.conducted === true)
+  )
 
   // ── First-class workspaces (Workspace Manager) ──
   const pushWorkspaces = (): Workspace[] => {
@@ -852,8 +857,10 @@ function registerIpc(): void {
     return list
   }
   ipcMain.handle(IPC.WORKSPACES_GET, () => store.getWorkspaces())
-  ipcMain.handle(IPC.WORKSPACE_CREATE, (_e, name: string) => {
-    const { list, created } = createWorkspace(store.getWorkspaces(), name, Date.now())
+  ipcMain.handle(IPC.WORKSPACE_CREATE, (_e, name: string, options?: { conducted?: boolean }) => {
+    const { list, created } = createWorkspace(store.getWorkspaces(), name, Date.now(), {
+      conducted: options?.conducted === true
+    })
     store.saveWorkspaces(list)
     pushWorkspaces()
     return created

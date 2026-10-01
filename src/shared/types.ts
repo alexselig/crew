@@ -165,6 +165,13 @@ export interface Workspace {
   description?: string
   order: number
   createdAt: number
+  /** Chosen when the workspace was created, and the only thing that makes
+   *  conductor UI appear. A standard workspace shows none of it: the panel,
+   *  the plan loader and the roster are all meaningless without a conductor,
+   *  and before this existed the panel's empty state floated over every
+   *  ordinary workspace offering to start one. Undefined means standard,
+   *  which is what every workspace created before this field existed was. */
+  conducted?: boolean
 }
 
 export interface SessionInfo {

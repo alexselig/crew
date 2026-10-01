@@ -34,6 +34,10 @@ import { arrowNavIntent } from './gridNav'
 import { NEEDS_YOU } from '../shared/types'
 import { nextSelection } from '../shared/selection'
 import { sessionInWorkspaceId } from '../shared/workspaces'
+import {
+  conductorWorkStillApplies,
+  CONDUCTOR_WORKSPACE_CHANGED
+} from '../shared/conductor-entry'
 import { STATE_META } from './state-meta'
 import type { CreateSessionRequest, SessionPresentation } from '../shared/types'
 
@@ -60,6 +64,18 @@ export function App(): JSX.Element {
   const [conductorPlanError, setConductorPlanError] = useState<string | null>(null)
   const customViewOpenerRef = useRef<HTMLElement | null>(null)
   const suppressTerminalFocusRef = useRef(false)
+  // The workspace an open composer or loaded plan belongs to, readable from
+  // inside a promise that was started for an older one — the same guard
+  // ConductorPanel keeps with shownWorkspace, for the same reason.
+  const conductorWorkspaceRef = useRef<string | null>(null)
+  // The workspace active RIGHT NOW. useCrew returns a fresh object every
+  // render, so an async function body closes over the c of the render that
+  // started it: comparing c.activeWorkspace after an await against the value
+  // read before it compares a value with itself and can never differ. Kept
+  // on a ref, which is the only thing in this component that an older
+  // closure and a newer render genuinely share.
+  const activeWorkspaceRef = useRef<string | null>(c.activeWorkspace)
+  activeWorkspaceRef.current = c.activeWorkspace
   // The Project Tracker is a single feature reached from two toolbar buttons that
   // deep-link to different sections (chart → Activity, clipboard → Planning).
   // null = closed; a section value = open on that section.
@@ -99,6 +115,13 @@ export function App(): JSX.Element {
   // the roster / grid indicators.
   const activeWorkspaceName = useMemo(
     () => c.workspaces.find((w) => w.id === c.activeWorkspace)?.name ?? null,
+    [c.workspaces, c.activeWorkspace]
+  )
+  // Whether the active workspace was created as a conducted one, which is the
+  // only thing that makes conductor UI appear. "All Sessions" (a null active
+  // workspace) is not a workspace and so is never conducted.
+  const activeWorkspaceConducted = useMemo(
+    () => c.workspaces.find((w) => w.id === c.activeWorkspace)?.conducted === true,
     [c.workspaces, c.activeWorkspace]
   )
   const presentedRoster = useMemo(() => {
@@ -215,6 +238,20 @@ export function App(): JSX.Element {
     const next = nextSelection(activeRoster, c.selectedId, null)
     if (next !== c.selectedId) c.setSelectedId(next)
   }, [activeRoster, c.selectedId, c.setSelectedId])
+
+  // Conductor UI belongs to the workspace it was opened in and nowhere else.
+  // The entry points are already gated, but a composer, a loaded plan or a
+  // plan-load error outlives a workspace switch: the app menu's Change
+  // Workspace works while a modal is open. Leaving for a standard workspace
+  // would bind lanes to a workspace that renders no conductor at all, and
+  // leaving conducted A for conducted B is worse still — every
+  // conductedness check passes and A's draft lands in B's live runtime. So
+  // any change of workspace clears all three, identity included.
+  useEffect(() => {
+    setShowConductorComposer(false)
+    setConductorPlan(null)
+    setConductorPlanError(null)
+  }, [c.activeWorkspace, activeWorkspaceConducted])
 
   function jumpNextWaiting(): void {
     const waiting = activeRoster.filter((s) => s.status === 'active' && NEEDS_YOU.includes(s.state))
@@ -405,6 +442,14 @@ export function App(): JSX.Element {
   // dialog open so the user sees describeComposeFailure's message and, per
   // Task 5 finding 3, is never told a failed compose left nothing behind.
   const composeConductedWorkspace = async (draft: RosterDraft): Promise<ComposeResult> => {
+    // Which workspace this draft was written for, read at submit time. The
+    // clearing effect above closes the modal on a switch, but a submit
+    // already in flight when the workspace moves would still name the new
+    // one below, so the draft is refused outright rather than composed
+    // somewhere the user was not looking.
+    if (!conductorWorkStillApplies(conductorWorkspaceRef.current, c.activeWorkspace)) {
+      return { ok: false, errors: [{ field: 'workspace', message: CONDUCTOR_WORKSPACE_CHANGED }] }
+    }
     // The workspace is named per call (review finding 1): composing while
     // "All Sessions" is selected has no workspace to compose for, and main
     // must not guess one from a stale active-workspace of its own.
@@ -424,8 +469,16 @@ export function App(): JSX.Element {
   // path is for a composer already open; this one is the first look.
   const loadConductorPlanFile = async (file: File): Promise<void> => {
     setConductorPlanError(null)
+    // Reading the file and fetching the model catalogue are both
+    // out-of-process, so seconds can pass here and the user is free to
+    // change workspace meanwhile. The plan is for the workspace it was
+    // dropped into; if that is no longer the live one it is dropped. The
+    // comparison has to be against the ref, not against this closure's c.
+    const openedIn = c.activeWorkspace
+    conductorWorkspaceRef.current = openedIn
     const text = await file.text()
     const parsed = parseProposal(text)
+    if (!conductorWorkStillApplies(openedIn, activeWorkspaceRef.current)) return
     if (!parsed.ok) {
       setConductorPlanError('Could not read that plan file — it is not a well-formed proposal.')
       return
@@ -437,6 +490,7 @@ export function App(): JSX.Element {
       // An unavailable model catalogue only affects model-specific notes;
       // the roster still reconciles against whatever presets exist.
     }
+    if (!conductorWorkStillApplies(openedIn, activeWorkspaceRef.current)) return
     setConductorPlan(
       reconcileProposal(
         parsed.proposal,
@@ -627,7 +681,11 @@ export function App(): JSX.Element {
           roster={c.roster}
           characters={c.characters}
           workspaces={c.workspaces}
+          presets={c.presets}
+          homeDir={c.homeDir}
           onOpenSession={c.navigateToSession}
+          onActivateWorkspace={c.setActiveWorkspace}
+          onSelectSession={c.selectSession}
           onClose={() => c.setShowWorkspaces(false)}
         />
       )}
@@ -695,15 +753,19 @@ export function App(): JSX.Element {
 
       <ConductorPanel
         workspaceId={c.activeWorkspace}
-        onNewWorkspace={() => setShowConductorComposer(true)}
+        conducted={activeWorkspaceConducted}
         onLoadPlan={(file) => void loadConductorPlanFile(file)}
+        onComposeByHand={() => {
+          conductorWorkspaceRef.current = c.activeWorkspace
+          setShowConductorComposer(true)
+        }}
       />
 
-      {conductorPlanError && (
+      {activeWorkspaceConducted && conductorPlanError && (
         <p className="conductor-composer-error conductor-plan-load-error">{conductorPlanError}</p>
       )}
 
-      {showConductorComposer && (
+      {activeWorkspaceConducted && showConductorComposer && (
         <div className="modal-overlay">
           <ConductorComposer
             presets={c.presets}
@@ -714,7 +776,7 @@ export function App(): JSX.Element {
         </div>
       )}
 
-      {conductorPlan && (
+      {activeWorkspaceConducted && conductorPlan && (
         <div className="modal-overlay">
           <ConductorPlanDialog
             roster={conductorPlan}

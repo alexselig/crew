@@ -869,4 +869,25 @@ describe('index.ts wiring (AST assertions; index.ts imports electron and cannot 
       'backendFor is not given the resolver\'s own parameter'
     ).toBe(parameter)
   })
+
+  // Main must not be willing to compose for a workspace nobody chose to
+  // conduct: doing so persists lanes, worktrees and a ConductorConfig that
+  // reconcileOnLaunch rebuilds every start and that no window renders,
+  // because the renderer hides conductor UI for exactly such a workspace.
+  it('tells the conductor IPC which workspaces were actually created as conducted', () => {
+    const registrations = findCallsTo(source, 'registerConductorIpc')
+    expect(registrations).toHaveLength(1)
+    const check = registrations[0].arguments[3]
+    expect(check && ts.isArrowFunction(check), 'no conducted check is passed at all').toBe(true)
+
+    const arrow = check as ts.ArrowFunction
+    expect(arrow.parameters, 'the conducted check takes no workspace id').toHaveLength(1)
+    const parameter = arrow.parameters[0].name.getText()
+    const body = arrow.body.getText()
+    // It answers from the stored workspaces, about the workspace THIS call
+    // named, by the same `conducted` flag the renderer gates on.
+    expect(findCallsTo(arrow.body, 'store.getWorkspaces')).toHaveLength(1)
+    expect(body).toContain(parameter)
+    expect(body).toContain('conducted')
+  })
 })

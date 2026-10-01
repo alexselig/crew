@@ -95,7 +95,7 @@ function fakeRuntime(overrides: {
   }
 }
 
-function harness(backend: Partial<ConductorBackend> = {}) {
+function harness(backend: Partial<ConductorBackend> = {}, conducted = true) {
   const handlers = new Map<string, Handler>()
   const broadcast = vi.fn()
   const full: ConductorBackend = {
@@ -127,7 +127,8 @@ function harness(backend: Partial<ConductorBackend> = {}) {
       resolved.push(workspaceId)
       return full
     },
-    broadcast
+    broadcast,
+    () => conducted
   )
   const invoke = async (channel: string, ...args: unknown[]): Promise<unknown> => {
     const handler = handlers.get(channel)
@@ -288,6 +289,26 @@ describe('conductor IPC contract', () => {
     expect(broadcast.mock.calls[0][0]).toBe(IPC.EVT_CONDUCTOR_STATE)
   })
 
+  // The renderer only offers conductor UI inside a conducted workspace, but
+  // main must not be willing to violate that invariant on its own: the app
+  // menu's Change Workspace works behind an open composer, so a compose can
+  // arrive naming an ordinary workspace. Composing it would persist lanes,
+  // worktrees and a ConductorConfig that reconcileOnLaunch rebuilds every
+  // start and no window ever renders.
+  it('refuses to compose for a workspace that was not created as a conducted one', async () => {
+    const { invoke, broadcast, backend, resolved } = harness({}, false)
+    const result = await invoke(IPC.CONDUCTOR_COMPOSE, {
+      workspaceId: 'ws-1',
+      draft: { repo: '/repo', integrationBranch: 'crew/integration', rows: [] }
+    })
+    expect(result).toMatchObject({ ok: false, errors: [{ field: 'workspace' }] })
+    expect(backend.compose).not.toHaveBeenCalled()
+    // Not merely unused: never resolved. backendFor BUILDS a backend on
+    // demand, so asking it at all would give the workspace a conductor.
+    expect(resolved).toEqual([])
+    expect(broadcast).not.toHaveBeenCalled()
+  })
+
   // Unlike publish/sync, a failed compose never partially changes anything —
   // every lane it created is rolled back — so there is nothing new to show.
   it('does not broadcast when compose reports a failure', async () => {
@@ -403,7 +424,8 @@ describe('the shipped conductor backend for a workspace with no ConductorConfig'
     registerConductorIpc(
       { handle: (channel, handler) => void handlers.set(channel, handler) },
       () => createShippedConductorBackend(null),
-      broadcast
+      broadcast,
+      () => true
     )
     const invoke = async (channel: string, ...args: unknown[]): Promise<unknown> => {
       const handler = handlers.get(channel)

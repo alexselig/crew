@@ -47,7 +47,7 @@ const api: CrewAPI = {
     ipcRenderer.invoke(IPC.CONDUCTOR_ACKNOWLEDGE, { workspaceId, opId, detail }),
   composeConductedWorkspace: (workspaceId, draft: RosterDraft) =>
     ipcRenderer.invoke(IPC.CONDUCTOR_COMPOSE, { workspaceId, draft }),
-  createWorkspace: (name) => ipcRenderer.invoke(IPC.WORKSPACE_CREATE, name),
+  createWorkspace: (name, options) => ipcRenderer.invoke(IPC.WORKSPACE_CREATE, name, options),
   renameWorkspace: (id, name) => ipcRenderer.invoke(IPC.WORKSPACE_RENAME, { id, name }),
   describeWorkspace: (id, description) => ipcRenderer.invoke(IPC.WORKSPACE_DESCRIBE, { id, description }),
   deleteWorkspace: (id) => ipcRenderer.invoke(IPC.WORKSPACE_DELETE, id),

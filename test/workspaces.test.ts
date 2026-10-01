@@ -54,6 +54,8 @@ describe('addToSets / removeFromSets', () => {
 import {
   makeWorkspaceId,
   createWorkspace,
+  workspaceNameAvailable,
+  markConductedWorkspaces,
   renameWorkspace,
   describeWorkspace,
   deleteWorkspace,
@@ -78,6 +80,24 @@ describe('makeWorkspaceId', () => {
   })
 })
 
+describe('workspaceNameAvailable', () => {
+  // The rule createWorkspace rejects on, exposed so a form can refuse a
+  // doomed name while the user can still fix it — rather than accepting
+  // everything they typed and silently discarding all of it.
+  it('refuses blank and case-insensitive duplicates, exactly as createWorkspace does', () => {
+    const list = [ws('ws_a', 'Work', 0)]
+    for (const name of ['  ', 'work', ' WORK ']) {
+      expect(workspaceNameAvailable(list, name)).toBe(false)
+      expect(createWorkspace(list, name, 0).created).toBeNull()
+    }
+  })
+  it('allows a name nothing else answers to', () => {
+    const list = [ws('ws_a', 'Work', 0)]
+    expect(workspaceNameAvailable(list, '  Payments ')).toBe(true)
+    expect(createWorkspace(list, '  Payments ', 0).created).not.toBeNull()
+  })
+})
+
 describe('createWorkspace', () => {
   it('adds a trimmed workspace with next order', () => {
     const { list, created } = createWorkspace([ws('ws_a', 'A', 0)], '  B ', 5)
@@ -89,6 +109,18 @@ describe('createWorkspace', () => {
   it('rejects blank and case-insensitive duplicates', () => {
     expect(createWorkspace([ws('ws_a', 'Work', 0)], '  ', 0).created).toBeNull()
     expect(createWorkspace([ws('ws_a', 'Work', 0)], 'work', 0).created).toBeNull()
+  })
+  it('marks a conducted workspace, which is what makes conductor UI appear', () => {
+    expect(createWorkspace([], 'Payments', 0, { conducted: true }).created?.conducted).toBe(true)
+  })
+  it('leaves the flag off a standard workspace entirely', () => {
+    // Absent rather than false, so a standard workspace serializes exactly as
+    // it did before the option existed and no stored file changes shape.
+    for (const options of [undefined, {}, { conducted: false }]) {
+      const created = createWorkspace([], 'Plain', 0, options).created
+      expect(created).not.toBeNull()
+      expect('conducted' in (created as object)).toBe(false)
+    }
   })
 })
 
@@ -151,5 +183,45 @@ describe('nameToIdMap', () => {
   it('maps lowercased name -> id', () => {
     const m = nameToIdMap([ws('ws_a', 'July 2026', 0)])
     expect(m.get('july 2026')).toBe('ws_a')
+  })
+})
+
+describe('markConductedWorkspaces', () => {
+  // The workspaces conducted by the entry point that shipped in 0.7.5 carry
+  // no flag; their persisted ConductorConfig is the only record that they
+  // are conducted at all.
+  it('marks a workspace that already holds a conductor config', () => {
+    const list = [ws('ws_a', 'Legacy', 0), ws('ws_b', 'Plain', 1)]
+    const out = markConductedWorkspaces(list, ['ws_a'])
+    expect(out.changed).toBe(true)
+    expect(out.list[0].conducted).toBe(true)
+    expect(out.list[0].name).toBe('Legacy')
+  })
+
+  it('leaves a standard workspace exactly as it was, with no conducted key at all', () => {
+    const list = [ws('ws_a', 'Legacy', 0), ws('ws_b', 'Plain', 1)]
+    const out = markConductedWorkspaces(list, ['ws_a'])
+    expect(out.list[1]).toBe(list[1])
+    expect('conducted' in out.list[1]).toBe(false)
+  })
+
+  it('reports no change for a list that was already migrated', () => {
+    const list = [{ ...ws('ws_a', 'Legacy', 0), conducted: true }, ws('ws_b', 'Plain', 1)]
+    const out = markConductedWorkspaces(list, ['ws_a'])
+    expect(out.changed).toBe(false)
+    expect(out.list).toEqual(list)
+  })
+
+  it('reports no change when nothing holds a conductor config, so nothing is written', () => {
+    const list = [ws('ws_a', 'Plain', 0)]
+    expect(markConductedWorkspaces(list, []).changed).toBe(false)
+    expect(markConductedWorkspaces(list, ['ws_missing']).changed).toBe(false)
+  })
+
+  it('never un-marks a conducted workspace whose config has gone', () => {
+    const list = [{ ...ws('ws_a', 'Legacy', 0), conducted: true }]
+    const out = markConductedWorkspaces(list, [])
+    expect(out.changed).toBe(false)
+    expect(out.list[0].conducted).toBe(true)
   })
 })
