@@ -105,6 +105,33 @@ export function createWorkspace(
   return { list: [...list, created], created }
 }
 
+/** Mark every workspace that already has a conductor as a conducted one.
+ *
+ *  A workspace holding a persisted ConductorConfig IS conducted — that is
+ *  what the config means — but the flag only came into being with the
+ *  create-time choice, so workspaces conducted by the shipped entry point
+ *  that preceded it carry none. Without this they render no conductor panel
+ *  (conductorPanelMode returns 'hidden') and main refuses to compose for
+ *  them, while their lanes and worktrees stay on disk and are rebuilt every
+ *  launch: the invisible, unreachable conductor the flag exists to prevent.
+ *
+ *  One way only: a workspace is never UN-marked here. Reports whether
+ *  anything actually changed, so a store with nothing to migrate is not
+ *  rewritten. */
+export function markConductedWorkspaces(
+  list: readonly Workspace[],
+  conductedIds: Iterable<string>
+): { list: Workspace[]; changed: boolean } {
+  const ids = new Set(conductedIds)
+  let changed = false
+  const next = list.map((w) => {
+    if (!ids.has(w.id) || w.conducted === true) return w
+    changed = true
+    return { ...w, conducted: true }
+  })
+  return { list: changed ? next : [...list], changed }
+}
+
 /** Rename by id; no-op on blank or a duplicate of a *different* workspace. */
 export function renameWorkspace(list: readonly Workspace[], id: string, name: string): Workspace[] {
   const trimmed = name.trim()

@@ -80,6 +80,15 @@ running and supervising multiple AI CLI agent sessions at a glance.
 - A conductor with no repository path no longer starts in the home directory,
   where it would read the wrong tree and plan work nobody asked for. Like an
   unknown agent, it is now refused outright.
+- Workspaces you had already made conducted keep their conductor. They were
+  conducted through the entry point that shipped in 0.7.5, which set no flag on
+  the workspace — so once the flag became the only thing that shows conductor
+  UI, they would have gone quiet: no panel, no plan loader, no Compose, while
+  their lanes and worktrees stayed on disk and were rebuilt on every launch. A
+  saved conductor is what makes a workspace conducted, so any workspace holding
+  one is marked as such on first launch, before any window asks for the
+  workspace list. A workspace with no conductor is left alone, and a launch
+  with nothing to restore writes nothing.
 
 ## 0.7.5 — 2026-09-30
 

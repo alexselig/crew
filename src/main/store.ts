@@ -9,7 +9,14 @@ import { readFileSync, mkdirSync, existsSync, renameSync, readdirSync, unlinkSyn
 import { randomUUID } from 'node:crypto'
 import { dirname, join, basename } from 'node:path'
 import type { Agent, CustomView, CustomViewGroupBy, CustomViewItem, CustomViewMode, Settings, SessionSet } from '../shared/types'
-import { workspaceNames, normalizeSetNames, nameToIdMap, createWorkspace, type Workspace } from '../shared/workspaces'
+import {
+  workspaceNames,
+  normalizeSetNames,
+  nameToIdMap,
+  createWorkspace,
+  markConductedWorkspaces,
+  type Workspace
+} from '../shared/workspaces'
 import { BUILTIN_AGENTS } from '../shared/agents'
 import type { ConductorConfig, ConductorLane, LaneAgent, TestRecipe } from '../shared/conductor'
 import {
@@ -184,6 +191,25 @@ const MIGRATIONS: Array<{ id: string; apply: (d: StoreData) => void }> = [
     id: '2026-08-context-mode-auto',
     apply: (d) => {
       if (d.settings.contextMode === 'brief') d.settings.contextMode = 'auto'
+    }
+  },
+  {
+    // Workspaces conducted before a workspace could be CREATED conducted. The
+    // entry point that made them shipped in 0.7.5, and it set no flag on the
+    // workspace — so after the flag became the only thing that shows conductor
+    // UI, those workspaces would render no panel, no plan loader and no
+    // Compose, while their lanes and worktrees stayed on disk and were rebuilt
+    // on every launch. A persisted ConductorConfig is the definition of a
+    // conducted workspace, so it is what the flag is restored from. Run here,
+    // at load, because the flag must be set before any window asks for the
+    // workspace list.
+    id: '2026-09-conducted-workspace-flag',
+    apply: (d) => {
+      const marked = markConductedWorkspaces(
+        d.workspaces ?? [],
+        (d.conductorConfigs ?? []).map((c) => c.workspaceId)
+      )
+      if (marked.changed) d.workspaces = marked.list
     }
   },
   {

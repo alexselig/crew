@@ -205,7 +205,8 @@ describe('store schema — custom views default', () => {
         '2026-07-stale-hide-72h',
         '2026-08-workspaces-firstclass',
         '2026-08-context-mode-auto',
-        '2026-08-agents-seed'
+        '2026-08-agents-seed',
+        '2026-09-conducted-workspace-flag'
       ]
     })
 

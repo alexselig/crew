@@ -55,6 +55,7 @@ import {
   makeWorkspaceId,
   createWorkspace,
   workspaceNameAvailable,
+  markConductedWorkspaces,
   renameWorkspace,
   describeWorkspace,
   deleteWorkspace,
@@ -182,5 +183,45 @@ describe('nameToIdMap', () => {
   it('maps lowercased name -> id', () => {
     const m = nameToIdMap([ws('ws_a', 'July 2026', 0)])
     expect(m.get('july 2026')).toBe('ws_a')
+  })
+})
+
+describe('markConductedWorkspaces', () => {
+  // The workspaces conducted by the entry point that shipped in 0.7.5 carry
+  // no flag; their persisted ConductorConfig is the only record that they
+  // are conducted at all.
+  it('marks a workspace that already holds a conductor config', () => {
+    const list = [ws('ws_a', 'Legacy', 0), ws('ws_b', 'Plain', 1)]
+    const out = markConductedWorkspaces(list, ['ws_a'])
+    expect(out.changed).toBe(true)
+    expect(out.list[0].conducted).toBe(true)
+    expect(out.list[0].name).toBe('Legacy')
+  })
+
+  it('leaves a standard workspace exactly as it was, with no conducted key at all', () => {
+    const list = [ws('ws_a', 'Legacy', 0), ws('ws_b', 'Plain', 1)]
+    const out = markConductedWorkspaces(list, ['ws_a'])
+    expect(out.list[1]).toBe(list[1])
+    expect('conducted' in out.list[1]).toBe(false)
+  })
+
+  it('reports no change for a list that was already migrated', () => {
+    const list = [{ ...ws('ws_a', 'Legacy', 0), conducted: true }, ws('ws_b', 'Plain', 1)]
+    const out = markConductedWorkspaces(list, ['ws_a'])
+    expect(out.changed).toBe(false)
+    expect(out.list).toEqual(list)
+  })
+
+  it('reports no change when nothing holds a conductor config, so nothing is written', () => {
+    const list = [ws('ws_a', 'Plain', 0)]
+    expect(markConductedWorkspaces(list, []).changed).toBe(false)
+    expect(markConductedWorkspaces(list, ['ws_missing']).changed).toBe(false)
+  })
+
+  it('never un-marks a conducted workspace whose config has gone', () => {
+    const list = [{ ...ws('ws_a', 'Legacy', 0), conducted: true }]
+    const out = markConductedWorkspaces(list, [])
+    expect(out.changed).toBe(false)
+    expect(out.list[0].conducted).toBe(true)
   })
 })
