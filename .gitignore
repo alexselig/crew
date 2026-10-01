@@ -1,4 +1,7 @@
-node_modules/
+# Matched without a trailing slash: in a worktree this is a *symlink* to one
+# shared install (see scripts/worktree-deps.sh), and `node_modules/` would only
+# match a real directory, leaving the link showing as an untracked change.
+node_modules
 out/
 dist/
 *.log

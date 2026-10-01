@@ -33,7 +33,10 @@ show SmartScreen warnings. Publishing does not install or restart Crew.
    Electron checks in `test/e2e/`. Never replace the installed app for testing.
 3. Commit, push, and merge the release PR through the normal repository workflow.
    Check out the merged `main` commit. The publisher rejects a dirty tree,
-   a tag/version mismatch, or a HEAD different from remote `main`.
+   a tag/version mismatch, or a HEAD different from remote `main`. If you are
+   releasing from a worktree, `npm run deps -- --check` first: a release needs
+   both the packages and the Electron binary, and that is the one check that
+   covers both.
    ```bash
    export GH_TOKEN="$(gh auth token --user alexselig)"
    git -c credential.helper= -c credential.helper='!gh auth git-credential' push
