@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getPooled, touch, focusTerminal, markPrompt } from '../terminal-pool'
 import { quotePaths } from '../../shared/shell-quote'
 import { meterInput } from '../input-meter'
-import { decideFit } from '../terminal/fit-guard'
+import { decideFit, stableCellHeightPx, type CellDimensions } from '../terminal/fit-guard'
 import { startPaneSession } from '../terminal/start-pane'
 import { DropTracker, dragHasFiles } from '../terminal/drop-tracker'
 
@@ -12,13 +12,22 @@ function hasFiles(e: React.DragEvent): boolean {
   return dragHasFiles(e.dataTransfer.types)
 }
 
-/** xterm's rendered cell height in CSS px (from its render service), or 0 when
- *  not yet measured. Reaches into xterm internals (as FitAddon itself does);
- *  guarded so a shape change just disables the row cap rather than throwing. */
+/** xterm's rendered cell height in CSS px, or 0 when not yet measured. Reaches
+ *  into xterm internals (as FitAddon itself does); guarded so a shape change
+ *  falls back to the css value and finally just disables the row cap rather
+ *  than throwing.
+ *
+ *  This pool only ever runs xterm's DOM renderer, so it never swaps renderers
+ *  -- but it still needs stableCellHeightPx, because the DOM renderer's
+ *  `css.cell.height` is a function of the CURRENT ROW COUNT
+ *  (`round(device.cell.height * rows / dpr) / rows`). That is enough to
+ *  oscillate on its own: at some container heights the reading taken at 24
+ *  rows clamps to 25 and the reading taken at 25 rows clamps back to 24,
+ *  forever, with the pane sitting still. */
 function cellHeightOf(term: { _core?: unknown }): number {
-  const dims = (term._core as { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } })
-    ?._renderService?.dimensions?.css?.cell?.height
-  return typeof dims === 'number' && dims > 0 ? dims : 0
+  const dims = (term._core as { _renderService?: { dimensions?: CellDimensions } })?._renderService
+    ?.dimensions
+  return stableCellHeightPx(dims, typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1)
 }
 
 // The session whose terminal was last focused. Tracked at module scope so we can

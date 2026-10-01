@@ -92,3 +92,66 @@ export function decideFit(input: FitInputs): { cols: number; rows: number } | nu
   if (!isUsableSize(p.cols, rows)) return null
   return { cols: p.cols, rows }
 }
+
+/** The subset of xterm's render-service dimensions the row clamp needs. */
+export interface CellDimensions {
+  device?: { cell?: { height?: number } }
+  css?: { cell?: { height?: number } }
+}
+
+/**
+ * A cell height that does not change when xterm swaps renderers, and does not
+ * change with the row count.
+ *
+ * The row clamp divides by this, so anything that moves it can move the row
+ * count for a container that never changed — and xterm's two renderers do NOT
+ * agree on `css.cell.height`:
+ *
+ *   WebGL:  css.cell.height = device.cell.height / dpr
+ *   DOM:    css.canvas.height = round(device.cell.height * rows / dpr)
+ *           css.cell.height   = css.canvas.height / rows
+ *
+ * The DOM value is rounded at the canvas and then divided back out, so it is
+ * both off by up to half a device pixel AND a function of the current row
+ * count. Two separate defects follow.
+ *
+ * Across renderers: macOS drops every WebGL context when the window is
+ * occluded, so clicking away swaps each visible pane to the DOM renderer and
+ * clicking back swaps it to WebGL. The divisor therefore changed twice per
+ * focus cycle while the pane itself sat still.
+ *
+ * Within the DOM renderer alone: because the value depends on the row count,
+ * it can have no fixed point. At 412.8px of content with a 33px device cell at
+ * dpr 2, the reading taken at 24 rows clamps to 25 and the reading taken at 25
+ * rows clamps back to 24 — forever. Each flip resizes the PTY and the agent
+ * redraws one row taller, then one row shorter: the text jitters up and down.
+ *
+ * `device.cell.height` is the quantity both renderers derive from, and it
+ * depends on neither the renderer nor the row count, so dividing it by the
+ * device pixel ratio gives the value WebGL already reports and the DOM
+ * renderer is approximating. Falling back to `css.cell.height` keeps the old
+ * behaviour if xterm's internals are ever reshaped.
+ *
+ * The caller's `dpr` is checked against the stored `css.cell.height` rather
+ * than trusted, because the two operands come from different moments:
+ * `device.cell.height` is written only when xterm recomputes dimensions, while
+ * `window.devicePixelRatio` changes the instant the window moves to a display
+ * with a different backing scale. Dividing a dpr-2 cell height by a dpr-1
+ * ratio would be wrong by a factor of two, and that wrong row cap goes
+ * straight to the PTY. The honest disagreement between the two readings is
+ * only ever `0.5 / rows` CSS px — the DOM's rounding — so anything above half
+ * a pixel means the snapshots do not belong together, and the internally
+ * consistent `css.cell.height` is the safer answer. Imprecise beats doubled.
+ *
+ * Verified against @xterm/xterm 5.5.0, addon-fit 0.10.0, addon-webgl 0.18.0.
+ */
+export function stableCellHeightPx(dims: CellDimensions | null | undefined, dpr: number): number {
+  const css = dims?.css?.cell?.height
+  const cssPx = typeof css === 'number' && css > 0 ? css : 0
+  const device = dims?.device?.cell?.height
+  if (typeof device === 'number' && device > 0 && Number.isFinite(dpr) && dpr > 0) {
+    const stable = device / dpr
+    if (cssPx === 0 || Math.abs(stable - cssPx) <= 0.5) return stable
+  }
+  return cssPx
+}

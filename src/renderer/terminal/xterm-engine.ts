@@ -22,7 +22,7 @@ import type {
   RowMark,
   TerminalEngine
 } from './engine'
-import { decideFit } from './fit-guard'
+import { decideFit, stableCellHeightPx, type CellDimensions } from './fit-guard'
 
 const THEME = {
   background: '#0A0A0B',
@@ -41,17 +41,20 @@ const THEME = {
   brightBlack: '#6b6a64'
 }
 
-/** xterm's rendered cell height in CSS px (from its render service), or 0 when
- *  not yet measured. Reaches into xterm internals (as FitAddon itself does);
- *  guarded so a shape change just disables the row cap rather than throwing.
- *  Isolated here so no other file depends on xterm internals. */
+/** xterm's rendered cell height in CSS px, or 0 when not yet measured.
+ *  Reaches into xterm internals (as FitAddon itself does); guarded so a shape
+ *  change falls back to the css value and finally just disables the row cap
+ *  rather than throwing. Isolated here so no other file depends on xterm
+ *  internals. See stableCellHeightPx for why the raw css value is not used:
+ *  xterm's two renderers disagree about it, and this terminal swaps renderers
+ *  every time the window is occluded. */
 function cellHeightOf(term: Terminal): number {
   const dims = (
     term as unknown as {
-      _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } }
+      _core?: { _renderService?: { dimensions?: CellDimensions } }
     }
-  )._core?._renderService?.dimensions?.css?.cell?.height
-  return typeof dims === 'number' && dims > 0 ? dims : 0
+  )._core?._renderService?.dimensions
+  return stableCellHeightPx(dims, typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1)
 }
 
 function toDisposable(d: IDisposable): Disposable {

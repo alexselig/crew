@@ -16,6 +16,26 @@ running and supervising multiple AI CLI agent sessions at a glance.
   the lively animation back on in Settings sticks, because a migration is
   recorded and never re-runs.
 
+### Fixed
+
+- **Terminal text no longer jumps a row up and down while a pane sits still** —
+  most visibly every time you clicked away from Crew and back. Crew caps a
+  terminal's rows at `contentHeight / cellHeight`, and read that cell height
+  from whichever renderer xterm had live. The two do not agree: the WebGL
+  renderer reports `device.cell.height / dpr` exactly, while the DOM renderer
+  rounds at the canvas and divides back out by the row count
+  (`round(device.cell.height * rows / dpr) / rows`). So the divisor moved for
+  two different reasons — macOS drops every WebGL context when the window is
+  occluded, so each focus cycle swapped the renderer twice; and the DOM value
+  depends on the row count it is being used to compute, which at some pane
+  heights has no fixed point at all (a reading taken at 24 rows clamps to 25,
+  and the reading taken at 25 rows clamps back to 24, forever). Each flip
+  resized the PTY and made the agent redraw a row taller, then a row shorter.
+  The clamp now divides by a renderer- and row-independent cell height.
+  Measured scope: with JetBrains Mono loaded the numbers come out even and this
+  could never happen; a pane whose cell size was measured before the webfont
+  finished loading sits on the fallback metrics, where it can.
+
 ## 0.7.6 — 2026-10-01
 
 ### Fixed
