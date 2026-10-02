@@ -18,11 +18,20 @@ export function AgentRunPanel({ run, agent, onCancel, onInsert, onSave, onClose 
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  // Autoscroll to the tail as output streams in.
+  // Autoscroll to the tail as output streams in — but only while the user is
+  // already parked at the bottom. Forcing it on every chunk made scrolling back
+  // through a running agent's output impossible: each new chunk yanked the view
+  // down again. Scrolling away unpins; scrolling back within 40px re-pins.
+  const pinnedRef = useRef(true)
   useEffect(() => {
     const el = outRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight
   }, [run.output])
+
+  const onScroll = (): void => {
+    const el = outRef.current
+    if (el) pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  }
 
   const copy = (): void => {
     void navigator.clipboard.writeText(run.output)
@@ -54,7 +63,7 @@ export function AgentRunPanel({ run, agent, onCancel, onInsert, onSave, onClose 
         </button>
       </header>
 
-      <pre className="agent-run__out" ref={outRef}>
+      <pre className="agent-run__out" ref={outRef} onScroll={onScroll}>
         {run.output || (run.status === 'running' ? 'Starting…' : '')}
       </pre>
 

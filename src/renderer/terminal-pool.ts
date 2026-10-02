@@ -236,6 +236,18 @@ export function touch(id: string): void {
 
 export function writeTo(id: string, data: string): void {
   if (tombstones.has(id)) return
+  // A pooled terminal is always written to directly, active or not. Suspension
+  // leaves mounted terminals in the pool (see `setRenderingActive`), so this
+  // check has to come first: diverting their output to a dormant tail would
+  // strand it in a shadow entry nothing ever replays, and would resume their
+  // parser mid-stream, past whatever cursor and screen-mode sequences were
+  // skipped.
+  const live = pool.get(id)
+  if (live) {
+    live.term.write(data)
+    pushTail(live, data)
+    return
+  }
   if (!renderingActive) {
     let dormantSession = dormant.get(id)
     if (!dormantSession) {
@@ -243,12 +255,6 @@ export function writeTo(id: string, data: string): void {
       dormant.set(id, dormantSession)
     }
     pushTail(dormantSession, data)
-    return
-  }
-  const live = pool.get(id)
-  if (live) {
-    live.term.write(data)
-    pushTail(live, data)
     return
   }
   let d = dormant.get(id)
@@ -335,11 +341,30 @@ export function retireAllPooled(): void {
   for (const id of [...pool.keys()]) retire(id)
 }
 
+/**
+ * Pause background terminal work while no Crew window is focused.
+ *
+ * Deliberately retires only terminals that are NOT attached to the DOM. The
+ * pane the user is looking at stays alive, because blur is not a signal that
+ * they are done with it:
+ *
+ *   - Dragging a file in from Finder *requires* Crew to be unfocused. Retiring
+ *     the visible terminal tore its drop target down at exactly the moment the
+ *     drop landed, so file drops could never work.
+ *   - Retiring replays from a scrollback snapshot, which rebuilds the buffer
+ *     and loses the viewport position — so scrolling up, glancing at another
+ *     app, and coming back snapped the pane back to the bottom.
+ *
+ * Background sessions still get freed, which is where the cost actually was,
+ * and `enforceCap` remains the hard bound on live terminals.
+ */
 export function setRenderingActive(active: boolean): void {
   if (active === renderingActive) return
   renderingActive = active
   if (!active) {
-    for (const id of [...pool.keys()]) retire(id)
+    for (const [id, p] of [...pool.entries()]) {
+      if (!(p.opened && p.term.element?.isConnected)) retire(id)
+    }
   }
 }
 

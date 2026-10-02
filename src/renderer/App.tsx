@@ -741,6 +741,7 @@ export function App(): JSX.Element {
 
       {c.activeRunId && c.runs[c.activeRunId] && (
         <AgentRunPanel
+          key={c.activeRunId}
           run={c.runs[c.activeRunId]}
           agent={c.agents.find((a) => a.id === c.runs[c.activeRunId!].agentId)}
           onCancel={() => void window.crew.cancelAgentRun(c.activeRunId!)}

@@ -59,7 +59,7 @@ beforeEach(() => {
 })
 
 describe('legacy terminal suspension', () => {
-  it('retires live terminals and does not allocate for background output', () => {
+  it('retires background terminals and does not allocate for background output', () => {
     getPooled('visible')
     setRenderingActive(false)
     writeTo('visible', 'recent')
@@ -69,6 +69,69 @@ describe('legacy terminal suspension', () => {
     expect(dormantTerminalCount()).toBe(2)
     expect(terminals).toHaveLength(1)
     expect(terminals[0].disposed).toBe(true)
+  })
+
+  // Blur is the normal state for the pane the user is working in: you cannot
+  // drag a file out of Finder without Crew losing focus, and retiring replays
+  // from a snapshot, which rebuilds the buffer and loses the scroll position.
+  it('keeps a mounted terminal alive when the app goes inactive', () => {
+    const pooled = getPooled('visible')
+    pooled.opened = true
+    ;(pooled.term as unknown as { element: unknown }).element = { isConnected: true }
+
+    setRenderingActive(false)
+
+    expect(liveTerminalCount()).toBe(1)
+    expect(dormantTerminalCount()).toBe(0)
+    expect(terminals[0].disposed).toBe(false)
+  })
+
+  it('retires a terminal whose element has been detached from the document', () => {
+    const pooled = getPooled('hidden')
+    pooled.opened = true
+    ;(pooled.term as unknown as { element: unknown }).element = { isConnected: false }
+
+    setRenderingActive(false)
+
+    expect(liveTerminalCount()).toBe(0)
+    expect(dormantTerminalCount()).toBe(1)
+  })
+
+  // Keeping a mounted terminal in the pool is only safe if writeTo agrees that
+  // the pool wins. Diverting its output to a dormant tail would strand it in a
+  // shadow entry nothing replays, and resume the parser mid-stream.
+  it('writes straight to a mounted terminal while the app is inactive', () => {
+    const pooled = getPooled('visible')
+    pooled.opened = true
+    ;(pooled.term as unknown as { element: unknown }).element = { isConnected: true }
+
+    setRenderingActive(false)
+    writeTo('visible', 'while away')
+    setRenderingActive(true)
+
+    expect((pooled.term as unknown as { written: string[] }).written.join('')).toContain(
+      'while away'
+    )
+    expect(getPooled('visible')).toBe(pooled)
+    expect(dormantTerminalCount()).toBe(0)
+    expect(liveTerminalCount()).toBe(1)
+  })
+
+  it('does not strand blur-period output behind a live terminal', () => {
+    const pooled = getPooled('visible')
+    pooled.opened = true
+    ;(pooled.term as unknown as { element: unknown }).element = { isConnected: true }
+    writeTo('visible', 'before ')
+
+    setRenderingActive(false)
+    writeTo('visible', 'during ')
+    setRenderingActive(true)
+    writeTo('visible', 'after')
+
+    expect((pooled.term as unknown as { written: string[] }).written.join('')).toBe(
+      'before during after'
+    )
+    expect(previewText('visible').join('\n')).toContain('during')
   })
 
   it('replays recent output only when the visible terminal is reacquired', () => {
