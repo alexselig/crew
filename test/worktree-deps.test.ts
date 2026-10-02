@@ -83,7 +83,13 @@ esac
   return { dir, paths, run, completeInstall, installWithoutElectron, danglingLink, linkTarget }
 }
 
-describe('worktree-deps.sh', () => {
+// `worktree-deps.sh` is a POSIX developer tool: it shells out to bash, symlinks
+// node_modules between worktrees, and exists to share one ~1 GB install plus an
+// Electron binary across macOS checkouts. Windows runners have no bash on PATH,
+// so every spawn returns `status: null` and the suite fails as a block without
+// saying anything about the script. Skip it there, matching the POSIX-only
+// durability tests in `atomic-file-sync.test.ts:48`.
+describe.skipIf(process.platform === 'win32')('worktree-deps.sh', () => {
   it('points a worktree with nothing at the one complete install', () => {
     const f = fixture(['donor', 'empty'])
     f.completeInstall('donor')
