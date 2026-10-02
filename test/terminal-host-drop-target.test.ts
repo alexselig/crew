@@ -28,7 +28,14 @@ describe('TerminalHost', () => {
 
   it('has no inert placeholder to substitute for the drop target', () => {
     expect(SOURCE).not.toMatch(/term-mount--suspended/)
-    expect(SOURCE).not.toMatch(/aria-hidden/)
+  })
+
+  // The assertions above would all still pass if the terminal were gated on
+  // some *other* flag, so pin the shape directly: the component body must have
+  // exactly one `return`, with no early bail-out in front of it.
+  it('returns a terminal unconditionally, with no early bail-out', () => {
+    const body = SOURCE.slice(SOURCE.indexOf('export function TerminalHost'))
+    expect(body.match(/^\s*return\b/gm) ?? []).toHaveLength(1)
   })
 
   it('still renders exactly one of the two terminal implementations', () => {

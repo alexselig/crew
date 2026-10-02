@@ -289,6 +289,17 @@ function ingest(s: Semantic, data: string, p: Pooled | null): void {
 
 export function writeTo(id: string, data: string): void {
   if (tombstones.has(id)) return
+  // A pooled engine is always written to directly, active or not. Suspension
+  // leaves mounted engines in the pool (see `setRenderingActive`), so this
+  // check has to come first: diverting their output to a dormant entry would
+  // strand it behind the live one — `transcriptOf` and `getBlocks` both prefer
+  // the pool — and resume the emulator's parser mid-stream.
+  const live = pool.get(id)
+  if (live) {
+    live.engine.write(data)
+    ingest(live, data, live)
+    return
+  }
   if (!renderingActive) {
     let dormantSession = dormant.get(id)
     if (!dormantSession) {
@@ -296,12 +307,6 @@ export function writeTo(id: string, data: string): void {
       dormant.set(id, dormantSession)
     }
     ingest(dormantSession, data, null)
-    return
-  }
-  const live = pool.get(id)
-  if (live) {
-    live.engine.write(data)
-    ingest(live, data, live)
     return
   }
   let s = dormant.get(id)

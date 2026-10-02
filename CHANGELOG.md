@@ -21,7 +21,11 @@ running and supervising multiple AI CLI agent sessions at a glance.
   up and glancing anywhere else snapped the pane straight back to the bottom.
   Suspension now releases only terminals that are **not** attached to the
   document, so background sessions are still freed (which is where the cost
-  was) while the pane you are working in survives untouched.
+  was) while the pane you are working in survives untouched. Its output keeps
+  flowing straight into it while you are away, rather than accruing in a tail
+  that would have to be replayed into a parser that missed the first half. The
+  one cost taken back is GPU memory: a grid of tiles now holds its WebGL
+  contexts across blur instead of releasing them with the emulators.
 
 - **The specialist agent output panel no longer fights you.** It forced the
   view to the tail on every streamed chunk, so scrolling back through a running

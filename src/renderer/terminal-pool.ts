@@ -236,6 +236,18 @@ export function touch(id: string): void {
 
 export function writeTo(id: string, data: string): void {
   if (tombstones.has(id)) return
+  // A pooled terminal is always written to directly, active or not. Suspension
+  // leaves mounted terminals in the pool (see `setRenderingActive`), so this
+  // check has to come first: diverting their output to a dormant tail would
+  // strand it in a shadow entry nothing ever replays, and would resume their
+  // parser mid-stream, past whatever cursor and screen-mode sequences were
+  // skipped.
+  const live = pool.get(id)
+  if (live) {
+    live.term.write(data)
+    pushTail(live, data)
+    return
+  }
   if (!renderingActive) {
     let dormantSession = dormant.get(id)
     if (!dormantSession) {
@@ -243,12 +255,6 @@ export function writeTo(id: string, data: string): void {
       dormant.set(id, dormantSession)
     }
     pushTail(dormantSession, data)
-    return
-  }
-  const live = pool.get(id)
-  if (live) {
-    live.term.write(data)
-    pushTail(live, data)
     return
   }
   let d = dormant.get(id)

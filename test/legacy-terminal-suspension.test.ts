@@ -97,6 +97,43 @@ describe('legacy terminal suspension', () => {
     expect(dormantTerminalCount()).toBe(1)
   })
 
+  // Keeping a mounted terminal in the pool is only safe if writeTo agrees that
+  // the pool wins. Diverting its output to a dormant tail would strand it in a
+  // shadow entry nothing replays, and resume the parser mid-stream.
+  it('writes straight to a mounted terminal while the app is inactive', () => {
+    const pooled = getPooled('visible')
+    pooled.opened = true
+    ;(pooled.term as unknown as { element: unknown }).element = { isConnected: true }
+
+    setRenderingActive(false)
+    writeTo('visible', 'while away')
+    setRenderingActive(true)
+
+    expect((pooled.term as unknown as { written: string[] }).written.join('')).toContain(
+      'while away'
+    )
+    expect(getPooled('visible')).toBe(pooled)
+    expect(dormantTerminalCount()).toBe(0)
+    expect(liveTerminalCount()).toBe(1)
+  })
+
+  it('does not strand blur-period output behind a live terminal', () => {
+    const pooled = getPooled('visible')
+    pooled.opened = true
+    ;(pooled.term as unknown as { element: unknown }).element = { isConnected: true }
+    writeTo('visible', 'before ')
+
+    setRenderingActive(false)
+    writeTo('visible', 'during ')
+    setRenderingActive(true)
+    writeTo('visible', 'after')
+
+    expect((pooled.term as unknown as { written: string[] }).written.join('')).toBe(
+      'before during after'
+    )
+    expect(previewText('visible').join('\n')).toContain('during')
+  })
+
   it('replays recent output only when the visible terminal is reacquired', () => {
     setRenderingActive(false)
     writeTo('sleeping', 'recent output')
