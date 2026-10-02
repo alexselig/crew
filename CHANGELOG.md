@@ -3,7 +3,7 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
-## Unreleased
+## 0.7.8 — 2026-10-02
 
 ### Fixed
 
