@@ -5,6 +5,29 @@ running and supervising multiple AI CLI agent sessions at a glance.
 
 ## Unreleased
 
+### Fixed
+
+- **Dragging files into a session works again.** Crew paused background work by
+  unmounting the whole terminal whenever no Crew window was focused. The file
+  drop target lives inside that terminal — and you cannot drag a file out of
+  Finder without Crew losing focus, so the drop target was guaranteed to be
+  gone at the exact moment the drop landed. Dropping files could never work,
+  rather than working intermittently. The terminal now stays mounted.
+
+- **Scrolling back through a session is no longer undone.** The same pause also
+  retired every pooled terminal, including the one on screen, and resuming
+  rebuilds the buffer by replaying a scrollback snapshot — which discards the
+  viewport position. For a menu-bar app that loses focus constantly, scrolling
+  up and glancing anywhere else snapped the pane straight back to the bottom.
+  Suspension now releases only terminals that are **not** attached to the
+  document, so background sessions are still freed (which is where the cost
+  was) while the pane you are working in survives untouched.
+
+- **The specialist agent output panel no longer fights you.** It forced the
+  view to the tail on every streamed chunk, so scrolling back through a running
+  agent's output was impossible. It now autoscrolls only while you are already
+  parked at the bottom, matching the Transcript pane.
+
 ### Changed
 
 - **The release-script tests no longer fail at random.** They shell out to bash,

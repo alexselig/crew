@@ -194,7 +194,7 @@ describe('bounded terminal engine pool', () => {
     expect(getBlocks('later')).toHaveLength(2)
   })
 
-  it('retires every live emulator when terminal rendering is suspended', () => {
+  it('retires every unmounted emulator when terminal rendering is suspended', () => {
     getPooled('visible')
     writeTo('background', 'before')
     expect(liveEngineCount()).toBe(2)
@@ -204,6 +204,22 @@ describe('bounded terminal engine pool', () => {
     expect(liveEngineCount()).toBe(0)
     expect(dormantCount()).toBe(2)
     expect(engines.every((engine) => engine.disposed)).toBe(true)
+  })
+
+  // Dragging a file in from Finder requires Crew to be unfocused, and resuming
+  // replays from a snapshot, which loses the scroll position. Neither may cost
+  // the user the pane they are actually working in.
+  it('keeps the on-screen engine alive when the app goes inactive', () => {
+    const p = getPooled('watched')
+    asFake(p.engine).mounted = true
+    writeTo('background', 'before')
+
+    setRenderingActive(false)
+
+    expect(liveEngineCount()).toBe(1)
+    expect(dormantCount()).toBe(1)
+    expect(asFake(p.engine).disposed).toBe(false)
+    expect(getPooled('watched')).toBe(p)
   })
 
   it('keeps parsing output without allocating while suspended', () => {

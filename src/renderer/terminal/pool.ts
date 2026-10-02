@@ -519,11 +519,19 @@ export function retireAllPooled(): void {
   for (const id of [...pool.keys()]) retire(id)
 }
 
+/**
+ * Pause background engine work while no Crew window is focused. Retires only
+ * unmounted engines — see the matching note in `terminal-pool.ts`: blurring to
+ * drag a file in from Finder, or to glance at another app mid-scroll, must not
+ * tear down the pane the user is actually working in.
+ */
 export function setRenderingActive(active: boolean): void {
   if (active === renderingActive) return
   renderingActive = active
   if (!active) {
-    for (const id of [...pool.keys()]) retire(id)
+    for (const [id, p] of [...pool.entries()]) {
+      if (!p.engine.mounted) retire(id)
+    }
   }
 }
 
