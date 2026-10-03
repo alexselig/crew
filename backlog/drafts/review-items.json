@@ -69,18 +69,19 @@
   {
    "id": "CB-14",
    "group": "gap",
-   "title": "Make restore selective instead of all-or-nothing",
-   "prompt": "98 of 131 sessions arrived in two programmatic bursts (2026-08-19 and 2026-08-26) with median gaps between creations of 0.75s and 0.14s — machine speed, not human. Of the 66 restored on 26 Aug, 54 were never prompted again; of the 32 on 19 Aug, all 32 were never prompted. Restore faithfully rebuilds everything and you then use almost none of it. Offer a restore preview: which sessions, last actually used when, select a subset. Default the selection to sessions with a real prompt in the last N days.",
+   "title": "Restore recent sessions eagerly, the rest lazily on click",
+   "prompt": "98 of 131 sessions arrived in two programmatic bursts (2026-08-19 and 2026-08-26) with median gaps between creations of 0.75s and 0.14s — machine speed, not human. Of the 66 restored on 26 Aug, 54 were never prompted again; of the 32 on 19 Aug, all 32 were never prompted. Restore faithfully rebuilds everything and you then use almost none of it. Your refinement, and it is better than the preview dialog originally proposed: restore eagerly only what was actually prompted in the last week, and leave the rest as lightweight placeholders in the roster that hydrate the moment you click one. No dialog, no decision at startup, nothing lost — the cost simply moves to the sessions you touch.",
    "chips": [
     "Days",
     "High confidence",
     "Risk: Medium"
    ],
    "meta": {
-    "Why now": "Restore is the single biggest source of clutter in the store, and the clutter is what makes every later list, view and grouping feature necessary.",
+    "Why now": "Restore is the single biggest source of clutter in the store, and the clutter is what makes every later list, view and grouping feature necessary. Lazy hydration also removes the startup cost entirely, which the preview dialog would not have.",
     "Effort": "Days",
     "Confidence": "High",
-    "Risk": "Medium"
+    "Risk": "Medium",
+    "Shape": "Your proposal: eager for last-week, lazy-on-click for the rest"
    },
    "tags": {
     "Evidence": [
@@ -89,15 +90,18 @@
    },
    "lists": {
     "Done looks like": [
-     "Restore shows a preview with last-actually-used dates",
-     "Selection defaults to sessions prompted in the last N days",
-     "Deselected sessions remain recoverable, not deleted"
+     "Sessions prompted in the last week restore eagerly, as today",
+     "Everything else appears in the roster as a placeholder and hydrates on first click",
+     "No restore dialog and no decision asked for at startup",
+     "A placeholder is visually honest about not being live yet"
     ],
     "Would be a bad outcome": {
      "style": "fail",
      "items": [
-      "Silently dropping sessions a user expected back",
-      "Making the common case (restore everything recent) slower than today"
+      "A click that feels slow because hydration is not instant and gives no feedback",
+      "Placeholders that look identical to live sessions",
+      "Losing scrollback or agent context on a lazily restored session",
+      "Hiding the rest instead of actually deferring the work"
      ]
     }
    }
