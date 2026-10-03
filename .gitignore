@@ -10,3 +10,6 @@ dist/
 .env.local
 .crew-progress.md
 .worktrees/
+
+# Review verdicts are a working artifact; backlog.json is the shared record.
+backlog/drafts/decisions.json

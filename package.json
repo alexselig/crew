@@ -23,7 +23,8 @@
     "test:e2e:custom-views:signed": "node test/e2e/custom-views-signed-app.verify.mjs",
     "dist": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win --publish never",
-    "rebuild:native": "electron-rebuild -f -w node-pty"
+    "rebuild:native": "electron-rebuild -f -w node-pty",
+    "review": "node backlog/review-server.js --items backlog/drafts/review-items.json --out backlog/drafts/decisions.json --port 4199"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
