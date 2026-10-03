@@ -217,9 +217,9 @@
   ],
   "state": {
     "CB-2": {
-      "status": "done",
+      "status": "approved",
       "note": "",
-      "at": "2026-10-01T21:50:30.608Z"
+      "at": "2026-10-03T01:31:10.057Z"
     },
     "CB-1": {
       "status": "approved",
@@ -232,19 +232,19 @@
       "at": "2026-10-01T22:11:27.592Z"
     },
     "CB-4": {
-      "status": "done",
+      "status": "approved",
       "note": "",
-      "at": "2026-10-01T21:50:30.623Z"
+      "at": "2026-10-03T01:31:16.377Z"
     },
     "CB-5": {
-      "status": "done",
+      "status": "approved",
       "note": "",
-      "at": "2026-10-01T21:50:30.638Z"
+      "at": "2026-10-03T01:32:05.361Z"
     },
     "CB-6": {
-      "status": "done",
+      "status": "approved",
       "note": "",
-      "at": "2026-10-01T21:50:30.654Z"
+      "at": "2026-10-03T01:32:10.077Z"
     },
     "CB-7": {
       "status": "approved",
@@ -252,14 +252,14 @@
       "at": "2026-10-01T22:11:27.614Z"
     },
     "CB-8": {
-      "status": "done",
+      "status": "approved",
       "note": "",
-      "at": "2026-10-01T22:07:34.400Z"
+      "at": "2026-10-03T01:32:18.509Z"
     },
     "CB-9": {
-      "status": "done",
+      "status": "approved",
       "note": "",
-      "at": "2026-10-01T21:57:12.413Z"
+      "at": "2026-10-03T01:32:20.963Z"
     },
     "CB-10": {
       "status": "declined",
@@ -270,6 +270,46 @@
       "status": "approved",
       "note": "Unscoped. Needs you to say what phase 1c actually covers before it can be dispatched.",
       "at": "2026-10-01T22:11:27.644Z"
+    },
+    "CB-13": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-03T01:32:53.274Z"
+    },
+    "CB-14": {
+      "status": null,
+      "note": "can we restore on session selection and reccency? Like restore items used in last week and then the rest restore when user clicks on the session?",
+      "at": "2026-10-03T01:34:36.014Z"
+    },
+    "CB-15": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-03T01:34:42.695Z"
+    },
+    "CB-16": {
+      "status": "declined",
+      "note": "",
+      "at": "2026-10-03T01:35:46.721Z"
+    },
+    "CB-17": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-03T01:36:15.993Z"
+    },
+    "CB-18": {
+      "status": "declined",
+      "note": "",
+      "at": "2026-10-03T01:36:39.588Z"
+    },
+    "CB-20": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-03T01:37:23.860Z"
+    },
+    "CB-21": {
+      "status": "approved",
+      "note": "",
+      "at": "2026-10-03T01:38:26.611Z"
     }
   }
 }
