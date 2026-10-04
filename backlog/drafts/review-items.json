@@ -1,0 +1,364 @@
+{
+ "title": "Crew — proposed next features",
+ "subtitle": "Nine suggestions drawn from your actual usage: 131 sessions in crew-store.json and five weeks of crew-crash.log. Approve, reject, or ask for changes. Everything autosaves.",
+ "reviewMode": "verdict",
+ "groups": [
+  {
+   "key": "gap",
+   "name": "Gaps the data exposed",
+   "dek": "Things the numbers say are missing, and that the UI gives no hint of."
+  },
+  {
+   "key": "debt",
+   "name": "Lifecycle debt",
+   "dek": "The store grows forever and has no exit."
+  },
+  {
+   "key": "shape",
+   "name": "Shape of the model",
+   "dek": "Concepts that overlap, or that lump different things together."
+  },
+  {
+   "key": "decide",
+   "name": "Build or cut",
+   "dek": "A decision to make before spending more surface."
+  },
+  {
+   "key": "measure",
+   "name": "Measurement",
+   "dek": "What to instrument, and what the existing measurement already settles."
+  }
+ ],
+ "items": [
+  {
+   "id": "CB-13",
+   "group": "gap",
+   "title": "Give a session a working directory when you create it",
+   "prompt": "All 131 sessions in the store have cwd = $HOME, and recentDirs is empty — the directory picker has never been used once. Every agent therefore starts in home and has to be told where the work is, in prose, every single time. Capture a project directory at creation: default to the last directory used for that label, offer recent/starred repos, and infer from the label when it matches a known checkout. Populate recentDirs so the second session in a project is a one-click affair.",
+   "chips": [
+    "Days",
+    "High confidence",
+    "Risk: Low"
+   ],
+   "meta": {
+    "Why now": "This is the clearest gap the data shows, and it is invisible in the UI: nothing signals that cwd is a thing you were meant to set. Every session pays a prompt-tax to explain where it is.",
+    "Effort": "Days",
+    "Confidence": "High",
+    "Risk": "Low"
+   },
+   "tags": {
+    "Evidence": [
+     "crew-store.json: 131/131 sessions cwd=/Users/alexselig; recentDirs: []"
+    ]
+   },
+   "lists": {
+    "Done looks like": [
+     "Session creation captures a directory, defaulting to the last one used for that label",
+     "recentDirs is populated and offers recent/starred repos",
+     "Existing sessions keep working with cwd=$HOME"
+    ],
+    "Would be a bad outcome": {
+     "style": "fail",
+     "items": [
+      "Shipping a picker that is still skippable by default — the current one already is",
+      "Guessing the directory from the label without letting you correct it"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CB-14",
+   "group": "gap",
+   "title": "Restore recent sessions eagerly, the rest lazily on click",
+   "prompt": "98 of 131 sessions arrived in two programmatic bursts (2026-08-19 and 2026-08-26) with median gaps between creations of 0.75s and 0.14s — machine speed, not human. Of the 66 restored on 26 Aug, 54 were never prompted again; of the 32 on 19 Aug, all 32 were never prompted. Restore faithfully rebuilds everything and you then use almost none of it. Your refinement, and it is better than the preview dialog originally proposed: restore eagerly only what was actually prompted in the last week, and leave the rest as lightweight placeholders in the roster that hydrate the moment you click one. No dialog, no decision at startup, nothing lost — the cost simply moves to the sessions you touch.",
+   "chips": [
+    "Days",
+    "High confidence",
+    "Risk: Medium"
+   ],
+   "meta": {
+    "Why now": "Restore is the single biggest source of clutter in the store, and the clutter is what makes every later list, view and grouping feature necessary. Lazy hydration also removes the startup cost entirely, which the preview dialog would not have.",
+    "Effort": "Days",
+    "Confidence": "High",
+    "Risk": "Medium",
+    "Shape": "Your proposal: eager for last-week, lazy-on-click for the rest"
+   },
+   "tags": {
+    "Evidence": [
+     "Creation-gap analysis of crew-store.json; the 36-session set literally named 'Recovered'"
+    ]
+   },
+   "lists": {
+    "Done looks like": [
+     "Sessions prompted in the last week restore eagerly, as today",
+     "Everything else appears in the roster as a placeholder and hydrates on first click",
+     "No restore dialog and no decision asked for at startup",
+     "A placeholder is visually honest about not being live yet"
+    ],
+    "Would be a bad outcome": {
+     "style": "fail",
+     "items": [
+      "A click that feels slow because hydration is not instant and gives no feedback",
+      "Placeholders that look identical to live sessions",
+      "Losing scrollback or agent context on a lazily restored session",
+      "Hiding the rest instead of actually deferring the work"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CB-15",
+   "group": "debt",
+   "title": "Add a real archive, because the store is already 90% archive",
+   "prompt": "117 of 131 sessions are past the 72-hour staleHideHours cutoff; only 14 are visible. The other 103 are not gone, they are hidden — still loaded, still restored, still in every file write. Hiding was the cheap version of a lifecycle. Add an explicit archive state with its own view, a restore-from-archive path, and a real delete. Then stop loading archived sessions into the live roster at all.",
+   "chips": [
+    "Days",
+    "High confidence",
+    "Risk: Medium"
+   ],
+   "meta": {
+    "Why now": "The store grows forever and has no exit. Hiding masks the symptom while the cost (load, persist, restore) keeps compounding.",
+    "Effort": "Days",
+    "Confidence": "High",
+    "Risk": "Medium"
+   },
+   "tags": {
+    "Evidence": [
+     "crew-store.json: 117/131 older than staleHideHours=72; sessions[] has no archived/deleted state"
+    ]
+   },
+   "lists": {
+    "Done looks like": [
+     "An explicit archived state, separate from stale-hidden",
+     "Archived sessions are not loaded into the live roster",
+     "A real delete, and a restore-from-archive path"
+    ],
+    "Would be a bad outcome": {
+     "style": "fail",
+     "items": [
+      "Another hiding mechanism layered on the first",
+      "Deleting anything without an undo"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CB-16",
+   "group": "shape",
+   "title": "Treat standing projects and scratch sessions as different things",
+   "prompt": "Of the 40 sessions ever actually prompted, the split is bimodal: 14 standing projects with a median 27-day life (Crew, Eval Atlas, Portfolio, Work Website, FDE, Groundtruth Mapper, the skill sessions) and 17 same-day throwaways (spec cleanup, Vertical Blog, Rounded Corners Spec). The app treats both identically — same persistence, same restore, same roster weight. Let a session be promoted to a standing project (always restored, always visible, pinned) or marked scratch (never restored, auto-archived at end of day).",
+   "chips": [
+    "Days",
+    "Medium confidence",
+    "Risk: Medium"
+   ],
+   "meta": {
+    "Why now": "One lifecycle for two species is why the roster needs so much hiding and grouping machinery. Sort it at the source.",
+    "Effort": "Days",
+    "Confidence": "Medium",
+    "Risk": "Medium"
+   },
+   "tags": {
+    "Evidence": [
+     "Lifespan analysis of the 40 prompted sessions: 14 over 7 days, 17 under 1 day"
+    ]
+   },
+   "lists": {
+    "Done looks like": [
+     "A session can be promoted to standing or marked scratch",
+     "Scratch sessions are never restored and auto-archive",
+     "The default for a new session needs no decision from you"
+    ],
+    "Would be a bad outcome": {
+     "style": "fail",
+     "items": [
+      "Forcing a lifecycle choice up front at creation",
+      "A third grouping concept competing with tags and workspaces"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CB-17",
+   "group": "gap",
+   "title": "Offer to resume prior work instead of silently creating a duplicate",
+   "prompt": "24 sessions share a duplicated label — 'Develop Week In Review App', 'Create Project Tracker Site', 'Fix Icon Positioning Bug' and nine others each exist twice. That is the same job started again, with the earlier session's context stranded. On creation, when a label (or directory) matches an existing session, offer Resume that one as the primary action and Create a new one as the secondary.",
+   "chips": [
+    "Hours",
+    "High confidence",
+    "Risk: Low"
+   ],
+   "meta": {
+    "Why now": "Duplicates are how context gets lost: the work continues but the thread doesn't. The data shows it happening roughly one time in five.",
+    "Effort": "Hours",
+    "Confidence": "High",
+    "Risk": "Low"
+   },
+   "tags": {
+    "Evidence": [
+     "crew-store.json: 12 labels occurring twice, covering 24 of 131 sessions"
+    ]
+   },
+   "lists": {
+    "Done looks like": [
+     "Matching label or directory offers Resume as the primary action",
+     "Create new stays available as the secondary",
+     "No prompt at all when there is no match"
+    ],
+    "Would be a bad outcome": {
+     "style": "fail",
+     "items": [
+      "A modal on every single session creation",
+      "Matching so loosely that unrelated work is offered"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CB-18",
+   "group": "shape",
+   "title": "Lean on tags, which you use, rather than workspaces, which you mostly do not",
+   "prompt": "Tags are on 86 of 131 sessions (WORK 24, TOOLS 17, Other 12, FDE 9, Game 8, CREW 7, craft 5, SKILLS 4). Workspaces are assigned on only 43, leaving 88 unassigned, and two of the four workspaces are near-empty (HACK 6, OCTOBER 7). You adopted the lightweight primitive and skipped the heavyweight one. Make tags first-class: filter and group by tag, a saved view per tag, tag colours in the roster — and consider deriving workspaces from tags rather than maintaining both.",
+   "chips": [
+    "Days",
+    "Medium confidence",
+    "Risk: Medium"
+   ],
+   "meta": {
+    "Why now": "Two overlapping grouping systems, one adopted twice as much as the other. Invest in the one that won.",
+    "Effort": "Days",
+    "Confidence": "Medium",
+    "Risk": "Medium"
+   },
+   "tags": {
+    "Evidence": [
+     "crew-store.json: tag set on 86/131; workspaceIds empty on 88/131"
+    ]
+   },
+   "lists": {
+    "Done looks like": [
+     "Filter and group the roster by tag",
+     "A saved view per tag",
+     "A decision recorded on whether workspaces stay"
+    ],
+    "Would be a bad outcome": {
+     "style": "fail",
+     "items": [
+      "Keeping both systems at full cost and calling it choice",
+      "Migrating workspaces away without your say-so"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CB-19",
+   "group": "decide",
+   "title": "Decide whether custom agents earn their place",
+   "prompt": "All four agents in the store are the seeded builtins (UX Critique, Code Review, Security Review, Doc Writer) and not one custom agent has ever been created. There is exactly one custom view, 'Core Focus'. Either the authoring path is undiscoverable or the need is already met by the four defaults. Before building more agent surface, find out which — then either make authoring reachable from where agents are used, or freeze the feature at four good builtins and spend the room elsewhere.",
+   "chips": [
+    "Hours to decide",
+    "Medium confidence",
+    "Risk: Low"
+   ],
+   "meta": {
+    "Why now": "This is a build-versus-cut decision, and right now it would be made on vibes. It is also the clearest thing the proposed opt-in tracking would settle.",
+    "Effort": "Hours to decide",
+    "Confidence": "Medium",
+    "Risk": "Low"
+   },
+   "tags": {
+    "Evidence": [
+     "crew-store.json: agents[] all builtin:true; customViews[] length 1"
+    ]
+   },
+   "lists": {
+    "Done looks like": [
+     "A decision recorded either way, with a reason",
+     "If kept: authoring reachable from where agents are used",
+     "If cut: the four builtins stay and the surface is frozen"
+    ],
+    "Would be a bad outcome": {
+     "style": "fail",
+     "items": [
+      "Building more agent surface before answering this",
+      "Removing the four builtins, which are used"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CB-20",
+   "group": "measure",
+   "title": "Add opt-in, local-only usage insights",
+   "prompt": "Flat off by default, with a plain-language consent screen that says exactly what is recorded, and nothing leaves the machine — append-only JSONL in Application Support, viewable in-app, with a one-click wipe. There is no third-party analytics in Crew today and none should be added. Record counters and durations, never prompt or terminal content: session opened/focused/closed, prompts per session, foreground dwell time, which view (grid, focus, custom) is used, agent and conductor invocations, restore accepted versus dismissed, crashes and PTY failures. Ship a 'Your usage' panel that shows you your own numbers, so the feature pays the user back rather than only paying us.",
+   "chips": [
+    "Days",
+    "High confidence",
+    "Risk: Low"
+   ],
+   "meta": {
+    "Why now": "The analysis behind CB-13 to CB-19 had to be reverse-engineered from two timestamps per session, and several questions were simply unanswerable: how long you actually work in a session, how many prompts it takes, which views you use, whether a session ended satisfied or abandoned. The memory census that exists ran on exactly one day (26 Aug) and the crash log has recorded 19 clean quits and zero crashes, so what instrumentation there is tells us almost nothing about use.",
+    "Effort": "Days",
+    "Confidence": "High",
+    "Risk": "Low"
+   },
+   "tags": {
+    "Evidence": [
+     "No analytics dependency anywhere in src/; crew-crash.log: 1289 memcensus samples all on 2026-08-26, 19 quits, 0 crashes"
+    ]
+   },
+   "lists": {
+    "Done looks like": [
+     "Off by default, with plain-language consent naming what is recorded",
+     "Append-only JSONL in Application Support; nothing leaves the machine",
+     "In-app viewer and a one-click wipe",
+     "Counters and durations only — never prompt or terminal content"
+    ],
+    "Would be a bad outcome": {
+     "style": "fail",
+     "items": [
+      "Any third-party analytics SDK",
+      "On by default, or consent buried in settings",
+      "Recording prompt text, file paths or terminal output",
+      "Collecting data with no user-visible payback"
+     ]
+    }
+   }
+  },
+  {
+   "id": "CB-21",
+   "group": "measure",
+   "title": "Stop treating memory and stability as the next performance problem",
+   "prompt": "The census recorded a JS heap of 15-28 MB against a 3586 MB limit, peak DOM 1681 nodes, and the crash log holds 19 clean quits with zero crashes across five weeks. Whatever is worth fixing next, it is not footprint or stability. Record this as a deliberate negative result so the next perf instinct gets checked against it, and re-measure only with a census that runs on more than one day and more than one tile.",
+   "chips": [
+    "Minutes",
+    "High confidence",
+    "Risk: None"
+   ],
+   "meta": {
+    "Why now": "Perf work is the easiest thing to start and the hardest to justify. The only measurement available says there is nothing here.",
+    "Effort": "Minutes",
+    "Confidence": "High",
+    "Risk": "None"
+   },
+   "tags": {
+    "Evidence": [
+     "crew-crash.log: heapMB 15-28 of heapLimitMB 3586; 0 crashes, 19 quits, Aug 26 - Oct 3"
+    ]
+   },
+   "lists": {
+    "Done looks like": [
+     "The negative result is written down where the next perf instinct will meet it",
+     "Any re-measure runs across more than one day and more than one tile"
+    ],
+    "Would be a bad outcome": {
+     "style": "fail",
+     "items": [
+      "Starting footprint work anyway on instinct",
+      "Treating one day of single-tile data as proof for all configurations"
+     ]
+    }
+   }
+  }
+ ]
+}
