@@ -217,9 +217,9 @@
   ],
   "state": {
     "CB-2": {
-      "status": "approved",
-      "note": "",
-      "at": "2026-10-03T01:31:10.057Z"
+      "status": "done",
+      "note": "Verified in code: src/renderer/terminal/font-remeasure.ts plus test/terminal-font-remeasure.test.ts.",
+      "at": "2026-10-04T16:47:54.236Z"
     },
     "CB-1": {
       "status": "approved",
@@ -232,19 +232,19 @@
       "at": "2026-10-01T22:11:27.592Z"
     },
     "CB-4": {
-      "status": "approved",
-      "note": "",
-      "at": "2026-10-03T01:31:16.377Z"
+      "status": "done",
+      "note": "Verified in code: both panes share decideFit/runFitLoop from terminal/fit-guard.ts.",
+      "at": "2026-10-04T16:47:54.236Z"
     },
     "CB-5": {
-      "status": "approved",
-      "note": "",
-      "at": "2026-10-03T01:32:05.361Z"
+      "status": "done",
+      "note": "Verified in code: fit-guard.ts:26 and :186 explicitly retract the old scrollbar blame.",
+      "at": "2026-10-04T16:47:54.236Z"
     },
     "CB-6": {
-      "status": "approved",
-      "note": "",
-      "at": "2026-10-03T01:32:10.077Z"
+      "status": "done",
+      "note": "Verified in code: terminal/fit-reporter.ts owns forwarding; test/fit-reporter.test.ts covers it.",
+      "at": "2026-10-04T16:47:54.236Z"
     },
     "CB-7": {
       "status": "approved",
@@ -252,14 +252,14 @@
       "at": "2026-10-01T22:11:27.614Z"
     },
     "CB-8": {
-      "status": "approved",
-      "note": "",
-      "at": "2026-10-03T01:32:18.509Z"
+      "status": "done",
+      "note": "Verified in code: release-scripts.test.ts guards platform-specific suites with skipIf.",
+      "at": "2026-10-04T16:47:54.236Z"
     },
     "CB-9": {
-      "status": "approved",
-      "note": "",
-      "at": "2026-10-03T01:32:20.963Z"
+      "status": "done",
+      "note": "Verified in code: scripts/worktree-deps.sh with npm run deps / deps:all.",
+      "at": "2026-10-04T16:47:54.236Z"
     },
     "CB-10": {
       "status": "declined",
