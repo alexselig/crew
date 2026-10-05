@@ -307,9 +307,9 @@
       "at": "2026-10-03T01:37:23.860Z"
     },
     "CB-21": {
-      "status": "approved",
-      "note": "",
-      "at": "2026-10-03T01:38:26.611Z"
+      "status": "done",
+      "note": "Recorded in docs/performance/footprint-and-stability-negative-result.md. Reading the raw samples narrowed the claim: all 1289 census samples are tiles:1/xterms:1 in one 123-minute window, so the memory half cannot speak to a full roster. Stability half (0 crashes, 19 clean quits, 14 active days) stands.",
+      "at": "2026-10-05T05:03:49.955Z"
     }
   }
 }
