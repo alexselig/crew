@@ -28,11 +28,11 @@
     {
       "id": "CB-1",
       "group": "Finish the jitter hunt",
-      "title": "Confirm whether 0.7.7 actually stopped the jitter",
-      "detail": "0.7.7 makes the calm working animation the default, which is the leading explanation for sessions jittering up and down: the mascot ran an independently phased 1.5s bob-and-scale per working session. Installing 0.7.7 is the experiment. Everything else in this group is conditional on the answer, so it is ranked first.",
-      "why": "Two candidate fixes shipped and neither is confirmed against the real symptom. Until this is answered we are guessing.",
+      "title": "Find the flicker's real cause (five explanations now falsified)",
+      "detail": "The mascot-animation theory is dead: calmMotion is on, its migration ran, and 0.7.8 still flickers. Four other explanations were falsified against the live store and crash log. A CREW_FLICKERLOG=1 census now records what actually moves on screen during a repro, because five fixes aimed at unobserved causes have all missed.",
+      "why": "Five fixes have been spent on this by reading code and guessing. The next step is a measurement, not a sixth guess.",
       "size": "Minutes",
-      "evidence": "PR #38; migration 2026-10-calm-motion-default"
+      "evidence": "docs/performance/flicker-five-falsified-hypotheses.md; src/shared/flicker-census.ts"
     },
     {
       "id": "CB-2",
@@ -223,8 +223,8 @@
     },
     "CB-1": {
       "status": "approved",
-      "note": "BLOCKED ON YOU: your installed Crew is 0.7.6, which has neither candidate fix, so the experiment has never actually run. Install 0.7.8 (it carries all three) and report whether the jitter is gone.",
-      "at": "2026-10-01T22:11:27.572Z"
+      "note": "EXPERIMENT RAN, HYPOTHESIS DEAD. Observed 5 Oct on 0.7.8 (which carries all three fixes) with a live repro. The mascot-animation theory is falsified by the live store: settings have calmMotion=true AND migrations lists 2026-10-calm-motion-default, so the 0.7.7 fix is active on the machine that still flickers. Four more explanations were falsified the same way (WebGL contention, state-flap reorder, recency reorder, renderer OOM death -- crew-crash.log has ZERO render-process-gone in five weeks). No sixth fix was shipped: every one so far targeted a cause nobody had observed. Shipped instead: CREW_FLICKERLOG=1 census (src/shared/flicker-census.ts) which samples 4x/sec and logs only what MOVES, so the next repro names the layer -- or shows nothing moved, which would mean all five fixes were aimed at the wrong layer entirely. NEXT: run `CREW_FLICKERLOG=1 /Applications/Crew.app/Contents/MacOS/Crew`, repro for a minute, send the flicker-summary lines. Full writeup: docs/performance/flicker-five-falsified-hypotheses.md",
+      "at": "2026-10-05T20:50:21.679498Z"
     },
     "CB-3": {
       "status": "approved",
