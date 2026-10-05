@@ -6738,6 +6738,49 @@ button.grid-topbar__wordmark:hover {
   margin-top: 2px;
 }
 
+/* The archive: sessions put away rather than merely hidden. The only place in
+   Crew that can delete a session for good. */
+.modal--archive {
+  width: min(680px, 92vw);
+}
+.archive-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 48vh;
+  overflow-y: auto;
+}
+.archive-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+}
+.archive-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.archive-row__label {
+  font-size: 13px;
+}
+.archive-row__meta {
+  font-size: 12px;
+  color: var(--text-dim, #9aa0ab);
+  overflow-wrap: anywhere;
+}
+.archive-row__actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 /* Agent result drawer — a non-blocking right-side panel that streams a run. */
 .agent-run {
   position: fixed;

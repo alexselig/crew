@@ -652,6 +652,20 @@ function registerIpc(): void {
     if (req.sets && req.sets.length) rebuildAppMenu()
     return info
   })
+  ipcMain.handle(IPC.ARCHIVE_PUT, (_e, id: string) => manager.archive(id))
+  ipcMain.handle(IPC.ARCHIVE_RESTORE, (_e, id: string) => manager.unarchive(id))
+  ipcMain.handle(IPC.ARCHIVE_LIST, () =>
+    manager.listArchived().map((s) => ({
+      id: s.id,
+      label: s.label,
+      cwd: s.cwd,
+      tag: s.tag,
+      createdAt: s.createdAt ?? 0,
+      lastPromptAt: s.lastPromptAt ?? s.createdAt ?? 0,
+      archivedAt: s.archivedAt ?? 0
+    }))
+  )
+  ipcMain.handle(IPC.ARCHIVE_DELETE, (_e, id: string) => manager.deleteArchived(id))
   ipcMain.handle(IPC.SESSION_CLOSE, (_e, id: string) => {
     manager.close(id)
   })

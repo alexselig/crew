@@ -13,7 +13,8 @@ import type {
   Workspace,
   CustomView,
   Agent,
-  AgentRun
+  AgentRun,
+  ArchivedSessionInfo
 } from './types'
 import type {
   ConductorSnapshot,
@@ -98,6 +99,14 @@ export interface CrewAPI {
   getRecentDirs(): Promise<string[]>
   /** Native folder chooser; resolves to the chosen path, or null if cancelled. */
   pickDirectory(startIn?: string): Promise<string | null>
+  /** Put a session away: off the roster, not restored, but kept. */
+  archiveSessionToStore(id: string): Promise<boolean>
+  /** Bring an archived session back onto the roster, asleep. */
+  unarchiveSession(id: string): Promise<SessionInfo | null>
+  /** Archived sessions, newest first. */
+  listArchived(): Promise<ArchivedSessionInfo[]>
+  /** Delete an archived session permanently. */
+  deleteArchived(id: string): Promise<boolean>
   closeSession(id: string): Promise<void>
   restartSession(id: string): Promise<SessionInfo | null>
   rename(id: string, label: string): Promise<void>

@@ -229,6 +229,17 @@ export interface SessionInfo {
   appUrl?: string
 }
 
+/** A session in the archive: enough to list, identify and bring back. */
+export interface ArchivedSessionInfo {
+  id: string
+  label: string
+  cwd: string
+  tag?: string
+  createdAt: number
+  lastPromptAt: number
+  archivedAt: number
+}
+
 export type CustomViewMode = 'curated-only' | 'ranked-plus-all'
 
 /** How a custom view's composed sessions are laid out in the nav.
@@ -323,6 +334,13 @@ export const IPC = {
   HOME_DIR_GET: 'home:get',
   RECENT_DIRS_GET: 'recentDirs:get',
   DIR_PICK: 'dir:pick',
+  // The real session lifecycle. Namespaced under archive: to stay clear of
+  // SESSION_ARCHIVE below, which despite the name only removes a session from
+  // every workspace and leaves it fully live on the roster.
+  ARCHIVE_PUT: 'archive:put',
+  ARCHIVE_RESTORE: 'archive:restore',
+  ARCHIVE_LIST: 'archive:list',
+  ARCHIVE_DELETE: 'archive:delete',
   AGENTS_DETECT: 'agents:detect',
   SKILLS_LIST: 'skills:list',
   SETTINGS_GET: 'settings:get',

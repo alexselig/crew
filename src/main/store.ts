@@ -75,6 +75,8 @@ export interface PersistedSession {
   createdAt?: number
   /** Epoch ms of the user's last prompt, so 'recent' grouping survives restart. */
   lastPromptAt?: number
+  /** Epoch ms the session was archived, set only on entries in archivedSessions. */
+  archivedAt?: number
   /**
    * The last size the pane reported, so a restored session's agent spawns at
    * the width it will actually be drawn into. Without this every relaunch
@@ -112,6 +114,13 @@ interface StoreData {
   characters: Record<string, CharacterAssignment>
   settings: Settings
   recentDirs: string[]
+  /**
+   * Sessions the user has put away. Deliberately a separate list from
+   * `sessions`, not a flag on it: persistSessions() rebuilds `sessions` from
+   * the live session map, so an archived session (which by definition is not
+   * live) would be dropped from the store on the very next write.
+   */
+  archivedSessions: PersistedSession[]
   sessions: PersistedSession[]
   sets: SessionSet[]
   workspaces: Workspace[]
@@ -134,6 +143,7 @@ const EMPTY: StoreData = {
   characters: {},
   settings: { ...DEFAULT_SETTINGS },
   recentDirs: [],
+  archivedSessions: [],
   sessions: [],
   sets: [],
   workspaces: [],
@@ -578,7 +588,7 @@ function validSession(value: unknown, savedSet = false): boolean {
     (value.presetId === null || isString(value.presetId)) && isStrings(value.args) &&
     optionalFields(value, ['id', 'characterId', 'color', 'tag', 'description', 'agentSessionId', 'priorSessionId'], isString) &&
     optionalFields(value, ['sets', 'workspaceIds'], isStrings) &&
-    optionalFields(value, ['createdAt', 'lastPromptAt'], isNumber)
+    optionalFields(value, ['createdAt', 'lastPromptAt', 'archivedAt'], isNumber)
 }
 
 /** Validate before migrations, including stores where all migrations ran already.
@@ -589,6 +599,7 @@ function validateStore(raw: unknown): asserts raw is Partial<StoreData> {
     recentDirs: isString,
     migrations: isString,
     sessions: (value) => validSession(value),
+    archivedSessions: (value) => validSession(value),
     sets: (value) => isRecord(value) && isString(value.name) &&
       Array.isArray(value.sessions) && value.sessions.every((s) => validSession(s, true)),
     workspaces: (value) => isRecord(value) && isString(value.id) && isString(value.name) &&
@@ -782,6 +793,7 @@ export class Store {
         characters: {},
         recentDirs: [],
         sessions: [],
+        archivedSessions: [],
         sets: [],
         workspaces: [],
         customViews: [],
@@ -803,6 +815,7 @@ export class Store {
       settings: { ...DEFAULT_SETTINGS, ...(raw.settings ?? {}) },
       recentDirs: raw.recentDirs ?? [],
       sessions: raw.sessions ?? [],
+      archivedSessions: raw.archivedSessions ?? [],
       sets: raw.sets ?? [],
       workspaces: raw.workspaces ?? [],
       customViews: raw.customViews ?? [],
@@ -1141,6 +1154,40 @@ export class Store {
   /** The set of sessions to re-launch on next startup. */
   getSessions(): PersistedSession[] {
     return this.data.sessions
+  }
+
+  get archivedSessions(): PersistedSession[] {
+    return this.data.archivedSessions
+  }
+
+  /** Put a session away: it leaves the live roster and stops being restored. */
+  archiveSessionRecord(p: PersistedSession): void {
+    const without = this.data.archivedSessions.filter((s) => s.id !== p.id)
+    this.data.archivedSessions = [{ ...p, archivedAt: Date.now() }, ...without]
+    // Drop it from the live list in the same write. Callers do eventually
+    // rewrite that list wholesale, but if Crew quits in between, the session
+    // would come back on the next launch *and* still sit in the archive.
+    this.data.sessions = this.data.sessions.filter((s) => s.id !== p.id)
+    this.persist()
+  }
+
+  /** Take a session back out of the archive, returning it for restoring. */
+  unarchiveSessionRecord(id: string): PersistedSession | null {
+    const found = this.data.archivedSessions.find((s) => s.id === id)
+    if (!found) return null
+    this.data.archivedSessions = this.data.archivedSessions.filter((s) => s.id !== id)
+    this.persist()
+    const { archivedAt: _archivedAt, ...rest } = found
+    return rest
+  }
+
+  /** Delete an archived session for good. The only real delete Crew has. */
+  deleteArchivedSession(id: string): boolean {
+    const before = this.data.archivedSessions.length
+    this.data.archivedSessions = this.data.archivedSessions.filter((s) => s.id !== id)
+    if (this.data.archivedSessions.length === before) return false
+    this.persist()
+    return true
   }
 
   saveSessions(list: PersistedSession[]): void {

@@ -6,6 +6,7 @@ import { Roster } from './components/Roster'
 import { SessionView } from './components/SessionView'
 import { GridView } from './components/GridView'
 import { NewSessionModal } from './components/NewSessionModal'
+import { ArchiveModal } from './components/ArchiveModal'
 import { SettingsModal } from './components/SettingsModal'
 import { BroadcastModal } from './components/BroadcastModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
@@ -55,6 +56,7 @@ export function App(): JSX.Element {
   const [showBroadcast, setShowBroadcast] = useState(false)
   const [invokeAgentId, setInvokeAgentId] = useState<string | null>(null)
   const [showTranscripts, setShowTranscripts] = useState(false)
+  const [showArchive, setShowArchive] = useState(false)
   // Conductor: a blank composer (new workspace, no plan) and an agent-plan
   // document loaded from disk are two distinct entry points — see
   // ConductorComposer.tsx's own header comment on why the plan view and the
@@ -185,6 +187,11 @@ export function App(): JSX.Element {
 
   function close(id: string): void {
     void window.crew.closeSession(id)
+  }
+
+  /** Put a session away: off the roster, not restored, but kept and reversible. */
+  function archive(id: string): void {
+    void window.crew.archiveSessionToStore(id)
   }
 
   // Bring a session into focus view (used by "Needs you" buttons + tile expand).
@@ -366,6 +373,22 @@ export function App(): JSX.Element {
     })
     const actions: PaletteItem[] = [
       { id: 'act-new', label: 'New Session', icon: <Icon name="plus" />, hint: '⌘N', run: () => c.setShowNew(true) },
+      {
+        id: 'act-archive-open',
+        label: 'Open Archive',
+        icon: <Icon name="box" />,
+        run: () => setShowArchive(true)
+      },
+      ...(c.selectedId
+        ? [
+            {
+              id: 'act-archive-session',
+              label: 'Archive Current Session',
+              icon: <Icon name="box" />,
+              run: () => archive(c.selectedId as string)
+            }
+          ]
+        : []),
       {
         id: 'act-window',
         label: 'New Window',
@@ -653,6 +676,13 @@ export function App(): JSX.Element {
           }}
           onCancel={() => c.setShowNew(false)}
           onCreate={create}
+        />
+      )}
+
+      {showArchive && (
+        <ArchiveModal
+          onClose={() => setShowArchive(false)}
+          onRestored={(id) => c.navigateToSession(id)}
         />
       )}
 
