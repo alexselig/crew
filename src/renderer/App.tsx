@@ -646,6 +646,11 @@ export function App(): JSX.Element {
           groups={existingGroups(c.roster)}
           workspaces={c.workspaces}
           defaultWorkspaceIds={defaultWorkspaceIds}
+          sessions={c.roster}
+          onResume={(id) => {
+            c.setShowNew(false)
+            c.navigateToSession(id)
+          }}
           onCancel={() => c.setShowNew(false)}
           onCreate={create}
         />

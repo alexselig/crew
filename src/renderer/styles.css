@@ -6687,6 +6687,37 @@ button.grid-topbar__wordmark:hover {
   font-size: 12px;
 }
 
+/* Resume offer — shown in New Session when the label or folder already has a
+   session, so a second run at the same job is a choice rather than an accident. */
+.resume-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(95, 121, 255, 0.1);
+  border: 1px solid rgba(95, 121, 255, 0.32);
+}
+.resume-offer__lead {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim, #9aa0ab);
+}
+.resume-offer__detail {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.resume-offer__meta {
+  color: var(--text-dim, #9aa0ab);
+  font-size: 12px;
+}
+.resume-offer__action {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
 /* Agent result drawer — a non-blocking right-side panel that streams a run. */
 .agent-run {
   position: fixed;

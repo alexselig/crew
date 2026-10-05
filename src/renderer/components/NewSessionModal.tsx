@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
-import type { Preset, CreateSessionRequest, SessionSet, Workspace } from '../../shared/types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Preset, CreateSessionRequest, SessionSet, Workspace, SessionInfo } from '../../shared/types'
 import type { AgentStatus } from '../../shared/api'
 import { SessionSetChips } from './SessionSetChips'
 import { Icon } from './Icon'
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
 import {
+  findResumeCandidate,
   getCopilotLaunchArgs,
-  getCopilotModelSelection
+  getCopilotModelSelection,
+  type ResumeCandidate
 } from '../new-session-model'
 
 interface Props {
@@ -19,6 +21,10 @@ interface Props {
   workspaces?: Workspace[]
   /** Workspace ids to pre-select (e.g. the active workspace filter). */
   defaultWorkspaceIds?: string[]
+  /** Existing roster, used to spot that this job already has a session. */
+  sessions?: SessionInfo[]
+  /** Focus an existing session instead of creating a duplicate. */
+  onResume?: (sessionId: string) => void
   onCancel: () => void
   onCreate: (req: CreateSessionRequest) => void | Promise<void>
 }
@@ -32,6 +38,8 @@ export function NewSessionModal({
   groups = [],
   workspaces = [],
   defaultWorkspaceIds = [],
+  sessions = [],
+  onResume,
   onCancel,
   onCreate
 }: Props): JSX.Element {
@@ -141,6 +149,11 @@ export function NewSessionModal({
   const modelOk = !isCopilot || modelSelection.valid
   const canCreate = cwdOk && commandOk && modelOk && !creating
 
+  const resume = useMemo(
+    () => findResumeCandidate({ label, cwd }, sessions, homeDir),
+    [label, cwd, sessions, homeDir]
+  )
+
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
     if (!canCreate) return
@@ -196,6 +209,26 @@ export function NewSessionModal({
             onChange={(e) => setLabel(e.target.value)}
           />
         </label>
+
+        {resume && onResume && (
+          <div className="resume-offer" role="status">
+            <p className="resume-offer__lead">
+              You already have a session for{' '}
+              {resume.reason === 'directory' ? 'this folder' : 'this job'}.
+            </p>
+            <p className="resume-offer__detail">
+              <strong>{resume.session.label || 'Untitled session'}</strong>
+              <span className="resume-offer__meta">{describeResume(resume)}</span>
+            </p>
+            <button
+              type="button"
+              className="btn btn--primary resume-offer__action"
+              onClick={() => onResume(resume.session.id)}
+            >
+              Resume it
+            </button>
+          </div>
+        )}
 
         <div className="sets">
           <span className="field__label">Group</span>
@@ -458,8 +491,8 @@ export function NewSessionModal({
           <button type="button" className="btn" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" className="btn btn--primary" disabled={!canCreate}>
-            {creating ? 'Launching…' : 'Launch'}
+          <button type="submit" className={resume && onResume ? 'btn' : 'btn btn--primary'} disabled={!canCreate}>
+            {creating ? 'Launching…' : resume && onResume ? 'Create a new one anyway' : 'Launch'}
           </button>
         </div>
       </form>
@@ -476,4 +509,18 @@ function tokenize(input: string): string[] {
     out.push(m[1] ?? m[2] ?? m[3] ?? '')
   }
   return out
+}
+
+/** One line explaining why a session was nominated, and how cold it is. */
+function describeResume(candidate: ResumeCandidate): string {
+  const why =
+    candidate.reason === 'directory'
+      ? 'same folder'
+      : candidate.reason === 'label'
+        ? 'same name'
+        : 'same name and folder'
+  const touched = candidate.session.lastPromptAt ?? candidate.session.createdAt
+  const days = Math.floor((Date.now() - touched) / 86400000)
+  const when = days <= 0 ? 'used today' : days === 1 ? 'used yesterday' : `last used ${days} days ago`
+  return ` — ${why}, ${when}`
 }

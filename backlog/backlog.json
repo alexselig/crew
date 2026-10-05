@@ -292,9 +292,9 @@
       "at": "2026-10-03T01:35:46.721Z"
     },
     "CB-17": {
-      "status": "approved",
-      "note": "",
-      "at": "2026-10-03T01:36:15.993Z"
+      "status": "done",
+      "note": "findResumeCandidate in new-session-model.ts (11 tests); New Session shows a resume offer and demotes Launch to \"Create a new one anyway\". Resume uses navigateToSession so a stale-hidden duplicate is actually revealed. Directory matching ignores $HOME, or all 131 sessions would match.",
+      "at": "2026-10-05T05:07:23.652Z"
     },
     "CB-18": {
       "status": "declined",
