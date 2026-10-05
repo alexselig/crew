@@ -277,9 +277,9 @@
       "at": "2026-10-05T05:11:29.157Z"
     },
     "CB-14": {
-      "status": null,
-      "note": "can we restore on session selection and reccency? Like restore items used in last week and then the rest restore when user clicks on the session?",
-      "at": "2026-10-03T01:34:36.014Z"
+      "status": "done",
+      "at": "2026-10-05T05:12:17.014Z",
+      "note": "Closed as already implemented, not rebuilt. session-manager.ts restore() passes defer:true for every session, create() then parks it ASLEEP with no process/terminal/output, and wake() starts it when a tile is opened or typed into. That is exactly the requested restore-on-click, and stronger than the cards eager-for-last-week variant since nothing is eagerly started at all. The residual cost the card attributes to restore is roster size, which is CB-15."
     },
     "CB-15": {
       "status": "approved",
