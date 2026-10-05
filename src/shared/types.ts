@@ -321,6 +321,8 @@ export const IPC = {
   PRESETS_GET: 'presets:get',
   CHARACTERS_GET: 'characters:get',
   HOME_DIR_GET: 'home:get',
+  RECENT_DIRS_GET: 'recentDirs:get',
+  DIR_PICK: 'dir:pick',
   AGENTS_DETECT: 'agents:detect',
   SKILLS_LIST: 'skills:list',
   SETTINGS_GET: 'settings:get',

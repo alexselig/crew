@@ -272,9 +272,9 @@
       "at": "2026-10-01T22:11:27.644Z"
     },
     "CB-13": {
-      "status": "approved",
-      "note": "",
-      "at": "2026-10-03T01:32:53.274Z"
+      "status": "done",
+      "note": "Root cause was sharper than the card: there was no folder chooser anywhere in Crew (setting cwd meant typing an absolute path), and store.addRecentDir had zero callers so recentDirs could never fill. Added a native picker (IPC dir:pick), wired addRecentDir on create, exposed recentDirs over IPC, added recent-folder chips and a label-driven suggestion. 12 new tests.",
+      "at": "2026-10-05T05:11:29.157Z"
     },
     "CB-14": {
       "status": null,

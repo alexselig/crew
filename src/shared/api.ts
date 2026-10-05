@@ -94,6 +94,10 @@ export interface CustomViewCreateResult {
 export interface CrewAPI {
   // request/response
   createSession(req: CreateSessionRequest): Promise<SessionInfo>
+  /** Recently used project directories, most recent first (never includes $HOME). */
+  getRecentDirs(): Promise<string[]>
+  /** Native folder chooser; resolves to the chosen path, or null if cancelled. */
+  pickDirectory(startIn?: string): Promise<string | null>
   closeSession(id: string): Promise<void>
   restartSession(id: string): Promise<SessionInfo | null>
   rename(id: string, label: string): Promise<void>

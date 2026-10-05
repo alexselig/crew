@@ -232,6 +232,8 @@ const crew: CrewAPI = {
   getPresets: async () => presets.map((preset) => ({ ...preset, args: [...preset.args] })),
   getCharacters: async () => characters.map((character) => ({ ...character })),
   getHomeDir: async () => '/tmp',
+  getRecentDirs: async () => [],
+  pickDirectory: async () => null,
   detectAgents: async () => [],
   listCopilotModels: async () => ({ models: [], source: 'cli' }),
   listSkills: async () => [],

@@ -6,10 +6,12 @@ import { Icon } from './Icon'
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
 import {
   findResumeCandidate,
+  suggestCwd,
   getCopilotLaunchArgs,
   getCopilotModelSelection,
   type ResumeCandidate
 } from '../new-session-model'
+import { trimDir } from '../../shared/project-dir'
 
 interface Props {
   presets: Preset[]
@@ -45,6 +47,9 @@ export function NewSessionModal({
 }: Props): JSX.Element {
   const [presetId, setPresetId] = useState<string>(presets[0]?.id ?? CUSTOM)
   const [cwd, setCwd] = useState<string>(defaultCwd || homeDir)
+  // Once the user picks or types a directory, stop suggesting over the top of them.
+  const [cwdTouched, setCwdTouched] = useState<boolean>(Boolean(defaultCwd))
+  const [recentDirs, setRecentDirs] = useState<string[]>([])
   const [model, setModel] = useState(DEFAULT_COPILOT_MODEL)
   const [catalog, setCatalog] = useState<CopilotModelCatalog | null>(null)
   const [creating, setCreating] = useState(false)
@@ -125,6 +130,23 @@ export function NewSessionModal({
   useEffect(() => {
     setCwd((cur) => cur || homeDir)
   }, [homeDir])
+
+  useEffect(() => {
+    let live = true
+    void window.crew.getRecentDirs().then((dirs) => {
+      if (live) setRecentDirs(dirs)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  // Suggest the folder this label was last worked in, else the most recent
+  // project folder. Only while the user has not chosen one themselves.
+  useEffect(() => {
+    if (cwdTouched) return
+    setCwd(suggestCwd(label, sessions, recentDirs, homeDir))
+  }, [label, sessions, recentDirs, homeDir, cwdTouched])
 
   useEffect(() => {
     if (presets.length && presetId === CUSTOM && presets[0]) setPresetId(presets[0].id)
@@ -392,14 +414,55 @@ export function NewSessionModal({
 
         <label className="field">
           <span className="field__label">Working directory</span>
-          <input
-            aria-label="Working directory"
-            className="field__input"
-            placeholder={homeDir}
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-          />
+          <div className="cwd-row">
+            <input
+              aria-label="Working directory"
+              className="field__input"
+              placeholder={homeDir}
+              value={cwd}
+              onChange={(e) => {
+                setCwdTouched(true)
+                setCwd(e.target.value)
+              }}
+            />
+            <button
+              type="button"
+              className="btn cwd-row__browse"
+              onClick={async () => {
+                const picked = await window.crew.pickDirectory(cwd || homeDir)
+                if (picked) {
+                  setCwdTouched(true)
+                  setCwd(picked)
+                }
+              }}
+            >
+              Choose…
+            </button>
+          </div>
         </label>
+
+        {recentDirs.length > 0 && (
+          <div className="sets cwd-recents">
+            <span className="field__label">Recent folders</span>
+            <div className="ws-picker">
+              {recentDirs.map((dir) => (
+                <button
+                  key={dir}
+                  type="button"
+                  className={`ws-chip ${trimDir(cwd) === trimDir(dir) ? 'is-on' : ''}`}
+                  aria-pressed={trimDir(cwd) === trimDir(dir)}
+                  title={dir}
+                  onClick={() => {
+                    setCwdTouched(true)
+                    setCwd(dir)
+                  }}
+                >
+                  {basename(dir)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {isCustom && (
           <>
@@ -523,4 +586,10 @@ function describeResume(candidate: ResumeCandidate): string {
   const days = Math.floor((Date.now() - touched) / 86400000)
   const when = days <= 0 ? 'used today' : days === 1 ? 'used yesterday' : `last used ${days} days ago`
   return ` — ${why}, ${when}`
+}
+
+/** Last path segment, for a compact recent-folder chip ("crew", not the full path). */
+function basename(dir: string): string {
+  const parts = trimDir(dir).split('/').filter(Boolean)
+  return parts[parts.length - 1] ?? dir
 }

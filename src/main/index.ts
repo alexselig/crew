@@ -16,6 +16,7 @@ import { SessionManager } from './session-manager'
 import { ensureCrewHookDir } from './crew-hook'
 import { AssetWatchers } from './assets'
 import { assetMime } from '../shared/assets'
+import { isProjectDir, trimDir } from '../shared/project-dir'
 import { CrewTray } from './tray'
 import { isMac } from './platform'
 import { Store } from './store'
@@ -643,6 +644,10 @@ function wireManager(): void {
 function registerIpc(): void {
   ipcMain.handle(IPC.SESSION_CREATE, (_e, req: CreateSessionRequest) => {
     const info = manager.create(req)
+    // Remember real project directories so the next session in the same
+    // project is one click. Home is deliberately never recorded -- it is the
+    // fallback when nobody chose, and recording it would bury real projects.
+    if (isProjectDir(info.cwd, homedir())) store.addRecentDir(trimDir(info.cwd))
     // A new session may introduce new workspace names → refresh the menu flyout.
     if (req.sets && req.sets.length) rebuildAppMenu()
     return info
@@ -676,6 +681,19 @@ function registerIpc(): void {
   ipcMain.handle(IPC.COPILOT_MODELS_LIST, () => listCopilotModels())
   ipcMain.handle(IPC.CHARACTERS_GET, () => CHARACTERS)
   ipcMain.handle(IPC.HOME_DIR_GET, () => homedir())
+  ipcMain.handle(IPC.RECENT_DIRS_GET, () => store.recentDirs)
+  // Before this existed there was no folder chooser anywhere in Crew: picking a
+  // working directory meant typing an absolute path into a bare text field,
+  // which is why all 131 sessions in the store launched in $HOME.
+  ipcMain.handle(IPC.DIR_PICK, async (_e, startIn?: string) => {
+    const win = focusedWindow()
+    const opts = {
+      properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'>,
+      defaultPath: startIn && startIn.trim() ? startIn : homedir()
+    }
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
+  })
   ipcMain.handle(IPC.AGENTS_DETECT, (): AgentStatus[] =>
     builtinPresets().map((p) => {
       const path = whichSync(p.command)

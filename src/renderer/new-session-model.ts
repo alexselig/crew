@@ -5,6 +5,9 @@ import {
 } from '../shared/copilot-models'
 import type { LaneAgent } from '../shared/conductor'
 import type { SessionInfo } from '../shared/types'
+import { isProjectDir, trimDir } from '../shared/project-dir'
+
+export { isProjectDir } from '../shared/project-dir'
 
 export interface CopilotModelSelection {
   visible: boolean
@@ -113,4 +116,33 @@ export function findResumeCandidate(
     }
   }
   return best
+}
+
+/**
+ * The directory a new session should start in.
+ *
+ * Preference order: the directory this same label was last worked in, then
+ * the most recent project directory, then home. Prior sessions that only ever
+ * ran in home are ignored — all of them currently are — otherwise the
+ * suggestion would always be home and the field would stay as invisible as it
+ * is today.
+ */
+export function suggestCwd(
+  label: string,
+  sessions: readonly SessionInfo[],
+  recentDirs: readonly string[],
+  homeDir: string
+): string {
+  const want = normalizeLabel(label)
+  if (want.length > 0) {
+    let best: SessionInfo | null = null
+    for (const s of sessions) {
+      if (normalizeLabel(s.label) !== want) continue
+      if (!isProjectDir(s.cwd, homeDir)) continue
+      if (best === null || lastTouched(s) > lastTouched(best)) best = s
+    }
+    if (best) return trimDir(best.cwd)
+  }
+  const recent = recentDirs.find((d) => isProjectDir(d, homeDir))
+  return recent ? trimDir(recent) : homeDir
 }
