@@ -102,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   budgetUsd: 0,
   inputTokenWarn: 100000,
   captureTranscripts: false,
+  usageInsights: false,
   staleHideHours: 72,
   minimizedAsList: true,
   enhancedTerminal: false,

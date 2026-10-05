@@ -302,8 +302,8 @@
       "at": "2026-10-03T01:36:39.588Z"
     },
     "CB-20": {
-      "status": "approved",
-      "note": "",
+      "status": "done",
+      "note": "Done. UsageLog writes append-only JSONL to <userData>/crew-usage.jsonl. Off by default and silent while off - it does not even create the file, since an opt-in feature that still leaves artefacts on disk is not opt-in. 'Never prompt or terminal content' is enforced structurally rather than promised: there is no field anywhere that accepts free text. Events come from a fixed list, values from a per-event allow-list, and ms/n must be finite numbers; everything else is dropped. Prompts are counted on submit (\\r), never per keystroke, which would be both noise and a content proxy. Consent lives in Settings (usageInsights) and takes effect immediately in both directions. 'Your Usage' panel in the command palette shows the user their own numbers, the log's path so the claims can be checked rather than believed, and a one-click wipe that deliberately does not revoke consent. Verified no network call and no analytics dependency exists in the new code or package.json. Note: distinct from the pre-existing usage-analytics.ts, which reads the Copilot CLI's own token/spend DB. Wiring the renderer directly to the bridge broke 9 renderer tests, so renderer/usage.ts now swallows a missing or failing bridge - a counter must never break the UI. 33 tests.",
       "at": "2026-10-03T01:37:23.860Z"
     },
     "CB-21": {

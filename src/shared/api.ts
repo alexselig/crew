@@ -14,7 +14,8 @@ import type {
   CustomView,
   Agent,
   AgentRun,
-  ArchivedSessionInfo
+  ArchivedSessionInfo,
+  UsageSummaryInfo
 } from './types'
 import type {
   ConductorSnapshot,
@@ -107,6 +108,12 @@ export interface CrewAPI {
   listArchived(): Promise<ArchivedSessionInfo[]>
   /** Delete an archived session permanently. */
   deleteArchived(id: string): Promise<boolean>
+  /** Your own usage numbers, read from the local log. Empty unless opted in. */
+  getUsageSummary(): Promise<UsageSummaryInfo>
+  /** Count one thing. A no-op unless the user has opted in. */
+  recordUsage(event: string, fields?: { ms?: number; n?: number; v?: string }): Promise<void>
+  /** Delete the local usage log. Does not change consent. */
+  wipeUsage(): Promise<void>
   closeSession(id: string): Promise<void>
   restartSession(id: string): Promise<SessionInfo | null>
   rename(id: string, label: string): Promise<void>

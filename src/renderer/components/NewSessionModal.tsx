@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Preset, CreateSessionRequest, SessionSet, Workspace, SessionInfo } from '../../shared/types'
 import type { AgentStatus } from '../../shared/api'
+import { countUsage } from '../usage'
 import { SessionSetChips } from './SessionSetChips'
 import { Icon } from './Icon'
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
@@ -176,6 +177,13 @@ export function NewSessionModal({
     [label, cwd, sessions, homeDir]
   )
 
+  // Whether a resume offer gets taken is a question nothing else in Crew can
+  // answer. Counted once per distinct candidate, and only if the user opted in.
+  const offeredId = resume && onResume ? resume.session.id : null
+  useEffect(() => {
+    if (offeredId) countUsage('resume.offered')
+  }, [offeredId])
+
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
     if (!canCreate) return
@@ -208,6 +216,7 @@ export function NewSessionModal({
     setCreating(true)
     setCreateError(null)
     try {
+      if (offeredId) countUsage('resume.dismissed')
       await onCreate(req)
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : String(error))
@@ -245,7 +254,10 @@ export function NewSessionModal({
             <button
               type="button"
               className="btn btn--primary resume-offer__action"
-              onClick={() => onResume(resume.session.id)}
+              onClick={() => {
+              countUsage('resume.accepted')
+              onResume(resume.session.id)
+            }}
             >
               Resume it
             </button>

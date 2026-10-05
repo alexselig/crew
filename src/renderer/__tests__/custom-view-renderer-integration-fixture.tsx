@@ -27,6 +27,7 @@ const defaultSettings: Settings = {
   budgetUsd: 0,
   inputTokenWarn: 100000,
   captureTranscripts: false,
+  usageInsights: false,
   staleHideHours: 72,
   minimizedAsList: true,
   enhancedTerminal: false,
@@ -238,6 +239,11 @@ const crew: CrewAPI = {
   unarchiveSession: async () => null,
   listArchived: async () => [],
   deleteArchived: async () => true,
+  getUsageSummary: async () => ({
+    events: 0, totals: {}, views: {}, dwellMs: 0, since: null, days: 0, path: '', enabled: false
+  }),
+  recordUsage: async () => undefined,
+  wipeUsage: async () => undefined,
   detectAgents: async () => [],
   listCopilotModels: async () => ({ models: [], source: 'cli' }),
   listSkills: async () => [],
