@@ -3,6 +3,64 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.9 — 2026-10-05
+
+### Added
+
+- **Pick a session's folder instead of typing it.** The working directory now
+  has a native folder chooser, the projects you launch in most come back as
+  one-click chips, and naming a session after a project you have used before
+  fills the directory in for you. This was not a polish problem: there was no
+  directory picker anywhere in Crew, so setting a working directory meant
+  typing an absolute path into a bare text box, and the "recent directories"
+  store had no code path that ever wrote to it, so it could never fill. An
+  agent started in the wrong directory cannot see your code, which makes this
+  the difference between a working session and a useless one.
+
+- **Crew offers to resume instead of silently duplicating.** Starting a session
+  that matches one you already have — same label, same folder, or both — now
+  says so and offers to reopen the existing session with its conversation
+  intact. Starting over throws that context away, so resume is the main action
+  and `Create a new one anyway` is the alternative. The offer reopens the
+  session even when it had aged out of the visible roster, which is exactly
+  when you are most likely to forget it exists and start again from scratch.
+
+- **A real archive for finished sessions.** `Archive Current Session` takes a
+  session off the roster and out of launch restore while keeping its
+  conversation; `Open Archive` lists what you have put away, with Restore and a
+  permanent Delete. Crew already had something called archiving, but it only
+  removed a session from every workspace and left it fully live — true of most
+  of the roster — so this is a genuine lifecycle with an exit rather than a
+  second way of hiding things. Delete is the only irreversible action in Crew
+  and confirms first.
+
+- **Opt-in usage insights, and a panel that shows them to you.** Crew can count
+  how you work — sessions started, prompts submitted, which view you live in,
+  time spent in a session, whether you took a resume offer — and show it back
+  under `Your Usage`. Off by default and silent while off: until you switch it
+  on it records nothing and does not even create the file. Counts and durations
+  only, enforced by the format rather than promised: nothing in it accepts free
+  text, so your prompts and terminal output cannot be recorded even by
+  accident. Nothing is sent anywhere — there is no analytics dependency and no
+  network call — and you can read the file at the path Crew shows you, or wipe
+  it in one click. Wiping does not switch it off, and switching it off does not
+  wipe it.
+
+### Fixed
+
+- **An archived session could come back from the dead.** Archiving added the
+  session to the archive without removing it from the live list in the same
+  write. The live list is rebuilt shortly afterwards, so this was invisible in
+  normal use — but quitting Crew in between would restore the session on next
+  launch while it also sat in the archive. Both lists are now written together.
+
+### Changed
+
+- The privacy policy and field guide now describe usage insights explicitly.
+  Crew still never sends anything anywhere, and that claim was re-verified
+  against the source, but "no usage tracking" was no longer precise once you
+  could switch on a local counter, so the site says what is actually true.
+
 ## 0.7.8 — 2026-10-02
 
 ### Fixed

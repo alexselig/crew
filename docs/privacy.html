@@ -93,7 +93,8 @@
 
   <section class="doc">
     <h2>What we collect</h2>
-    <p><b>Nothing.</b> Crew does not collect, transmit, store, or sell any personal information. There is no sign-up or account, no usage tracking, no analytics, and no crash reporting. Crew has no backend server of its own — there is nowhere for your data to go.</p>
+    <p><b>Nothing.</b> Crew does not collect, transmit, store, or sell any personal information. There is no sign-up or account, no analytics, and no crash reporting. Crew has no backend server of its own — there is nowhere for your data to go.</p>
+    <p>Crew can count how <i>you</i> use it, but only if you switch that on yourself, and the numbers never leave your Mac. See <a href="#usage">Usage insights</a> below.</p>
   </section>
 
   <section class="doc">
@@ -102,6 +103,7 @@
     <ul>
       <li>Your sessions and their terminal input and output</li>
       <li>Transcripts you choose to save</li>
+      <li>Usage counts, if you switch on usage insights</li>
       <li>Settings, workspaces, and character/color assignments</li>
       <li>Any API keys or credentials used by the command-line tools you launch</li>
     </ul>
@@ -111,6 +113,19 @@
   <section class="doc">
     <h2>No telemetry, no phone-home</h2>
     <p>Crew contains no analytics or telemetry code, and does not automatically update or contact us to check for new versions. The <b>Activity &amp; spend</b> view inside Crew is computed locally from your own sessions — it is not sent anywhere.</p>
+  </section>
+
+  <section class="doc" id="usage">
+    <h2>Usage insights (off by default)</h2>
+    <p>Crew can keep a count of how you use it, so you can see your own numbers: sessions started, prompts submitted, which view you work in, how long you spend in a session, and whether you took a resume offer. This is <b>off unless you turn it on</b>, in Settings.</p>
+    <p>While it is off, Crew records nothing at all and does not even create the file.</p>
+    <p>When it is on, Crew appends counts and durations to a plain text file in its own support folder, and that is the whole of it:</p>
+    <ul>
+      <li><b>It never records your prompts, your terminal output, or your file contents.</b> There is no field in the format that can hold free text, so there is nowhere for that content to go even by accident.</li>
+      <li>It is never uploaded. Crew has no analytics service and makes no network request to record or report any of this.</li>
+      <li>You can read the file yourself — Crew shows you its exact path — and delete it in one click from <b>Your Usage</b>, in the command palette.</li>
+    </ul>
+    <p>The point of the feature is to show you your own numbers. Nobody else ever sees them.</p>
   </section>
 
   <section class="doc">
