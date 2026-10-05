@@ -16,8 +16,10 @@ import { SessionManager } from './session-manager'
 import { ensureCrewHookDir } from './crew-hook'
 import { AssetWatchers } from './assets'
 import { assetMime } from '../shared/assets'
+import { isProjectDir, trimDir } from '../shared/project-dir'
 import { CrewTray } from './tray'
 import { isMac } from './platform'
+import { UsageLog, type UsageEvent, type UsageFields } from './usage-log'
 import { Store } from './store'
 import { TranscriptRecorder } from './transcripts'
 import { builtinPresets, getPreset } from './presets'
@@ -107,6 +109,33 @@ function crashLog(kind: string, detail: string): void {
     /* best effort */
   }
   console.error('[crew]', kind, detail)
+}
+
+// Opt-in, local-only usage insights (CB-20). Distinct from usage-analytics.ts,
+// which reads the Copilot CLI's own token/spend database; this counts how *Crew*
+// is used, records nothing but counters and durations, and is off by default.
+let usage: UsageLog | null = null
+function usageLog(): UsageLog {
+  if (!usage) {
+    let dir = tmpdir()
+    try {
+      dir = app.getPath('userData')
+    } catch {
+      /* before ready */
+    }
+    usage = new UsageLog(join(dir, 'crew-usage.jsonl'), {
+      enabled: store.settings.usageInsights === true
+    })
+  }
+  return usage
+}
+/** Count one thing, if and only if the user has opted in. Never throws. */
+function countUsage(event: UsageEvent, fields: UsageFields = {}): void {
+  try {
+    usageLog().record(event, fields)
+  } catch {
+    /* insights are never worth interrupting work for */
+  }
 }
 
 process.on('uncaughtException', (err) => crashLog('uncaughtException', (err && err.stack) || String(err)))
@@ -643,12 +672,47 @@ function wireManager(): void {
 function registerIpc(): void {
   ipcMain.handle(IPC.SESSION_CREATE, (_e, req: CreateSessionRequest) => {
     const info = manager.create(req)
+    // Remember real project directories so the next session in the same
+    // project is one click. Home is deliberately never recorded -- it is the
+    // fallback when nobody chose, and recording it would bury real projects.
+    if (isProjectDir(info.cwd, homedir())) store.addRecentDir(trimDir(info.cwd))
     // A new session may introduce new workspace names → refresh the menu flyout.
     if (req.sets && req.sets.length) rebuildAppMenu()
+    countUsage('session.created')
     return info
+  })
+  ipcMain.handle(IPC.ARCHIVE_PUT, (_e, id: string) => {
+    const ok = manager.archive(id)
+    if (ok) countUsage('session.archived')
+    return ok
+  })
+  ipcMain.handle(IPC.ARCHIVE_RESTORE, (_e, id: string) => manager.unarchive(id))
+  ipcMain.handle(IPC.ARCHIVE_LIST, () =>
+    manager.listArchived().map((s) => ({
+      id: s.id,
+      label: s.label,
+      cwd: s.cwd,
+      tag: s.tag,
+      createdAt: s.createdAt ?? 0,
+      lastPromptAt: s.lastPromptAt ?? s.createdAt ?? 0,
+      archivedAt: s.archivedAt ?? 0
+    }))
+  )
+  ipcMain.handle(IPC.ARCHIVE_DELETE, (_e, id: string) => manager.deleteArchived(id))
+  // Usage insights: read your own numbers, add to them, or wipe them. Local only.
+  ipcMain.handle(IPC.USAGE_SUMMARY, () => {
+    const log = usageLog()
+    return { ...log.summary(), path: log.path, enabled: log.enabled }
+  })
+  ipcMain.handle(IPC.USAGE_RECORD, (_e, event: UsageEvent, fields: UsageFields = {}) => {
+    countUsage(event, fields)
+  })
+  ipcMain.handle(IPC.USAGE_WIPE, () => {
+    usageLog().wipe()
   })
   ipcMain.handle(IPC.SESSION_CLOSE, (_e, id: string) => {
     manager.close(id)
+    countUsage('session.closed', { v: 'closed' })
   })
   ipcMain.handle(IPC.SESSION_RESTART, (_e, id: string) => manager.restart(id))
   ipcMain.handle(IPC.SESSION_RENAME, (_e, p: { id: string; label: string }) =>
@@ -676,6 +740,19 @@ function registerIpc(): void {
   ipcMain.handle(IPC.COPILOT_MODELS_LIST, () => listCopilotModels())
   ipcMain.handle(IPC.CHARACTERS_GET, () => CHARACTERS)
   ipcMain.handle(IPC.HOME_DIR_GET, () => homedir())
+  ipcMain.handle(IPC.RECENT_DIRS_GET, () => store.recentDirs)
+  // Before this existed there was no folder chooser anywhere in Crew: picking a
+  // working directory meant typing an absolute path into a bare text field,
+  // which is why all 131 sessions in the store launched in $HOME.
+  ipcMain.handle(IPC.DIR_PICK, async (_e, startIn?: string) => {
+    const win = focusedWindow()
+    const opts = {
+      properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'>,
+      defaultPath: startIn && startIn.trim() ? startIn : homedir()
+    }
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
+  })
   ipcMain.handle(IPC.AGENTS_DETECT, (): AgentStatus[] =>
     builtinPresets().map((p) => {
       const path = whichSync(p.command)
@@ -697,6 +774,9 @@ function registerIpc(): void {
     // it on every unrelated settings edit is a redundant system call (and errors
     // noisily under a sandbox / managed Mac).
     if ('launchAtLogin' in patch) applyLoginItem(next.launchAtLogin)
+    // Consent takes effect immediately, in both directions: switching it off
+    // must stop the very next event from being written.
+    if ('usageInsights' in patch) usageLog().setEnabled(next.usageInsights === true)
     return next
   })
   ipcMain.handle(IPC.SETS_GET, () => store.sets)
@@ -933,6 +1013,7 @@ function registerIpc(): void {
     const s = p.sessionId ? manager.roster().find((x) => x.id === p.sessionId) : null
     const cwd = s?.cwd ?? ''
     if (!cwd || cwd === homedir()) return errRun('Pick a session with a project folder to run against.')
+    countUsage('agent.invoked')
     return agentRunner.run(agent, { sessionId: p.sessionId, cwd, task: p.task })
   })
   ipcMain.handle(IPC.AGENT_RUN_CANCEL, (_e, runId: string) => agentRunner.cancel(runId))
@@ -955,6 +1036,9 @@ function registerIpc(): void {
 
   ipcMain.on(IPC.SESSION_INPUT, (_e, p: { id: string; data: string }) => {
     tray?.acknowledge(p.id)
+    // A submitted prompt, not a keystroke: counting keypresses would be both
+    // noise and a proxy for content. Only the count is recorded, never the text.
+    if (p.data.includes('\r')) countUsage('session.prompt')
     manager.input(p.id, p.data)
   })
   ipcMain.on(IPC.SESSION_WAKE, (_e, id: string) => manager.wake(id))

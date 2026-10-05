@@ -4,6 +4,7 @@
 
 interface IconProps {
   name:
+    | 'box'
     | 'tag'
     | 'broadcast'
     | 'chart'
@@ -38,6 +39,13 @@ interface IconProps {
 }
 
 const PATHS: Record<IconProps['name'], JSX.Element> = {
+  // A lidded box: the archive, where sessions are put away rather than hidden.
+  box: (
+    <>
+      <rect x="3" y="7" width="18" height="13" rx="1.5" />
+      <path d="M2 4.5h20V7H2zM10 11h4" />
+    </>
+  ),
   tag: (
     <>
       <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L3 13V3h10l7.59 7.59a2 2 0 0 1 0 2.82Z" />

@@ -6687,6 +6687,173 @@ button.grid-topbar__wordmark:hover {
   font-size: 12px;
 }
 
+/* Resume offer — shown in New Session when the label or folder already has a
+   session, so a second run at the same job is a choice rather than an accident. */
+.resume-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(95, 121, 255, 0.1);
+  border: 1px solid rgba(95, 121, 255, 0.32);
+}
+.resume-offer__lead {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim, #9aa0ab);
+}
+.resume-offer__detail {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.resume-offer__meta {
+  color: var(--text-dim, #9aa0ab);
+  font-size: 12px;
+}
+.resume-offer__action {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+/* Working-directory row: the text field plus a native folder chooser. Before
+   the chooser existed, setting a working directory meant typing an absolute
+   path, and every session in the store simply stayed in $HOME. */
+.cwd-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.cwd-row .field__input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cwd-row__browse {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.cwd-recents {
+  margin-top: 2px;
+}
+
+/* The archive: sessions put away rather than merely hidden. The only place in
+   Crew that can delete a session for good. */
+.modal--archive {
+  width: min(680px, 92vw);
+}
+.archive-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 48vh;
+  overflow-y: auto;
+}
+.archive-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+}
+.archive-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.archive-row__label {
+  font-size: 13px;
+}
+.archive-row__meta {
+  font-size: 12px;
+  color: var(--text-dim, #9aa0ab);
+  overflow-wrap: anywhere;
+}
+.archive-row__actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* "Your usage": the consent screen and the payback on one surface. */
+.modal--usage {
+  width: min(640px, 92vw);
+}
+.usage-consent {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+  cursor: pointer;
+}
+.usage-consent__desc {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim, #9aa0ab);
+}
+.usage-path {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-dim, #9aa0ab);
+  overflow-wrap: anywhere;
+}
+.usage-figures {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin-top: 12px;
+}
+.usage-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+}
+.usage-figure__n {
+  font-size: 20px;
+  line-height: 1.1;
+}
+.usage-figure__label {
+  font-size: 12px;
+  color: var(--text-dim, #9aa0ab);
+}
+.usage-block {
+  margin-top: 14px;
+}
+.usage-block__title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim, #9aa0ab);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.usage-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.usage-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+}
+
 /* Agent result drawer — a non-blocking right-side panel that streams a run. */
 .agent-run {
   position: fixed;

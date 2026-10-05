@@ -26,6 +26,11 @@ const TOGGLES: { key: keyof Settings; label: string; desc: string }[] = [
     desc: 'Relaunch restored sessions with the agent’s --continue so history is kept.'
   },
   {
+    key: 'usageInsights',
+    label: 'Count how I use Crew',
+    desc: 'Off by default. Counters and durations only — never your prompts or session output — appended to a text file on this Mac. Nothing is sent anywhere. See and wipe the numbers under “Your Usage” in the command palette.'
+  },
+  {
     key: 'captureTranscripts',
     label: 'Capture transcripts',
     desc: 'Save each session’s output locally so you can search and export it. Stays on your machine.'

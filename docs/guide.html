@@ -243,7 +243,9 @@
     <a class="qi" href="#settings"><span class="qi__n">20</span><b class="qi__t">Settings</b></a>
     <a class="qi" href="#autopilot"><span class="qi__n">21</span><b class="qi__t">Autopilot</b></a>
     <a class="qi" href="#windows"><span class="qi__n">22</span><b class="qi__t">Windows, menu bar &amp; platforms</b></a>
-    <a class="qi" href="#start"><span class="qi__n">23</span><b class="qi__t">Getting started</b></a>
+    <a class="qi" href="#archive"><span class="qi__n">23</span><b class="qi__t">The archive</b></a>
+    <a class="qi" href="#usage"><span class="qi__n">24</span><b class="qi__t">Usage insights</b></a>
+    <a class="qi" href="#start"><span class="qi__n">25</span><b class="qi__t">Getting started</b></a>
   </div>
 </div>
 
@@ -276,6 +278,8 @@
       <li><a href="#autopilot">Autopilot</a></li>
       <li><a href="#windows">Windows, menu bar &amp; platforms</a></li>
       <li><a href="#agents">Specialist agents</a></li>
+      <li><a href="#archive">The archive</a></li>
+      <li><a href="#usage">Usage insights</a></li>
       <li><a href="#start">Getting started</a></li>
     </ol>
   </aside>
@@ -468,6 +472,8 @@
         <li><b>Agent</b> — Claude Code, Copilot CLI, a plain Shell, or <b>Custom command…</b> with your own command + arguments.</li>
       </ol>
       <p>Open <b>Advanced</b> for an <b>initial prompt</b> sent on launch, a custom <b>working directory</b>, and <b>saved sets</b> — snapshot the currently open sessions under a name and relaunch them all in one click later.</p>
+      <p><b>Pick the folder, don&rsquo;t type it.</b> The working directory has a <b>Choose&hellip;</b> button that opens the normal macOS folder chooser, and the projects you launch in most often come back as one-click chips underneath. Name a session after a project you have used before and Crew fills the folder in for you. This matters more than it sounds: an agent started in the wrong directory is an agent that cannot see your code.</p>
+      <p><b>Crew offers to pick up where you left off.</b> If you are about to start a session that looks like one you already have — same name, same folder, or both — Crew says so and offers to open the existing one instead, with its conversation intact. Starting a fresh session throws that context away, so the resume is the main button and starting over is the alternative. You can still do it: choose <b>Create a new one anyway</b>.</p>
       <figure>
         <div class="frame frame--mid"><img loading="lazy" src="assets/guide/new-session-advanced.jpg" alt="New Session dialog with Advanced options expanded" /></div>
         <figcaption>Advanced: initial prompt, working directory, and saved session sets.</figcaption>
@@ -784,9 +790,40 @@
       </ul>
     </section>
 
-    <!-- 26 START -->
+    <!-- 26 ARCHIVE -->
+    <section class="doc" id="archive">
+      <div class="sec-eyebrow">26 &middot; Put work away</div>
+      <h2>The archive.</h2>
+      <p class="lead">Sessions pile up. The archive is where finished work goes so it stops competing for your attention &mdash; without being thrown away.</p>
+      <p>Closing a session ends it. <b>Archiving</b> it is different: the session comes off the roster and Crew stops restoring it when the app launches, but the conversation is kept. Bring it back whenever you like and you pick the thread back up where you left it.</p>
+      <p>Both live in the command palette (<kbd>&#8984;K</kbd>):</p>
+      <ul>
+        <li><b>Archive Current Session</b> &mdash; put the session you are looking at away.</li>
+        <li><b>Open Archive</b> &mdash; see everything you have archived, with its folder and when you archived it. <b>Restore</b> puts one back on the roster; <b>Delete</b> removes it for good.</li>
+      </ul>
+      <p>Delete is the one genuinely irreversible thing in Crew, so it asks first. Everything else here is reversible.</p>
+      <a class="backtop" href="#top">&uarr; Back to top</a>
+    </section>
+
+    <!-- 27 USAGE -->
+    <section class="doc" id="usage">
+      <div class="sec-eyebrow">27 &middot; Your own numbers</div>
+      <h2>Usage insights.</h2>
+      <p class="lead">Crew can show you how you actually work: how many sessions you start, how many prompts that takes, which view you live in, and how long you spend in a session. It is off until you switch it on, and the numbers never leave your Mac.</p>
+      <p>Turn it on in <b>Settings &rarr; Count how I use Crew</b>, then open <b>Your Usage</b> from the command palette to read it back.</p>
+      <ul>
+        <li><b>Off by default, and silent while off.</b> Until you switch it on, Crew records nothing and does not even create the file.</li>
+        <li><b>Counts and durations only.</b> It never records your prompts, your terminal output, or your file contents &mdash; the format has no field that can hold free text, so there is nowhere for that to go even by accident.</li>
+        <li><b>Nothing is sent anywhere.</b> Crew has no analytics service and makes no network request for any of this. It is a plain text file in Crew&rsquo;s own folder, and the panel shows you exactly where it is so you can go and read it.</li>
+        <li><b>Wipe it in one click.</b> Deleting the log does not switch the feature off, and switching the feature off does not delete the log. They are separate decisions.</li>
+      </ul>
+      <p>The feature exists to pay you back, not us: it answers questions about your own working habits that nothing else in Crew can.</p>
+      <a class="backtop" href="#top">&uarr; Back to top</a>
+    </section>
+
+    <!-- 28 START -->
     <section class="doc" id="start">
-      <div class="sec-eyebrow">26 · Your turn</div>
+      <div class="sec-eyebrow">28 &middot; Your turn</div>
       <h2>Getting started.</h2>
       <p class="lead">That’s the whole tour. Download Crew, launch a couple of agents, and let the crew do the work — you’ll get pinged the moment one needs you.</p>
       <p>

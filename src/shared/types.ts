@@ -104,6 +104,10 @@ export interface Settings {
   inputTokenWarn: number
   /** Opt-in: save each session's (ANSI-stripped) transcript locally for search/export. */
   captureTranscripts: boolean
+  /** Opt-in: count how Crew is used, locally. Off by default. Counters and
+   * durations only, appended to a JSONL file in Crew's own data directory;
+   * nothing is sent anywhere and there is no analytics dependency. */
+  usageInsights: boolean
   /** In group (tag) sort, hide sessions in a group not used within this many
    * hours behind a per-group "show more" toggle (0 = never hide). */
   staleHideHours: number
@@ -229,6 +233,30 @@ export interface SessionInfo {
   appUrl?: string
 }
 
+/** A session in the archive: enough to list, identify and bring back. */
+/** The numbers shown in the "Your usage" panel. Mirrors UsageSummary in main. */
+export interface UsageSummaryInfo {
+  events: number
+  totals: Record<string, number>
+  views: Record<string, number>
+  dwellMs: number
+  since: number | null
+  days: number
+  /** Where the log lives on disk, so the user can go and read it. */
+  path: string
+  enabled: boolean
+}
+
+export interface ArchivedSessionInfo {
+  id: string
+  label: string
+  cwd: string
+  tag?: string
+  createdAt: number
+  lastPromptAt: number
+  archivedAt: number
+}
+
 export type CustomViewMode = 'curated-only' | 'ranked-plus-all'
 
 /** How a custom view's composed sessions are laid out in the nav.
@@ -321,6 +349,19 @@ export const IPC = {
   PRESETS_GET: 'presets:get',
   CHARACTERS_GET: 'characters:get',
   HOME_DIR_GET: 'home:get',
+  RECENT_DIRS_GET: 'recentDirs:get',
+  DIR_PICK: 'dir:pick',
+  // The real session lifecycle. Namespaced under archive: to stay clear of
+  // SESSION_ARCHIVE below, which despite the name only removes a session from
+  // every workspace and leaves it fully live on the roster.
+  ARCHIVE_PUT: 'archive:put',
+  ARCHIVE_RESTORE: 'archive:restore',
+  ARCHIVE_LIST: 'archive:list',
+  ARCHIVE_DELETE: 'archive:delete',
+  // Opt-in, local-only usage insights (CB-20). Nothing here leaves the machine.
+  USAGE_SUMMARY: 'usage:summary',
+  USAGE_RECORD: 'usage:record',
+  USAGE_WIPE: 'usage:wipe',
   AGENTS_DETECT: 'agents:detect',
   SKILLS_LIST: 'skills:list',
   SETTINGS_GET: 'settings:get',

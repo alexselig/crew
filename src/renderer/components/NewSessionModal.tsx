@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
-import type { Preset, CreateSessionRequest, SessionSet, Workspace } from '../../shared/types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Preset, CreateSessionRequest, SessionSet, Workspace, SessionInfo } from '../../shared/types'
 import type { AgentStatus } from '../../shared/api'
+import { countUsage } from '../usage'
 import { SessionSetChips } from './SessionSetChips'
 import { Icon } from './Icon'
 import { DEFAULT_COPILOT_MODEL, type CopilotModelCatalog } from '../../shared/copilot-models'
 import {
+  findResumeCandidate,
+  suggestCwd,
   getCopilotLaunchArgs,
-  getCopilotModelSelection
+  getCopilotModelSelection,
+  type ResumeCandidate
 } from '../new-session-model'
+import { trimDir } from '../../shared/project-dir'
 
 interface Props {
   presets: Preset[]
@@ -19,6 +24,10 @@ interface Props {
   workspaces?: Workspace[]
   /** Workspace ids to pre-select (e.g. the active workspace filter). */
   defaultWorkspaceIds?: string[]
+  /** Existing roster, used to spot that this job already has a session. */
+  sessions?: SessionInfo[]
+  /** Focus an existing session instead of creating a duplicate. */
+  onResume?: (sessionId: string) => void
   onCancel: () => void
   onCreate: (req: CreateSessionRequest) => void | Promise<void>
 }
@@ -32,11 +41,16 @@ export function NewSessionModal({
   groups = [],
   workspaces = [],
   defaultWorkspaceIds = [],
+  sessions = [],
+  onResume,
   onCancel,
   onCreate
 }: Props): JSX.Element {
   const [presetId, setPresetId] = useState<string>(presets[0]?.id ?? CUSTOM)
   const [cwd, setCwd] = useState<string>(defaultCwd || homeDir)
+  // Once the user picks or types a directory, stop suggesting over the top of them.
+  const [cwdTouched, setCwdTouched] = useState<boolean>(Boolean(defaultCwd))
+  const [recentDirs, setRecentDirs] = useState<string[]>([])
   const [model, setModel] = useState(DEFAULT_COPILOT_MODEL)
   const [catalog, setCatalog] = useState<CopilotModelCatalog | null>(null)
   const [creating, setCreating] = useState(false)
@@ -119,6 +133,23 @@ export function NewSessionModal({
   }, [homeDir])
 
   useEffect(() => {
+    let live = true
+    void window.crew.getRecentDirs().then((dirs) => {
+      if (live) setRecentDirs(dirs)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  // Suggest the folder this label was last worked in, else the most recent
+  // project folder. Only while the user has not chosen one themselves.
+  useEffect(() => {
+    if (cwdTouched) return
+    setCwd(suggestCwd(label, sessions, recentDirs, homeDir))
+  }, [label, sessions, recentDirs, homeDir, cwdTouched])
+
+  useEffect(() => {
     if (presets.length && presetId === CUSTOM && presets[0]) setPresetId(presets[0].id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presets.length])
@@ -140,6 +171,18 @@ export function NewSessionModal({
   const commandOk = !isCustom || command.trim().length > 0
   const modelOk = !isCopilot || modelSelection.valid
   const canCreate = cwdOk && commandOk && modelOk && !creating
+
+  const resume = useMemo(
+    () => findResumeCandidate({ label, cwd }, sessions, homeDir),
+    [label, cwd, sessions, homeDir]
+  )
+
+  // Whether a resume offer gets taken is a question nothing else in Crew can
+  // answer. Counted once per distinct candidate, and only if the user opted in.
+  const offeredId = resume && onResume ? resume.session.id : null
+  useEffect(() => {
+    if (offeredId) countUsage('resume.offered')
+  }, [offeredId])
 
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
@@ -173,6 +216,7 @@ export function NewSessionModal({
     setCreating(true)
     setCreateError(null)
     try {
+      if (offeredId) countUsage('resume.dismissed')
       await onCreate(req)
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : String(error))
@@ -196,6 +240,29 @@ export function NewSessionModal({
             onChange={(e) => setLabel(e.target.value)}
           />
         </label>
+
+        {resume && onResume && (
+          <div className="resume-offer" role="status">
+            <p className="resume-offer__lead">
+              You already have a session for{' '}
+              {resume.reason === 'directory' ? 'this folder' : 'this job'}.
+            </p>
+            <p className="resume-offer__detail">
+              <strong>{resume.session.label || 'Untitled session'}</strong>
+              <span className="resume-offer__meta">{describeResume(resume)}</span>
+            </p>
+            <button
+              type="button"
+              className="btn btn--primary resume-offer__action"
+              onClick={() => {
+              countUsage('resume.accepted')
+              onResume(resume.session.id)
+            }}
+            >
+              Resume it
+            </button>
+          </div>
+        )}
 
         <div className="sets">
           <span className="field__label">Group</span>
@@ -359,14 +426,55 @@ export function NewSessionModal({
 
         <label className="field">
           <span className="field__label">Working directory</span>
-          <input
-            aria-label="Working directory"
-            className="field__input"
-            placeholder={homeDir}
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-          />
+          <div className="cwd-row">
+            <input
+              aria-label="Working directory"
+              className="field__input"
+              placeholder={homeDir}
+              value={cwd}
+              onChange={(e) => {
+                setCwdTouched(true)
+                setCwd(e.target.value)
+              }}
+            />
+            <button
+              type="button"
+              className="btn cwd-row__browse"
+              onClick={async () => {
+                const picked = await window.crew.pickDirectory(cwd || homeDir)
+                if (picked) {
+                  setCwdTouched(true)
+                  setCwd(picked)
+                }
+              }}
+            >
+              Choose…
+            </button>
+          </div>
         </label>
+
+        {recentDirs.length > 0 && (
+          <div className="sets cwd-recents">
+            <span className="field__label">Recent folders</span>
+            <div className="ws-picker">
+              {recentDirs.map((dir) => (
+                <button
+                  key={dir}
+                  type="button"
+                  className={`ws-chip ${trimDir(cwd) === trimDir(dir) ? 'is-on' : ''}`}
+                  aria-pressed={trimDir(cwd) === trimDir(dir)}
+                  title={dir}
+                  onClick={() => {
+                    setCwdTouched(true)
+                    setCwd(dir)
+                  }}
+                >
+                  {basename(dir)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {isCustom && (
           <>
@@ -458,8 +566,8 @@ export function NewSessionModal({
           <button type="button" className="btn" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" className="btn btn--primary" disabled={!canCreate}>
-            {creating ? 'Launching…' : 'Launch'}
+          <button type="submit" className={resume && onResume ? 'btn' : 'btn btn--primary'} disabled={!canCreate}>
+            {creating ? 'Launching…' : resume && onResume ? 'Create a new one anyway' : 'Launch'}
           </button>
         </div>
       </form>
@@ -476,4 +584,24 @@ function tokenize(input: string): string[] {
     out.push(m[1] ?? m[2] ?? m[3] ?? '')
   }
   return out
+}
+
+/** One line explaining why a session was nominated, and how cold it is. */
+function describeResume(candidate: ResumeCandidate): string {
+  const why =
+    candidate.reason === 'directory'
+      ? 'same folder'
+      : candidate.reason === 'label'
+        ? 'same name'
+        : 'same name and folder'
+  const touched = candidate.session.lastPromptAt ?? candidate.session.createdAt
+  const days = Math.floor((Date.now() - touched) / 86400000)
+  const when = days <= 0 ? 'used today' : days === 1 ? 'used yesterday' : `last used ${days} days ago`
+  return ` — ${why}, ${when}`
+}
+
+/** Last path segment, for a compact recent-folder chip ("crew", not the full path). */
+function basename(dir: string): string {
+  const parts = trimDir(dir).split('/').filter(Boolean)
+  return parts[parts.length - 1] ?? dir
 }

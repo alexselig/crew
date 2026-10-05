@@ -56,6 +56,25 @@ releases are signed + notarized.
   changes; existing conversations are not switched back to their launch model.
 - New sessions use the selected session's working directory (or home when none
   is selected), with the directory visible beside the agent/model controls.
+  Pick it with a native **folder chooser** rather than typing a path, reuse a
+  **recent project** chip, or let Crew suggest the directory from the label you
+  typed. An agent started in the wrong directory cannot see your code, so this
+  is the difference between a working session and a useless one.
+- **Resume instead of duplicating.** Starting a session that matches one you
+  already have — same label, same directory, or both — offers to reopen the
+  existing session with its conversation intact. Starting fresh discards that
+  context, so resume leads and "Create a new one anyway" is the alternative.
+- **Archive** puts a finished session off the roster and out of launch restore
+  while keeping its conversation, via **Open Archive** / **Archive Current
+  Session** in the palette. Restore brings it back; delete is permanent and is
+  the only genuinely irreversible action in Crew, so it confirms first.
+- **Opt-in usage insights** (Settings, off by default) count how *you* use Crew
+  — sessions started, prompts submitted, view used, time in session, resume
+  offers taken — and show them back to you under **Your Usage**. Counts and
+  durations only: the on-disk format has no field that accepts free text, so
+  prompts and terminal output cannot be recorded even by accident. Nothing is
+  sent anywhere; Crew has no analytics dependency and adds no network call.
+  Silent while off (no file is created), and wipeable in one click.
 - **Named Custom Views** organize sessions into a personal ranked queue. Search
   the full roster in a two-column organizer, drag sessions directly into rank,
   and choose whether a view shows only ranked work or ranked work followed by

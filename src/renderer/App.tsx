@@ -6,6 +6,9 @@ import { Roster } from './components/Roster'
 import { SessionView } from './components/SessionView'
 import { GridView } from './components/GridView'
 import { NewSessionModal } from './components/NewSessionModal'
+import { ArchiveModal } from './components/ArchiveModal'
+import { UsageModal } from './components/UsageModal'
+import { countUsage } from './usage'
 import { SettingsModal } from './components/SettingsModal'
 import { BroadcastModal } from './components/BroadcastModal'
 import { TranscriptsModal } from './components/TranscriptsModal'
@@ -55,6 +58,8 @@ export function App(): JSX.Element {
   const [showBroadcast, setShowBroadcast] = useState(false)
   const [invokeAgentId, setInvokeAgentId] = useState<string | null>(null)
   const [showTranscripts, setShowTranscripts] = useState(false)
+  const [showArchive, setShowArchive] = useState(false)
+  const [showUsage, setShowUsage] = useState(false)
   // Conductor: a blank composer (new workspace, no plan) and an agent-plan
   // document loaded from disk are two distinct entry points — see
   // ConductorComposer.tsx's own header comment on why the plan view and the
@@ -187,6 +192,11 @@ export function App(): JSX.Element {
     void window.crew.closeSession(id)
   }
 
+  /** Put a session away: off the roster, not restored, but kept and reversible. */
+  function archive(id: string): void {
+    void window.crew.archiveSessionToStore(id)
+  }
+
   // Bring a session into focus view (used by "Needs you" buttons + tile expand).
   // Opening a session also restores it if it was minimized.
   function focusSession(id: string): void {
@@ -235,6 +245,12 @@ export function App(): JSX.Element {
   // DEFAULT_SETTINGS — a settings-less first paint must not start on the bob
   // and then swap once settings arrive.
   useCalmMotion(c.settings?.calmMotion ?? true)
+
+  // Which view you actually work in — one of the questions the backlog analysis
+  // could not answer from timestamps. A no-op unless usage insights are on.
+  useEffect(() => {
+    countUsage('view.used', { v: c.viewMode === 'grid' ? 'grid' : 'focus' })
+  }, [c.viewMode])
 
   useEffect(() => {
     const next = nextSelection(activeRoster, c.selectedId, null)
@@ -366,6 +382,28 @@ export function App(): JSX.Element {
     })
     const actions: PaletteItem[] = [
       { id: 'act-new', label: 'New Session', icon: <Icon name="plus" />, hint: '⌘N', run: () => c.setShowNew(true) },
+      {
+        id: 'act-usage',
+        label: 'Your Usage',
+        icon: <Icon name="chart" />,
+        run: () => setShowUsage(true)
+      },
+      {
+        id: 'act-archive-open',
+        label: 'Open Archive',
+        icon: <Icon name="box" />,
+        run: () => setShowArchive(true)
+      },
+      ...(c.selectedId
+        ? [
+            {
+              id: 'act-archive-session',
+              label: 'Archive Current Session',
+              icon: <Icon name="box" />,
+              run: () => archive(c.selectedId as string)
+            }
+          ]
+        : []),
       {
         id: 'act-window',
         label: 'New Window',
@@ -646,8 +684,32 @@ export function App(): JSX.Element {
           groups={existingGroups(c.roster)}
           workspaces={c.workspaces}
           defaultWorkspaceIds={defaultWorkspaceIds}
+          sessions={c.roster}
+          onResume={(id) => {
+            c.setShowNew(false)
+            c.navigateToSession(id)
+          }}
           onCancel={() => c.setShowNew(false)}
           onCreate={create}
+        />
+      )}
+
+      {showUsage && c.settings && (
+        <UsageModal
+          settings={c.settings}
+          onChange={(patch) => {
+            for (const [k, v] of Object.entries(patch)) {
+              c.setSetting(k as keyof typeof c.settings & never, v as never)
+            }
+          }}
+          onClose={() => setShowUsage(false)}
+        />
+      )}
+
+      {showArchive && (
+        <ArchiveModal
+          onClose={() => setShowArchive(false)}
+          onRestored={(id) => c.navigateToSession(id)}
         />
       )}
 

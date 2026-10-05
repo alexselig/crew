@@ -779,6 +779,48 @@ export class SessionManager extends EventEmitter {
     this.persistSessions()
   }
 
+  /**
+   * Put a session away. It leaves the roster, its process is stopped, and it
+   * stops being restored on launch — but it is kept, in the store's separate
+   * archivedSessions list, and can be brought back or deleted for good.
+   *
+   * Not to be confused with the Workspace Manager's "archive", which only
+   * removes a session from every workspace and leaves it fully live. That is
+   * true of 88 of the 131 sessions in the real store, which is why it could
+   * never serve as a lifecycle.
+   */
+  archive(id: string): boolean {
+    const m = this.sessions.get(id)
+    if (!m) return false
+    const record = this.persistedShape(m)
+    // Stop the process and drop it from the live map exactly as close() does,
+    // then hand the snapshot to the store before persisting, so the session is
+    // never briefly absent from both lists.
+    this.store.archiveSessionRecord(record)
+    this.close(id)
+    return true
+  }
+
+  /** Bring an archived session back onto the roster, asleep like any restore. */
+  unarchive(id: string): SessionInfo | null {
+    const record = this.store.unarchiveSessionRecord(id)
+    if (!record) return null
+    const info = this.restoreOne(record)
+    this.emitRoster()
+    this.persistSessions()
+    return info
+  }
+
+  /** Archived sessions, newest first, for the archive view. */
+  listArchived(): PersistedSession[] {
+    return [...this.store.archivedSessions]
+  }
+
+  /** Delete an archived session permanently. */
+  deleteArchived(id: string): boolean {
+    return this.store.deleteArchivedSession(id)
+  }
+
   restart(id: string): SessionInfo | null {
     const m = this.sessions.get(id)
     if (!m) return null
@@ -899,28 +941,34 @@ export class SessionManager extends EventEmitter {
     // membership is not. Intentional removal goes through close(), which deletes
     // the entry from `sessions` outright, so anything still in the map is a
     // session the user expects to see again next launch.
-    const list: PersistedSession[] = [...this.sessions.values()]
-      .map((m) => ({
-        id: m.info.id,
-        presetId: m.info.presetId,
-        command: m.info.command,
-        args: m.info.args,
-        cwd: m.info.cwd,
-        label: m.info.label,
-        characterId: m.info.characterId,
-        color: m.info.color,
-        tag: m.info.tag,
-        sets: m.info.sets,
-        workspaceIds: m.info.workspaceIds,
-        description: m.info.description,
-        agentSessionId: m.info.agentSessionId,
-        priorSessionId: m.info.priorSessionId,
-        createdAt: m.info.createdAt,
-        lastPromptAt: m.info.lastPromptAt,
-        cols: m.cols,
-        rows: m.rows
-      }))
+    const list: PersistedSession[] = [...this.sessions.values()].map((m) => this.persistedShape(m))
     this.store.saveSessions(list)
+  }
+
+  /** The on-disk shape of a live session. Shared by persistSessions and
+   *  archive(), so an archived session round-trips through exactly the same
+   *  fields a restored one does. */
+  private persistedShape(m: Managed): PersistedSession {
+    return {
+      id: m.info.id,
+      presetId: m.info.presetId,
+      command: m.info.command,
+      args: m.info.args,
+      cwd: m.info.cwd,
+      label: m.info.label,
+      characterId: m.info.characterId,
+      color: m.info.color,
+      tag: m.info.tag,
+      sets: m.info.sets,
+      workspaceIds: m.info.workspaceIds,
+      description: m.info.description,
+      agentSessionId: m.info.agentSessionId,
+      priorSessionId: m.info.priorSessionId,
+      createdAt: m.info.createdAt,
+      lastPromptAt: m.info.lastPromptAt,
+      cols: m.cols,
+      rows: m.rows
+    }
   }
 
   /**

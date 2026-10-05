@@ -13,7 +13,9 @@ import type {
   Workspace,
   CustomView,
   Agent,
-  AgentRun
+  AgentRun,
+  ArchivedSessionInfo,
+  UsageSummaryInfo
 } from './types'
 import type {
   ConductorSnapshot,
@@ -94,6 +96,24 @@ export interface CustomViewCreateResult {
 export interface CrewAPI {
   // request/response
   createSession(req: CreateSessionRequest): Promise<SessionInfo>
+  /** Recently used project directories, most recent first (never includes $HOME). */
+  getRecentDirs(): Promise<string[]>
+  /** Native folder chooser; resolves to the chosen path, or null if cancelled. */
+  pickDirectory(startIn?: string): Promise<string | null>
+  /** Put a session away: off the roster, not restored, but kept. */
+  archiveSessionToStore(id: string): Promise<boolean>
+  /** Bring an archived session back onto the roster, asleep. */
+  unarchiveSession(id: string): Promise<SessionInfo | null>
+  /** Archived sessions, newest first. */
+  listArchived(): Promise<ArchivedSessionInfo[]>
+  /** Delete an archived session permanently. */
+  deleteArchived(id: string): Promise<boolean>
+  /** Your own usage numbers, read from the local log. Empty unless opted in. */
+  getUsageSummary(): Promise<UsageSummaryInfo>
+  /** Count one thing. A no-op unless the user has opted in. */
+  recordUsage(event: string, fields?: { ms?: number; n?: number; v?: string }): Promise<void>
+  /** Delete the local usage log. Does not change consent. */
+  wipeUsage(): Promise<void>
   closeSession(id: string): Promise<void>
   restartSession(id: string): Promise<SessionInfo | null>
   rename(id: string, label: string): Promise<void>
