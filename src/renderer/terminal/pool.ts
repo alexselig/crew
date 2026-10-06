@@ -24,7 +24,7 @@ import { OscParser, type OscEvent } from '../../shared/osc'
 import { BlockTracker, type Block } from '../../shared/blocks'
 import { pickJumpTarget } from '../../shared/nav'
 import { shouldHighlightInputOnEnter } from '../../shared/highlight'
-import { findAssetPaths } from '../../shared/assets'
+import { findTerminalLinks, isUrlToken, normalizeUrl } from '../../shared/links'
 import { previewLines } from '../../shared/preview'
 import { nextPendingEscape, openEscapeAt, orphanLength } from '../../shared/replay-tail'
 import { previewToken } from '../preview-bus'
@@ -289,12 +289,16 @@ export function getPooled(id: string): Pooled {
   if (!p) {
     const engine = createXtermEngine()
     engine.setLinkActivator((uri) => void window.crew.openExternal(uri))
-    // Make previewable file paths in output clickable — clicking resolves the
-    // token against the session cwd and opens it in the Assets panel.
+    // Make URLs and previewable file paths in output clickable. A URL opens in
+    // the browser; a path resolves against the session cwd and opens in the
+    // Assets panel. OSC 8 hyperlinks are handled separately by the engine.
     const provider: LinkProvider = {
       provide: (lineText) =>
-        findAssetPaths(lineText).map((m) => ({ start: m.start, end: m.end, text: m.text })),
-      activate: (text) => void previewToken(id, text)
+        findTerminalLinks(lineText).map((m) => ({ start: m.start, end: m.end, text: m.text })),
+      activate: (text) =>
+        isUrlToken(text)
+          ? void window.crew.openExternal(normalizeUrl(text))
+          : void previewToken(id, text)
     }
     const linkSub = engine.registerLinkProvider(provider)
     // Reclaim the semantics of a previously retired session, so blocks and the

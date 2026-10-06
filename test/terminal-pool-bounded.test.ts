@@ -22,6 +22,12 @@ interface FakeEngine {
   disposed: boolean
   mounted: boolean
   getVisibleText: () => string
+  /** The link provider the pool registered, captured so the wiring can be
+   *  exercised without a DOM. */
+  linkProvider?: {
+    provide: (line: string, y: number) => { start: number; end: number; text: string }[]
+    activate: (text: string) => void
+  }
   /** Overridable per test: a real emulator cannot serialize a sequence its
    *  parser has only half-consumed, and that difference is load-bearing. */
   serialize: () => string
@@ -41,7 +47,10 @@ const { engines, createXtermEngine } = vi.hoisted(() => {
         e.disposed = true
       },
       setLinkActivator() {},
-      registerLinkProvider: () => ({ dispose() {} }),
+      registerLinkProvider: (p: unknown) => {
+        ;(e as { linkProvider?: unknown }).linkProvider = p
+        return { dispose() {} }
+      },
       addMarker: () => null,
       decorate: () => ({ dispose() {} }),
       focus() {},
@@ -82,6 +91,7 @@ import {
   MAX_LIVE_ENGINES,
   TAIL_LIMIT
 } from '../src/renderer/terminal/pool'
+import { previewToken } from '../src/renderer/preview-bus'
 
 /** The pool is typed against the real engine; these tests drive the mock. */
 const asFake = (e: unknown): FakeEngine => e as FakeEngine
@@ -399,5 +409,40 @@ describe('bounded terminal engine pool', () => {
     // A late chunk from a killed PTY must not resurrect it.
     writeTo('s0', 'zombie')
     expect(getBlocks('s0')).toEqual([])
+  })
+})
+
+describe('clickable links in session output', () => {
+  const providerFor = (id: string) => {
+    getPooled(id)
+    const p = asFake(engines[engines.length - 1]).linkProvider
+    if (!p) throw new Error('pool registered no link provider')
+    return p
+  }
+
+  it('offers a bare URL as a link', () => {
+    const got = providerFor('links').provide('Server on http://localhost:5173/ now', 1)
+    expect(got.map((m) => m.text)).toEqual(['http://localhost:5173/'])
+  })
+
+  it('still offers a previewable file path as a link', () => {
+    const got = providerFor('links').provide('wrote ./out/shot.png', 1)
+    expect(got.map((m) => m.text)).toEqual(['./out/shot.png'])
+  })
+
+  it('opens a clicked URL in the browser', () => {
+    providerFor('links').activate('https://crew.dev/docs')
+    expect(window.crew.openExternal).toHaveBeenCalledWith('https://crew.dev/docs')
+  })
+
+  it('gives a scheme-less www link one before opening it', () => {
+    providerFor('links').activate('www.crew.dev')
+    expect(window.crew.openExternal).toHaveBeenCalledWith('https://www.crew.dev')
+  })
+
+  it('previews a clicked file path instead of opening a browser', () => {
+    providerFor('links').activate('./out/shot.png')
+    expect(previewToken).toHaveBeenCalledWith('links', './out/shot.png')
+    expect(window.crew.openExternal).not.toHaveBeenCalled()
   })
 })

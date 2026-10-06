@@ -24,6 +24,7 @@ import type {
 } from './engine'
 import { decideFit, runFitLoop, stableCellHeightPx, type CellDimensions } from './fit-guard'
 import { primaryFontAvailable, remeasureAfterFontLoad } from './font-remeasure'
+import { wrappedGroupAt, rangeForMatch } from '../../shared/links'
 
 const THEME = {
   background: '#0A0A0B',
@@ -550,12 +551,14 @@ export class XtermEngine implements TerminalEngine {
   registerLinkProvider(p: LinkProvider): Disposable {
     const sub = this.term.registerLinkProvider({
       provideLinks: (y, cb) => {
-        const line = this.term.buffer.active.getLine(y - 1)
-        if (!line) return cb(undefined)
-        const text = line.translateToString(true)
-        const links = p.provide(text, y).map((m) => ({
-          // xterm ranges are 1-based with an inclusive end column.
-          range: { start: { x: m.start + 1, y }, end: { x: m.end, y } },
+        // Scan the whole logical line, not the single row hovered: a URL wide
+        // enough to fill the pane wraps, and each half on its own matches
+        // nothing. Offsets then map back across rows.
+        const group = wrappedGroupAt(this.term.buffer.active, y - 1)
+        if (!group) return cb(undefined)
+        const cols = this.term.cols
+        const links = p.provide(group.text, y).map((m) => ({
+          range: rangeForMatch(m.start, m.end, cols, group.firstRow),
           text: m.text,
           decorations: { pointerCursor: true, underline: true },
           activate: (_e: MouseEvent, t: string) => p.activate(t)
