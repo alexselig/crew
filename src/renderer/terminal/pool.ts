@@ -81,6 +81,17 @@ export interface Pooled extends Semantic {
 
 // Live engines, capped by MAX_LIVE_ENGINES.
 const pool = new Map<string, Pooled>()
+// How many mounted terminals are sitting in the alternate buffer, exposed for
+// inspection the way xterm-engine exposes its WebGL count. A pane left in the
+// alternate buffer by a TUI that exited badly has no scrollback to scroll and
+// forwards the wheel to the application, which the user experiences as
+// scrolling being broken — so a scroll complaint needs this number before it
+// needs a theory.
+;(globalThis as { __crewAltBuffers?: () => number }).__crewAltBuffers = () => {
+  let n = 0
+  for (const p of pool.values()) if (p.engine.mounted && p.engine.altActive) n++
+  return n
+}
 // Sessions whose engine has been retired to bound memory. The session is very
 // much alive — output still parses into blocks and the transcript here — it
 // simply has no emulator until someone looks at it again.

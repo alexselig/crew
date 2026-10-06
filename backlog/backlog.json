@@ -28,11 +28,11 @@
     {
       "id": "CB-1",
       "group": "Finish the jitter hunt",
-      "title": "Confirm whether 0.7.7 actually stopped the jitter",
-      "detail": "0.7.7 makes the calm working animation the default, which is the leading explanation for sessions jittering up and down: the mascot ran an independently phased 1.5s bob-and-scale per working session. Installing 0.7.7 is the experiment. Everything else in this group is conditional on the answer, so it is ranked first.",
-      "why": "Two candidate fixes shipped and neither is confirmed against the real symptom. Until this is answered we are guessing.",
+      "title": "Find the flicker's real cause (five explanations now falsified)",
+      "detail": "The mascot-animation theory is dead: calmMotion is on, its migration ran, and 0.7.8 still flickers. Four other explanations were falsified against the live store and crash log. A CREW_FLICKERLOG=1 census now records what actually moves on screen during a repro, because five fixes aimed at unobserved causes have all missed.",
+      "why": "Five fixes have been spent on this by reading code and guessing. The next step is a measurement, not a sixth guess.",
       "size": "Minutes",
-      "evidence": "PR #38; migration 2026-10-calm-motion-default"
+      "evidence": "docs/performance/flicker-five-falsified-hypotheses.md; src/shared/flicker-census.ts"
     },
     {
       "id": "CB-2",
@@ -215,6 +215,15 @@
       "evidence": "crew-crash.log: heapMB 15-28 of heapLimitMB 3586; 0 crashes, 19 quits, Aug 26 - Oct 3"
     },
     {
+      "id": "CB-22",
+      "group": "Finish the jitter hunt",
+      "title": "Vertical scrolling inside a session stops working (regression, second occurrence)",
+      "detail": "Reported 5 Oct on 0.7.8 after ~3 days of uptime: a session pane will not scroll vertically. Reported once before and addressed in 0.7.8 by #46 (blur no longer retires the terminal you are working in), so either that fix is incomplete or this is a different mechanism wearing the same symptom. The two readings need separating before anything is changed: (a) the viewport SNAPS BACK to the bottom -- the 0.7.8 bug, caused by rebuilding a pane from a scrollback snapshot, which discards viewport position; (b) the pane DOES NOT SCROLL AT ALL, which #46 never addressed. Two concrete mechanisms exist for (b). First, the alternate buffer: a TUI that exits uncleanly leaves buffer.active.type === 'alternate', where there is no scrollback to scroll and the wheel is forwarded to the application instead. Second, decorations: xterm gives decoration rows pointer-events:auto at a z-index above the text and as a sibling of the scroll viewport, so a decoration row EATS wheel-scroll over it unless pointerEvents='none' is reapplied on every render (see the comment in xterm-engine.ts decorate()). Crew decorates the input row on every Enter (markPrompt) and on every OSC 133 prompt mark, so decorations accumulate over a long session -- which matches a fault that appears after days of uptime rather than immediately.",
+      "why": "Second occurrence of a symptom already declared fixed. The last five fixes aimed at an unobserved cause all missed, so this one gets measured first: the CREW_FLICKERLOG census now counts decoration rows that would eat wheel events and whether a pane is stuck in the alternate buffer.",
+      "size": "Unknown until measured",
+      "evidence": "User report 5 Oct 2026 on 0.7.8 (uptime 2d20h, 133 sessions); prior fix #46 / 3a1523f; mechanism documented in src/renderer/terminal/xterm-engine.ts decorate()"
+    },
+    {
       "id": "CB-23",
       "group": "Finish the jitter hunt",
       "title": "Stray text like 2;145;152;161m appears mid-session",
@@ -241,8 +250,8 @@
     },
     "CB-1": {
       "status": "approved",
-      "note": "BLOCKED ON YOU: your installed Crew is 0.7.6, which has neither candidate fix, so the experiment has never actually run. Install 0.7.8 (it carries all three) and report whether the jitter is gone.",
-      "at": "2026-10-01T22:11:27.572Z"
+      "note": "EXPERIMENT RAN, HYPOTHESIS DEAD. Observed 5 Oct on 0.7.8 (which carries all three fixes) with a live repro. The mascot-animation theory is falsified by the live store: settings have calmMotion=true AND migrations lists 2026-10-calm-motion-default, so the 0.7.7 fix is active on the machine that still flickers. Four more explanations were falsified the same way (WebGL contention, state-flap reorder, recency reorder, renderer OOM death -- crew-crash.log has ZERO render-process-gone in five weeks). No sixth fix was shipped: every one so far targeted a cause nobody had observed. Shipped instead: CREW_FLICKERLOG=1 census (src/shared/flicker-census.ts) which samples 4x/sec and logs only what MOVES, so the next repro names the layer -- or shows nothing moved, which would mean all five fixes were aimed at the wrong layer entirely. NEXT: run `CREW_FLICKERLOG=1 /Applications/Crew.app/Contents/MacOS/Crew`, repro for a minute, send the flicker-summary lines. Full writeup: docs/performance/flicker-five-falsified-hypotheses.md",
+      "at": "2026-10-05T20:50:21.679498Z"
     },
     "CB-3": {
       "status": "approved",
@@ -328,6 +337,11 @@
       "status": "done",
       "note": "Recorded in docs/performance/footprint-and-stability-negative-result.md. Reading the raw samples narrowed the claim: all 1289 census samples are tiles:1/xterms:1 in one 123-minute window, so the memory half cannot speak to a full roster. Stability half (0 crashes, 19 clean quits, 14 active days) stands.",
       "at": "2026-10-05T05:03:49.955Z"
+    },
+    "CB-22": {
+      "status": "approved",
+      "note": "LOGGED, NOT YET DIAGNOSED. Awaiting a capture. Run the census build and reproduce: the log will say whether decoration rows are eating wheel events (decorBlocking > 0), whether the pane is stuck in the alternate buffer (altBuf > 0), or whether neither -- in which case it is the snap-back variant and #46 is incomplete. Deliberately no fix shipped ahead of the measurement.",
+      "at": "2026-10-06T00:17:18.649624Z"
     },
     "CB-23": {
       "status": "approved",

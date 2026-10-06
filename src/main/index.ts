@@ -12,6 +12,8 @@ import { IPC } from '../shared/types'
 import type { Agent, AgentRun, CreateSessionRequest, Settings } from '../shared/types'
 import type { AgentStatus } from '../shared/api'
 import type { TrackerSessionInput } from '../shared/tracker'
+import { diffSnapshots, summarize, interpret } from '../shared/flicker-census'
+import type { FlickerSnapshot, FlickerDelta } from '../shared/flicker-census'
 import { SessionManager } from './session-manager'
 import { ensureCrewHookDir } from './crew-hook'
 import { AssetWatchers } from './assets'
@@ -347,6 +349,7 @@ function createWindow(opts: { intro?: boolean; bounds?: Rectangle } = {}): Brows
     void w.loadFile(join(__dirname, '../renderer/index.html'), { query })
   }
   attachMemoryCensus(w)
+  attachFlickerCensus(w)
   return w
 }
 
@@ -390,6 +393,77 @@ function attachMemoryCensus(w: BrowserWindow): void {
       .catch((e) => crashLog('memcensus-failed', String(e)))
   }, 5_000)
   w.on('closed', () => clearInterval(timer))
+}
+
+/**
+ * With CREW_FLICKERLOG=1, record what changes on screen while the user watches
+ * a flicker.
+ *
+ * Five fixes have been aimed at CB-1 and the symptom survived all of them,
+ * because each targeted a cause that had been reasoned about rather than
+ * observed. A flicker is something changing, so this samples the few structures
+ * whose movement is visible and logs only the samples where something actually
+ * moved — which layer moves identifies the culprit, and a capture where nothing
+ * moves rules every structural suspect out at once.
+ *
+ * Sampled four times a second because a flicker is brief; a 5s census like the
+ * memory one would sit right through it. Off unless explicitly requested, and
+ * failures are ignored — diagnostics must never be able to take the app down.
+ */
+function attachFlickerCensus(w: BrowserWindow): void {
+  if (process.env.CREW_FLICKERLOG !== '1') return
+  const started = Date.now()
+  const probe = `(() => {
+    try {
+      const g = globalThis
+      return {
+        canvas: document.getElementsByTagName('canvas').length,
+        xterms: document.querySelectorAll('.xterm').length,
+        tiles: document.querySelectorAll('[data-session-id]').length,
+        webgl: typeof g.__crewWebglContexts === 'function' ? g.__crewWebglContexts() : -1,
+        visible: document.visibilityState === 'visible' ? 1 : 0,
+        focus: document.hasFocus() ? 1 : 0,
+        altBuf: typeof g.__crewAltBuffers === 'function' ? g.__crewAltBuffers() : -1,
+        decorBlocking: Array.prototype.filter.call(
+          document.querySelectorAll('.xterm-decoration'),
+          (el) => getComputedStyle(el).pointerEvents !== 'none'
+        ).length
+      }
+    } catch (e) {
+      return { error: String(e) }
+    }
+  })()`
+  let prev: FlickerSnapshot | null = null
+  const deltas: FlickerDelta[] = []
+  let sinceSummary = 0
+  const timer = setInterval(() => {
+    if (w.isDestroyed()) return
+    w.webContents
+      .executeJavaScript(probe, true)
+      .then((r: Partial<FlickerSnapshot> & { error?: string }) => {
+        if (r?.error) return
+        const next = { ...(r as FlickerSnapshot), t: Date.now() - started }
+        if (prev) {
+          const d = diffSnapshots(prev, next)
+          if (d) {
+            deltas.push(d)
+            crashLog('flicker', JSON.stringify(d))
+          }
+        }
+        prev = next
+        // A running verdict every 30s, so a capture is readable without
+        // tallying hundreds of lines by hand.
+        if (++sinceSummary >= 120) {
+          sinceSummary = 0
+          crashLog('flicker-summary', JSON.stringify({ counts: summarize(deltas), reading: interpret(deltas) }))
+        }
+      })
+      .catch((e) => crashLog('flicker-failed', String(e)))
+  }, 250)
+  w.on('closed', () => {
+    clearInterval(timer)
+    crashLog('flicker-summary', JSON.stringify({ counts: summarize(deltas), reading: interpret(deltas) }))
+  })
 }
 
 /** Open an additional window, preferring a monitor without a Crew window. The
