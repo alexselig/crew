@@ -26,7 +26,7 @@ import { pickJumpTarget } from '../../shared/nav'
 import { shouldHighlightInputOnEnter } from '../../shared/highlight'
 import { findAssetPaths } from '../../shared/assets'
 import { previewLines } from '../../shared/preview'
-import { openEscapeAt, orphanLength } from '../../shared/replay-tail'
+import { nextPendingEscape, openEscapeAt, orphanLength } from '../../shared/replay-tail'
 import { previewToken } from '../preview-bus'
 import type { TranscriptBlock } from '../transcript/types'
 
@@ -59,6 +59,14 @@ export interface Semantic {
    * Replayed before post-retirement tail chunks so mode switches do not drop
    * scrollback older than the bounded raw-output tail. */
   scrollbackSnapshot: string
+  /** The escape fragment the emulator's parser is part-way through. A snapshot
+   *  cannot hold it — it is parser state, not rendered output — so it is kept
+   *  here and replayed before the tail, or its continuation arrives in a fresh
+   *  parser as text (a stray `38;2;164;117;249m` mid-session). */
+  pendingEscape: string
+  /** `pendingEscape` as it stood when the engine was retired, owed to the
+   *  rebuilt engine before any post-retirement output. */
+  replayPrefix: string
   /** When a human last had this terminal on screen — drives retirement. Set by
    *  touch() on mount, never by output (see lru.ts for why). */
   lastUsed: number
@@ -136,6 +144,8 @@ function newSemantic(): Semantic {
     tailParts: [],
     tailLen: 0,
     scrollbackSnapshot: '',
+    pendingEscape: '',
+    replayPrefix: '',
     lastUsed: Date.now()
   }
 }
@@ -215,6 +225,9 @@ function retire(id: string): void {
   const p = pool.get(id)
   if (!p) return
   const scrollbackSnapshot = snapshotOf(p.engine)
+  // Only owed when the snapshot replaces the tail; otherwise the tail still
+  // carries the fragment itself and replaying it would double it.
+  const replayPrefix = scrollbackSnapshot ? p.pendingEscape : ''
   const tailParts = scrollbackSnapshot ? [] : p.tailParts
   const tailLen = scrollbackSnapshot ? 0 : p.tailLen
   try {
@@ -234,6 +247,8 @@ function retire(id: string): void {
     tailParts,
     tailLen,
     scrollbackSnapshot,
+    pendingEscape: p.pendingEscape,
+    replayPrefix,
     lastUsed: p.lastUsed
   })
 }
@@ -281,7 +296,11 @@ export function getPooled(id: string): Pooled {
     // Replay recent output straight into the engine — not through writeTo,
     // which would re-parse it and duplicate blocks already recorded.
     if (p.scrollbackSnapshot) engine.write(p.scrollbackSnapshot)
+    // Hand the new parser the fragment the old one died holding, so the
+    // continuation waiting in the tail completes a sequence instead of printing.
+    if (p.replayPrefix) engine.write(p.replayPrefix)
     if (p.tailLen > 0) engine.write(p.tailParts.join(''))
+    p.replayPrefix = ''
     enforceCap()
   }
   return p
@@ -303,6 +322,9 @@ function pushTx(p: Semantic, block: TranscriptBlock): void {
  */
 function ingest(s: Semantic, data: string, p: Pooled | null): void {
   pushTail(s, data)
+  // Track the sequence the parser is part-way through, so a retirement that
+  // lands mid-sequence can hand it to the engine that replaces it.
+  s.pendingEscape = nextPendingEscape(s.pendingEscape, data)
   const now = Date.now()
   for (const ev of s.parser.push(data)) {
     s.blocks.apply(ev, now)

@@ -25,11 +25,42 @@ export type OpenEscape = 'csi' | 'osc' | 'esc'
  * cleanly. Only the last `window` code units are examined: a sequence is short,
  * and the discarded run can be the better part of a megabyte.
  */
+/**
+ * Where the sequence left open at the end of `s` begins, or -1 when `s` ends
+ * cleanly. Same decision as `openEscapeAt`, reported as a position so the
+ * fragment itself can be carried forward.
+ */
+export function openEscapeStart(s: string, window = 4096): number {
+  if (!s) return -1
+  const w = s.length > window ? s.slice(-window) : s
+  const base = s.length - w.length
+  const i = w.lastIndexOf(ESC)
+  if (i < 0) return -1
+  return classify(w, i) ? base + i : -1
+}
+
+/**
+ * The escape fragment still outstanding after `data` is written, given what was
+ * already outstanding. Carried across an engine rebuild: the old parser dies
+ * holding this, a snapshot cannot contain it (it is parser state, not rendered
+ * output), and without it the continuation lands in a fresh parser as text.
+ */
+export function nextPendingEscape(pending: string, data: string, window = 4096): string {
+  const combined = pending + (data.length > window ? data.slice(-window) : data)
+  const i = openEscapeStart(combined, window + pending.length)
+  return i < 0 ? '' : combined.slice(i)
+}
+
 export function openEscapeAt(discarded: string, window = 4096): OpenEscape | null {
   if (!discarded) return null
   const w = discarded.length > window ? discarded.slice(-window) : discarded
   const i = w.lastIndexOf(ESC)
   if (i < 0) return null
+  return classify(w, i)
+}
+
+/** Whether the sequence at `i` is left unterminated by the end of `w`. */
+function classify(w: string, i: number): OpenEscape | null {
   // ESC as the very last unit: the next unit decides what it becomes.
   if (i === w.length - 1) return 'esc'
   const next = w[i + 1]

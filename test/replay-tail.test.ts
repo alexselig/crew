@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { openEscapeAt, orphanLength } from '../src/shared/replay-tail'
+import { nextPendingEscape, openEscapeAt, openEscapeStart, orphanLength } from '../src/shared/replay-tail'
 
 const ESC = '\u001b'
 const BEL = '\u0007'
@@ -73,5 +73,52 @@ describe('measuring the orphaned half left at the head of the tail', () => {
   it('does not mistake CSI parameter bytes for the final byte', () => {
     // Digits and ';' sort below 0x40 precisely so they cannot end a sequence.
     expect(orphanLength('csi', ';;;;9m')).toBe(6)
+  })
+})
+
+describe('openEscapeStart', () => {
+  const ESC = '\u001b'
+
+  it('reports -1 when the stream ends cleanly', () => {
+    expect(openEscapeStart('plain text')).toBe(-1)
+    expect(openEscapeStart(ESC + '[38;2;1;2;3mdone')).toBe(-1)
+    expect(openEscapeStart('')).toBe(-1)
+  })
+
+  it('points at the ESC that opened an unterminated sequence', () => {
+    expect(openEscapeStart('hello' + ESC + '[38;')).toBe(5)
+    expect(openEscapeStart('hi' + ESC + ']133;A')).toBe(2)
+    expect(openEscapeStart('hi' + ESC)).toBe(2)
+  })
+
+  it('reports an absolute index even when it only scans a window', () => {
+    const s = 'x'.repeat(100) + ESC + '[38;'
+    expect(openEscapeStart(s, 8)).toBe(100)
+  })
+})
+
+describe('nextPendingEscape', () => {
+  const ESC = '\u001b'
+
+  it('is empty while the stream ends on a boundary', () => {
+    expect(nextPendingEscape('', 'plain')).toBe('')
+    expect(nextPendingEscape('', ESC + '[0mplain')).toBe('')
+  })
+
+  it('retains the fragment left open by a chunk', () => {
+    expect(nextPendingEscape('', 'hello' + ESC + '[38;')).toBe(ESC + '[38;')
+  })
+
+  it('clears once a later chunk completes the sequence', () => {
+    expect(nextPendingEscape(ESC + '[38;', '2;164;117;249mWORLD')).toBe('')
+  })
+
+  it('carries a fragment split across chunks', () => {
+    expect(nextPendingEscape(ESC + '[38;', '2;164;')).toBe(ESC + '[38;2;164;')
+  })
+
+  it('keeps a bare ESC pending until the next unit decides it', () => {
+    expect(nextPendingEscape('', 'hi' + ESC)).toBe(ESC)
+    expect(nextPendingEscape(ESC, '[0m')).toBe('')
   })
 })

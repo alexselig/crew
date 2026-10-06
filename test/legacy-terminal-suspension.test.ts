@@ -60,6 +60,25 @@ beforeEach(() => {
 
 describe('legacy terminal suspension', () => {
 
+  it('replays the fragment a retired parser was part-way through', () => {
+    writeTo('midseq', 'hello\u001b[38;')
+    // Give the terminal real buffer text so retirement takes a snapshot and
+    // drops the tail — the path where the open fragment would be lost.
+    const live = terminals[terminals.length - 1] as unknown as {
+      buffer: { active: { length: number; getLine: (i: number) => unknown } }
+    }
+    live.buffer.active = {
+      length: 1,
+      getLine: () => ({ translateToString: () => 'hello' })
+    }
+    setRenderingActive(false)
+    writeTo('midseq', '2;164;117;249mWORLD')
+    setRenderingActive(true)
+    const written = (getPooled('midseq').term as unknown as { written: string[] }).written.join('')
+    expect(written).toContain('\u001b[38;2;164;117;249m')
+    expect(written).not.toContain('hello2;164')
+  })
+
   it('does not replay half an escape sequence after trimming', () => {
     // Same hazard as the enhanced pool: ESC[38; discarded, 2;145;152;161m left
     // behind, which replays as literal text rather than as a colour change.
