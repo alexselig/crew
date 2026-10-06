@@ -135,84 +135,102 @@
     },
     {
       "id": "CB-13",
-      "group": "Product \u2014 grounded in measured usage",
+      "group": "Product — grounded in measured usage",
       "title": "Give a session a working directory when you create it",
-      "detail": "All 131 sessions in the store have cwd = $HOME, and recentDirs is empty \u2014 the directory picker has never been used once. Every agent therefore starts in home and has to be told where the work is, in prose, every single time. Capture a project directory at creation: default to the last directory used for that label, offer recent/starred repos, and infer from the label when it matches a known checkout. Populate recentDirs so the second session in a project is a one-click affair.",
+      "detail": "All 131 sessions in the store have cwd = $HOME, and recentDirs is empty — the directory picker has never been used once. Every agent therefore starts in home and has to be told where the work is, in prose, every single time. Capture a project directory at creation: default to the last directory used for that label, offer recent/starred repos, and infer from the label when it matches a known checkout. Populate recentDirs so the second session in a project is a one-click affair.",
       "why": "This is the clearest gap the data shows, and it is invisible in the UI: nothing signals that cwd is a thing you were meant to set. Every session pays a prompt-tax to explain where it is.",
       "size": "Days",
       "evidence": "crew-store.json: 131/131 sessions cwd=/Users/alexselig; recentDirs: []"
     },
     {
       "id": "CB-14",
-      "group": "Product \u2014 grounded in measured usage",
+      "group": "Product — grounded in measured usage",
       "title": "Make restore selective instead of all-or-nothing",
-      "detail": "98 of 131 sessions arrived in two programmatic bursts (2026-08-19 and 2026-08-26) with median gaps between creations of 0.75s and 0.14s \u2014 machine speed, not human. Of the 66 restored on 26 Aug, 54 were never prompted again; of the 32 on 19 Aug, all 32 were never prompted. Restore faithfully rebuilds everything and you then use almost none of it. Offer a restore preview: which sessions, last actually used when, select a subset. Default the selection to sessions with a real prompt in the last N days.",
+      "detail": "98 of 131 sessions arrived in two programmatic bursts (2026-08-19 and 2026-08-26) with median gaps between creations of 0.75s and 0.14s — machine speed, not human. Of the 66 restored on 26 Aug, 54 were never prompted again; of the 32 on 19 Aug, all 32 were never prompted. Restore faithfully rebuilds everything and you then use almost none of it. Offer a restore preview: which sessions, last actually used when, select a subset. Default the selection to sessions with a real prompt in the last N days.",
       "why": "Restore is the single biggest source of clutter in the store, and the clutter is what makes every later list, view and grouping feature necessary.",
       "size": "Days",
       "evidence": "Creation-gap analysis of crew-store.json; the 36-session set literally named 'Recovered'"
     },
     {
       "id": "CB-15",
-      "group": "Product \u2014 grounded in measured usage",
+      "group": "Product — grounded in measured usage",
       "title": "Add a real archive, because the store is already 90% archive",
-      "detail": "117 of 131 sessions are past the 72-hour staleHideHours cutoff; only 14 are visible. The other 103 are not gone, they are hidden \u2014 still loaded, still restored, still in every file write. Hiding was the cheap version of a lifecycle. Add an explicit archive state with its own view, a restore-from-archive path, and a real delete. Then stop loading archived sessions into the live roster at all.",
+      "detail": "117 of 131 sessions are past the 72-hour staleHideHours cutoff; only 14 are visible. The other 103 are not gone, they are hidden — still loaded, still restored, still in every file write. Hiding was the cheap version of a lifecycle. Add an explicit archive state with its own view, a restore-from-archive path, and a real delete. Then stop loading archived sessions into the live roster at all.",
       "why": "The store grows forever and has no exit. Hiding masks the symptom while the cost (load, persist, restore) keeps compounding.",
       "size": "Days",
       "evidence": "crew-store.json: 117/131 older than staleHideHours=72; sessions[] has no archived/deleted state"
     },
     {
       "id": "CB-16",
-      "group": "Product \u2014 grounded in measured usage",
+      "group": "Product — grounded in measured usage",
       "title": "Treat standing projects and scratch sessions as different things",
-      "detail": "Of the 40 sessions ever actually prompted, the split is bimodal: 14 standing projects with a median 27-day life (Crew, Eval Atlas, Portfolio, Work Website, FDE, Groundtruth Mapper, the skill sessions) and 17 same-day throwaways (spec cleanup, Vertical Blog, Rounded Corners Spec). The app treats both identically \u2014 same persistence, same restore, same roster weight. Let a session be promoted to a standing project (always restored, always visible, pinned) or marked scratch (never restored, auto-archived at end of day).",
+      "detail": "Of the 40 sessions ever actually prompted, the split is bimodal: 14 standing projects with a median 27-day life (Crew, Eval Atlas, Portfolio, Work Website, FDE, Groundtruth Mapper, the skill sessions) and 17 same-day throwaways (spec cleanup, Vertical Blog, Rounded Corners Spec). The app treats both identically — same persistence, same restore, same roster weight. Let a session be promoted to a standing project (always restored, always visible, pinned) or marked scratch (never restored, auto-archived at end of day).",
       "why": "One lifecycle for two species is why the roster needs so much hiding and grouping machinery. Sort it at the source.",
       "size": "Days",
       "evidence": "Lifespan analysis of the 40 prompted sessions: 14 over 7 days, 17 under 1 day"
     },
     {
       "id": "CB-17",
-      "group": "Product \u2014 grounded in measured usage",
+      "group": "Product — grounded in measured usage",
       "title": "Offer to resume prior work instead of silently creating a duplicate",
-      "detail": "24 sessions share a duplicated label \u2014 'Develop Week In Review App', 'Create Project Tracker Site', 'Fix Icon Positioning Bug' and nine others each exist twice. That is the same job started again, with the earlier session's context stranded. On creation, when a label (or directory) matches an existing session, offer Resume that one as the primary action and Create a new one as the secondary.",
+      "detail": "24 sessions share a duplicated label — 'Develop Week In Review App', 'Create Project Tracker Site', 'Fix Icon Positioning Bug' and nine others each exist twice. That is the same job started again, with the earlier session's context stranded. On creation, when a label (or directory) matches an existing session, offer Resume that one as the primary action and Create a new one as the secondary.",
       "why": "Duplicates are how context gets lost: the work continues but the thread doesn't. The data shows it happening roughly one time in five.",
       "size": "Hours",
       "evidence": "crew-store.json: 12 labels occurring twice, covering 24 of 131 sessions"
     },
     {
       "id": "CB-18",
-      "group": "Product \u2014 grounded in measured usage",
+      "group": "Product — grounded in measured usage",
       "title": "Lean on tags, which you use, rather than workspaces, which you mostly do not",
-      "detail": "Tags are on 86 of 131 sessions (WORK 24, TOOLS 17, Other 12, FDE 9, Game 8, CREW 7, craft 5, SKILLS 4). Workspaces are assigned on only 43, leaving 88 unassigned, and two of the four workspaces are near-empty (HACK 6, OCTOBER 7). You adopted the lightweight primitive and skipped the heavyweight one. Make tags first-class: filter and group by tag, a saved view per tag, tag colours in the roster \u2014 and consider deriving workspaces from tags rather than maintaining both.",
+      "detail": "Tags are on 86 of 131 sessions (WORK 24, TOOLS 17, Other 12, FDE 9, Game 8, CREW 7, craft 5, SKILLS 4). Workspaces are assigned on only 43, leaving 88 unassigned, and two of the four workspaces are near-empty (HACK 6, OCTOBER 7). You adopted the lightweight primitive and skipped the heavyweight one. Make tags first-class: filter and group by tag, a saved view per tag, tag colours in the roster — and consider deriving workspaces from tags rather than maintaining both.",
       "why": "Two overlapping grouping systems, one adopted twice as much as the other. Invest in the one that won.",
       "size": "Days",
       "evidence": "crew-store.json: tag set on 86/131; workspaceIds empty on 88/131"
     },
     {
       "id": "CB-19",
-      "group": "Product \u2014 grounded in measured usage",
+      "group": "Product — grounded in measured usage",
       "title": "Decide whether custom agents earn their place",
-      "detail": "All four agents in the store are the seeded builtins (UX Critique, Code Review, Security Review, Doc Writer) and not one custom agent has ever been created. There is exactly one custom view, 'Core Focus'. Either the authoring path is undiscoverable or the need is already met by the four defaults. Before building more agent surface, find out which \u2014 then either make authoring reachable from where agents are used, or freeze the feature at four good builtins and spend the room elsewhere.",
+      "detail": "All four agents in the store are the seeded builtins (UX Critique, Code Review, Security Review, Doc Writer) and not one custom agent has ever been created. There is exactly one custom view, 'Core Focus'. Either the authoring path is undiscoverable or the need is already met by the four defaults. Before building more agent surface, find out which — then either make authoring reachable from where agents are used, or freeze the feature at four good builtins and spend the room elsewhere.",
       "why": "This is a build-versus-cut decision, and right now it would be made on vibes. It is also the clearest thing the proposed opt-in tracking would settle.",
       "size": "Hours to decide",
       "evidence": "crew-store.json: agents[] all builtin:true; customViews[] length 1"
     },
     {
       "id": "CB-20",
-      "group": "Product \u2014 grounded in measured usage",
+      "group": "Product — grounded in measured usage",
       "title": "Add opt-in, local-only usage insights",
-      "detail": "Flat off by default, with a plain-language consent screen that says exactly what is recorded, and nothing leaves the machine \u2014 append-only JSONL in Application Support, viewable in-app, with a one-click wipe. There is no third-party analytics in Crew today and none should be added. Record counters and durations, never prompt or terminal content: session opened/focused/closed, prompts per session, foreground dwell time, which view (grid, focus, custom) is used, agent and conductor invocations, restore accepted versus dismissed, crashes and PTY failures. Ship a 'Your usage' panel that shows you your own numbers, so the feature pays the user back rather than only paying us.",
+      "detail": "Flat off by default, with a plain-language consent screen that says exactly what is recorded, and nothing leaves the machine — append-only JSONL in Application Support, viewable in-app, with a one-click wipe. There is no third-party analytics in Crew today and none should be added. Record counters and durations, never prompt or terminal content: session opened/focused/closed, prompts per session, foreground dwell time, which view (grid, focus, custom) is used, agent and conductor invocations, restore accepted versus dismissed, crashes and PTY failures. Ship a 'Your usage' panel that shows you your own numbers, so the feature pays the user back rather than only paying us.",
       "why": "The analysis behind CB-13 to CB-19 had to be reverse-engineered from two timestamps per session, and several questions were simply unanswerable: how long you actually work in a session, how many prompts it takes, which views you use, whether a session ended satisfied or abandoned. The memory census that exists ran on exactly one day (26 Aug) and the crash log has recorded 19 clean quits and zero crashes, so what instrumentation there is tells us almost nothing about use.",
       "size": "Days",
       "evidence": "No analytics dependency anywhere in src/; crew-crash.log: 1289 memcensus samples all on 2026-08-26, 19 quits, 0 crashes"
     },
     {
       "id": "CB-21",
-      "group": "Product \u2014 grounded in measured usage",
+      "group": "Product — grounded in measured usage",
       "title": "Stop treating memory and stability as the next performance problem",
       "detail": "The census recorded a JS heap of 15-28 MB against a 3586 MB limit, peak DOM 1681 nodes, and the crash log holds 19 clean quits with zero crashes across five weeks. Whatever is worth fixing next, it is not footprint or stability. Record this as a deliberate negative result so the next perf instinct gets checked against it, and re-measure only with a census that runs on more than one day and more than one tile.",
       "why": "Perf work is the easiest thing to start and the hardest to justify. The only measurement available says there is nothing here.",
       "size": "Minutes",
       "evidence": "crew-crash.log: heapMB 15-28 of heapLimitMB 3586; 0 crashes, 19 quits, Aug 26 - Oct 3"
+    },
+    {
+      "id": "CB-23",
+      "group": "Finish the jitter hunt",
+      "title": "Stray text like 2;145;152;161m appears mid-session",
+      "detail": "A retired session is rebuilt by replaying its last TAIL_LIMIT (64 KiB) code units. That bound has to fall somewhere, and when it fell inside an escape sequence the surviving half stopped being an instruction and became text: ESC[38;2;145;152;161m cut after ESC[38; replays as a literal '2;145;152;161m'. pushTail already guarded the same hazard for surrogate pairs but not for escapes. Whether the tail opens mid-sequence cannot be decided from the survivor -- '2;145;152;161m' is also ordinary text -- so it is decided from what was discarded: if the discarded run ends inside an open sequence, the head of the tail is its continuation and goes with it. Both terminal pools had the defect; both are fixed. Note the discarded half is lost either way, so a bisected mode change (leaving the alternate buffer, resetting the scroll region) can still leave a rebuilt pane in a odd state -- which is a plausible path to the scroll report. Does not cover the retire-mid-sequence path; see CB-24.",
+      "why": "Reported with a screenshot showing the exact string, so this had direct textual evidence and a provable cause.",
+      "size": "Done",
+      "evidence": "Screenshot 5 Oct 2026 21:33; reproduced by failing tests in test/terminal-pool-bounded.test.ts and test/legacy-terminal-suspension.test.ts"
+    },
+    {
+      "id": "CB-24",
+      "group": "Finish the jitter hunt",
+      "title": "Stray colour codes survive a second way: retiring a session mid-sequence",
+      "detail": "A second mechanism with the same symptom, independent of the 64 KiB bound and not fixed by CB-23. On retire, a snapshot of the screen replaces the replay tail. But a snapshot cannot contain a sequence the emulator has only half-consumed -- that is parser state, not rendered output -- so the ESC[ already swallowed by the dying parser is lost while its continuation accumulates in a fresh tail, and the rebuild emits 'hello' + '2;164;117;249mWORLD'. This needs no threshold, which is why it fits the 6 Oct screenshot, where the artifact sat in Copilot CLI's live redrawing footer rather than in static scrollback. Fixed by tracking the fragment the parser is part-way through (pendingEscape), preserving it across retirement, and writing it into the replacement engine before any post-retirement output. Both pools.",
+      "why": "The first screenshot's fix was assumed to cover the second; it did not. Caught only because the test mock's serialize returned every byte verbatim -- including a half-consumed sequence a real emulator could never emit -- which hid the mechanism entirely on the first attempt.",
+      "size": "Done",
+      "evidence": "Screenshot 6 Oct 2026 09:15; reproduced with a faithful serialize, and each regression test confirmed to fail with the fix disabled (test/terminal-pool-bounded.test.ts, test/legacy-terminal-suspension.test.ts, test/replay-tail.test.ts)"
     }
   ],
   "state": {
@@ -310,6 +328,11 @@
       "status": "done",
       "note": "Recorded in docs/performance/footprint-and-stability-negative-result.md. Reading the raw samples narrowed the claim: all 1289 census samples are tiles:1/xterms:1 in one 123-minute window, so the memory half cannot speak to a full roster. Stability half (0 crashes, 19 clean quits, 14 active days) stands.",
       "at": "2026-10-05T05:03:49.955Z"
+    },
+    "CB-23": {
+      "status": "approved",
+      "note": "FIXED. Root cause proven by a failing test reproducing the exact string from the screenshot, in both single-chunk and split-chunk cases, verified to fail without the fix. New pure module src/shared/replay-tail.ts with 16 unit tests; both terminal pools patched. Suite 1647 passing across 122 files.",
+      "at": "2026-10-06T04:50:51.784573Z"
     }
   }
 }

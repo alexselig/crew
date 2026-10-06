@@ -18,6 +18,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { findAssetPaths } from '../shared/assets'
+import { nextPendingEscape, openEscapeAt, orphanLength } from '../shared/replay-tail'
 import { previewToken } from './preview-bus'
 import { previewLines } from '../shared/preview'
 import { selectEvictions } from './terminal/lru'
@@ -42,6 +43,11 @@ export interface Pooled {
   /** Plain-text terminal buffer snapshot captured before this terminal is
    * retired, replayed before post-retirement tail chunks on reattach. */
   scrollbackSnapshot: string
+  /** The escape fragment the parser is part-way through; a plain-text snapshot
+   *  cannot carry it, so it is replayed into the terminal that replaces this one. */
+  pendingEscape: string
+  /** `pendingEscape` as of retirement, owed to the rebuilt terminal. */
+  replayPrefix: string
 }
 
 const pool = new Map<string, Pooled>()
@@ -49,7 +55,14 @@ const pool = new Map<string, Pooled>()
 // alive and still producing output — it just has no emulator until reopened.
 const dormant = new Map<
   string,
-  { tailParts: string[]; tailLen: number; scrollbackSnapshot: string; lastUsed: number }
+  {
+    tailParts: string[]
+    tailLen: number
+    scrollbackSnapshot: string
+    pendingEscape: string
+    replayPrefix: string
+    lastUsed: number
+  }
 >()
 // Ids of sessions whose terminals have been disposed. A killed PTY can emit one
 // last chunk *after* the session left the roster; without this guard writeTo →
@@ -155,7 +168,9 @@ export function getPooled(id: string): Pooled {
       lastUsed: Date.now(),
       tailParts: [],
       tailLen: 0,
-      scrollbackSnapshot: ''
+      scrollbackSnapshot: '',
+      pendingEscape: '',
+      replayPrefix: ''
     }
     const d = dormant.get(id)
     if (d) {
@@ -165,7 +180,10 @@ export function getPooled(id: string): Pooled {
       p.tailParts = d.tailParts
       p.tailLen = d.tailLen
       p.scrollbackSnapshot = d.scrollbackSnapshot
+      p.pendingEscape = d.pendingEscape
       if (d.scrollbackSnapshot) term.write(d.scrollbackSnapshot)
+      // Hand the new parser the fragment the old one died holding.
+      if (d.replayPrefix) term.write(d.replayPrefix)
       if (d.tailLen > 0) term.write(d.tailParts.join(''))
     }
     pool.set(id, p)
@@ -175,15 +193,19 @@ export function getPooled(id: string): Pooled {
 }
 
 /** Append raw output to a bounded replay tail. */
-function pushTail(t: { tailParts: string[]; tailLen: number }, data: string): void {
+function pushTail(t: { tailParts: string[]; tailLen: number; pendingEscape: string }, data: string): void {
   if (!data) return
+  t.pendingEscape = nextPendingEscape(t.pendingEscape, data)
   t.tailParts.push(data)
   t.tailLen += data.length
   if (t.tailLen <= TAIL_LIMIT) return
+  const discarded: string[] = []
   while (t.tailLen - t.tailParts[0].length >= TAIL_LIMIT) {
+    discarded.push(t.tailParts[0])
     t.tailLen -= t.tailParts.shift()!.length
   }
   const trim = t.tailLen - TAIL_LIMIT
+  discarded.push(t.tailParts[0].slice(0, trim))
   t.tailParts[0] = t.tailParts[0].slice(trim)
   t.tailLen -= trim
   const first = t.tailParts[0].charCodeAt(0)
@@ -191,6 +213,23 @@ function pushTail(t: { tailParts: string[]; tailLen: number }, data: string): vo
     t.tailParts[0] = t.tailParts[0].slice(1)
     t.tailLen--
     if (!t.tailParts[0]) t.tailParts.shift()
+  }
+  // Half an escape sequence replays as text, not as an instruction. Decided from
+  // what was discarded, because the surviving half reads as ordinary characters.
+  const kind = openEscapeAt(discarded.join(''))
+  if (!kind) return
+  while (t.tailParts.length) {
+    const part = t.tailParts[0]
+    const n = orphanLength(kind, part)
+    if (n < 0) {
+      t.tailLen -= part.length
+      t.tailParts.shift()
+      continue
+    }
+    t.tailParts[0] = part.slice(n)
+    t.tailLen -= n
+    if (!t.tailParts[0]) t.tailParts.shift()
+    return
   }
 }
 
@@ -200,6 +239,8 @@ function retire(id: string): void {
   const p = pool.get(id)
   if (!p) return
   const scrollbackSnapshot = replayableSnapshot(terminalText(p.term))
+  // Owed only when the snapshot replaces the tail; the tail carries it itself.
+  const replayPrefix = scrollbackSnapshot ? p.pendingEscape : ''
   const tailParts = scrollbackSnapshot ? [] : p.tailParts
   const tailLen = scrollbackSnapshot ? 0 : p.tailLen
   try {
@@ -208,7 +249,14 @@ function retire(id: string): void {
     /* already disposed */
   }
   pool.delete(id)
-  dormant.set(id, { tailParts, tailLen, scrollbackSnapshot, lastUsed: p.lastUsed })
+  dormant.set(id, {
+    tailParts,
+    tailLen,
+    scrollbackSnapshot,
+    pendingEscape: p.pendingEscape,
+    replayPrefix,
+    lastUsed: p.lastUsed
+  })
 }
 
 /** Retire least-recently-viewed unmounted terminals until the pool fits the cap. */
@@ -251,7 +299,7 @@ export function writeTo(id: string, data: string): void {
   if (!renderingActive) {
     let dormantSession = dormant.get(id)
     if (!dormantSession) {
-      dormantSession = { tailParts: [], tailLen: 0, scrollbackSnapshot: '', lastUsed: Date.now() }
+      dormantSession = { tailParts: [], tailLen: 0, scrollbackSnapshot: '', pendingEscape: '', replayPrefix: '', lastUsed: Date.now() }
       dormant.set(id, dormantSession)
     }
     pushTail(dormantSession, data)
@@ -269,7 +317,7 @@ export function writeTo(id: string, data: string): void {
   // At the cap, output for an unviewed session accrues as a tail only. This is
   // the case that used to allocate an emulator per session and kill the renderer.
   if (!d) {
-    d = { tailParts: [], tailLen: 0, scrollbackSnapshot: '', lastUsed: Date.now() }
+    d = { tailParts: [], tailLen: 0, scrollbackSnapshot: '', pendingEscape: '', replayPrefix: '', lastUsed: Date.now() }
     dormant.set(id, d)
   }
   pushTail(d, data)
