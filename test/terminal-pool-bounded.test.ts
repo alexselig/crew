@@ -114,6 +114,21 @@ describe('bounded terminal engine pool', () => {
     expect(p.tailParts.join('')).toBe((first + 'newest-tail').slice(-TAIL_LIMIT))
   })
 
+  // An escape sequence cut in half by the replay bound leaves its remainder as
+  // printable text, which is how `2;145;152;161m` appears mid-session.
+  it.each([false, true])('does not replay half an escape sequence (split chunks: %s)', (split) => {
+    const SGR = `${ESC}[38;2;145;152;161m`
+    if (split) {
+      writeTo('ansi', 'old' + ESC + '[38;')
+      writeTo('ansi', '2;145;152;161m' + 'n'.repeat(TAIL_LIMIT - 14))
+    } else {
+      writeTo('ansi', 'old' + SGR + 'n'.repeat(TAIL_LIMIT - 14))
+    }
+    const tail = getPooled('ansi').tailParts.join('')
+    expect(tail.startsWith('2;145;152;161m')).toBe(false)
+    expect(tail).not.toContain('145;152;161m')
+  })
+
   it.each([false, true])('does not split a surrogate pair at the replay boundary (split chunks: %s)', (split) => {
     if (split) {
       writeTo('unicode', 'old\ud83d')

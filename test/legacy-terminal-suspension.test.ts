@@ -59,6 +59,14 @@ beforeEach(() => {
 })
 
 describe('legacy terminal suspension', () => {
+
+  it('does not replay half an escape sequence after trimming', () => {
+    // Same hazard as the enhanced pool: ESC[38; discarded, 2;145;152;161m left
+    // behind, which replays as literal text rather than as a colour change.
+    writeTo('ansi', 'old\u001b[38;2;145;152;161m' + 'n'.repeat(TAIL_LIMIT - 14))
+    const tail = getPooled('ansi').tailParts.join('')
+    expect(tail).not.toContain('145;152;161m')
+  })
   it('retires background terminals and does not allocate for background output', () => {
     getPooled('visible')
     setRenderingActive(false)

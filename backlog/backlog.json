@@ -213,6 +213,15 @@
       "why": "Perf work is the easiest thing to start and the hardest to justify. The only measurement available says there is nothing here.",
       "size": "Minutes",
       "evidence": "crew-crash.log: heapMB 15-28 of heapLimitMB 3586; 0 crashes, 19 quits, Aug 26 - Oct 3"
+    },
+    {
+      "id": "CB-23",
+      "group": "Finish the jitter hunt",
+      "title": "Stray text like 2;145;152;161m appears mid-session",
+      "detail": "A retired session is rebuilt by replaying its last TAIL_LIMIT (64 KiB) code units. That bound has to fall somewhere, and when it fell inside an escape sequence the surviving half stopped being an instruction and became text: ESC[38;2;145;152;161m cut after ESC[38; replays as a literal '2;145;152;161m'. pushTail already guarded the same hazard for surrogate pairs but not for escapes. Whether the tail opens mid-sequence cannot be decided from the survivor -- '2;145;152;161m' is also ordinary text -- so it is decided from what was discarded: if the discarded run ends inside an open sequence, the head of the tail is its continuation and goes with it. Both terminal pools had the defect; both are fixed. Note the discarded half is lost either way, so a bisected mode change (leaving the alternate buffer, resetting the scroll region) can still leave a rebuilt pane in a odd state -- which is a plausible path to the scroll report.",
+      "why": "Reported with a screenshot showing the exact string, so this had direct textual evidence and a provable cause.",
+      "size": "Done",
+      "evidence": "Screenshot 5 Oct 2026 21:33; reproduced by failing tests in test/terminal-pool-bounded.test.ts and test/legacy-terminal-suspension.test.ts"
     }
   ],
   "state": {
@@ -310,6 +319,11 @@
       "status": "done",
       "note": "Recorded in docs/performance/footprint-and-stability-negative-result.md. Reading the raw samples narrowed the claim: all 1289 census samples are tiles:1/xterms:1 in one 123-minute window, so the memory half cannot speak to a full roster. Stability half (0 crashes, 19 clean quits, 14 active days) stands.",
       "at": "2026-10-05T05:03:49.955Z"
+    },
+    "CB-23": {
+      "status": "approved",
+      "note": "FIXED. Root cause proven by a failing test reproducing the exact string from the screenshot, in both single-chunk and split-chunk cases, verified to fail without the fix. New pure module src/shared/replay-tail.ts with 16 unit tests; both terminal pools patched. Suite 1647 passing across 122 files.",
+      "at": "2026-10-06T04:50:51.784573Z"
     }
   }
 }

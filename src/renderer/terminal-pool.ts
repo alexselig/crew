@@ -18,6 +18,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { findAssetPaths } from '../shared/assets'
+import { openEscapeAt, orphanLength } from '../shared/replay-tail'
 import { previewToken } from './preview-bus'
 import { previewLines } from '../shared/preview'
 import { selectEvictions } from './terminal/lru'
@@ -180,10 +181,13 @@ function pushTail(t: { tailParts: string[]; tailLen: number }, data: string): vo
   t.tailParts.push(data)
   t.tailLen += data.length
   if (t.tailLen <= TAIL_LIMIT) return
+  const discarded: string[] = []
   while (t.tailLen - t.tailParts[0].length >= TAIL_LIMIT) {
+    discarded.push(t.tailParts[0])
     t.tailLen -= t.tailParts.shift()!.length
   }
   const trim = t.tailLen - TAIL_LIMIT
+  discarded.push(t.tailParts[0].slice(0, trim))
   t.tailParts[0] = t.tailParts[0].slice(trim)
   t.tailLen -= trim
   const first = t.tailParts[0].charCodeAt(0)
@@ -191,6 +195,23 @@ function pushTail(t: { tailParts: string[]; tailLen: number }, data: string): vo
     t.tailParts[0] = t.tailParts[0].slice(1)
     t.tailLen--
     if (!t.tailParts[0]) t.tailParts.shift()
+  }
+  // Half an escape sequence replays as text, not as an instruction. Decided from
+  // what was discarded, because the surviving half reads as ordinary characters.
+  const kind = openEscapeAt(discarded.join(''))
+  if (!kind) return
+  while (t.tailParts.length) {
+    const part = t.tailParts[0]
+    const n = orphanLength(kind, part)
+    if (n < 0) {
+      t.tailLen -= part.length
+      t.tailParts.shift()
+      continue
+    }
+    t.tailParts[0] = part.slice(n)
+    t.tailLen -= n
+    if (!t.tailParts[0]) t.tailParts.shift()
+    return
   }
 }
 

@@ -26,6 +26,7 @@ import { pickJumpTarget } from '../../shared/nav'
 import { shouldHighlightInputOnEnter } from '../../shared/highlight'
 import { findAssetPaths } from '../../shared/assets'
 import { previewLines } from '../../shared/preview'
+import { openEscapeAt, orphanLength } from '../../shared/replay-tail'
 import { previewToken } from '../preview-bus'
 import type { TranscriptBlock } from '../transcript/types'
 
@@ -167,10 +168,13 @@ function pushTail(s: Semantic, data: string): void {
   s.tailParts.push(data)
   s.tailLen += data.length
   if (s.tailLen <= TAIL_LIMIT) return
+  const discarded: string[] = []
   while (s.tailLen - s.tailParts[0].length >= TAIL_LIMIT) {
+    discarded.push(s.tailParts[0])
     s.tailLen -= s.tailParts.shift()!.length
   }
   const trim = s.tailLen - TAIL_LIMIT
+  discarded.push(s.tailParts[0].slice(0, trim))
   s.tailParts[0] = s.tailParts[0].slice(trim)
   s.tailLen -= trim
   // Trimming can bisect a surrogate pair, including one spanning PTY chunks.
@@ -179,6 +183,25 @@ function pushTail(s: Semantic, data: string): void {
     s.tailParts[0] = s.tailParts[0].slice(1)
     s.tailLen--
     if (!s.tailParts[0]) s.tailParts.shift()
+  }
+  // It can equally bisect an escape sequence, and half a sequence is not an
+  // instruction — it replays as text, which is how a stray `2;145;152;161m`
+  // turns up mid-session. Whether the tail now opens mid-sequence can only be
+  // known from what was thrown away, since the remainder reads as plain text.
+  const kind = openEscapeAt(discarded.join(''))
+  if (!kind) return
+  while (s.tailParts.length) {
+    const part = s.tailParts[0]
+    const n = orphanLength(kind, part)
+    if (n < 0) {
+      s.tailLen -= part.length
+      s.tailParts.shift()
+      continue
+    }
+    s.tailParts[0] = part.slice(n)
+    s.tailLen -= n
+    if (!s.tailParts[0]) s.tailParts.shift()
+    return
   }
 }
 
