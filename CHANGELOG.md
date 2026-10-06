@@ -3,6 +3,40 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.10 — 2026-10-06
+
+### Fixed
+
+- **Stray colour codes like `2;164;117;249m` no longer appear mid-session.**
+  Text that should have been an instruction to the terminal was being printed
+  as characters instead. Two separate mechanisms did it, and both are fixed.
+
+  A session you have not looked at in a while is rebuilt from a replay of its
+  recent output. That replay is bounded at 64 KiB, and the bound has to fall
+  somewhere — when it fell inside an escape sequence, the surviving half
+  stopped being an instruction and became text. The same code already guarded
+  this hazard for emoji and other surrogate pairs, but not for escapes.
+  Whether a replay opens mid-sequence cannot be judged from what survived,
+  because `2;145;152;161m` is also perfectly ordinary text, so it is now judged
+  from what was discarded.
+
+  The second mechanism needs no threshold at all. When a session is retired,
+  a snapshot of the screen replaces the replay. A snapshot cannot contain a
+  sequence the terminal has only half-consumed — that is parser state, not
+  anything drawn on screen — so the first half was lost while its continuation
+  waited in the replay, and the rebuilt session printed it. Crew now tracks the
+  fragment the terminal is part-way through and hands it to the replacement, so
+  the sequence completes instead of printing. Both terminal pools were affected.
+
+### Added
+
+- **Scroll and flicker diagnostics.** With `CREW_FLICKERLOG=1`, Crew's census
+  now also records whether a pane is stuck in the alternate buffer (where there
+  is no scrollback to scroll) and how many decoration rows are positioned to
+  swallow wheel events. Reports that "scrolling stopped working" have at least
+  three distinct causes, and this separates them from one capture rather than
+  another round of fixing an unobserved cause.
+
 ## 0.7.9 — 2026-10-05
 
 ### Added
