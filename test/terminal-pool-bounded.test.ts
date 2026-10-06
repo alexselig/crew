@@ -21,6 +21,10 @@ interface FakeEngine {
   written: string[]
   disposed: boolean
   mounted: boolean
+  getVisibleText: () => string
+  /** Overridable per test: a real emulator cannot serialize a sequence its
+   *  parser has only half-consumed, and that difference is load-bearing. */
+  serialize: () => string
 }
 
 const { engines, createXtermEngine } = vi.hoisted(() => {
@@ -112,6 +116,65 @@ describe('bounded terminal engine pool', () => {
     const p = getPooled('partial')
     expect(p.tailLen).toBe(TAIL_LIMIT)
     expect(p.tailParts.join('')).toBe((first + 'newest-tail').slice(-TAIL_LIMIT))
+  })
+
+  // An escape sequence cut in half by the replay bound leaves its remainder as
+  // printable text, which is how `2;145;152;161m` appears mid-session.
+  // The second mechanism, independent of the replay bound: an engine retired
+  // part-way through a sequence takes the consumed half with it. The snapshot
+  // cannot carry it — it is parser state, not rendered output — so without the
+  // pending fragment the continuation prints as `2;164;117;249m`.
+  it('replays the fragment a retired parser was part-way through', () => {
+    writeTo('midseq', 'hello' + ESC + '[38;')
+    // Model a faithful emulator: the open sequence is not in its output.
+    const live = asFake(engines[engines.length - 1])
+    live.serialize = () => 'hello'
+    retireAllPooled()
+    writeTo('midseq', '2;164;117;249mWORLD')
+    const written = asFake(getPooled('midseq').engine).written.join('')
+    expect(written).toContain(ESC + '[38;2;164;117;249m')
+    expect(written).not.toContain('hello2;164')
+  })
+
+  // The prefix is owed exactly once; a second rebuild must not re-emit it.
+  it('does not replay the fragment twice across two rebuilds', () => {
+    writeTo('once', 'hello' + ESC + '[38;')
+    asFake(engines[engines.length - 1]).serialize = () => 'hello'
+    retireAllPooled()
+    writeTo('once', '2;164;117;249mWORLD')
+    getPooled('once')
+    retireAllPooled()
+    const written = asFake(getPooled('once').engine).written.join('')
+    expect(written.split(ESC + '[38;').length - 1).toBe(1)
+  })
+
+  // When no snapshot is taken the tail is kept whole, fragment included, so
+  // replaying a prefix as well would duplicate it.
+  it('does not replay the fragment when the tail is kept instead', () => {
+    writeTo('notsnap', 'hello' + ESC + '[38;')
+    // snapshotOf falls back to visible text, so a truly snapshot-less engine
+    // must yield nothing from either source.
+    const live = asFake(engines[engines.length - 1])
+    live.serialize = () => ''
+    live.getVisibleText = () => ''
+    retireAllPooled()
+    writeTo('notsnap', '2;164;117;249mWORLD')
+    const written = asFake(getPooled('notsnap').engine).written.join('')
+    expect(written.split(ESC + '[38;').length - 1).toBe(1)
+    expect(written).toContain(ESC + '[38;2;164;117;249mWORLD')
+  })
+
+  it.each([false, true])('does not replay half an escape sequence (split chunks: %s)', (split) => {
+    const SGR = `${ESC}[38;2;145;152;161m`
+    if (split) {
+      writeTo('ansi', 'old' + ESC + '[38;')
+      writeTo('ansi', '2;145;152;161m' + 'n'.repeat(TAIL_LIMIT - 14))
+    } else {
+      writeTo('ansi', 'old' + SGR + 'n'.repeat(TAIL_LIMIT - 14))
+    }
+    const tail = getPooled('ansi').tailParts.join('')
+    expect(tail.startsWith('2;145;152;161m')).toBe(false)
+    expect(tail).not.toContain('145;152;161m')
   })
 
   it.each([false, true])('does not split a surrogate pair at the replay boundary (split chunks: %s)', (split) => {
