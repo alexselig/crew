@@ -240,6 +240,15 @@
       "why": "The first screenshot's fix was assumed to cover the second; it did not. Caught only because the test mock's serialize returned every byte verbatim -- including a half-consumed sequence a real emulator could never emit -- which hid the mechanism entirely on the first attempt.",
       "size": "Done",
       "evidence": "Screenshot 6 Oct 2026 09:15; reproduced with a faithful serialize, and each regression test confirmed to fail with the fix disabled (test/terminal-pool-bounded.test.ts, test/legacy-terminal-suspension.test.ts, test/replay-tail.test.ts)"
+    },
+    {
+      "id": "CB-25",
+      "group": "Finish the jitter hunt",
+      "title": "Half the links in a session were never clickable",
+      "detail": "Two independent causes, one symptom. First, nothing linkified a bare URL: the terminal only made OSC 8 hyperlinks clickable (handled by xterm itself) and previewable file paths. So whether a printed address was clickable depended entirely on whether the CLI that printed it wrapped it in an escape sequence -- which is why some clicked and some did not, with no pattern the user could see. @xterm/addon-web-links was never installed. Second, link detection ran per buffer row, so a URL long enough to fill the pane wrapped onto the next row and neither half matched anything -- exactly the 'ones that take a complete line' case. Fixed with a new pure module src/shared/links.ts that detects bare URLs (including the http://localhost:5173 and http://127.0.0.1:3000 forms agents print most, which have no dotted TLD) and reassembles the logical line across wrapped rows before scanning, mapping match offsets back onto xterm's 1-based row/column range. Both pools; a clicked URL opens externally, a clicked path still previews.",
+      "why": "Reported as \"links are not always clickable\". The inconsistency was the tell: it tracked the producer, not the link.",
+      "size": "Done",
+      "evidence": "test/links.test.ts (29 unit tests incl. wrapped-line reassembly and offset mapping) and 5 wiring tests in test/terminal-pool-bounded.test.ts; the URL test confirmed to fail with the fix reverted. Suite 1693 passing across 123 files."
     }
   ],
   "state": {
@@ -347,6 +356,11 @@
       "status": "approved",
       "note": "FIXED. Root cause proven by a failing test reproducing the exact string from the screenshot, in both single-chunk and split-chunk cases, verified to fail without the fix. New pure module src/shared/replay-tail.ts with 16 unit tests; both terminal pools patched. Suite 1647 passing across 122 files.",
       "at": "2026-10-06T04:50:51.784573Z"
+    },
+    "CB-25": {
+      "status": "approved",
+      "note": "FIXED. Root cause read out of the code before any change: no web-links provider existed at all, and the provider that did exist was per-row so it could not see a wrapped URL. Falsified by reverting.",
+      "at": "2026-10-06T17:29:39.892Z"
     }
   }
 }

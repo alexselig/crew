@@ -17,7 +17,13 @@
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { findAssetPaths } from '../shared/assets'
+import {
+  findTerminalLinks,
+  isUrlToken,
+  normalizeUrl,
+  wrappedGroupAt,
+  rangeForMatch
+} from '../shared/links'
 import { nextPendingEscape, openEscapeAt, orphanLength } from '../shared/replay-tail'
 import { previewToken } from './preview-bus'
 import { previewLines } from '../shared/preview'
@@ -145,18 +151,20 @@ export function getPooled(id: string): Pooled {
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
-    // Make previewable file paths in output clickable — clicking resolves the
-    // token against the session cwd and opens it in the Assets panel.
+    // Make URLs and previewable file paths in output clickable. The scan runs on
+    // the whole logical line so a URL that wraps is still one link.
     term.registerLinkProvider({
       provideLinks(y, cb) {
-        const line = term.buffer.active.getLine(y - 1)
-        if (!line) return cb(undefined)
-        const links = findAssetPaths(line.translateToString(true)).map((m) => ({
-          // xterm ranges are 1-based with an inclusive end column.
-          range: { start: { x: m.start + 1, y }, end: { x: m.end, y } },
+        const group = wrappedGroupAt(term.buffer.active, y - 1)
+        if (!group) return cb(undefined)
+        const links = findTerminalLinks(group.text).map((m) => ({
+          range: rangeForMatch(m.start, m.end, term.cols, group.firstRow),
           text: m.text,
           decorations: { pointerCursor: true, underline: true },
-          activate: (_e: MouseEvent, text: string) => void previewToken(id, text)
+          activate: (_e: MouseEvent, text: string) =>
+            isUrlToken(text)
+              ? void window.crew.openExternal(normalizeUrl(text))
+              : void previewToken(id, text)
         }))
         cb(links.length ? links : undefined)
       }
