@@ -38,6 +38,20 @@ export interface FlickerSnapshot {
   visible: number
   /** Document focus, 1 when focused. */
   focus: number
+  /**
+   * Mounted terminals sitting in the alternate buffer, where there is no
+   * scrollback to scroll and the wheel goes to the application instead. A pane
+   * left here by a TUI that exited badly cannot be scrolled, and that looks
+   * exactly like scrolling being broken.
+   */
+  altBuf: number
+  /**
+   * Decoration rows that would swallow wheel-scroll. xterm gives decorations
+   * pointer-events:auto above the text and beside the scroll viewport, so each
+   * one must be reset to 'none' on every render (see xterm-engine decorate()).
+   * Any number above zero here is a pane the user cannot scroll over.
+   */
+  decorBlocking: number
 }
 
 /** The fields compared between samples. `t` is a timestamp, not a measurement. */
@@ -47,7 +61,9 @@ export const FLICKER_FIELDS = [
   'tiles',
   'webgl',
   'visible',
-  'focus'
+  'focus',
+  'altBuf',
+  'decorBlocking'
 ] as const
 
 export type FlickerField = (typeof FLICKER_FIELDS)[number]
@@ -142,5 +158,9 @@ export function interpret(deltas: FlickerDelta[]): string {
     case 'visible':
     case 'focus':
       return `${field} moved ${n}x: the window is changing focus/visibility underneath the UI`
+    case 'altBuf':
+      return `${field} moved ${n}x: a terminal is entering/leaving the alternate buffer, where there is no scrollback to scroll`
+    case 'decorBlocking':
+      return `${field} moved ${n}x: decoration rows are taking pointer events, which swallows wheel-scroll over them`
   }
 }

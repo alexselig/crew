@@ -17,6 +17,8 @@ const snap = (over: Partial<FlickerSnapshot> = {}): FlickerSnapshot => ({
   webgl: 4,
   visible: 1,
   focus: 1,
+  altBuf: 0,
+  decorBlocking: 0,
   ...over
 })
 
@@ -93,5 +95,29 @@ describe('flicker census: reading the capture', () => {
 
   it('reports the count in its reading, so one line carries the evidence', () => {
     expect(interpret(flapping('canvas', 12))).toContain('12x')
+  })
+})
+
+describe('scroll diagnostics', () => {
+  it('reports a pane entering the alternate buffer, where there is nothing to scroll', () => {
+    const d = diffSnapshots(snap(), snap({ altBuf: 1 }))
+    expect(d).not.toBeNull()
+    expect(d!.changes.map((c) => c.field)).toEqual(['altBuf'])
+    expect(interpret([d!])).toContain('alternate buffer')
+  })
+
+  it('reports decoration rows that would swallow wheel-scroll', () => {
+    const d = diffSnapshots(snap(), snap({ decorBlocking: 3 }))
+    expect(d!.changes.map((c) => c.field)).toEqual(['decorBlocking'])
+    expect(interpret([d!])).toContain('wheel-scroll')
+  })
+
+  it('stays silent when decorations are correctly transparent to the pointer', () => {
+    expect(diffSnapshots(snap({ decorBlocking: 0 }), snap({ decorBlocking: 0 }))).toBeNull()
+  })
+
+  it('treats a decoration leak as the dominant signal when nothing else moves', () => {
+    const d = diffSnapshots(snap(), snap({ decorBlocking: 7 }))!
+    expect(dominantField([d])).toBe('decorBlocking')
   })
 })

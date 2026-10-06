@@ -111,3 +111,24 @@ can produce.
 
 The census is off unless `CREW_FLICKERLOG=1` is set, swallows its own failures,
 and records only counters — no prompts, no terminal output, no paths.
+
+## Reading the census for a scroll complaint
+
+The same capture answers "why will this pane not scroll?", because two fields in
+every `flicker` line speak directly to it:
+
+- **`altBuf` above 0** — a mounted terminal is in the alternate buffer. There is
+  no scrollback there and the wheel is forwarded to the application, so the pane
+  genuinely cannot scroll. Usually a TUI that exited without restoring the
+  primary buffer. Not the same bug as #46.
+- **`decorBlocking` above 0** — decoration rows are taking pointer events. xterm
+  gives decorations `pointer-events: auto` above the text and beside the scroll
+  viewport, so each one must be reset to `none` on every render (see
+  `xterm-engine.ts` `decorate()`). Any row that misses the reset swallows
+  wheel-scroll over itself. Crew decorates on every Enter and on every OSC 133
+  prompt mark, so these accumulate with uptime — which fits a fault that shows
+  up after days rather than immediately.
+
+If both stay at 0 while scrolling is broken, the symptom is the **snap-back**
+variant instead — the viewport is being dragged to the bottom by a pane rebuilt
+from a scrollback snapshot — and #46's fix is incomplete rather than wrong.

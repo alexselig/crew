@@ -422,7 +422,12 @@ function attachFlickerCensus(w: BrowserWindow): void {
         tiles: document.querySelectorAll('[data-session-id]').length,
         webgl: typeof g.__crewWebglContexts === 'function' ? g.__crewWebglContexts() : -1,
         visible: document.visibilityState === 'visible' ? 1 : 0,
-        focus: document.hasFocus() ? 1 : 0
+        focus: document.hasFocus() ? 1 : 0,
+        altBuf: typeof g.__crewAltBuffers === 'function' ? g.__crewAltBuffers() : -1,
+        decorBlocking: Array.prototype.filter.call(
+          document.querySelectorAll('.xterm-decoration'),
+          (el) => getComputedStyle(el).pointerEvents !== 'none'
+        ).length
       }
     } catch (e) {
       return { error: String(e) }
