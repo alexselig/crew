@@ -3,6 +3,36 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.11 — 2026-10-07
+
+### Fixed
+
+- **Links printed in a session are clickable, including ones that wrap.**
+  Only two kinds of text were ever clickable: a hyperlink an agent explicitly
+  marked as one, and a path to a file Crew can preview. A plain address printed
+  as text was not, so whether a link worked came down to which CLI printed it,
+  which is why it looked random. Any address is now a link. A link wide enough
+  to wrap is one link across both rows rather than two halves that each match
+  nothing — the case you hit most, because the links agents print are long.
+
+  `http://localhost:5173` and `http://127.0.0.1:3000` are included. The obvious
+  rule for recognising an address wants a dot in the host, which would have
+  rejected exactly the links a dev server prints.
+
+### Changed
+
+- **The flicker census now measures geometry at frame rate.** The previous
+  census ran through 36 minutes of live jitter and recorded four changes, two
+  of them at startup. That is a real answer: nothing is mounting, remounting,
+  swapping renderer, or moving between buffers while the screen jitters. It
+  could not see the jitter itself for two reasons — it counts how many things
+  exist, and a jitter is a thing that stays put and moves a few pixels; and
+  four samples a second cannot see a wobble that happens sixty times a second,
+  it just samples the same value twice and reads still. Counting now happens in
+  the window at frame rate, and a value that comes back to where it was is told
+  apart from one that moved and stayed. Diagnostic only, off unless
+  `CREW_FLICKERLOG=1` is set. No fix yet — the measurement comes first.
+
 ## 0.7.10 — 2026-10-06
 
 ### Fixed

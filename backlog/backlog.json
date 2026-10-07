@@ -29,10 +29,10 @@
       "id": "CB-1",
       "group": "Finish the jitter hunt",
       "title": "Find the flicker's real cause (five explanations now falsified)",
-      "detail": "The mascot-animation theory is dead: calmMotion is on, its migration ran, and 0.7.8 still flickers. Four other explanations were falsified against the live store and crash log. A CREW_FLICKERLOG=1 census now records what actually moves on screen during a repro, because five fixes aimed at unobserved causes have all missed.",
-      "why": "Five fixes have been spent on this by reading code and guessing. The next step is a measurement, not a sixth guess.",
+      "detail": "The structural census ran for 36 minutes of live use on 7 Oct while the jitter was happening and recorded four raw deltas, two of them at startup and two at a session switch. That is the result it was built to produce: nothing mounted, nothing remounted, no WebGL/DOM renderer swap, no alt-buffer move, no decoration churn. Every structural suspect dies at once. Two reasons it could not see the jitter: it counts things, and jitter is a thing that stays put and moves a few pixels; and a 4 Hz poll aliases a per-frame wobble into apparent stillness. So the next layer counts geometry in the renderer at frame rate and distinguishes a one-way resize from a value that comes back.",
+      "why": "Six fixes have now been aimed at causes nobody ever observed. The census narrowed it to paint or geometry inside a stable tree; the frame-rate reading names which.",
       "size": "Minutes",
-      "evidence": "docs/performance/flicker-five-falsified-hypotheses.md; src/shared/flicker-census.ts"
+      "evidence": "docs/performance/flicker-five-falsified-hypotheses.md; src/shared/flicker-census.ts; src/shared/geometry-churn.ts; src/renderer/terminal/geometry-watch.ts; crew-crash.log 7 Oct capture (4 deltas / 36 min)"
     },
     {
       "id": "CB-2",

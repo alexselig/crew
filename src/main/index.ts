@@ -14,6 +14,10 @@ import type { AgentStatus } from '../shared/api'
 import type { TrackerSessionInput } from '../shared/tracker'
 import { diffSnapshots, summarize, interpret } from '../shared/flicker-census'
 import type { FlickerSnapshot, FlickerDelta } from '../shared/flicker-census'
+import type { ChurnReport } from '../shared/geometry-churn'
+
+/** What `__crewGeometryChurn()` hands back: a report plus its own reading. */
+type GeometryChurnResult = ChurnReport & { reading: string }
 import { SessionManager } from './session-manager'
 import { ensureCrewHookDir } from './crew-hook'
 import { AssetWatchers } from './assets'
@@ -427,7 +431,11 @@ function attachFlickerCensus(w: BrowserWindow): void {
         decorBlocking: Array.prototype.filter.call(
           document.querySelectorAll('.xterm-decoration'),
           (el) => getComputedStyle(el).pointerEvents !== 'none'
-        ).length
+        ).length,
+        // Counted in the renderer at frame rate: a 4 Hz poll cannot see a
+        // wobble that happens every frame, it aliases into the interval and
+        // reads as perfectly still. Null on the first tick, which starts it.
+        churn: typeof g.__crewGeometryChurn === 'function' ? g.__crewGeometryChurn() : null
       }
     } catch (e) {
       return { error: String(e) }
@@ -436,13 +444,15 @@ function attachFlickerCensus(w: BrowserWindow): void {
   let prev: FlickerSnapshot | null = null
   const deltas: FlickerDelta[] = []
   let sinceSummary = 0
+  let lastChurn = ''
   const timer = setInterval(() => {
     if (w.isDestroyed()) return
     w.webContents
       .executeJavaScript(probe, true)
-      .then((r: Partial<FlickerSnapshot> & { error?: string }) => {
+      .then((r: Partial<FlickerSnapshot> & { error?: string; churn?: GeometryChurnResult }) => {
         if (r?.error) return
-        const next = { ...(r as FlickerSnapshot), t: Date.now() - started }
+        const { churn, ...snap } = r
+        const next = { ...(snap as FlickerSnapshot), t: Date.now() - started }
         if (prev) {
           const d = diffSnapshots(prev, next)
           if (d) {
@@ -451,18 +461,42 @@ function attachFlickerCensus(w: BrowserWindow): void {
           }
         }
         prev = next
+        // Geometry is the layer below structure: when nothing mounts or
+        // unmounts, a flicker is something staying put and changing size. Only
+        // a wobble is logged — a one-way resize is the user dragging a window.
+        if (churn && Object.values(churn.oscillations).some((n) => n > 0)) {
+          lastChurn = churn.reading
+          crashLog(
+            'flicker-geom',
+            JSON.stringify({ t: next.t, frames: churn.frames, oscillations: churn.oscillations, reading: churn.reading })
+          )
+        }
         // A running verdict every 30s, so a capture is readable without
         // tallying hundreds of lines by hand.
         if (++sinceSummary >= 120) {
           sinceSummary = 0
-          crashLog('flicker-summary', JSON.stringify({ counts: summarize(deltas), reading: interpret(deltas) }))
+          crashLog(
+            'flicker-summary',
+            JSON.stringify({
+              counts: summarize(deltas),
+              reading: interpret(deltas),
+              geometry: lastChurn || 'no geometry wobble seen'
+            })
+          )
         }
       })
       .catch((e) => crashLog('flicker-failed', String(e)))
   }, 250)
   w.on('closed', () => {
     clearInterval(timer)
-    crashLog('flicker-summary', JSON.stringify({ counts: summarize(deltas), reading: interpret(deltas) }))
+    crashLog(
+      'flicker-summary',
+      JSON.stringify({
+        counts: summarize(deltas),
+        reading: interpret(deltas),
+        geometry: lastChurn || 'no geometry wobble seen'
+      })
+    )
   })
 }
 
