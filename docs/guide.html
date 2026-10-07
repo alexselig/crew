@@ -561,6 +561,7 @@
         <li><b>Insert path</b> (⤶) — drops the file’s path into the terminal, ready to reference in your next prompt.</li>
         <li><b>Reveal in Finder</b> (📂) and <b>Open with default app</b> (↗).</li>
         <li>Clicking a file path <b>in the terminal</b> previews it here automatically.</li>
+        <li>A web address in the terminal is a link too — click it and it opens in your browser. This works in the default terminal as well as the <a href="#terminal">enhanced</a> one, including addresses long enough to wrap onto a second line and local ones like <code>http://localhost:5173</code>.</li>
         <li>Collapse the whole pane to a slim rail when you want more terminal.</li>
       </ul>
     </section>
@@ -596,7 +597,7 @@
         <li><b>Your input rows are highlighted</b> — every command you run gets a light row + amber bar, so the conversation is easy to scan.</li>
         <li><b>Overview ruler</b> (right edge) — a map of the whole session: your prompts, plus <span style="color:#3fb950">green</span> / <span style="color:#e5484d">red</span> ticks for each command’s exit code.</li>
         <li><b>Jump between prompts</b> with <kbd>⌘↑</kbd> / <kbd>⌘↓</kbd> (Ctrl on Windows).</li>
-        <li><b>Clickable paths &amp; links</b> — underlined, and open in Assets or your browser.</li>
+        <li><b>Clickable paths &amp; links</b> — underlined; a file path previews in <a href="#assets">Assets</a>, a web address opens in your browser. A link that wraps onto a second line is still one link.</li>
         <li><b>Inline images</b> (Sixel / iTerm2) so agents can render plots and diffs right in the stream, and opt-in <b>shell integration</b> (OSC 133) sharpens the command marks.</li>
       </ul>
       <div class="note">It’s <b>beta</b> and opt-in — toggling it reloads open terminals. The classic terminal remains the default.</div>
@@ -767,7 +768,8 @@
       <h2>Windows, the menu bar &amp; platforms.</h2>
       <ul class="feat">
         <li><b>macOS &amp; Windows</b> — Crew ships as a native app for both (Apple Silicon, Intel, and a Windows installer).</li>
-        <li><b>Multiple windows</b> — <kbd>⇧⌘N</kbd> opens another window onto the same crew, so you can put the grid on one display and a focused session on another.</li>
+        <li><b>Multiple windows</b> — <kbd>⇧⌘N</kbd> opens another window onto the same crew, so you can put the grid on one display and a focused session on another. A new window opens on a display that has no Crew window yet, rather than stacking on the one you are looking at.</li>
+        <li><b>Summoning leaves windows where you put them</b> — clicking the menu-bar icon brings a window forward on the display it already lives on. It is only pulled to your main display when the display it was on is gone, which is what you want after undocking.</li>
         <li><b>Menu-bar / tray badge</b> — a live count of how many sessions are waiting sits in your menu bar (macOS) or system tray (Windows); a native notification fires the moment one needs you.</li>
         <li><b>100% local</b> — Crew owns the terminals on your machine. No account, no network, no telemetry.</li>
       </ul>
