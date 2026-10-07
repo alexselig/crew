@@ -25,6 +25,7 @@ import { BlockTracker, type Block } from '../../shared/blocks'
 import { pickJumpTarget } from '../../shared/nav'
 import { shouldHighlightInputOnEnter } from '../../shared/highlight'
 import { findTerminalLinks, isUrlToken, normalizeUrl } from '../../shared/links'
+import { installGeometryWatch } from './geometry-watch'
 import { previewLines } from '../../shared/preview'
 import { nextPendingEscape, openEscapeAt, orphanLength } from '../../shared/replay-tail'
 import { previewToken } from '../preview-bus'
@@ -91,6 +92,12 @@ const pool = new Map<string, Pooled>()
   let n = 0
   for (const p of pool.values()) if (p.engine.mounted && p.engine.altActive) n++
   return n
+}
+// Geometry churn, counted at frame rate rather than at the census's 4 Hz, so a
+// per-frame wobble cannot alias into the sampler and read as perfectly still.
+// Idle until the census asks for it.
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  installGeometryWatch(document, window)
 }
 // Sessions whose engine has been retired to bound memory. The session is very
 // much alive — output still parses into blocks and the transcript here — it
