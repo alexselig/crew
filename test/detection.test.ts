@@ -246,3 +246,70 @@ describe('detectDevUrl', () => {
     expect(detectDevUrl('')).toBeNull()
   })
 })
+
+// The approve/working flap. A full-screen agent TUI repaints while its approval
+// prompt is still on screen; every repaint is output, and output used to mean
+// WORKING unconditionally. The badge then toggled APPROVE -> WORKING -> APPROVE
+// about once a second, and because the approval bar mounts next to the terminal,
+// each toggle resized the terminal mount and the fit loop changed the row count.
+// That is the jitter: height-only, at state-flap rate rather than frame rate.
+describe('StateDetector: a prompt that is still on screen stays waiting', () => {
+  // The Copilot CLI / Claude Code preset values.
+  const PRESET = { quietMs: 800, confirmMs: 400, approvalRegex: /Do you want/ }
+  const PROMPT = 'Do you want to run this command?'
+  // A TUI redraw: clear screen, then paint the same prompt again.
+  const REPAINT = `\u001B[2J\u001B[H${PROMPT}`
+
+  function settleIntoApproval() {
+    const h = makeDetector(PRESET)
+    h.det.pushOutput(PROMPT, 100)
+    h.det.tick(1000)
+    h.det.tick(1400)
+    expect(h.det.state).toBe('WAITING_APPROVAL')
+    return h
+  }
+
+  it('does not flip to WORKING when a repaint still shows the prompt', () => {
+    const { det } = settleIntoApproval()
+    det.pushOutput(REPAINT, 2000)
+    expect(det.state).toBe('WAITING_APPROVAL')
+  })
+
+  it('emits WAITING_APPROVAL once across many repaints, not once per repaint', () => {
+    const { det, states } = settleIntoApproval()
+    for (let t = 2000; t < 12000; t += 1000) {
+      det.pushOutput(REPAINT, t)
+      det.tick(t + 900)
+    }
+    expect(states.filter((s) => s === 'WAITING_APPROVAL')).toHaveLength(1)
+    expect(states.filter((s) => s === 'WORKING')).toHaveLength(1)
+  })
+
+  it('returns to WORKING when the agent prints output that drops the prompt', () => {
+    const { det } = settleIntoApproval()
+    det.pushOutput(`\u001B[2J\u001B[H${'running the command…'.padEnd(700, ' ')}`, 2000)
+    expect(det.state).toBe('WORKING')
+  })
+
+  it('returns to WORKING the moment the user answers', () => {
+    const { det } = settleIntoApproval()
+    det.notifyInput(2000)
+    expect(det.state).toBe('WORKING')
+  })
+
+  it('holds WAITING_INPUT across a repaint of the same shell prompt', () => {
+    const h = makeDetector({ quietMs: 500, confirmMs: 0, promptRegex: /[$%#>]\s*$/ })
+    h.det.pushOutput('user@box ~ $ ', 100)
+    h.det.tick(700)
+    expect(h.det.state).toBe('WAITING_INPUT')
+    h.det.pushOutput('\u001B[2K\ruser@box ~ $ ', 1200)
+    expect(h.det.state).toBe('WAITING_INPUT')
+  })
+
+  it('still reports a spinner repaint as working when no prompt is on screen', () => {
+    const h = makeDetector(PRESET)
+    h.det.pushOutput('thinking', 100)
+    h.det.pushOutput('⠙ thinking', 300)
+    expect(h.det.state).toBe('WORKING')
+  })
+})

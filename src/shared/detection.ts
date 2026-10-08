@@ -131,7 +131,29 @@ export class StateDetector {
     }
   }
 
-  /** Called when the PTY emits data. Flowing output always means WORKING. */
+  /**
+   * Called when the PTY emits data. Flowing output means WORKING — unless the
+   * prompt we are already waiting on is still on screen.
+   *
+   * Output used to mean WORKING unconditionally, which is wrong for the agents
+   * Crew actually drives. Copilot CLI and Claude Code are full-screen TUIs: they
+   * repaint while an approval prompt sits there waiting for an answer, and a
+   * blinking cursor or a redrawn box is output like any other. So the state went
+   * WAITING_APPROVAL -> (repaint) -> WORKING -> (quietMs later) -> WAITING_APPROVAL,
+   * about once a second, for as long as the prompt went unanswered.
+   *
+   * That toggle was visible twice over. The nav badge flipped APPROVE/WORKING,
+   * and because the approval bar is laid out next to the terminal, every flip
+   * added and removed its height from the terminal's mount. The fit loop
+   * recomputed the row count each way, so the grid gained and lost a row and the
+   * cursor dropped below the bottom edge and came back. Height moved, width never
+   * did, at flap rate rather than frame rate — which is exactly the signature the
+   * geometry census recorded.
+   *
+   * Note this only ever removes a *transient*: tick() re-matches the same tail
+   * and returns to the same waiting state regardless. Suppressing the blip
+   * changes no end state, it just stops the oscillation between them.
+   */
   pushOutput(chunk: string, now: number): void {
     if (TERMINAL_STATES.includes(this._state)) return
     this.lastOutputAt = now
@@ -140,7 +162,25 @@ export class StateDetector {
     const animating = this.cfg.spinnerRegex ? this.cfg.spinnerRegex.test(chunk) : false
     this.buf = (this.buf + stripAnsi(chunk)).slice(-4000)
     this.pending = null
+    // The question is still on the screen, so it is still the user's turn.
+    if (this.stillPrompting()) return
     this.set('WORKING', animating ? 'spinner' : 'streaming')
+  }
+
+  /**
+   * Whether the prompt behind the current WAITING_* state is still showing.
+   *
+   * Only asked about the state we are already in: this can hold a verdict that
+   * tick() reached, never reach a new one. Once the agent prints enough to push
+   * the prompt out of the tail the match fails and output means WORKING again,
+   * and answering is immediate either way because notifyInput() does not consult
+   * this at all.
+   */
+  private stillPrompting(): boolean {
+    const tail = this.buf.slice(-600)
+    if (this._state === 'WAITING_APPROVAL') return this.cfg.approvalRegex?.test(tail) ?? false
+    if (this._state === 'WAITING_INPUT') return this.cfg.promptRegex?.test(tail) ?? false
+    return false
   }
 
   /** Called when the user sends input; the agent is about to work. */
