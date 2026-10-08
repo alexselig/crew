@@ -28,11 +28,12 @@
     {
       "id": "CB-1",
       "group": "Finish the jitter hunt",
-      "title": "Find the flicker's real cause (five explanations now falsified)",
-      "detail": "The structural census ran for 36 minutes of live use on 7 Oct while the jitter was happening and recorded four raw deltas, two of them at startup and two at a session switch. That is the result it was built to produce: nothing mounted, nothing remounted, no WebGL/DOM renderer swap, no alt-buffer move, no decoration churn. Every structural suspect dies at once. Two reasons it could not see the jitter: it counts things, and jitter is a thing that stays put and moves a few pixels; and a 4 Hz poll aliases a per-frame wobble into apparent stillness. So the next layer counts geometry in the renderer at frame rate and distinguishes a one-way resize from a value that comes back.",
-      "why": "Six fixes have now been aimed at causes nobody ever observed. The census narrowed it to paint or geometry inside a stable tree; the frame-rate reading names which.",
+      "title": "Jitter found: the approve/working state flap resizes the terminal",
+      "detail": "Found on 8 Oct. The geometry census caught it on the first capture: three oscillations in 35 seconds, every one of them height-only (screenH, canvasH) and none on width, dpr or window size, at roughly one per 30 frames rather than the hundreds a per-frame paint bug would produce. Alex supplied the other half: the nav badge toggles APPROVE/WORKING while it happens, and the cursor drops below the bottom edge and comes back. Cause: StateDetector.pushOutput treated any output as proof of work. Copilot CLI and Claude Code are full-screen TUIs that repaint while an approval prompt sits unanswered, so each repaint set WORKING and the next tick() re-matched the same prompt and set WAITING_APPROVAL again, about once a second. The approval bar is laid out next to the terminal, so every flip added and removed its height from the mount, the fit loop recomputed the row count each way, and the grid gained and lost a row. That is the jitter. Fix: while already in a WAITING_* state, output that leaves the same prompt still matching the tail does not clear the wait. It removes only a transient, since tick() returns to the same state anyway.",
+      "why": "Six earlier fixes were aimed at causes nobody had observed. This one was measured first, reproduced in a unit test, and the test fails when the guard is removed.",
       "size": "Minutes",
-      "evidence": "docs/performance/flicker-five-falsified-hypotheses.md; src/shared/flicker-census.ts; src/shared/geometry-churn.ts; src/renderer/terminal/geometry-watch.ts; crew-crash.log 7 Oct capture (4 deltas / 36 min)"
+      "evidence": "test/detection.test.ts 'a prompt that is still on screen stays waiting' (6 tests, 3 fail with the guard removed); src/shared/detection.ts pushOutput/stillPrompting; src/renderer/components/SessionView.tsx approval-bar; crew-crash.log 8 Oct flicker-geom (height-only oscillation); docs/performance/flicker-five-falsified-hypotheses.md",
+      "status": "fixed"
     },
     {
       "id": "CB-2",
