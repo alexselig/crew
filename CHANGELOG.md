@@ -3,6 +3,39 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.12 — 2026-10-08
+
+### Fixed
+
+- **The screen no longer jitters while a session waits for approval.** This is
+  the one the last six fixes were aiming at, and this time it was measured
+  before it was fixed rather than after.
+
+  The frame-rate geometry census added in 0.7.11 caught it on its first
+  capture. Every oscillation was height-only — the terminal's height moved, its
+  width and the window and the display scale never did — and it happened about
+  twice a second rather than every frame. A paint bug would have looked like
+  hundreds per second and would not have cared which dimension it moved. A row
+  count changing looks exactly like this.
+
+  Crew treated any output from an agent as proof it was working. Copilot CLI
+  and Claude Code draw a whole screen at a time and keep repainting it while an
+  approval prompt sits there unanswered, so each repaint said "working", and
+  Crew then noticed the same unanswered prompt a moment later and said "needs
+  approval" again. That is the APPROVE/WORKING toggle in the nav, about once a
+  second.
+
+  It was not only a badge. The approval bar sits directly above the terminal,
+  so every toggle took its height away from the terminal and gave it back, and
+  the terminal recalculated how many rows fit each way. The grid gained and
+  lost a row roughly twice a second, which is why the cursor dropped below the
+  bottom edge of the pane and came back.
+
+  A prompt that is still on the screen is still your turn, so output that
+  leaves it showing no longer counts as the agent getting back to work. Nothing
+  about answering changes: approving, denying or typing moves the session to
+  working on the keystroke, as before.
+
 ## 0.7.11 — 2026-10-07
 
 ### Fixed
