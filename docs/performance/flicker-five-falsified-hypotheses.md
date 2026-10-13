@@ -126,6 +126,20 @@ had observed; the seventh candidate turned out to be the thing doing the
 observing. Before the next fix: a fresh capture, on 0.7.12, with the repaired
 probe.
 
+One question the repair settled and one it sharpened. The probe does run for
+every pane: `installGeometryWatch` sits at module top level in `pool.ts`,
+`facade.ts:13` imports that module statically, and `sampleGeometry` walks every
+canvas in the document. The samples are real regardless of engine mode.
+
+The sharper question is what `canvases[0]` is. The legacy pool
+(`terminal-pool.ts`, the default) loads only `FitAddon` — no WebGL or canvas
+renderer — so xterm renders to the DOM and should create no screen canvas at
+all. The census reports `canvas: 3` and `webgl` moving 96 times anyway. Either
+those panes are running the enhanced engine, or three canvases exist that
+nothing in `src/renderer` creates. Until that is answered, `canvases[0]` is
+*assumed* to be the terminal rather than known to be — an assumption
+`screenW`/`screenH` has quietly carried all along.
+
 ## How to get the answer
 
 A capture, not a theory. Quit Crew, then launch it with the census on:
