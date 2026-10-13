@@ -78,6 +78,54 @@ remaining possibilities are paint-level — CSS, an animation, compositing,
 occlusion — or a structural churn nobody has thought of. Both are answerable by
 measurement rather than by reading.
 
+## Two more falsified, 13 Oct
+
+### 6. The approval flap — correct fix, never installed
+
+0.7.12 shipped a fix for the approval bar flapping between "approve" and
+"working", which moved `screenH` and matched the capture of the day. It was the
+right fix for what the log showed. It was also never on the machine that
+reported the symptom: `/Applications/Crew.app` was `CFBundleShortVersionString
+0.7.11`, installed 7 Oct 09:52, and the running process was that bundle while
+`releases/latest` was `v0.7.12`.
+
+The lesson is not about the fix. **Confirm the build under the symptom before
+reading its logs**, or every observation is pre-fix data wearing a post-fix
+date.
+
+### 7. "The fit loop is fighting itself" — an artifact of the instrument
+
+The 9 Oct capture showed `canvasH` oscillating across all 202 samples, and the
+probe read that out as *"the terminal canvas is being resized every few frames —
+the fit loop is fighting itself."* That reading was not supported by its own
+data.
+
+`sampleGeometry` summed `canvasW`/`canvasH` across **every** canvas in the
+document, but took `screenW`/`screenH` from `canvases[0]` alone. The memory
+census reports `canvas: 3`. Two fields, two different scopes, one conclusion
+drawn as though they shared one.
+
+xterm sets `canvas.height` and `canvas.style.height` together. In those 202
+samples `screenH` was flat **and** `dpr` was flat, so neither a terminal-canvas
+resize nor a display-scale change happened. Whichever canvas moved, it was not
+`canvases[0]` — not the terminal. The capture was evidence *against* the fit
+loop the whole time.
+
+This also dissolves the standing contradiction that `stableCellHeightPx` (the
+guard built for exactly this failure) is wired into both fit paths —
+`xterm-engine.ts:59` and `TerminalView.tsx:31` — and `canvasH` oscillated
+anyway. The guard was never the problem.
+
+The probe now samples `termCanvasW`/`termCanvasH` from `canvases[0]`, the same
+element `screenW`/`screenH` describe, and names the fit loop only when that
+canvas moved. When the sum moves and the terminal's canvas holds still it says
+so explicitly.
+
+**A measuring instrument can be the bug.** Six fixes were aimed at causes nobody
+had observed; the seventh candidate turned out to be the thing doing the
+observing. Before the next fix: a fresh capture, on 0.7.12, with the repaired
+probe.
+
 ## How to get the answer
 
 A capture, not a theory. Quit Crew, then launch it with the census on:
