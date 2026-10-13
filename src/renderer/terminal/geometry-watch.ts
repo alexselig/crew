@@ -30,7 +30,16 @@ const px = (v: string): number => {
   return Number.isFinite(n) ? Math.round(n) : 0
 }
 
-/** Read the geometry whose movement would be visible as jitter. */
+/** Read the geometry whose movement would be visible as jitter.
+ *
+ * `canvasW`/`canvasH` sum every canvas in the window, which catches a wobble
+ * wherever it lives but cannot say which element moved. `termCanvasW`/
+ * `termCanvasH` are the first canvas on its own — the same element
+ * `screenW`/`screenH` describe — so a reader can tell the terminal's own
+ * canvas apart from the rest. The 9 Oct capture needed exactly that: the sum
+ * oscillated while the first canvas's CSS box never moved, and reading the sum
+ * as "the terminal" blamed the fit loop for something it had not done.
+ */
 export function sampleGeometry(doc: Document, win: Window): GeometrySample {
   const canvases = doc.getElementsByTagName('canvas')
   let canvasW = 0
@@ -44,6 +53,8 @@ export function sampleGeometry(doc: Document, win: Window): GeometrySample {
   return {
     canvasW,
     canvasH,
+    termCanvasW: first ? first.width : 0,
+    termCanvasH: first ? first.height : 0,
     screenW: first ? px(first.style.width) : 0,
     screenH: first ? px(first.style.height) : 0,
     scrollTop: viewport ? Math.round(viewport.scrollTop) : 0,

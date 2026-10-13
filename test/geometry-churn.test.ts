@@ -10,6 +10,8 @@ import {
 const base: GeometrySample = {
   canvasW: 1600,
   canvasH: 900,
+  termCanvasW: 1600,
+  termCanvasH: 900,
   screenW: 800,
   screenH: 450,
   scrollTop: 0,
@@ -132,13 +134,38 @@ describe('interpretChurn', () => {
     expect(interpretChurn(a.report())).toMatch(/one-way resize, not a wobble/)
   })
 
-  it('points at the fit loop when the canvas wobbles', () => {
+  it('points at the fit loop when the terminal canvas wobbles', () => {
+    const a = createChurnAccumulator()
+    a.add(s())
+    // A real fit-loop wobble moves the terminal's own canvas, which is part of
+    // the document-wide sum, so both fields move together.
+    for (let i = 0; i < 8; i++)
+      a.add(s({ canvasH: i % 2 ? 901 : 900, termCanvasH: i % 2 ? 901 : 900 }))
+    const text = interpretChurn(a.report())
+    expect(text).toMatch(/fit loop is fighting itself/)
+  })
+
+  // The whole point of the census is that six fixes were aimed at causes nobody
+  // had observed. A summed canvasH that moves while the terminal's own canvas
+  // holds still is evidence AGAINST the fit loop, so it must not be reported as
+  // evidence for it.
+  it('does not blame the fit loop when a canvas other than the terminal moves', () => {
     const a = createChurnAccumulator()
     a.add(s())
     for (let i = 0; i < 8; i++) a.add(s({ canvasH: i % 2 ? 901 : 900 }))
     const text = interpretChurn(a.report())
-    expect(text).toMatch(/canvasH wobbled/)
-    expect(text).toMatch(/fit loop is fighting itself/)
+    expect(text).not.toMatch(/fit loop is fighting itself/)
+    expect(text).toMatch(/not the terminal/i)
+  })
+
+  it('still names the fit loop when the terminal canvas moves alongside another', () => {
+    const a = createChurnAccumulator()
+    a.add(s())
+    // Two canvases wobbling: the sum moves twice as often as the terminal's,
+    // so a naive "largest count wins" would misattribute this to the sum.
+    for (let i = 0; i < 8; i++)
+      a.add(s({ canvasH: i % 2 ? 902 : 900, termCanvasH: i % 2 ? 901 : 900 }))
+    expect(interpretChurn(a.report())).toMatch(/fit loop is fighting itself/)
   })
 
   it('points at scroll when the viewport snaps back', () => {
