@@ -42,6 +42,50 @@ const TICK_MS = 250
 const DEFAULT_COLS = 100
 const DEFAULT_ROWS = 30
 const EVENT_CAP = 2000
+// How many of the agent's final output lines are kept to explain an exit.
+// Enough to carry an auth failure, a stack trace or a rate-limit notice;
+// small enough that holding it for every live session costs nothing.
+const ERROR_TAIL_LINES = 12
+// The raw line buffer is allowed to run longer than that, because the tail of
+// a terminal is mostly blank lines and prompt redraws — trimming to exactly
+// ERROR_TAIL_LINES would often leave nothing but whitespace to show.
+const TAIL_BUFFER_LINES = ERROR_TAIL_LINES * 6
+
+/**
+ * Append a chunk of already-ANSI-stripped output to a rolling line buffer.
+ *
+ * PTY data arrives in arbitrary chunks, so the first piece continues whatever
+ * line was still open rather than starting a new one. Terminals end lines with
+ * CRLF, so those carriage returns are normalised away first; what is left is a
+ * lone `\r`, which redraws a line in place (spinners, progress bars), so only
+ * the text after it survives — otherwise one spinner would fill the whole
+ * buffer with a single unreadable line.
+ */
+function pushTail(tail: string[], clean: string): void {
+  const parts = clean.replace(/\r\n/g, '\n').split('\n')
+  if (tail.length === 0) tail.push('')
+  tail[tail.length - 1] += parts[0]
+  for (let i = 1; i < parts.length; i++) tail.push(parts[i])
+  for (let i = 0; i < tail.length; i++) {
+    // A CRLF split across two chunks leaves a dangling `\r`; it ends the line
+    // rather than redrawing it, so drop it instead of blanking the line.
+    const line = tail[i].replace(/\r+$/, '')
+    const cr = line.lastIndexOf('\r')
+    tail[i] = cr >= 0 ? line.slice(cr + 1) : line
+  }
+  if (tail.length > TAIL_BUFFER_LINES) tail.splice(0, tail.length - TAIL_BUFFER_LINES)
+}
+
+/** The printable tail, as the error card should show it: blank lines dropped,
+ *  trailing whitespace trimmed, newest ERROR_TAIL_LINES kept. Empty string
+ *  when the agent printed nothing, so callers can skip the field entirely. */
+function tailDetail(tail: readonly string[]): string {
+  return tail
+    .map((l) => l.replace(/\s+$/, ''))
+    .filter((l) => l.trim() !== '')
+    .slice(-ERROR_TAIL_LINES)
+    .join('\n')
+}
 // Poll agent autopilot state every ~1s (4 ticks) — cheap, since a session's
 // transcript / event log is only re-read when it actually changes.
 const AUTOPILOT_POLL_TICKS = 4
@@ -82,6 +126,9 @@ interface Managed {
   detector: StateDetector | null
   cost: CostParser
   credits: CostParser
+  /** Rolling tail of the agent's recent output lines, kept so an exit can be
+   *  explained with what the agent actually printed. */
+  tail: string[]
   cols: number
   rows: number
 }
@@ -290,6 +337,7 @@ export class SessionManager extends EventEmitter {
       detector: null,
       cost,
       credits,
+      tail: [],
       cols: restore?.cols && restore.cols > 0 ? restore.cols : DEFAULT_COLS,
       rows: restore?.rows && restore.rows > 0 ? restore.rows : DEFAULT_ROWS
     }
@@ -374,6 +422,9 @@ export class SessionManager extends EventEmitter {
     info.pid = proc.pid
     info.exitCode = null
     info.errorMessage = undefined
+    info.errorDetail = undefined
+    // A relaunch explains itself with its own output, never the dead run's.
+    managed.tail.length = 0
     info.state = 'STARTING'
     info.status = 'active'
     info.stateChangedAt = Date.now()
@@ -390,6 +441,7 @@ export class SessionManager extends EventEmitter {
       this.bufferOutput(id, data)
       managed.detector?.pushOutput(data, Date.now())
       const clean = stripAnsi(data)
+      pushTail(managed.tail, clean)
       if (this.recorder && this.store.settings.captureTranscripts) this.recorder.append(id, clean)
       if (managed.cost.push(clean)) {
         managed.info.costUsd = managed.cost.usd
@@ -419,6 +471,13 @@ export class SessionManager extends EventEmitter {
         managed.info.errorMessage = signal
           ? `${managed.info.command} was terminated by signal ${signal}`
           : `${managed.info.command} exited with code ${exitCode}`
+      }
+      // The exit code says a session died; only the agent's own output says
+      // why. Capture it here, because Restart tears down the terminal that is
+      // currently the only place that text exists.
+      if (errored) {
+        const detail = tailDetail(managed.tail)
+        if (detail) managed.info.errorDetail = detail
       }
       managed.detector?.markExited(errored ? exitCode || 1 : 0)
       this.stopTimerIfIdle()
