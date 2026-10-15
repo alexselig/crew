@@ -837,9 +837,28 @@ export class SessionManager extends EventEmitter {
     }
     const character = m.info.characterId
     const color = m.info.color
+    // Carry the whole record across the close/create. A restart must not look
+    // like a delete: minting a fresh id and agentSessionId orphans the agent's
+    // conversation, and dropping workspace/tag membership hides the relaunched
+    // session behind the active workspace filter, which reads as "it vanished".
+    const restore = {
+      id,
+      agentSessionId: m.info.agentSessionId,
+      priorSessionId: m.info.priorSessionId,
+      characterId: character,
+      color,
+      tag: m.info.tag,
+      sets: m.info.sets,
+      workspaceIds: m.info.workspaceIds,
+      description: m.info.description,
+      createdAt: m.info.createdAt,
+      lastPromptAt: m.info.lastPromptAt,
+      cols: m.cols,
+      rows: m.rows
+    }
     const idx = [...this.sessions.keys()].indexOf(id)
     this.close(id)
-    const info = this.create(req)
+    const info = this.create(req, restore)
     this.setCharacter(info.id, character)
     this.setColor(info.id, color)
     // Keep the restarted session in its original roster position.
