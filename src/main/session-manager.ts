@@ -50,6 +50,7 @@ const ERROR_TAIL_LINES = 12
 // a terminal is mostly blank lines and prompt redraws — trimming to exactly
 // ERROR_TAIL_LINES would often leave nothing but whitespace to show.
 const TAIL_BUFFER_LINES = ERROR_TAIL_LINES * 6
+const TAIL_BUFFER_CHARS = 64 * 1024
 
 /**
  * Append a chunk of already-ANSI-stripped output to a rolling line buffer.
@@ -62,18 +63,15 @@ const TAIL_BUFFER_LINES = ERROR_TAIL_LINES * 6
  * buffer with a single unreadable line.
  */
 function pushTail(tail: string[], clean: string): void {
-  const parts = clean.replace(/\r\n/g, '\n').split('\n')
-  if (tail.length === 0) tail.push('')
-  tail[tail.length - 1] += parts[0]
-  for (let i = 1; i < parts.length; i++) tail.push(parts[i])
-  for (let i = 0; i < tail.length; i++) {
-    // A CRLF split across two chunks leaves a dangling `\r`; it ends the line
-    // rather than redrawing it, so drop it instead of blanking the line.
-    const line = tail[i].replace(/\r+$/, '')
+  const parts = (tail.join('\n') + clean).slice(-TAIL_BUFFER_CHARS).replace(/\r\n/g, '\n').split('\n')
+  for (let i = 0; i < parts.length; i++) {
+    // Keep a final CR pending until the next chunk distinguishes CRLF from a redraw.
+    const pending = i === parts.length - 1 && parts[i].endsWith('\r')
+    const line = parts[i].replace(/\r+$/, '')
     const cr = line.lastIndexOf('\r')
-    tail[i] = cr >= 0 ? line.slice(cr + 1) : line
+    parts[i] = (cr >= 0 ? line.slice(cr + 1) : line) + (pending ? '\r' : '')
   }
-  if (tail.length > TAIL_BUFFER_LINES) tail.splice(0, tail.length - TAIL_BUFFER_LINES)
+  tail.splice(0, tail.length, ...parts.slice(-TAIL_BUFFER_LINES))
 }
 
 /** The printable tail, as the error card should show it: blank lines dropped,
@@ -434,7 +432,7 @@ export class SessionManager extends EventEmitter {
     proc.onData((data) => {
       // Ignore any final flush that arrives after the session was closed/removed
       // (prevents resurrecting a disposed renderer terminal).
-      if (!this.sessions.has(id)) return
+      if (this.sessions.get(id) !== managed || managed.proc !== proc) return
       // Coalesced rather than emitted per chunk — see OUTPUT_FLUSH_MS. Everything
       // below stays synchronous: detection, cost and transcript capture are cheap
       // main-side work, and delaying them would delay state changes the user sees.
@@ -460,6 +458,7 @@ export class SessionManager extends EventEmitter {
     })
 
     proc.onExit(({ exitCode, signal }) => {
+      if (this.sessions.get(id) !== managed || managed.proc !== proc) return
       const errored = Boolean(exitCode) || Boolean(signal)
       managed.info.exitCode = exitCode
       managed.info.status = errored ? 'error' : 'exited'

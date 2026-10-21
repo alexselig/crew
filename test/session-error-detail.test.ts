@@ -113,6 +113,44 @@ describe('error card detail', () => {
     expect(infoFor(id).errorDetail).toContain('Error: ENOENT, no such file or directory')
   })
 
+  it('bounds output even when the agent never prints a newline', () => {
+    const id = newSession()
+    for (let i = 0; i < 128; i++) ptys[0].emitData('x'.repeat(65536))
+    ptys[0].emitData('latest failure')
+    ptys[0].emitExit(1)
+
+    const detail = infoFor(id).errorDetail!
+    expect(detail.length).toBeLessThanOrEqual(65536)
+    expect(detail.endsWith('latest failure')).toBe(true)
+  })
+
+  it.each([
+    { chunks: ['working |\r', 'working -\r\n'], expected: 'working -' },
+    { chunks: ['failure\r', '\nnext\r\n'], expected: 'failure\nnext' }
+  ])('handles a carriage return split across chunks: $expected', ({ chunks, expected }) => {
+    const id = newSession()
+    for (const chunk of chunks) ptys[0].emitData(chunk)
+    ptys[0].emitExit(1)
+    expect(infoFor(id).errorDetail).toBe(expected)
+  })
+
+  it('ignores callbacks from a process replaced by Restart', () => {
+    const id = newSession()
+    const output = vi.fn()
+    manager.on('output', output)
+    manager.restart(id)
+
+    ptys[0].emitData('stale output\r\n')
+    ptys[0].emitExit(1)
+    expect(infoFor(id).state).toBe('STARTING')
+    expect(infoFor(id).status).toBe('active')
+
+    ptys[1].emitData('new failure\r\n')
+    ptys[1].emitExit(1)
+    expect(infoFor(id).errorDetail).toBe('new failure')
+    expect(output.mock.calls.some(([event]) => event.data.includes('stale output'))).toBe(false)
+  })
+
   it('does not carry a dead run output into the relaunched session', () => {
     const id = newSession()
     ptys[0].emitData('Error: authentication failed (401)\r\n')
