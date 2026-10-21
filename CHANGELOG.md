@@ -3,6 +3,27 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.13 — 2026-10-21
+
+### Fixed
+
+- **Restart keeps your session in place.** The restarted session retains its
+  conversation ID, workspace membership, tag, description, and roster position
+  instead of appearing to disappear. Late output and exit notifications from
+  the old process cannot change the replacement session.
+- **Session errors now show the agent's last output.** The error card includes
+  up to 12 recent non-blank lines alongside the exit code, so authentication
+  failures and other explanations remain visible without searching scrollback.
+  The buffer is bounded even when an agent prints no newlines, handles progress
+  redraws across output chunks, and clears when the session restarts.
+
+### Changed
+
+- **Flicker diagnostics distinguish the first canvas from the window-wide
+  total.** An unrelated canvas resize no longer automatically blames the
+  terminal fit loop. This improves investigation; it is not a claim that the
+  remaining flicker is fixed.
+
 ## 0.7.12 — 2026-10-08
 
 ### Fixed

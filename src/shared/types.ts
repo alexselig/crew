@@ -201,6 +201,10 @@ export interface SessionInfo {
   exitCode: number | null
   /** Human-readable explanation when status is 'error' (e.g. spawn failure). */
   errorMessage?: string
+  /** The agent's last lines of output before it exited. The exit code alone
+   *  never says WHY a session died, and Restart discards the terminal that
+   *  held the real message, so it is captured here while it still exists. */
+  errorDetail?: string
   /** Why the detector last changed state (for debugging/tooltips). */
   detectionReason?: string
   /** Latest dollar spend the agent has reported for this session ($0 if none). */

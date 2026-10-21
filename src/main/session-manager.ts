@@ -42,6 +42,48 @@ const TICK_MS = 250
 const DEFAULT_COLS = 100
 const DEFAULT_ROWS = 30
 const EVENT_CAP = 2000
+// How many of the agent's final output lines are kept to explain an exit.
+// Enough to carry an auth failure, a stack trace or a rate-limit notice;
+// small enough that holding it for every live session costs nothing.
+const ERROR_TAIL_LINES = 12
+// The raw line buffer is allowed to run longer than that, because the tail of
+// a terminal is mostly blank lines and prompt redraws — trimming to exactly
+// ERROR_TAIL_LINES would often leave nothing but whitespace to show.
+const TAIL_BUFFER_LINES = ERROR_TAIL_LINES * 6
+const TAIL_BUFFER_CHARS = 64 * 1024
+
+/**
+ * Append a chunk of already-ANSI-stripped output to a rolling line buffer.
+ *
+ * PTY data arrives in arbitrary chunks, so the first piece continues whatever
+ * line was still open rather than starting a new one. Terminals end lines with
+ * CRLF, so those carriage returns are normalised away first; what is left is a
+ * lone `\r`, which redraws a line in place (spinners, progress bars), so only
+ * the text after it survives — otherwise one spinner would fill the whole
+ * buffer with a single unreadable line.
+ */
+function pushTail(tail: string[], clean: string): void {
+  const parts = (tail.join('\n') + clean).slice(-TAIL_BUFFER_CHARS).replace(/\r\n/g, '\n').split('\n')
+  for (let i = 0; i < parts.length; i++) {
+    // Keep a final CR pending until the next chunk distinguishes CRLF from a redraw.
+    const pending = i === parts.length - 1 && parts[i].endsWith('\r')
+    const line = parts[i].replace(/\r+$/, '')
+    const cr = line.lastIndexOf('\r')
+    parts[i] = (cr >= 0 ? line.slice(cr + 1) : line) + (pending ? '\r' : '')
+  }
+  tail.splice(0, tail.length, ...parts.slice(-TAIL_BUFFER_LINES))
+}
+
+/** The printable tail, as the error card should show it: blank lines dropped,
+ *  trailing whitespace trimmed, newest ERROR_TAIL_LINES kept. Empty string
+ *  when the agent printed nothing, so callers can skip the field entirely. */
+function tailDetail(tail: readonly string[]): string {
+  return tail
+    .map((l) => l.replace(/\s+$/, ''))
+    .filter((l) => l.trim() !== '')
+    .slice(-ERROR_TAIL_LINES)
+    .join('\n')
+}
 // Poll agent autopilot state every ~1s (4 ticks) — cheap, since a session's
 // transcript / event log is only re-read when it actually changes.
 const AUTOPILOT_POLL_TICKS = 4
@@ -82,6 +124,9 @@ interface Managed {
   detector: StateDetector | null
   cost: CostParser
   credits: CostParser
+  /** Rolling tail of the agent's recent output lines, kept so an exit can be
+   *  explained with what the agent actually printed. */
+  tail: string[]
   cols: number
   rows: number
 }
@@ -290,6 +335,7 @@ export class SessionManager extends EventEmitter {
       detector: null,
       cost,
       credits,
+      tail: [],
       cols: restore?.cols && restore.cols > 0 ? restore.cols : DEFAULT_COLS,
       rows: restore?.rows && restore.rows > 0 ? restore.rows : DEFAULT_ROWS
     }
@@ -374,6 +420,9 @@ export class SessionManager extends EventEmitter {
     info.pid = proc.pid
     info.exitCode = null
     info.errorMessage = undefined
+    info.errorDetail = undefined
+    // A relaunch explains itself with its own output, never the dead run's.
+    managed.tail.length = 0
     info.state = 'STARTING'
     info.status = 'active'
     info.stateChangedAt = Date.now()
@@ -383,13 +432,14 @@ export class SessionManager extends EventEmitter {
     proc.onData((data) => {
       // Ignore any final flush that arrives after the session was closed/removed
       // (prevents resurrecting a disposed renderer terminal).
-      if (!this.sessions.has(id)) return
+      if (this.sessions.get(id) !== managed || managed.proc !== proc) return
       // Coalesced rather than emitted per chunk — see OUTPUT_FLUSH_MS. Everything
       // below stays synchronous: detection, cost and transcript capture are cheap
       // main-side work, and delaying them would delay state changes the user sees.
       this.bufferOutput(id, data)
       managed.detector?.pushOutput(data, Date.now())
       const clean = stripAnsi(data)
+      pushTail(managed.tail, clean)
       if (this.recorder && this.store.settings.captureTranscripts) this.recorder.append(id, clean)
       if (managed.cost.push(clean)) {
         managed.info.costUsd = managed.cost.usd
@@ -408,6 +458,7 @@ export class SessionManager extends EventEmitter {
     })
 
     proc.onExit(({ exitCode, signal }) => {
+      if (this.sessions.get(id) !== managed || managed.proc !== proc) return
       const errored = Boolean(exitCode) || Boolean(signal)
       managed.info.exitCode = exitCode
       managed.info.status = errored ? 'error' : 'exited'
@@ -419,6 +470,13 @@ export class SessionManager extends EventEmitter {
         managed.info.errorMessage = signal
           ? `${managed.info.command} was terminated by signal ${signal}`
           : `${managed.info.command} exited with code ${exitCode}`
+      }
+      // The exit code says a session died; only the agent's own output says
+      // why. Capture it here, because Restart tears down the terminal that is
+      // currently the only place that text exists.
+      if (errored) {
+        const detail = tailDetail(managed.tail)
+        if (detail) managed.info.errorDetail = detail
       }
       managed.detector?.markExited(errored ? exitCode || 1 : 0)
       this.stopTimerIfIdle()
@@ -837,9 +895,28 @@ export class SessionManager extends EventEmitter {
     }
     const character = m.info.characterId
     const color = m.info.color
+    // Carry the whole record across the close/create. A restart must not look
+    // like a delete: minting a fresh id and agentSessionId orphans the agent's
+    // conversation, and dropping workspace/tag membership hides the relaunched
+    // session behind the active workspace filter, which reads as "it vanished".
+    const restore = {
+      id,
+      agentSessionId: m.info.agentSessionId,
+      priorSessionId: m.info.priorSessionId,
+      characterId: character,
+      color,
+      tag: m.info.tag,
+      sets: m.info.sets,
+      workspaceIds: m.info.workspaceIds,
+      description: m.info.description,
+      createdAt: m.info.createdAt,
+      lastPromptAt: m.info.lastPromptAt,
+      cols: m.cols,
+      rows: m.rows
+    }
     const idx = [...this.sessions.keys()].indexOf(id)
     this.close(id)
-    const info = this.create(req)
+    const info = this.create(req, restore)
     this.setCharacter(info.id, character)
     this.setColor(info.id, color)
     // Keep the restarted session in its original roster position.

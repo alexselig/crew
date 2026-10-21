@@ -1400,6 +1400,24 @@ button {
   word-break: break-word;
 }
 
+.exited-pane__detail {
+  max-width: 640px;
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .exited-pane__actions {
   display: flex;
   gap: 8px;

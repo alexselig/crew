@@ -71,6 +71,26 @@ describe('sampleGeometry', () => {
     expect(got).toMatchObject({ canvasW: 0, canvasH: 0, screenW: 0, screenH: 0, scrollTop: 0 })
   })
 
+  // The summed canvasW/canvasH cannot say WHICH canvas moved, and the 9 Oct
+  // capture turned on exactly that distinction: 202 samples of "canvasH
+  // wobbled" were read as the fit loop fighting itself, when screenH and dpr
+  // both sat still -- which is only possible if the canvas that moved was not
+  // the terminal's. So the first canvas, the one screenW/screenH already
+  // describe, needs its device-pixel size reported on its own.
+  it('reports the terminal canvas size separately from the document-wide sum', () => {
+    const got = sampleGeometry(fakeDoc([canvas(800, 600), canvas(400, 300)]), fakeWin())
+    expect(got.termCanvasW).toBe(800)
+    expect(got.termCanvasH).toBe(600)
+    expect(got.canvasW).toBe(1200)
+    expect(got.canvasH).toBe(900)
+  })
+
+  it('reports a zero terminal canvas when there is no canvas at all', () => {
+    const got = sampleGeometry(fakeDoc([]), fakeWin())
+    expect(got.termCanvasW).toBe(0)
+    expect(got.termCanvasH).toBe(0)
+  })
+
   it('reads the viewport scroll offset', () => {
     expect(sampleGeometry(fakeDoc([canvas(10, 10)], 42), fakeWin()).scrollTop).toBe(42)
   })

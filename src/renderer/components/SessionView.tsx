@@ -285,6 +285,11 @@ export function SessionView({
               {session.exitCode != null ? ` (code ${session.exitCode})` : ''}.
             </p>
             {session.errorMessage && <p className="exited-pane__msg">{session.errorMessage}</p>}
+            {session.errorDetail && (
+              <pre className="exited-pane__detail" aria-label="Last output before exit">
+                {session.errorDetail}
+              </pre>
+            )}
             <div className="exited-pane__actions">
               <button type="button" className="btn btn--primary" onClick={() => onRestart(session.id)}>
                 ↻ Restart
