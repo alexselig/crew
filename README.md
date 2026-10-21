@@ -114,6 +114,8 @@ releases are signed + notarized.
   any Crew window resumes renderer activity and restores the selected terminal
   from bounded recent output.
 - Needs-you-first roster sort; restart / dismiss; graceful error handling.
+  Restart preserves the conversation ID and workspace membership. Failed exits
+  show the agent's last output alongside the exit code.
 
 ## Restored context: transcript vs brief
 
