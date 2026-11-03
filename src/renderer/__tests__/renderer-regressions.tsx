@@ -515,7 +515,13 @@ const revealRoster: SessionInfo[] = roster.map((s) => ({
   exitCode: 0
 }))
 
-function RevealFixture() {
+const navSearchRoster: SessionInfo[] = [
+  { ...revealRoster[0], label: 'Crew hardening', tag: 'crew', cwd: '/projects/crew' },
+  { ...revealRoster[1], label: 'Ship a skill', tag: 'release', cwd: '/projects/OfficeAgent' },
+  { ...revealRoster[2], label: 'Deck outline', tag: 'docs', cwd: '/projects/deck-outline' }
+]
+
+function RevealFixture({ search = false }: { search?: boolean }) {
   const [selectedId, setSelectedId] = useState<string | null>('a1')
   const [revealRequest, setRevealRequest] = useState<RevealRequest | null>(null)
   const seq = useRef(0)
@@ -525,22 +531,22 @@ function RevealFixture() {
     setRevealRequest({ id, seq: seq.current })
   }
   const common = {
-    roster: revealRoster,
+    roster: search ? navSearchRoster : revealRoster,
     characters: [],
     customViews: [],
     presentation: { kind: 'builtin', mode: 'none' } as SessionPresentation,
-    groupMode: 'none' as const,
+    groupMode: search ? 'tag' as const : 'none' as const,
     onChoosePresentation: noop,
     onCreateCustomView: noop,
     onEditCustomView: noop,
-    collapsedGroups: new Set<string>(),
+    collapsedGroups: new Set<string>(search ? ['release'] : []),
     onToggleGroup: noop,
-    minimized: new Set<string>(),
+    minimized: new Set<string>(search ? ['a2'] : []),
     onToggleMinimize: noop,
     revealed: new Set<string>(),
     groupOrder: [],
     onReorderGroups: noop,
-    staleHideHours: 72,
+    staleHideHours: search ? 0 : 72,
     showSpend: false,
     showCredits: false,
     onNew: noop,
@@ -756,6 +762,7 @@ createRoot(document.getElementById('root')!).render(
   kind === 'components' ? <ComponentsFixture /> :
   kind === 'components-grouped' ? <ComponentsFixture groupBy="recent" /> :
   kind === 'reveal' ? <RevealFixture /> :
+  kind === 'nav-search' ? <RevealFixture search /> :
   kind === 'snapshot-replay' ? <SnapshotReplayFixture /> :
   kind === 'nav-float' ? <NavFloatFixture /> :
   kind === 'settings' ? <SettingsFixture /> :

@@ -34,11 +34,10 @@ const px = (v: string): number => {
  *
  * `canvasW`/`canvasH` sum every canvas in the window, which catches a wobble
  * wherever it lives but cannot say which element moved. `termCanvasW`/
- * `termCanvasH` are the first canvas on its own — the same element
- * `screenW`/`screenH` describe — so a reader can tell the terminal's own
- * canvas apart from the rest. The 9 Oct capture needed exactly that: the sum
- * oscillated while the first canvas's CSS box never moved, and reading the sum
- * as "the terminal" blamed the fit loop for something it had not done.
+ * `termCanvasH` sample the first screen's text canvas, excluding the overview
+ * ruler and link/image overlays. DOM rendering has no text canvas.
+ * `screenW`/`screenH` read that screen's CSS box independently of its backing
+ * store, which xterm can resize for device-pixel rounding without a grid resize.
  */
 export function sampleGeometry(doc: Document, win: Window): GeometrySample {
   const canvases = doc.getElementsByTagName('canvas')
@@ -48,15 +47,18 @@ export function sampleGeometry(doc: Document, win: Window): GeometrySample {
     canvasW += canvases[i].width
     canvasH += canvases[i].height
   }
-  const first = canvases[0]
+  const screen = doc.querySelector<HTMLElement>('.xterm-screen')
+  const text = screen?.querySelector<HTMLCanvasElement>(
+    ':scope > canvas:not(.xterm-link-layer):not(.xterm-image-layer)'
+  )
   const viewport = doc.querySelector('.xterm-viewport')
   return {
     canvasW,
     canvasH,
-    termCanvasW: first ? first.width : 0,
-    termCanvasH: first ? first.height : 0,
-    screenW: first ? px(first.style.width) : 0,
-    screenH: first ? px(first.style.height) : 0,
+    termCanvasW: text ? text.width : 0,
+    termCanvasH: text ? text.height : 0,
+    screenW: screen ? px(screen.style.width) : 0,
+    screenH: screen ? px(screen.style.height) : 0,
     scrollTop: viewport ? Math.round(viewport.scrollTop) : 0,
     winW: Math.round(win.innerWidth),
     winH: Math.round(win.innerHeight),

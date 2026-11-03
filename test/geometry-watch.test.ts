@@ -7,10 +7,24 @@ interface FakeCanvas {
   style: { width: string; height: string }
 }
 
-function fakeDoc(canvases: FakeCanvas[], scrollTop = 0): Document {
+function fakeDoc(
+  canvases: FakeCanvas[],
+  scrollTop = 0,
+  screenCanvas: FakeCanvas | null = canvases[0] ?? null,
+  screen: Pick<FakeCanvas, 'style'> | null = screenCanvas
+): Document {
   return {
     getElementsByTagName: () => canvases,
-    querySelector: (sel: string) => (sel === '.xterm-viewport' ? { scrollTop } : null)
+    querySelector: (sel: string) => {
+      if (sel === '.xterm-viewport') return { scrollTop }
+      if (sel === '.xterm-screen') return screen && {
+        ...screen,
+        querySelector: (child: string) =>
+          child === ':scope > canvas:not(.xterm-link-layer):not(.xterm-image-layer)'
+            ? screenCanvas : null
+      }
+      return null
+    }
   } as unknown as Document
 }
 
@@ -71,18 +85,31 @@ describe('sampleGeometry', () => {
     expect(got).toMatchObject({ canvasW: 0, canvasH: 0, screenW: 0, screenH: 0, scrollTop: 0 })
   })
 
-  // The summed canvasW/canvasH cannot say WHICH canvas moved, and the 9 Oct
-  // capture turned on exactly that distinction: 202 samples of "canvasH
-  // wobbled" were read as the fit loop fighting itself, when screenH and dpr
-  // both sat still -- which is only possible if the canvas that moved was not
-  // the terminal's. So the first canvas, the one screenW/screenH already
-  // describe, needs its device-pixel size reported on its own.
   it('reports the terminal canvas size separately from the document-wide sum', () => {
     const got = sampleGeometry(fakeDoc([canvas(800, 600), canvas(400, 300)]), fakeWin())
     expect(got.termCanvasW).toBe(800)
     expect(got.termCanvasH).toBe(600)
     expect(got.canvasW).toBe(1200)
     expect(got.canvasH).toBe(900)
+  })
+
+  it('samples the text canvas rather than the preceding overview ruler or link layer', () => {
+    const ruler = canvas(28, 1280, 14, 640)
+    const links = canvas(1092, 1280, 546, 640)
+    const text = canvas(1092, 1279, 546, 640)
+    const got = sampleGeometry(fakeDoc([ruler, links, text], 0, text), fakeWin())
+    expect(got).toMatchObject({
+      termCanvasW: 1092, termCanvasH: 1279, screenW: 546, screenH: 640
+    })
+  })
+
+  it('still measures the DOM-rendered screen without treating its ruler as a text canvas', () => {
+    const ruler = canvas(28, 1280, 14, 640)
+    const screen = { style: { width: '546px', height: '640px' } }
+    const got = sampleGeometry(fakeDoc([ruler], 0, null, screen), fakeWin())
+    expect(got).toMatchObject({
+      termCanvasW: 0, termCanvasH: 0, screenW: 546, screenH: 640
+    })
   })
 
   it('reports a zero terminal canvas when there is no canvas at all', () => {

@@ -7,6 +7,7 @@ import {
   type DetectionConfig
 } from '../src/shared/detection'
 import type { SessionState } from '../src/shared/types'
+import { getPreset } from '../src/main/presets'
 
 function makeDetector(cfg: Partial<DetectionConfig> = {}, startAt = 0) {
   const states: SessionState[] = []
@@ -203,6 +204,44 @@ describe('StateDetector', () => {
       det.tick(t) // ~120ms between frames, well under quietMs
       expect(det.state).toBe('WORKING')
     }
+  })
+})
+
+describe('StateDetector: Copilot approval detection', () => {
+  function copilotDetector() {
+    const preset = getPreset('copilot-cli')
+    if (!preset?.approvalRegex) throw new Error('Copilot approval detection is missing')
+    return makeDetector({
+      quietMs: preset.quietMs,
+      confirmMs: preset.confirmMs,
+      approvalRegex: new RegExp(preset.approvalRegex, 'm')
+    })
+  }
+
+  it.each([
+    'Ready for your next prompt.\nAutopilot · Allow All · GPT-6.1 Sol',
+    'Ready for your next prompt.\nAllow All',
+    'Copilot\'s "Allow All" footer was being mistaken for an approval request.\n> \nAutopilot · Allow All · /commands'
+  ])('does not mistake mode/status prose for an approval request: %s', (output) => {
+    const { det, states } = copilotDetector()
+    det.pushOutput(output, 0)
+    det.tick(1000)
+    det.tick(1500)
+    det.tick(2000)
+    expect(det.state).toBe('WAITING_INPUT')
+    expect(states).not.toContain('WAITING_APPROVAL')
+  })
+
+  it.each([
+    'Allow this command to run?',
+    'Allow All commands for this workspace?',
+    'Do you want to run this command?\n1. Yes\n2. Allow All\n3. No'
+  ])('still detects a real approval request: %s', (prompt) => {
+    const { det } = copilotDetector()
+    det.pushOutput(prompt, 0)
+    det.tick(1000)
+    det.tick(1500)
+    expect(det.state).toBe('WAITING_APPROVAL')
   })
 })
 

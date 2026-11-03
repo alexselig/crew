@@ -33,18 +33,15 @@ export interface GeometrySample {
   /** Summed height of every <canvas>, in device pixels. */
   canvasH: number
   /**
-   * Width of the first terminal canvas alone, in device pixels.
-   *
-   * The summed fields above cannot say WHICH canvas moved, and that is the
-   * distinction the capture turns on: a window holds several canvases, so a
-   * wobble in the sum is only the fit loop if it is this canvas that moved.
+   * Width of the first screen's text canvas, in device pixels.
+   * Zero for DOM rendering; excludes ruler and overlay canvases.
    */
   termCanvasW: number
-  /** Height of the first terminal canvas alone, in device pixels. */
+  /** Height of the first screen's text canvas, in device pixels. */
   termCanvasH: number
-  /** CSS width of the first terminal canvas, in whole pixels. */
+  /** CSS width of the first terminal screen, in whole pixels. */
   screenW: number
-  /** CSS height of the first terminal canvas, in whole pixels. */
+  /** CSS height of the first terminal screen, in whole pixels. */
   screenH: number
   /** Scroll offset of the first terminal viewport, in whole pixels. */
   scrollTop: number
@@ -168,13 +165,13 @@ export function interpretChurn(report: ChurnReport): string {
   }
   const n = report.oscillations[field]
   const per = report.frames ? (n / report.frames).toFixed(2) : '0'
-  const fitLoop =
-    'the terminal canvas is being resized every few frames — the fit loop is fighting itself (see fit-guard.ts)'
+  const drawingBuffer =
+    'the sampled terminal drawing buffer changed size; compare its CSS screen and grid dimensions — a fit-loop cause is not established by backing-store movement alone'
   const where: Record<GeometryField, string> = {
-    canvasW: fitLoop,
-    canvasH: fitLoop,
-    termCanvasW: fitLoop,
-    termCanvasH: fitLoop,
+    canvasW: drawingBuffer,
+    canvasH: drawingBuffer,
+    termCanvasW: drawingBuffer,
+    termCanvasH: drawingBuffer,
     screenW: 'the terminal element is changing width under layout — something upstream of the pane is resizing it',
     screenH: 'the terminal element is changing height under layout — something upstream of the pane is resizing it',
     scrollTop: 'the viewport is scrolling and snapping back, which is the scroll-position fight, not a repaint',
@@ -182,15 +179,11 @@ export function interpretChurn(report: ChurnReport): string {
     winH: 'the window itself is changing height — this is outside the renderer',
     dpr: 'the display scale is changing, so the window is moving between screens of different density'
   }
-  // canvasW/canvasH are sums across every canvas in the window, so on their own
-  // they cannot name the thing that moved. Only the terminal's own canvas
-  // implicates the fit loop; a sum that moves while that canvas holds still is
-  // evidence against it, and saying otherwise is how a census sends a fix at a
-  // cause nobody observed.
+  // A document-wide sum cannot identify a canvas or rule out other panes.
   if (field === 'canvasW' || field === 'canvasH') {
-    const term = report.oscillations.termCanvasW + report.oscillations.termCanvasH
+    const term = report.changes.termCanvasW + report.changes.termCanvasH
     if (term === 0) {
-      return `${field} wobbled ${n}x in ${report.frames} frames (${per}/frame): a canvas is being resized every few frames, but the terminal's own canvas held still — so this is NOT the terminal and not the fit loop; find which other canvas in the window is moving`
+      return `${field} wobbled ${n}x in ${report.frames} frames (${per}/frame): a canvas changed size while the sampled terminal drawing buffer held still; identify the canvas and pane before attributing a cause`
     }
   }
   return `${field} wobbled ${n}x in ${report.frames} frames (${per}/frame): ${where[field]}`

@@ -79,6 +79,9 @@ releases are signed + notarized.
   the full roster in a two-column organizer, drag sessions directly into rank,
   and choose whether a view shows only ranked work or ranked work followed by
   every remaining session.
+- **Sidebar search** filters by session name, tag, folder, or agent preset.
+  Open it with the leftmost toolbar button; matching hidden sessions appear
+  without changing your saved sidebar preferences. Escape closes the search.
 - **Multi-monitor window placement** stays where you left it while that display
   remains connected. Crew recenters a saved or summoned window on the primary
   display only after its previous monitor is disconnected.

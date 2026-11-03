@@ -3,6 +3,27 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.14 — 2026-11-03
+
+### Fixed
+
+- **Copilot's "Allow All" mode no longer triggers a false approval request.**
+  Crew also ignores ordinary output quoting that label. These false requests
+  could repeatedly show and hide the approval bar, resizing the terminal and
+  causing vertical flicker. Actual approval questions remain recognized.
+
+### Added
+
+- **Search the sidebar by session name, tag, folder, or agent preset.** The
+  leftmost toolbar button opens the search field. Matching hidden sessions are
+  revealed without changing your saved sidebar preferences.
+
+### Changed
+
+- **Flicker diagnostics identify the terminal text canvas separately from its
+  overview ruler.** They distinguish CSS layout from drawing-buffer size and
+  no longer infer a fit-loop cause from backing-buffer changes alone.
+
 ## 0.7.13 — 2026-10-21
 
 ### Fixed

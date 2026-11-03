@@ -1,6 +1,7 @@
 import type React from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { SessionInfo, CharacterDef, Preset, CustomView, SessionPresentation } from '../../shared/types'
+import { searchCustomViewSessions } from '../../shared/custom-views'
 import { formatUsd, formatCredits, sessionUsd } from '../state-meta'
 import { SessionCard } from './SessionCard'
 import { GroupPicker } from './GroupPicker'
@@ -160,6 +161,23 @@ export function Roster(props: Props): JSX.Element {
   }
 
   const [navHover, setNavHover] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchId = useId()
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchButtonRef = useRef<HTMLButtonElement>(null)
+  const searching = searchQuery.trim().length > 0
+  const filteredRoster = searching
+    ? searchCustomViewSessions({
+        sessions: roster,
+        query: searchQuery,
+        workspaces: [],
+        presetNames: new Map(presets.map((p) => [p.id, p.name]))
+      })
+    : roster
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus()
+  }, [searchOpen])
   // Per-group "show more": group names whose stale (unused) sessions are revealed.
   const [expandedStale, setExpandedStale] = useState<Set<string>>(() => new Set())
   function toggleStale(name: string): void {
@@ -176,7 +194,7 @@ export function Roster(props: Props): JSX.Element {
   // When the nav is manually collapsed (focus view), hovering the session list
   // floats it open as an overlay; leaving collapses it. `railed` = compact rail.
   const canFloat = collapsed && (hoverExpand ?? false)
-  const railed = collapsed && !(canFloat && navHover)
+  const railed = collapsed && !(canFloat && (navHover || searchOpen))
   useEffect(
     () => () => {
       clearTimeout(hoverTimer.current)
@@ -220,6 +238,20 @@ export function Roster(props: Props): JSX.Element {
     clearTimeout(leaveTimer.current)
     setNavHover(false)
   }
+  function closeSearch(): void {
+    setSearchQuery('')
+    setSearchOpen(false)
+    if (canFloat) closeFloat()
+    searchButtonRef.current?.focus()
+  }
+  function toggleSearch(): void {
+    if (searchOpen) {
+      closeSearch()
+      return
+    }
+    if (collapsed && !canFloat) onSetCollapsed(false)
+    setSearchOpen(true)
+  }
   // Grouping applies in both the expanded nav and the collapsed rail — same
   // session order AND group headers — so the two views stay aligned. The rail
   // just renders each header compactly (truncated title + underline; the count
@@ -241,10 +273,10 @@ export function Roster(props: Props): JSX.Element {
   // roster order every other view shares — so it reports the move and App
   // persists it. It is off while the view is grouped, because the buckets come
   // from lastPromptAt and would silently discard the drop.
-  const customReorder = activeCustomView != null && !railed && customGroupBy === 'none'
+  const customReorder = activeCustomView != null && !railed && !searching && customGroupBy === 'none'
   const dnd = useCardDnd(
     roster,
-    railed ? 'disabled' : presentation.kind === 'custom' ? (customReorder ? 'none' : 'disabled') : groupMode,
+    railed || searching ? 'disabled' : presentation.kind === 'custom' ? (customReorder ? 'none' : 'disabled') : groupMode,
     onReorder,
     onSetTag,
     customReorder && activeCustomView
@@ -282,7 +314,7 @@ export function Roster(props: Props): JSX.Element {
     )
   }
 
-  const groups = applyGrouping ? groupSessions(roster, effectiveGroupMode, groupOrder) : []
+  const groups = applyGrouping ? groupSessions(filteredRoster, effectiveGroupMode, groupOrder) : []
   const gdnd = useGroupReorder(
     groups.map((g) => g.name),
     onReorderGroups
@@ -311,6 +343,7 @@ export function Roster(props: Props): JSX.Element {
   const isHidden = (s: SessionInfo): boolean =>
     isSessionHidden(s, { minimized, revealed, groupMode: effectiveGroupMode, staleHideHours, staleCutoff })
   function renderBucket(items: SessionInfo[], key: string): React.ReactNode {
+    if (searching) return items.map(renderCard)
     const { visible, hidden } = partitionHidden(items, isHidden)
     const open = expandedStale.has(key)
     return (
@@ -341,7 +374,7 @@ export function Roster(props: Props): JSX.Element {
     <aside
       ref={asideRef}
       className={`roster ${railed ? 'roster--collapsed' : ''} ${canFloat ? 'roster--float' : ''} ${
-        canFloat && navHover ? 'is-expanded' : ''
+        canFloat && (navHover || searchOpen) ? 'is-expanded' : ''
       }`}
       onMouseEnter={onRailEnter}
       onMouseLeave={onRailLeave}
@@ -433,7 +466,9 @@ export function Roster(props: Props): JSX.Element {
       </div>
 
       <div className="roster__list">
-        {roster.length === 0 ? (
+        {searching && filteredRoster.length === 0 ? (
+          <div className="roster__empty">No matching sessions.</div>
+        ) : roster.length === 0 ? (
           !railed && (
             // "No sessions yet" is a lie when a workspace filter is hiding a
             // roster full of them — and it reads as Crew having lost the lot.
@@ -448,27 +483,87 @@ export function Roster(props: Props): JSX.Element {
               <button
                 type="button"
                 className={`group__header ${g.kind === 'needs' ? 'group__header--needs' : ''} ${gdnd.dragging === g.name ? 'is-dragging' : ''} ${(gdnd.overName === g.name && gdnd.dragging !== g.name) || dnd.overGroup === g.name ? 'is-drag-over' : ''}`}
-                onClick={() => onToggleGroup(g.name)}
-                title={groupMode === 'tag' ? 'Drag to reorder groups · drop a session here to move it' : 'Drag to reorder groups'}
-                {...mergeHeaderDnd(gdnd.handlers(g.name), dnd, g.name)}
+                onClick={() => {
+                  if (!searching) onToggleGroup(g.name)
+                }}
+                aria-expanded={searching || !collapsedGroups.has(g.name)}
+                aria-disabled={searching || undefined}
+                title={searching ? 'Matching sessions' : groupMode === 'tag' ? 'Drag to reorder groups · drop a session here to move it' : 'Drag to reorder groups'}
+                {...(searching ? {} : mergeHeaderDnd(gdnd.handlers(g.name), dnd, g.name))}
               >
                 <span className="group__name">{g.name}</span>
                 <span className="group__count">{g.items.length}</span>
                 <span className="group__toggle" aria-hidden="true">
-                  <Icon name={collapsedGroups.has(g.name) ? 'chevron-right' : 'chevron-down'} size={13} />
+                  <Icon name={!searching && collapsedGroups.has(g.name) ? 'chevron-right' : 'chevron-down'} size={13} />
                 </span>
               </button>
-              {!collapsedGroups.has(g.name) && renderBucket(g.items, g.name)}
+              {(searching || !collapsedGroups.has(g.name)) && renderBucket(g.items, g.name)}
             </div>
           ))
         ) : (
-          renderBucket(roster, '__all__')
+          renderBucket(filteredRoster, '__all__')
         )}
 
-        <AgentShelf agents={agents} runs={runs} railed={railed} onInvoke={onInvokeAgent} onAddAgent={onAddAgent} onEditAgent={onEditAgent} />
+        {!searching && <AgentShelf agents={agents} runs={runs} railed={railed} onInvoke={onInvokeAgent} onAddAgent={onAddAgent} onEditAgent={onEditAgent} />}
       </div>
 
+      {searchOpen && !railed && (
+        <div className="roster__search">
+          <div className="roster__search-field">
+            <Icon name="search" size={15} />
+            <input
+              ref={searchInputRef}
+              id={searchId}
+              type="search"
+              aria-label="Search sessions"
+              placeholder="Search sessions..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  closeSearch()
+                }
+              }}
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                className="roster__search-clear"
+                aria-label="Clear search"
+                title="Clear search"
+                onClick={() => {
+                  setSearchQuery('')
+                  searchInputRef.current?.focus()
+                }}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            ) : (
+              <span className="roster__search-hint" aria-hidden="true">esc</span>
+            )}
+          </div>
+          <div className="roster__search-count" role="status" aria-live="polite">
+            {searching
+              ? `${filteredRoster.length} of ${roster.length} sessions`
+              : 'Search names, tags and paths'}
+          </div>
+        </div>
+      )}
       <div className="roster__toolbar" onMouseEnter={onNoFloatEnter} onMouseLeave={onNoFloatLeave}>
+        <button
+          ref={searchButtonRef}
+          type="button"
+          className={`icon-btn ${searchOpen ? 'is-active' : ''}`}
+          aria-label="Search sessions"
+          title="Search sessions"
+          aria-expanded={searchOpen}
+          aria-controls={searchOpen ? searchId : undefined}
+          onClick={toggleSearch}
+        >
+          <Icon name="search" />
+        </button>
         <ViewToggle
           mode={viewMode}
           density={gridDensity}
