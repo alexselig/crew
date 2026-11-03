@@ -290,6 +290,106 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
   const expanded = (page: Page) =>
     page.evaluate(() => document.querySelector('.roster')?.classList.contains('is-expanded') ?? null)
 
+  it('nav search opens from the leftmost tray button without changing the selected content', async () => {
+    const page = await open('nav-search')
+    try {
+      const button = page.getByRole('button', { name: 'Search sessions', exact: true })
+      const input = page.getByRole('searchbox', { name: 'Search sessions', exact: true })
+      await button.waitFor({ timeout: 1500 })
+      expect(await page.locator('.roster__toolbar > :first-child').getAttribute('aria-label')).toBe('Search sessions')
+      expect(await input.count()).toBe(0)
+      const grid = await page.locator('.gridview').boundingBox()
+      const tiles = await page.locator('.gridview [data-session-id]').evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute('data-session-id')))
+      expect(tiles).toEqual(['a1', 'a3'])
+      await button.click()
+      expect(await button.getAttribute('aria-expanded')).toBe('true')
+      expect(await input.evaluate((el) => el === document.activeElement)).toBe(true)
+      await input.fill('skill')
+      await page.waitForFunction(() => document.querySelectorAll('.roster .card').length === 1)
+      expect(await page.locator('.gridview').boundingBox()).toEqual(grid)
+      expect(await page.locator('.gridview [data-session-id]').evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute('data-session-id')))).toEqual(tiles)
+      expect(await page.locator('.gridview .tile.is-selected').getAttribute('data-session-id')).toBe('a1')
+      await input.press('Escape')
+      expect(await input.count()).toBe(0)
+      expect(await button.getAttribute('aria-expanded')).toBe('false')
+      expect(await button.evaluate((el) => el === document.activeElement)).toBe(true)
+      expect(await page.locator('.roster .card').count()).toBe(2)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('nav search finds hidden grouped sessions by name, tag and path, and restores them on clear', async () => {
+    const page = await open('nav-search')
+    try {
+      await page.getByRole('button', { name: 'Search sessions', exact: true }).click({ timeout: 1500 })
+      const input = page.getByRole('searchbox', { name: 'Search sessions', exact: true })
+      for (const query of ['  SKILL  ', 'release', 'officeagent']) {
+        await input.fill(query)
+        await page.waitForFunction(() => document.querySelectorAll('.roster .card').length === 1)
+        expect(await page.locator('.roster .card').getAttribute('data-session-id')).toBe('a2')
+        expect(await page.locator('.roster .card[draggable="true"]').count()).toBe(0)
+        expect(await page.getByRole('status').textContent()).toContain('1 of 3 sessions')
+      }
+      await input.fill('no-such-session')
+      await page.getByText('No matching sessions.').waitFor({ timeout: 1500 })
+      expect(await page.locator('.roster .card').count()).toBe(0)
+      await page.getByRole('button', { name: 'Clear search', exact: true }).click()
+      expect(await input.inputValue()).toBe('')
+      expect(await input.evaluate((el) => el === document.activeElement)).toBe(true)
+      expect(await page.locator('.roster .card').count()).toBe(2)
+      expect(await page.locator('.roster .card[data-session-id="a2"]').count()).toBe(0)
+      await input.fill('   ')
+      expect(await page.locator('.roster .card').count()).toBe(2)
+      await page.getByRole('button', { name: 'Search sessions', exact: true }).click()
+      expect(await input.count()).toBe(0)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('nav search keeps its field open when a floating rail loses hover', async () => {
+    const page = await open('nav-float')
+    try {
+      await page.getByRole('button', { name: 'Search sessions', exact: true }).click({ timeout: 1500 })
+      const input = page.getByRole('searchbox', { name: 'Search sessions', exact: true })
+      await input.fill('a9')
+      await page.mouse.move(1000, 100)
+      await page.waitForTimeout(FLOAT_OPEN_MS)
+      expect(await input.isVisible()).toBe(true)
+      expect(await expanded(page)).toBe(true)
+      expect(await page.locator('.roster .card').count()).toBe(1)
+      await input.press('Escape')
+      await page.waitForTimeout(FLOAT_OPEN_MS)
+      expect(await input.count()).toBe(0)
+      expect(await expanded(page)).toBe(false)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('nav search fits the footer controls inside a narrow sidebar', async () => {
+    const page = await open('nav-search')
+    try {
+      await page.evaluate(() => document.querySelector<HTMLElement>('.app')!.style.setProperty('--nav-width', '200px'))
+      await page.getByRole('button', { name: 'Search sessions', exact: true }).click({ timeout: 1500 })
+      const outside = await page.locator('.roster').evaluate((nav) => {
+        const bounds = nav.getBoundingClientRect()
+        return Array.from(nav.querySelectorAll('.roster__toolbar button, .roster__search input')).some((el) => {
+          const b = el.getBoundingClientRect()
+          return b.left < bounds.left || b.right > bounds.right || b.bottom > bounds.bottom
+        })
+      })
+      expect(outside).toBe(false)
+      expect(await page.locator('.roster__toolbar').evaluate((toolbar) =>
+        toolbar.getBoundingClientRect().height)).toBeLessThan(90)
+    } finally {
+      await page.close()
+    }
+  })
+
   it('floats the collapsed nav open when the cursor rests on the session list', async () => {
     const page = await open('nav-float')
     try {
