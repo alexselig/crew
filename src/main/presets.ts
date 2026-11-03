@@ -5,10 +5,10 @@
 import type { Preset } from '../shared/types'
 import { defaultShell } from './platform'
 
-// Matches the common "are you sure / allow this?" family across CLI agents.
+// "Allow" must ask a question, not name Copilot's mode or appear in status prose.
 const APPROVAL =
   '(\\(y/n\\)|\\[y/N\\]|\\by/n\\b|\\bY/n\\b|Do you want|Would you like to proceed|' +
-  'Allow\\b|permission to|Proceed\\?|Continue\\?|Approve\\b|Yes/No)'
+  'Allow\\b(?!\\s+All\\s*(?:\\u00b7|$))[^\\r\\n?]*\\?|permission to|Proceed\\?|Continue\\?|Approve\\b|Yes/No)'
 
 export function builtinPresets(): Preset[] {
   return [
