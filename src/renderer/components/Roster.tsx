@@ -552,32 +552,20 @@ export function Roster(props: Props): JSX.Element {
         </div>
       )}
       <div className="roster__toolbar" onMouseEnter={onNoFloatEnter} onMouseLeave={onNoFloatLeave}>
-        <button
-          ref={searchButtonRef}
-          type="button"
-          className={`icon-btn ${searchOpen ? 'is-active' : ''}`}
-          aria-label="Search sessions"
-          title="Search sessions"
-          aria-expanded={searchOpen}
-          aria-controls={searchOpen ? searchId : undefined}
-          onClick={toggleSearch}
-        >
-          <Icon name="search" />
-        </button>
-        <ViewToggle
-          mode={viewMode}
-          density={gridDensity}
-          onChange={(m) => {
-            closeFloat()
-            onSetViewMode(m)
-          }}
-          onGridRepeat={() => {
-            closeFloat()
-            onGridRepeat()
-          }}
-        />
-        {!railed && (
-          <div className="roster__tools">
+        <div className="roster__views">
+          <ViewToggle
+            mode={viewMode}
+            density={gridDensity}
+            onChange={(m) => {
+              closeFloat()
+              onSetViewMode(m)
+            }}
+            onGridRepeat={() => {
+              closeFloat()
+              onGridRepeat()
+            }}
+          />
+          {!railed && (
             <GroupPicker
               presentation={presentation}
               customViews={customViews}
@@ -585,28 +573,46 @@ export function Roster(props: Props): JSX.Element {
               onCreateCustomView={onCreateCustomView}
               onEditCustomView={onEditCustomView}
             />
-            <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
-              <Icon name="broadcast" />
-            </button>
-            <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
-              <Icon name="chart" />
-            </button>
-            <button type="button" className="icon-btn" title="Project tracker" onClick={onOpenTracker}>
-              <Icon name="tracker" />
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              title="New window (⇧⌘N)"
-              onClick={() => void window.crew.openWindow()}
-            >
-              <Icon name="windows" />
-            </button>
-            <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
-              <Icon name="settings" />
-            </button>
-          </div>
-        )}
+          )}
+        </div>
+        <div className="roster__tools">
+          <button
+            ref={searchButtonRef}
+            type="button"
+            className={`icon-btn ${searchOpen ? 'is-active' : ''}`}
+            aria-label="Search sessions"
+            title="Search sessions"
+            aria-expanded={searchOpen}
+            aria-controls={searchOpen ? searchId : undefined}
+            onClick={toggleSearch}
+          >
+            <Icon name="search" />
+          </button>
+          {!railed && (
+            <>
+              <button type="button" className="icon-btn" title="Broadcast a prompt" onClick={onBroadcast}>
+                <Icon name="broadcast" />
+              </button>
+              <button type="button" className="icon-btn" title="Activity & spend" onClick={onAnalytics}>
+                <Icon name="chart" />
+              </button>
+              <button type="button" className="icon-btn" title="Project tracker" onClick={onOpenTracker}>
+                <Icon name="tracker" />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                title="New window (⇧⌘N)"
+                onClick={() => void window.crew.openWindow()}
+              >
+                <Icon name="windows" />
+              </button>
+              <button type="button" className="icon-btn" title="Settings" onClick={onOpenSettings}>
+                <Icon name="settings" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {roster.length > 0 && (showSpend || showCredits) && (
