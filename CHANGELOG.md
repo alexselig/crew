@@ -3,6 +3,25 @@
 All notable changes to Crew are documented here. Crew is a macOS menu-bar app for
 running and supervising multiple AI CLI agent sessions at a glance.
 
+## 0.7.15 — 2026-11-17
+
+### Fixed
+
+- **Loading a saved set no longer replaces an existing session.** Running
+  agents keep their terminal, input, and shutdown ownership instead of becoming
+  invisible background processes. Sleeping sessions keep their current notes
+  and workspace memberships, including on repeated set launches.
+- **Restart preserves conversation continuation.** Legacy Copilot sessions and
+  resumed Claude sessions keep their continuation flags across repeated
+  restarts instead of opening a new conversation.
+
+### Changed
+
+- **The sidebar toolbar keeps related controls together.** Focus/Grid and Sort
+  sit on the left. Search leads the right-aligned action group, followed by
+  Broadcast, Activity, Tracker, New Window, and Settings. On narrow sidebars,
+  that action group wraps together onto a second right-aligned row.
+
 ## 0.7.14 — 2026-11-03
 
 ### Fixed

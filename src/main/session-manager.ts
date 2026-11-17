@@ -119,6 +119,7 @@ interface Managed {
    * be launched later, on the first thing that actually needs it running.
    */
   start?: () => void
+  extraArgs: string[]
   info: SessionInfo
   proc: pty.IPty | null
   detector: StateDetector | null
@@ -330,6 +331,7 @@ export class SessionManager extends EventEmitter {
     // A restored session reuses the size its pane last reported, so its agent
     // spawns at the width it is about to be drawn into rather than the default.
     const managed: Managed = {
+      extraArgs: [...(restore?.extraArgs ?? [])],
       info,
       proc: null,
       detector: null,
@@ -348,7 +350,7 @@ export class SessionManager extends EventEmitter {
       // and fall back to --continue only for a legacy session whose id we never
       // captured. Other agents (Claude) just get their resume args.
       let idArgs: string[] = []
-      let resumeExtra = restore?.extraArgs ?? []
+      let resumeExtra = managed.extraArgs
       if (copilot && restore && this.store.settings.resumeConversations &&
           this.store.settings.contextMode === 'transcript' && info.priorSessionId &&
           transcriptBytes(info.agentSessionId) === 0) {
@@ -903,6 +905,7 @@ export class SessionManager extends EventEmitter {
       id,
       agentSessionId: m.info.agentSessionId,
       priorSessionId: m.info.priorSessionId,
+      extraArgs: m.extraArgs,
       characterId: character,
       color,
       tag: m.info.tag,
@@ -1128,7 +1131,7 @@ export class SessionManager extends EventEmitter {
 
   /**
    * Re-launch a saved named set of sessions (see Store.sets). Like restore(),
-   * this spawns each session fresh and applies the preset's resume args
+   * this restores missing sessions and applies the preset's resume args
    * (e.g. --continue) when conversation resume is enabled, so relaunching a set
    * genuinely resumes its agents rather than starting them cold.
    */
@@ -1136,6 +1139,11 @@ export class SessionManager extends EventEmitter {
     const set = this.store.sets.find((s) => s.name === name)
     if (!set) return []
     return set.sessions.map((d) => {
+      const existing = d.id ? this.sessions.get(d.id) : undefined
+      if (existing) {
+        for (const wsId of workspaceIds ?? []) this.addToWorkspace(existing.info.id, wsId)
+        return { ...existing.info }
+      }
       const ctx = this.contextFor(d.agentSessionId, d.priorSessionId, d.presetId)
       return this.create(
         { presetId: d.presetId, command: d.command, args: d.args, cwd: d.cwd, label: d.label },

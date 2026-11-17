@@ -80,8 +80,12 @@ releases are signed + notarized.
   and choose whether a view shows only ranked work or ranked work followed by
   every remaining session.
 - **Sidebar search** filters by session name, tag, folder, or agent preset.
-  Open it with the leftmost toolbar button; matching hidden sessions appear
-  without changing your saved sidebar preferences. Escape closes the search.
+  Open it with the first button in the right-hand toolbar group; matching hidden
+  sessions appear without changing your saved sidebar preferences. Escape closes
+  the search.
+- The sidebar toolbar pairs **Focus/Grid and Sort on the left**, with Search
+  and the remaining actions right-aligned. On narrow sidebars the action group
+  wraps together onto a second row.
 - **Multi-monitor window placement** stays where you left it while that display
   remains connected. Crew recenters a saved or summoned window on the primary
   display only after its previous monitor is disconnected.

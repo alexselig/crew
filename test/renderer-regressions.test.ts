@@ -290,13 +290,33 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
   const expanded = (page: Page) =>
     page.evaluate(() => document.querySelector('.roster')?.classList.contains('is-expanded') ?? null)
 
-  it('nav search opens from the leftmost tray button without changing the selected content', async () => {
+  it('nav search opens from the first right-cluster button without changing the selected content', async () => {
     const page = await open('nav-search')
     try {
       const button = page.getByRole('button', { name: 'Search sessions', exact: true })
       const input = page.getByRole('searchbox', { name: 'Search sessions', exact: true })
       await button.waitFor({ timeout: 1500 })
-      expect(await page.locator('.roster__toolbar > :first-child').getAttribute('aria-label')).toBe('Search sessions')
+      expect(await page.locator('.roster__views > :first-child').getAttribute('aria-label')).toBe('View mode')
+      expect(await page.locator('.roster__views > :last-child button').getAttribute('title')).toBe('Choose session view')
+      expect(await page.locator('.roster__tools > :first-child').getAttribute('aria-label')).toBe('Search sessions')
+      const layout = await page.locator('.roster__toolbar').evaluate((toolbar) => {
+        const bounds = toolbar.getBoundingClientRect()
+        const views = toolbar.querySelector('.roster__views')!.getBoundingClientRect()
+        const tools = toolbar.querySelector('.roster__tools')!.getBoundingClientRect()
+        const style = getComputedStyle(toolbar)
+        return {
+          left: views.left - bounds.left,
+          right: bounds.right - tools.right,
+          paddingLeft: parseFloat(style.paddingLeft),
+          paddingRight: parseFloat(style.paddingRight),
+          sameRow: views.top < tools.bottom && tools.top < views.bottom,
+          separated: tools.left > views.right
+        }
+      })
+      expect(layout.left).toBe(layout.paddingLeft)
+      expect(layout.right).toBe(layout.paddingRight)
+      expect(layout.sameRow).toBe(true)
+      expect(layout.separated).toBe(true)
       expect(await input.count()).toBe(0)
       const grid = await page.locator('.gridview').boundingBox()
       const tiles = await page.locator('.gridview [data-session-id]').evaluateAll((nodes) =>
@@ -383,6 +403,25 @@ describe.skipIf(skipBrowserTests)('renderer state and input regressions (isolate
         })
       })
       expect(outside).toBe(false)
+      const layout = await page.locator('.roster__toolbar').evaluate((toolbar) => {
+        const bounds = toolbar.getBoundingClientRect()
+        const views = toolbar.querySelector('.roster__views')!.getBoundingClientRect()
+        const tools = toolbar.querySelector('.roster__tools')!.getBoundingClientRect()
+        const buttons = Array.from(toolbar.querySelectorAll('.roster__tools button'))
+          .map((button) => button.getBoundingClientRect())
+        return {
+          wrappedTogether: tools.top >= views.bottom,
+          right: bounds.right - tools.right,
+          paddingRight: parseFloat(getComputedStyle(toolbar).paddingRight),
+          rows: new Set(buttons.map((button) => button.top)).size,
+          toolbarRight: tools.right,
+          lastButtonRight: buttons[buttons.length - 1].right
+        }
+      })
+      expect(layout.wrappedTogether).toBe(true)
+      expect(layout.right).toBe(layout.paddingRight)
+      expect(layout.rows).toBe(1)
+      expect(layout.lastButtonRight).toBe(layout.toolbarRight)
       expect(await page.locator('.roster__toolbar').evaluate((toolbar) =>
         toolbar.getBoundingClientRect().height)).toBeLessThan(90)
     } finally {

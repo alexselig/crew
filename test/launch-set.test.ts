@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // SessionManager spawns real PTYs; mock node-pty so launching a set can be
-// exercised in the node test environment. Only the count of spawns matters.
+// exercised in the node test environment without launching real agents.
 const { spawned, fakeSpawn } = vi.hoisted(() => {
   const spawned: number[] = []
   return {
@@ -13,11 +13,11 @@ const { spawned, fakeSpawn } = vi.hoisted(() => {
       spawned.push(Date.now())
       return {
         pid: 1000 + spawned.length,
-        onData: () => ({ dispose: () => {} }),
+        onData: vi.fn((_listener: (data: string) => void) => ({ dispose: () => {} })),
         onExit: () => ({ dispose: () => {} }),
-        write: () => {},
+        write: vi.fn(),
         resize: () => {},
-        kill: () => {}
+        kill: vi.fn()
       }
     })
   }
@@ -139,6 +139,64 @@ describe('resuming a saved set', () => {
     manager.wake(launched[2].id)
 
     expect(spawned.length).toBe(1)
+
+    manager.disposeAll()
+  })
+
+  it('reuses a running session without losing its output, input or shutdown ownership', () => {
+    const store = storeWithSet(1)
+    const manager = new SessionManager(store)
+    const [original] = manager.launchSet('Recovered', ['ws_original'])
+    manager.wake(original.id)
+    manager.setDescription(original.id, 'Current work')
+    const proc = fakeSpawn.mock.results[0].value
+    const output = vi.fn()
+    manager.on('output', output)
+
+    const [reused] = manager.launchSet('Recovered', ['ws_new'])
+
+    expect(reused).toMatchObject({
+      id: original.id,
+      pid: proc.pid,
+      state: 'STARTING',
+      description: 'Current work',
+      workspaceIds: ['ws_original', 'ws_new']
+    })
+    proc.onData.mock.calls[0][0]('Still working\r\n')
+    vi.advanceTimersByTime(40)
+    expect(output).toHaveBeenCalledWith({ id: original.id, data: 'Still working\r\n' })
+    manager.wake(original.id)
+    manager.input(original.id, 'hello\r')
+    expect(proc.write).toHaveBeenCalledWith('hello\r')
+    expect(fakeSpawn).toHaveBeenCalledTimes(1)
+    expect(manager.roster()).toHaveLength(1)
+    expect(store.getSessions()[0].workspaceIds).toEqual(['ws_original', 'ws_new'])
+
+    manager.disposeAll()
+    expect(proc.kill).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses an asleep session on repeated launches without replacing its current metadata', () => {
+    const store = storeWithSet(1)
+    const manager = new SessionManager(store)
+    const [original] = manager.launchSet('Recovered', ['ws_original'])
+    manager.setDescription(original.id, 'Keep this note')
+
+    manager.launchSet('Recovered', ['ws_new'])
+    const [reused] = manager.launchSet('Recovered')
+
+    expect(reused).toMatchObject({
+      id: original.id,
+      agentSessionId: original.agentSessionId,
+      state: 'ASLEEP',
+      description: 'Keep this note',
+      workspaceIds: ['ws_original', 'ws_new']
+    })
+    expect(manager.roster()).toHaveLength(1)
+    expect(fakeSpawn).not.toHaveBeenCalled()
+    manager.wake(original.id)
+    manager.wake(original.id)
+    expect(fakeSpawn).toHaveBeenCalledTimes(1)
 
     manager.disposeAll()
   })

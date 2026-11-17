@@ -180,12 +180,22 @@ button {
   padding: 10px 14px;
 }
 
+.roster__views,
 .roster__tools {
-  display: contents;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
 }
 
-.roster__toolbar > .icon-btn,
-.roster__toolbar .view-toggle {
+.roster__tools {
+  margin-left: auto;
+  gap: 2px;
+}
+
+.roster__toolbar .icon-btn,
+.roster__toolbar .view-toggle,
+.roster__toolbar .group-picker {
   flex-shrink: 0;
 }
 
