@@ -133,6 +133,30 @@ describe('automatic context loading', () => {
     expect(store.getSessions()[0].agentSessionId).toBeUndefined()
   })
 
+  describe.each([
+    { presetId: 'copilot-cli', command: 'copilot', agentSessionId: undefined },
+    { presetId: 'claude-code', command: 'claude', agentSessionId: undefined },
+    { presetId: 'claude-code', command: 'claude', agentSessionId: 'original' }
+  ])('restarting $presetId with conversation ID $agentSessionId', ({ presetId, command, agentSessionId }) => {
+    it.each(['asleep', 'running'])('preserves continuation across repeated restarts of an %s session', (state) => {
+      saved({ presetId, command, agentSessionId, args: [] })
+      const [restored] = manager.restore()
+      if (state === 'running') manager.wake(restored.id)
+      const before = spawn.mock.calls.length
+
+      manager.restart(restored.id)
+      manager.restart(restored.id)
+
+      expect(spawn).toHaveBeenCalledTimes(before + 2)
+      for (const call of spawn.mock.calls.slice(before)) {
+        expect(call[1]).toEqual(['--continue'])
+      }
+      expect(manager.roster()[0].agentSessionId).toBe(agentSessionId)
+      expect(store.getSessions()[0].agentSessionId).toBe(agentSessionId)
+      expect(store.getSessions()[0].args).toEqual([])
+    })
+  })
+
   it('reports a brief disappearing after restore rather than launching blank context', () => {
     saved()
     store.updateSettings({ contextMode: 'brief' })
